@@ -15,10 +15,12 @@
 
 mod harness;
 
+use egui_kittest::kittest::Queryable;
 use harness::{click_at, pump_rendered, scenario, settle, with_app};
 
+use riggen_app::Selection;
 use riggen_core::glam::DVec3;
-use riggen_core::{Command, LinkId, Pose};
+use riggen_core::{Command, Link, LinkId, Pose};
 
 fn fixture(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -341,5 +343,197 @@ fn open_document_replaces_the_scene() {
         // Values are clamped to the limits (±90°).
         app.set_joint_value(hinge, 10.0);
         assert!((app.joint_value(hinge) - std::f64::consts::FRAC_PI_2).abs() < 1e-12);
+    });
+}
+
+/// The tree panel with the pendulum open and `arm` selected *through the
+/// tree*: the row is highlighted, the arm's instance is tinted in the
+/// viewport, and the status bar names it.
+#[test]
+fn tree_pendulum() {
+    scenario("tree_pendulum", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        harness.get_by_label("arm").click();
+        pump_rendered(harness, 4);
+
+        let state = harness.state().debug_state();
+        let arm = state
+            .document
+            .links
+            .iter()
+            .find(|l| l.name == "arm")
+            .expect("arm link");
+        assert_eq!(state.document.selection, Some(format!("link {}", arm.id)));
+        let arm_instance = state
+            .instances
+            .iter()
+            .find(|i| i.link.as_deref() == Some(arm.id.as_str()))
+            .expect("arm instance");
+        assert_eq!(
+            state.selection.selected.map(|h| h.instance),
+            Some(arm_instance.id),
+            "the tree selection reached the viewport"
+        );
+    });
+}
+
+/// Reparenting keeps the world pose: `arm` is hung under a cube placed at
+/// x = 1.5 (through the command API — kittest cannot drag), the tree
+/// shows it there, and the arm's instance has not moved. The hinge origin
+/// absorbed the difference.
+#[test]
+fn tree_reparent() {
+    scenario("tree_reparent", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let cube = open_link(app, "cube.obj");
+        let cube_joint = app.robot().parent_joint(cube).unwrap();
+        let mut edited = app.robot().joints[&cube_joint].clone();
+        edited.origin = Pose::from_translation(DVec3::new(1.5, 0.0, 0.0));
+        app.apply(Command::SetJoint(cube_joint, edited)).unwrap();
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        let hinge = app.robot().parent_joint(arm).unwrap();
+        let before = app.debug_state();
+
+        app.apply(Command::Reparent {
+            link: arm,
+            new_parent: cube,
+            keep_world_pose: true,
+        })
+        .unwrap();
+        app.select(Selection::Link(arm));
+        app.fit_view_now();
+        settle(harness);
+
+        let app = harness.state();
+        let state = app.debug_state();
+        assert_eq!(app.robot().joints[&hinge].parent, cube);
+        let origin = app.robot().joints[&hinge].origin.t;
+        assert!(
+            (origin - DVec3::new(-1.5, 0.0, 0.5)).length() < 1e-9,
+            "{origin}"
+        );
+        // Every instance is where it was.
+        for (was, is) in before.instances.iter().zip(&state.instances) {
+            assert_eq!(
+                (was.link.as_ref(), was.position),
+                (is.link.as_ref(), is.position)
+            );
+        }
+        let hinge_debug = state
+            .document
+            .joints
+            .iter()
+            .find(|j| j.name == "hinge")
+            .unwrap();
+        assert_eq!(hinge_debug.parent, cube.to_string());
+    });
+}
+
+/// The tree's own edits: "+ Link" adds an empty link under the selection
+/// and starts a rename, typing + Enter commits it, Delete removes the
+/// selection, the root refuses to go, and a joint selection is a drop
+/// target too (under the joint's child).
+#[test]
+fn tree_add_rename_delete() {
+    with_app(|harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        settle(harness);
+        harness.get_by_label("arm").click();
+        harness.step();
+        let arm = match harness.state().selection() {
+            Selection::Link(l) => l,
+            other => panic!("arm should be selected: {other:?}"),
+        };
+
+        harness.get_by_label("+ Link").click();
+        harness.step();
+        let app = harness.state();
+        assert_eq!(app.robot().links.len(), 3);
+        let new = match app.selection() {
+            Selection::Link(l) => l,
+            other => panic!("the new link should be selected: {other:?}"),
+        };
+        assert_eq!(app.robot().links[&new].name, "link");
+        let new_joint = app.robot().parent_joint(new).unwrap();
+        assert_eq!(app.robot().joints[&new_joint].parent, arm);
+        assert_eq!(
+            app.debug_state().ui.renaming,
+            Some((new.to_string(), "link".into())),
+            "+ Link starts an inline rename"
+        );
+
+        // Replace the text and commit with Enter. Delete must not fire
+        // while the field has focus.
+        harness.step();
+        let field = harness.get_by_role(egui::accesskit::Role::TextInput);
+        field.focus();
+        harness.step();
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        harness.step();
+        harness
+            .get_by_role(egui::accesskit::Role::TextInput)
+            .type_text("hand");
+        harness.step();
+        harness.key_press(egui::Key::Delete);
+        harness.step();
+        assert_eq!(
+            harness.state().robot().links.len(),
+            3,
+            "Delete in a text field edits text"
+        );
+        harness.key_press(egui::Key::Enter);
+        harness.step();
+        harness.step();
+        let app = harness.state();
+        assert_eq!(app.debug_state().ui.renaming, None);
+        assert_eq!(app.robot().links[&new].name, "hand");
+        assert!(app.history().is_dirty());
+
+        // Delete removes the selected link (still `hand`).
+        harness.key_press(egui::Key::Delete);
+        harness.step();
+        harness.step();
+        let app = harness.state();
+        assert_eq!(app.robot().links.len(), 2);
+        assert_eq!(app.selection(), Selection::None);
+
+        // Selecting the root and pressing Delete is refused with a reason.
+        harness.get_by_label("base_link").click();
+        harness.step();
+        harness.key_press(egui::Key::Delete);
+        harness.step();
+        harness.step();
+        let app = harness.state();
+        assert_eq!(app.robot().links.len(), 2);
+        assert_eq!(
+            app.debug_state().status.as_deref(),
+            Some("the root link cannot be removed")
+        );
+
+        // A dropped mesh with a joint selected lands under that joint's child.
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        harness.state_mut().select(Selection::Joint(hinge));
+        let cube = open_link(harness.state_mut(), "cube.obj");
+        let app = harness.state();
+        let cube_joint = app.robot().parent_joint(cube).unwrap();
+        assert_eq!(app.robot().joints[&cube_joint].parent, arm);
+        let _ = Link::new("unused");
     });
 }

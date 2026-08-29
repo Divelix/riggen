@@ -1,12 +1,12 @@
 {
   "camera": {
     "eye": [
-      2.383198,
-      -2.383198,
-      2.341231
+      4.013329,
+      -3.263329,
+      3.02121
     ],
     "target": [
-      0.0,
+      0.75,
       0.0,
       0.5
     ],
@@ -15,12 +15,12 @@
       0.339005,
       0.877583
     ],
-    "distance": 3.840495,
+    "distance": 5.258814,
     "yaw_deg": -45.0,
     "pitch_deg": 28.64789,
     "fov_y_deg": 45.0,
-    "near": 0.012247,
-    "far": 1224.744873,
+    "near": 0.016771,
+    "far": 1677.050903,
     "projection": "Perspective",
     "animating": false,
     "aspect": 1.405152,
@@ -44,9 +44,9 @@
         0.0
       ],
       [
-        0.0,
-        -0.438791,
-        -4.080207,
+        -0.53033,
+        -0.184537,
+        -5.963936,
         1.0
       ]
     ],
@@ -72,7 +72,7 @@
       [
         0.0,
         0.0,
-        -0.012248,
+        -0.016771,
         0.0
       ]
     ]
@@ -80,7 +80,7 @@
   "document": {
     "file": "pendulum.riggen",
     "name": "pendulum",
-    "dirty": false,
+    "dirty": true,
     "import_scale": 1.0,
     "links": [
       {
@@ -96,6 +96,13 @@
         "parent_joint": "j6",
         "geoms": 1,
         "material": "PLA"
+      },
+      {
+        "id": "l9",
+        "name": "cube",
+        "parent_joint": "j10",
+        "geoms": 1,
+        "material": null
       }
     ],
     "joints": [
@@ -103,12 +110,20 @@
         "id": "j6",
         "name": "hinge",
         "kind": "Revolute",
-        "parent": "l0",
+        "parent": "l9",
         "child": "l5",
+        "q": 0.0
+      },
+      {
+        "id": "j10",
+        "name": "cube_joint",
+        "kind": "Fixed",
+        "parent": "l0",
+        "child": "l9",
         "q": 0.0
       }
     ],
-    "selection": null
+    "selection": "link l5"
   },
   "ui": {
     "renaming": null
@@ -161,11 +176,38 @@
         0.0,
         1.0
       ]
+    },
+    {
+      "id": 2,
+      "link": "l9",
+      "geom": "g8",
+      "visible": true,
+      "triangles": 12,
+      "bounds": [
+        [
+          -0.5,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.5,
+          0.5,
+          0.5
+        ]
+      ],
+      "position": [
+        1.5,
+        0.0,
+        0.0
+      ]
     }
   ],
   "selection": {
     "hovered": null,
-    "selected": null
+    "selected": {
+      "instance": 1,
+      "triangle": 0
+    }
   },
   "status": null,
   "viewport_rect": [

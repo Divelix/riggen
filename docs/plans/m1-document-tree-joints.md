@@ -181,7 +181,7 @@ hand-computed poses for a 3-joint chain.
   `pendulum` scenario opens the fixture and asserts two instances at the FK
   poses for `q = 0`, plus an `mm_scale_part` scenario (cube at `scale
   0.001`, fitted, not clipped). `snapshots:` commit with the images shown.
-- [ ] Step 6 — Tree panel (left `SidePanel`): links as a collapsible tree
+- [x] Step 6 — Tree panel (left `SidePanel`): links as a collapsible tree
   with the parent joint's name and kind on each row, click selects, F2 /
   double-click renames inline, "+ Link" adds an empty link under the
   selection, Delete removes, `dnd_drag_source` / `dnd_drop_zone` reparents
@@ -338,6 +338,22 @@ Executable form, all green under `cargo test --workspace` on the CPU adapter:
     after `Viewport::ui`; a click on empty space with a *joint* selected in
     the tree leaves that selection alone (the viewport reports `None` →
     `None`, nothing to notice) — revisit if it annoys.
+  - Step 6: **`dnd_drag_source` swallows clicks.** egui's hit test
+    (`hit_test.rs`, "the top thing senses only drags, so we ignore the
+    click-widget") gives a press to the drag-only widget the helper lays
+    over the row, so the label under it never sees `clicked()`. The row's
+    name is a `Button::selectable(..).sense(click_and_drag())` that calls
+    `dnd_set_drag_payload` itself; `dnd_drop_zone` is fine (hover-only).
+    The harness fact for the docs: `harness.get_by_label("arm").click()`
+    + one `step()` clicks a tree row. `shortcuts.rs` exists already with
+    Delete / F2; "a text field has focus" is `TextEdit::load_state(ctx,
+    focused_id).is_some()`, because a clicked button holds focus too and
+    must not block Delete (tested: Delete inside the rename field edits
+    text, Delete after Enter removes the link). "+ Link" selects the new
+    link and starts the rename; a dropped mesh does *not* move the
+    selection, so a multi-file drop lands side by side instead of chained.
+    A selected joint counts as its child for both "+ Link" and drops. The
+    `⟂` glyph is not in egui's default font — rows say `hinge · revolute`.
   - `validate` also checks material names (`InvalidName { kind:
     "material" }`) and that densities are finite and non-negative, so
     `UpsertMaterial` cannot smuggle an unexportable name into the table.

@@ -10,7 +10,8 @@ use std::sync::Arc;
 
 use riggen_core::glam::{DMat4, DQuat, DVec3};
 use riggen_core::{
-    Command, EditError, GeomId, History, JointId, JointState, LinkId, MeshAsset, MeshId, Robot, fk,
+    Command, EditError, GeomId, History, Joint, JointId, JointState, Link, LinkId, MeshAsset,
+    MeshId, Robot, fk,
 };
 use riggen_mesh::TriMesh;
 use riggen_viewport::InstanceId;
@@ -221,6 +222,52 @@ impl RiggenApp {
 
     pub fn joint_value(&self, joint: JointId) -> f64 {
         self.q.get(joint)
+    }
+
+    /// Where a new link goes: under the selected link, under a selected
+    /// joint's child, else under the root.
+    pub fn insertion_parent(&self) -> LinkId {
+        match self.selection {
+            Selection::Link(l) => l,
+            Selection::Joint(j) => self.robot.joints[&j].child,
+            Selection::None => self.robot.root,
+        }
+    }
+
+    /// Adds `link` under `parent` with a `Fixed` joint at identity. The
+    /// link's name is made unique (`arm`, `arm_2`) and the joint is named
+    /// `<name>_joint`, unique the same way. The selection is left alone so
+    /// a batch of dropped files lands side by side, not chained.
+    pub fn add_link(&mut self, mut link: Link, parent: LinkId) -> Result<LinkId, EditError> {
+        let link_names: BTreeSet<&str> =
+            self.robot.links.values().map(|l| l.name.as_str()).collect();
+        link.name = unique_name(&link.name, &link_names);
+        let joint_names: BTreeSet<&str> = self
+            .robot
+            .joints
+            .values()
+            .map(|j| j.name.as_str())
+            .collect();
+        let joint_name = unique_name(&format!("{}_joint", link.name), &joint_names);
+        let joint = Joint::fixed(joint_name, parent, parent);
+        let created = self.apply(Command::AddLink {
+            link: Box::new(link),
+            parent,
+            joint,
+        })?;
+        Ok(created.expect("AddLink returns the new link"))
+    }
+
+    /// Removes the selected link with its subtree; for a selected joint,
+    /// the link it leads to (the joint is the edge). The root is refused
+    /// with the reason in the status bar. Nothing selected: nothing.
+    pub fn remove_selected(&mut self) {
+        let link = match self.selection {
+            Selection::Link(l) => l,
+            Selection::Joint(j) => self.robot.joints[&j].child,
+            Selection::None => return,
+        };
+        let _ = self.apply(Command::RemoveLink(link));
     }
 
     /// Selects in document terms and mirrors it into the viewport (a link's

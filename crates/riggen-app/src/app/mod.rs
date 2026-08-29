@@ -3,6 +3,8 @@
 
 mod document;
 mod file_io;
+mod panels;
+mod shortcuts;
 mod status_bar;
 
 use std::collections::{BTreeMap, HashMap};
@@ -14,6 +16,7 @@ use web_time::Instant;
 
 pub(crate) use document::LoadedMesh;
 pub use document::Selection;
+use panels::TreeState;
 
 /// The eframe app: one `Robot` and what is derived from it
 /// (docs/01-architecture.md §The document is the only state).
@@ -37,6 +40,8 @@ pub struct RiggenApp {
     /// `MeshAsset::scale` for a dropped mesh. Millimetres by default: that
     /// is what most STL exporters write.
     import_scale: f64,
+    /// Transient state of the tree panel (an inline rename in progress).
+    pub(crate) tree: TreeState,
     pub(crate) viewport: Viewport,
     /// The next [`InstanceId`] to hand out. Never reused within a session.
     next_instance: u32,
@@ -73,6 +78,7 @@ impl RiggenApp {
             selection: Selection::None,
             last_viewport_selected: None,
             import_scale: Self::DEFAULT_IMPORT_SCALE,
+            tree: TreeState::default(),
             viewport,
             next_instance: 0,
             status: None,
@@ -122,6 +128,7 @@ impl eframe::App for RiggenApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.tick_frame_clock();
         self.handle_file_drops(ui.ctx());
+        self.handle_shortcuts(ui.ctx());
 
         self.menu_bar(ui);
 
@@ -144,6 +151,8 @@ impl eframe::App for RiggenApp {
                 frame_dt: self.show_frame_hud.then_some(self.last_frame_dt).flatten(),
             },
         );
+
+        self.tree_panel(ui);
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)

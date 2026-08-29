@@ -50,6 +50,8 @@ pub struct DebugState {
     /// The document as the app holds it: what the instances are derived
     /// from.
     pub document: DocumentDebug,
+    /// Transient panel state.
+    pub ui: UiDebug,
     /// Every instance in draw order, hidden ones included.
     pub instances: Vec<InstanceDebug>,
     pub selection: SelectionDebug,
@@ -58,6 +60,13 @@ pub struct DebugState {
     /// `[min_x, min_y, max_x, max_y]` of the viewport in egui logical points.
     /// `None` before the first frame has laid it out.
     pub viewport_rect: Option<[f64; 4]>,
+}
+
+/// What the panels are in the middle of.
+#[derive(Debug, Clone, Serialize)]
+pub struct UiDebug {
+    /// The link an inline rename is editing, as `"l3"`, and the text so far.
+    pub renaming: Option<(String, String)>,
 }
 
 /// The `Robot` and the derived state around it.
@@ -180,6 +189,13 @@ impl RiggenApp {
         DebugState {
             camera: CameraDebug::capture(self),
             document,
+            ui: UiDebug {
+                renaming: self
+                    .tree
+                    .renaming
+                    .as_ref()
+                    .map(|(l, text)| (l.to_string(), text.clone())),
+            },
             instances: self
                 .viewport
                 .instance_states()
