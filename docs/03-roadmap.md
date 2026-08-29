@@ -120,6 +120,22 @@ the viewport does.*
 - Round-trip FK test in CI; MuJoCo load test in CI (Python job).
 - Sample robot in `assets/` used by the tests and the README screenshot.
 
+**Status: done 2026-08-29, tag `m3`.** The risk — MuJoCo loading our
+MJCF with zero compiler warnings and agreeing with `fk` — was retired at
+step 5 and held through the URDF import: both `arm.riggen`'s export and
+`arm.urdf`'s re-export load clean with 25 matching body poses, the `mujoco`
+CI job runs both. Decisions (ADR-0008): meshes baked to meters as binary
+STL with no `scale`, `<inertial fullinertia>` so MuJoCo decomposes, the
+headless `riggen --export` on the app binary; `CollisionPolicy::Meshes`
+keeps imported collision meshes losslessly; floating base is an export
+option, not a document field; `SetRoot` across a movable joint stays
+refused. No job thread: hulls are synchronous and cached per `MeshId`.
+The by-hand half was done headlessly (both arms swing 10 s under gravity
+without a NaN; the `mujoco.viewer` look is still the human's); what was
+annoying is under an M3 heading in the backlog — narrow tensor fields,
+overlapping shells counted twice, no `PackageMap` UI, imports without a
+material, soft joint limits.
+
 **Out:** convex decomposition, actuators, MJCF import.
 
 **Accept:** the sample arm exports; `mujoco.MjModel.from_xml_path` succeeds

@@ -19,22 +19,19 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**M2 done (2026-08-29, tag `m2`):** a 3-DoF arm is assembled from a
-folder of STLs with the mouse alone — a modal toolbar (Select / Move /
-Rotate / Place joint / Align), a transform gizmo behind `app/gizmo.rs`
-(ADR-0007), joint glyphs in a world-space `Overlay` the viewport projects,
-and snapping whose ladder is vertex > box > circle > point.
-`riggen_mesh::feature` welds an STL's positions exactly to recover topology
-and fits the circle "click the bore" turns into a joint axis;
-`MoveJointFrame` and `origin_for_world` are what the tools commit;
-`five_minute_arm` (`assets/fixtures/arm/*.stl`) is the acceptance. M1: the
-`Robot` document (ADR-0005), `validate`, `fk`, commands with snapshot
-`History`, `.riggen` v1, tree, properties, joint sliders, materials, File /
-Edit menus. M0: `riggen-mesh`, the ported viewport, the `egui_kittest`
-suite; the agent sees the GUI itself (`visual-debug` skill).
-`riggen-export` is a placeholder. **Next: M3** — inertials, collision,
-MJCF/URDF export and import; mass properties from
-`robocad-kernel/src/mass.rs`.
+**M3 done (2026-08-29, tag `m3`):** the arm exports as MJCF and URDF from
+one `ResolvedRobot` (ADR-0004; ADR-0008: meshes baked to meters as STL,
+`fullinertia`, headless `riggen --export`); MuJoCo loads it with zero
+warnings and matches `fk` (`python/tests/test_mjcf_load.py`, the `mujoco`
+CI job); `urdf-rs` round-trips it. Inertials: `riggen_mesh::mass_properties`
+through `riggen_core::inertial` (three `InertialSpec` modes, `check`).
+Collision: hull, fitted primitives or imported `Meshes`, drawn translucent.
+Properties has Inertial and Collision blocks; File has Import URDF… and
+Export… (a modal listing every `ExportError`). `arm.riggen` / `arm.urdf`
+are the corpus. M2: the mouse-only arm (toolbar, gizmo, glyphs, snapping).
+M1: the `Robot` document, commands, history, `.riggen` v1, panels. M0:
+mesh, viewport, the `egui_kittest` suite (`visual-debug` skill).
+**Next: M4** — README, screencast, the wheel (ADR-0002).
 
 ## Rules that are not derivable from the code
 

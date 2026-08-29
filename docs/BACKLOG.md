@@ -20,7 +20,6 @@ below with the reason, so the same idea is not re-brainstormed.
 - `Reparent { keep_world_pose }` at the current `q`, not the zero configuration (needs `JointState` in the command; a drag with non-zero sliders jumps)
 - Clicking empty viewport space with a *joint* selected in the tree does not clear the selection
 - Rename a material from the materials table (the name is the key; links reference it by name)
-- `SetRoot` across a movable joint (refused today; M3 decides the pivot convention)
 - Snapping *during* a gizmo drag: the handles honour the snap ladder, not just the align tool (M2 keeps the two apart — align is the mouse-only route; the by-hand M2 run asked for it, wanting a joint to land on a parent bore's centre or a corner vertex)
 - A depth-tested overlay, so a joint glyph behind a part reads as behind it (M2 draws every overlay on top)
 
@@ -55,4 +54,4 @@ FK, and swing under gravity for 10 s without a NaN; the interactive
 
 ## Rejected
 
-(none yet)
+- `SetRoot` across a movable joint — a URDF always has a root, and the reversed-pivot convention is a design question nothing in M3 needed (plans/m3-sim-ready OPEN 2, 2026-08-29)
