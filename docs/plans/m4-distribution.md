@@ -134,7 +134,7 @@ Ordered so the milestone's risk — a maturin `bin` wheel from this
 workspace that installs and runs on a clean venv, then the same across five
 targets in CI — is retired first; README and polish come after.
 
-- [ ] Step 1 — The wheel builds and runs locally: `pyproject.toml` at the
+- [x] Step 1 — The wheel builds and runs locally: `pyproject.toml` at the
   root (maturin, `bindings = "bin"`, dynamic version, no console script),
   `python/riggen/__main__.py` execs the bundled binary, `python/riggen/
   __init__.py` reads its version from metadata, `python/LICENSE-*` and
