@@ -202,7 +202,7 @@ agrees with our FK" — is retired by step 5, before any UI exists.
   inside or on the hull within 1e-9, hull volume ≥ mesh volume for the
   arm parts, outward winding via positive signed volume, degenerate input
   errors.
-- [ ] Step 8 — `riggen-mesh::fit` + `TriMesh::sphere` / `capsule` +
+- [x] Step 8 — `riggen-mesh::fit` + `TriMesh::sphere` / `capsule` +
   `Primitives` written by both writers (MJCF `type="box|cylinder|sphere|
   capsule" size pos quat`, URDF `<box size>` / `<cylinder radius length>`
   / `<sphere radius>`; a capsule in URDF becomes a cylinder plus a

@@ -1,7 +1,8 @@
 //! Mesh geometry: [`TriMesh`], STL/OBJ loaders, [`Aabb`], ray/triangle,
 //! the [`feature`] module (welded adjacency, circle fits),
-//! [`mass_properties`] (docs/02-data-model.md §Inertials) and
-//! [`convex_hull`] (quickhull, for collision). No egui, no wgpu
+//! [`mass_properties`] (docs/02-data-model.md §Inertials), [`convex_hull`]
+//! (quickhull) and [`fit`] (box / sphere / cylinder / capsule) for
+//! collision. No egui, no wgpu
 //! (docs/01-architecture.md §Crates).
 //!
 //! `f64` throughout — the document is f64 and mass properties want it; the
@@ -13,6 +14,7 @@ pub use glam;
 mod aabb;
 mod error;
 pub mod feature;
+pub mod fit;
 mod hull;
 mod mass;
 mod obj;

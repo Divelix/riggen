@@ -225,6 +225,64 @@ impl TriMesh {
         mesh
     }
 
+    /// A UV sphere of `radius` centred on the origin: `segments` around,
+    /// `segments / 2` latitude bands, triangle fans at the poles. Outward
+    /// CCW winding, unwelded and flat-shaded like [`Self::cube`]. `segments`
+    /// below four is raised to four.
+    pub fn sphere(radius: f64, segments: usize) -> Self {
+        let segments = segments.max(4);
+        let bands = (segments / 2).max(2);
+        let rings: Vec<Vec<DVec3>> = (1..bands)
+            .map(|i| {
+                let polar = std::f64::consts::PI * i as f64 / bands as f64;
+                ring(radius * polar.sin(), radius * polar.cos(), segments)
+            })
+            .collect();
+        let mut mesh = Self::default();
+        mesh.push_fan(&rings[0], radius, false);
+        for pair in rings.windows(2) {
+            mesh.push_wall(&pair[1], &pair[0], false);
+        }
+        mesh.push_fan(rings.last().expect("at least one ring"), -radius, true);
+        mesh.flat_normals();
+        mesh
+    }
+
+    /// A capsule along +Z centred on the origin: a cylinder wall of
+    /// `length` between two hemispherical caps of `radius`, so the whole
+    /// thing spans `length + 2 · radius`. Same conventions as
+    /// [`Self::sphere`].
+    pub fn capsule(radius: f64, length: f64, segments: usize) -> Self {
+        let segments = segments.max(4);
+        let bands = (segments / 4).max(1);
+        let h = length * 0.5;
+        // Rings from the top pole down to the bottom pole; the wall is the
+        // gap between the two equator rings.
+        let cap = |sign: f64| -> Vec<Vec<DVec3>> {
+            (1..=bands)
+                .map(|i| {
+                    let polar = std::f64::consts::FRAC_PI_2 * i as f64 / bands as f64;
+                    ring(
+                        radius * polar.sin(),
+                        sign * (h + radius * polar.cos()),
+                        segments,
+                    )
+                })
+                .collect()
+        };
+        let top = cap(1.0);
+        let bottom: Vec<Vec<DVec3>> = cap(-1.0).into_iter().rev().collect();
+        let rings: Vec<&Vec<DVec3>> = top.iter().chain(bottom.iter()).collect();
+        let mut mesh = Self::default();
+        mesh.push_fan(rings[0], h + radius, false);
+        for pair in rings.windows(2) {
+            mesh.push_wall(pair[1], pair[0], false);
+        }
+        mesh.push_fan(rings[rings.len() - 1], -h - radius, true);
+        mesh.flat_normals();
+        mesh
+    }
+
     /// Quads between two rings of equal length; `flip` reverses the winding
     /// (an inner wall).
     fn push_wall(&mut self, bottom: &[DVec3], top: &[DVec3], flip: bool) {
@@ -382,6 +440,55 @@ mod tests {
             assert!(n.dot(c) > 0.0, "triangle {i} winds inward: n {n} at {c}");
             assert!((n.length() - 1.0).abs() < 1e-12);
         }
+    }
+
+    #[test]
+    fn sphere_and_capsule_are_closed_and_wind_outward() {
+        let sphere = TriMesh::sphere(0.5, 16);
+        sphere.validate().unwrap();
+        // 16 around × (8 bands: 2 fans of 16 + 6 walls of 32).
+        assert_eq!(sphere.triangle_count(), 2 * 16 + 6 * 32);
+        assert!(crate::feature::adjacency(&sphere).is_closed());
+        let aabb = sphere.aabb().unwrap();
+        assert!((aabb.min + DVec3::splat(0.5)).length() < 1e-12, "{aabb:?}");
+        assert!((aabb.max - DVec3::splat(0.5)).length() < 1e-12, "{aabb:?}");
+        for i in 0..sphere.triangle_count() {
+            let c = sphere.triangle(i).iter().sum::<DVec3>() / 3.0;
+            assert!(
+                sphere.face_normal(i).dot(c) > 0.0,
+                "triangle {i} winds inward"
+            );
+        }
+        // A 16 × 8 polygon sphere is inscribed: some 6% under the true
+        // volume, and never over.
+        let props = crate::mass_properties(&sphere, 1.0);
+        let exact = 4.0 / 3.0 * std::f64::consts::PI * 0.125;
+        assert!(
+            props.volume < exact && (exact - props.volume) / exact < 0.1,
+            "{}",
+            props.volume
+        );
+
+        let capsule = TriMesh::capsule(0.2, 1.0, 16);
+        capsule.validate().unwrap();
+        assert!(crate::feature::adjacency(&capsule).is_closed());
+        let aabb = capsule.aabb().unwrap();
+        assert!(
+            (aabb.min - DVec3::new(-0.2, -0.2, -0.7)).length() < 1e-12,
+            "{aabb:?}"
+        );
+        assert!(
+            (aabb.max - DVec3::new(0.2, 0.2, 0.7)).length() < 1e-12,
+            "{aabb:?}"
+        );
+        for i in 0..capsule.triangle_count() {
+            let n = capsule.face_normal(i);
+            let c = capsule.triangle(i).iter().sum::<DVec3>() / 3.0;
+            // Outward from the nearer of the two cap centres / the axis.
+            let anchor = DVec3::new(0.0, 0.0, c.z.clamp(-0.5, 0.5));
+            assert!(n.dot(c - anchor) > 0.0, "triangle {i} winds inward");
+        }
+        assert!(!crate::mass_properties(&capsule, 1.0).inward_winding);
     }
 
     #[test]
