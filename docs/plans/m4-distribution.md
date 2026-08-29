@@ -183,7 +183,7 @@ targets in CI — is retired first; README and polish come after.
   here to run it. The macOS x86_64 cross-target and the smoke matrix run
   only on the runners. (a), (b), (c) and the TestPyPI acceptance are the
   human's.)*
-- [ ] Step 6 — README and the hero image: `docs/assets/arm.png` captured
+- [x] Step 6 — README and the hero image: `docs/assets/arm.png` captured
   through the visual-debug scratch target (`RIGGEN_SCRATCH_OPEN=assets/
   fixtures/arm/arm.riggen`, collision view off, selection cleared); root
   `README.md`, written for the user who will never open Cargo (OPEN 3):
