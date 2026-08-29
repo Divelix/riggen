@@ -77,11 +77,16 @@ impl eframe::App for RiggenApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.tick_frame_clock();
 
+        // `i3/t120`: instance 3, triangle 120 — what the ID buffer resolved.
+        let describe =
+            |hit: riggen_viewport::PickHit| format!("i{}/t{}", hit.instance.0, hit.triangle);
+        let hovered = self.viewport.hovered().map(describe);
+        let selected = self.viewport.selected().map(describe);
         status_bar::status_bar(
             ui,
             &status_bar::StatusView {
-                hovered: None,
-                selected: None,
+                hovered: hovered.as_deref(),
+                selected: selected.as_deref(),
                 instance_count: self.viewport.instance_count(),
                 message: self.status.as_deref(),
                 frame_dt: self.show_frame_hud.then_some(self.last_frame_dt).flatten(),

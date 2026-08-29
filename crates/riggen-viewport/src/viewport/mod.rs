@@ -2,27 +2,35 @@
 //! input, renders the scene through an `egui_wgpu` paint callback.
 
 pub mod gpu_state;
+pub mod picking;
 pub mod pipelines;
 pub mod render_pass;
 
+use std::sync::{Arc, Mutex};
 use web_time::Instant;
 
 use egui_wgpu::wgpu;
 use riggen_mesh::glam::{DMat4, DVec3, Mat4};
 use riggen_mesh::{Aabb, TriMesh};
 
+use crate::PickHit;
 use crate::camera::{OrbitCamera, Projection, StandardView};
-use crate::gpu_mesh::{AxesTriadMesh, GpuMesh, Vertex};
+use crate::gpu_mesh::{AxesTriadMesh, GpuMesh, PickVertex, Vertex};
 use crate::scene::{InstanceId, Scene, SceneFull};
 
 use gpu_state::{
     AXES_GIZMO_MARGIN, AXES_GIZMO_SIZE, CameraUniforms, DEPTH_FORMAT, GpuState, InstanceBuffers,
     ModelUniforms, OffscreenTarget,
 };
-use pipelines::{
-    build_axes_pipeline, build_background_pipeline, build_blit_pipeline, build_render_pipeline,
+use picking::{
+    PICK_FORMAT, PICK_READBACK_SIZE, PendingPick, PickDecision, PickInputs, PickKind, PickRegion,
+    decide_pick, resolve_pick_region,
 };
-use render_pass::ViewportCallback;
+use pipelines::{
+    build_axes_pipeline, build_background_pipeline, build_blit_pipeline, build_highlight_pipeline,
+    build_render_pipeline,
+};
+use render_pass::{PickPassData, ViewportCallback};
 
 /// Instances the per-instance model uniform has room for before it has to
 /// grow. A robot with more links than this is normal; re-allocating once at
@@ -78,9 +86,10 @@ pub struct InstanceState {
     pub model: DMat4,
 }
 
-/// Embeddable 3D viewport: owns the renderer, camera and scene. `ui()`
-/// allocates the egui rect, handles orbit/pan/zoom input and enqueues a
-/// paint callback.
+/// Embeddable 3D viewport: owns the renderer, camera, scene and
+/// hover/selection state. `ui()` allocates the egui rect, handles
+/// orbit/pan/zoom input, drives ID-buffer picking and enqueues a paint
+/// callback.
 pub struct Viewport {
     gpu: GpuState,
     offscreen: Option<OffscreenTarget>,
@@ -88,6 +97,10 @@ pub struct Viewport {
     /// transform — the viewport draws them, it never merges them.
     scene: Scene<GpuMesh>,
     pub camera: OrbitCamera,
+    hovered: Option<PickHit>,
+    selected: Option<PickHit>,
+    pending_pick: Option<PendingPick>,
+    last_pick: Option<PickInputs>,
     /// The rect allocated by the most recent [`Viewport::ui`] call, in egui
     /// logical points.
     last_rect: Option<egui::Rect>,
@@ -148,6 +161,31 @@ impl Viewport {
             wgpu::CompareFunction::Less,
             true,
         );
+        let pick_pipeline = build_render_pipeline(
+            device,
+            "riggen-viewport pick pipeline",
+            &[&uniform_bind_group_layout, &models.layout],
+            include_str!("../shaders/pick.wgsl"),
+            &[Some(PickVertex::layout())],
+            wgpu::PrimitiveTopology::TriangleList,
+            PICK_FORMAT,
+            wgpu::CompareFunction::Less,
+            true,
+        );
+        let hover_pipeline = build_highlight_pipeline(
+            device,
+            "riggen-viewport hover pipeline",
+            &[&uniform_bind_group_layout, &models.layout],
+            include_str!("../shaders/hover.wgsl"),
+            target_format,
+        );
+        let select_pipeline = build_highlight_pipeline(
+            device,
+            "riggen-viewport select pipeline",
+            &[&uniform_bind_group_layout, &models.layout],
+            include_str!("../shaders/select.wgsl"),
+            target_format,
+        );
 
         let axes_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("riggen-viewport axes uniforms"),
@@ -184,6 +222,9 @@ impl Viewport {
                 format: target_format,
                 scene_pipeline,
                 background_pipeline,
+                pick_pipeline,
+                hover_pipeline,
+                select_pipeline,
                 axes_pipeline,
                 blit_pipeline,
                 uniform_buffer,
@@ -198,25 +239,44 @@ impl Viewport {
             offscreen: None,
             scene: Scene::default(),
             camera: OrbitCamera::default(),
+            hovered: None,
+            selected: None,
+            pending_pick: None,
+            last_pick: None,
             last_rect: None,
         }
     }
 
     /// Uploads one instance's geometry, leaving every other instance's
     /// buffers exactly where they were. Both an instance's first appearance
-    /// and a replacement mesh for an existing one.
+    /// and a replacement mesh for an existing one. Hover and selection are
+    /// left alone: an `InstanceId` outlives its mesh, though a hit's
+    /// triangle index may no longer mean the same thing.
     pub fn set_instance(&mut self, id: InstanceId, mesh: &TriMesh) -> Result<(), SceneFull> {
-        self.scene.set_instance(&self.gpu.device, id, mesh)
+        let result = self.scene.set_instance(&self.gpu.device, id, mesh);
+        // New geometry under an unmoved cursor changes what the cursor is
+        // over; the memo must not answer for it.
+        self.last_pick = None;
+        result
     }
 
-    /// Drops an instance and its buffers.
+    /// Drops an instance and its buffers, and any hover/selection on it.
     pub fn remove_instance(&mut self, id: InstanceId) -> bool {
-        self.scene.remove(id)
+        let removed = self.scene.remove(id);
+        if removed {
+            self.forget_missing_picks();
+        }
+        removed
     }
 
-    /// Shows or hides an instance. Uploads nothing.
+    /// Shows or hides an instance. Uploads nothing. A hidden instance stops
+    /// being hovered or selected.
     pub fn set_instance_visible(&mut self, id: InstanceId, visible: bool) -> bool {
-        self.scene.set_visible(id, visible)
+        let changed = self.scene.set_visible(id, visible);
+        if changed {
+            self.forget_missing_picks();
+        }
+        changed
     }
 
     /// Places an instance. Also uploads nothing — the transform is a
@@ -247,6 +307,44 @@ impl Viewport {
 
     pub fn clear_scene(&mut self) {
         self.scene.clear();
+        self.reset_picks();
+    }
+
+    /// Forgets hover, selection, and any pick in flight.
+    pub fn reset_picks(&mut self) {
+        self.hovered = None;
+        self.selected = None;
+        self.pending_pick = None;
+        self.last_pick = None;
+    }
+
+    /// Drops a hover/selection whose instance just stopped being drawn.
+    fn forget_missing_picks(&mut self) {
+        let gone = |hit: &Option<PickHit>| {
+            hit.is_some_and(|h| self.scene.visible_instance(h.instance).is_none())
+        };
+        if gone(&self.hovered) {
+            self.hovered = None;
+        }
+        if gone(&self.selected) {
+            self.selected = None;
+        }
+        self.last_pick = None;
+    }
+
+    /// The triangle under the cursor, if any — resolved one or more
+    /// rendered frames after the cursor moved there.
+    pub fn hovered(&self) -> Option<PickHit> {
+        self.hovered
+    }
+
+    /// The selected triangle, if any: the last click's hit.
+    pub fn selected(&self) -> Option<PickHit> {
+        self.selected
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selected = None;
     }
 
     /// Bounding sphere `(center, radius)` of every visible instance.
@@ -278,10 +376,34 @@ impl Viewport {
     }
 
     /// Whether the next frame will look the same as this one absent input:
-    /// nothing animating. The snapshot harness pumps frames until this
-    /// holds.
+    /// nothing animating, no pick readback in flight. The snapshot harness
+    /// pumps frames until this holds.
     pub fn is_settled(&self) -> bool {
-        !self.camera.is_animating()
+        !self.camera.is_animating() && self.pending_pick.is_none()
+    }
+
+    /// Takes a resolved readback, if the one in flight has landed, and
+    /// applies it to hover or selection. A slot nobody holds any more (the
+    /// instance was removed while the pick was in flight) reads as a miss.
+    fn resolve_pending_pick(&mut self) {
+        let Some(pending) = self.pending_pick.take() else {
+            return;
+        };
+        let resolved = pending.result.lock().unwrap().take();
+        match resolved {
+            Some(ids) => {
+                let hit =
+                    resolve_pick_region(&ids, &pending.region).and_then(|(slot, triangle)| {
+                        let instance = self.scene.instance_at_slot(slot)?;
+                        Some(PickHit { instance, triangle })
+                    });
+                match pending.kind {
+                    PickKind::Hover => self.hovered = hit,
+                    PickKind::Select => self.selected = hit,
+                }
+            }
+            None => self.pending_pick = Some(pending),
+        }
     }
 
     fn ensure_offscreen(&mut self, size: (u32, u32)) {
@@ -337,11 +459,39 @@ impl Viewport {
                 ],
             });
 
+        let pick_color_texture = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("riggen-viewport pick ids"),
+            size: extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: PICK_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let pick_color_view =
+            pick_color_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let pick_depth_texture = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("riggen-viewport pick depth"),
+            size: extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let pick_depth_view =
+            pick_depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         self.offscreen = Some(OffscreenTarget {
             size,
             color_view,
             depth_view,
             blit_bind_group,
+            pick_color_texture,
+            pick_color_view,
+            pick_depth_view,
         });
     }
 
@@ -416,12 +566,18 @@ impl Viewport {
         changed
     }
 
-    /// Allocates the viewport rect, handles camera input, and enqueues the
-    /// paint callback. Call once per frame inside the central panel.
+    /// Allocates the viewport rect, handles camera input and picking, and
+    /// enqueues the paint callback. Call once per frame inside the central
+    /// panel.
     pub fn ui(&mut self, ui: &mut egui::Ui) -> egui::Response {
         if self.camera.step_animation(Instant::now()) {
             ui.ctx().request_repaint();
         }
+
+        // Non-blocking: lets a previously submitted pick readback's
+        // `map_async` callback fire. The readback must never stall a frame.
+        let _ = self.gpu.device.poll(wgpu::PollType::Poll);
+        self.resolve_pending_pick();
 
         let (rect, response) =
             ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
@@ -442,6 +598,9 @@ impl Viewport {
             return response;
         };
 
+        // Camera input above is already applied, so this is the matrix the
+        // pick pass will rasterize with — which makes it the right thing to
+        // compare a memoised hover pick against.
         let view_proj_matrix = self.camera.view_proj(aspect);
         let inv_view_proj_matrix = if view_proj_matrix.determinant() != 0.0 {
             view_proj_matrix.inverse()
@@ -466,6 +625,70 @@ impl Viewport {
             params: [is_ortho, aspect, is_dark_mode, 0.0],
         };
 
+        let to_pixel = |pos: egui::Pos2| -> (u32, u32) {
+            let local = (pos - rect.min) * pixels_per_point;
+            (
+                (local.x.round() as i64).clamp(0, size.0 as i64 - 1) as u32,
+                (local.y.round() as i64).clamp(0, size.1 as i64 - 1) as u32,
+            )
+        };
+        let view_proj = view_proj_matrix.to_cols_array_2d();
+        let decision = decide_pick(
+            self.pending_pick.is_some() || self.scene.is_empty(),
+            response
+                .clicked()
+                .then(|| response.interact_pointer_pos())
+                .flatten()
+                .map(to_pixel),
+            response.hover_pos().map(to_pixel),
+            self.last_pick,
+            view_proj,
+        );
+        let mut pick_pass: Option<PickPassData> = None;
+        match decision {
+            PickDecision::Nothing => {}
+            PickDecision::ClearHover => {
+                self.hovered = None;
+                self.last_pick = None;
+            }
+            PickDecision::Issue { kind, pixel } => {
+                let region = PickRegion::around(pixel, size);
+                let result = Arc::new(Mutex::new(None));
+                let readback_buffer = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("riggen-viewport pick readback"),
+                    size: PICK_READBACK_SIZE,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                });
+                self.pending_pick = Some(PendingPick {
+                    kind,
+                    region,
+                    result: result.clone(),
+                });
+                self.last_pick = Some(PickInputs { pixel, view_proj });
+                pick_pass = Some(PickPassData {
+                    region,
+                    readback_buffer,
+                    result,
+                });
+            }
+        }
+        if self.pending_pick.is_some() {
+            // Guarantee at least one more frame runs to consume the async
+            // result — egui otherwise only repaints on new input, and a
+            // mouse that stops moving would leave the pick unresolved.
+            ui.ctx().request_repaint();
+        }
+
+        let hover = self
+            .hovered
+            .and_then(|h| self.scene.visible_instance(h.instance))
+            .map(|(i, _)| i);
+        let select = self
+            .selected
+            .and_then(|h| self.scene.visible_instance(h.instance))
+            .map(|(i, _)| i);
+
         // One model matrix per visible instance, packed at the uniform
         // stride and indexed by visible order.
         let visible_count = self.scene.visible().count();
@@ -484,6 +707,8 @@ impl Viewport {
                 vertex_buffer: entry.mesh.vertex_buffer.clone(),
                 index_buffer: entry.mesh.index_buffer.clone(),
                 index_count: entry.mesh.index_count,
+                pick_vertex_buffer: entry.mesh.pick_vertex_buffer.clone(),
+                triangle_count: entry.mesh.triangle_count,
             });
         }
 
@@ -509,7 +734,10 @@ impl Viewport {
             axes_uniform_bind_group: self.gpu.axes_uniform_bind_group.clone(),
             scene_pipeline: self.gpu.scene_pipeline.clone(),
             background_pipeline: self.gpu.background_pipeline.clone(),
+            hover_pipeline: self.gpu.hover_pipeline.clone(),
+            select_pipeline: self.gpu.select_pipeline.clone(),
             axes_pipeline: self.gpu.axes_pipeline.clone(),
+            pick_pipeline: self.gpu.pick_pipeline.clone(),
             blit_pipeline: self.gpu.blit_pipeline.clone(),
             axes_vertex_buffer: self.gpu.axes_mesh.vertex_buffer.clone(),
             axes_vertex_count: self.gpu.axes_mesh.vertex_count,
@@ -517,9 +745,15 @@ impl Viewport {
             model_bind_group: self.gpu.models.bind_group.clone(),
             model_buffer: self.gpu.models.buffer.clone(),
             model_data,
+            hover,
+            select,
             color_view: offscreen.color_view.clone(),
             depth_view: offscreen.depth_view.clone(),
             blit_bind_group: offscreen.blit_bind_group.clone(),
+            pick_color_view: offscreen.pick_color_view.clone(),
+            pick_color_texture: offscreen.pick_color_texture.clone(),
+            pick_depth_view: offscreen.pick_depth_view.clone(),
+            pick: pick_pass,
         };
         ui.painter()
             .add(egui_wgpu::Callback::new_paint_callback(rect, callback));

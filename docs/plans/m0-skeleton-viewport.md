@@ -156,7 +156,7 @@ All present-tense text lands in the design docs at retirement; the deltas:
   projection, animating, aspect, view, proj — robocad's `CameraDebug`) and
   `debug_state().instances` listing one instance with 12 triangles and the
   right bounds. No picking yet.
-- [ ] Step 9 — Picking and restyle: pick pass on its own encoder + `R32Uint`
+- [x] Step 9 — Picking and restyle: pick pass on its own encoder + `R32Uint`
   target + 5×5 readback + `map_async` into `Arc<Mutex<..>>`; `device.poll`
   at the top of `ui`; `PendingPick`, `last_pick` memo, click = select beats
   hover, `PointerGone` clears; `hover` / `select` / `outline` highlight draws
@@ -209,13 +209,14 @@ All present-tense text lands in the design docs at retirement; the deltas:
 - Ground grid — **decided (human, 2026-08-29): gradient background only;
   the grid goes to the backlog** at retirement (already in the docs-to-update
   list). M0 stays a pure port.
-- ⚠ OPEN: Selected-face outline pass — robocad outlines the selected B-Rep
-  face; on an STL "face" = one triangle, so the outline would trace a single
-  triangle. Recommended: drop `outline.wgsl` and the outline pipeline (7
-  pipelines, not 8) and tint the whole selected *instance* in the select
-  pass, hover-tinting the instance too, with the hit triangle index kept in
-  `PickHit` for M2's snapping. **Agent decides at step 9; human may override
-  earlier.**
+- Selected-face outline pass — **decided (agent, step 9): dropped.** On an
+  STL a "face" is one triangle, so an outline would trace a single triangle.
+  Hover and select tint the whole *instance* (7 pipelines: background,
+  scene, pick, hover, select, axes, blit); `PickHit.triangle` is kept for
+  M2's snapping. The readback resolves nearest-to-cursor in the 5×5 region
+  (robocad's vertex > edge > face ladder is gone with the B-Rep), and the
+  per-frame pick policy is a pure `decide_pick` so the memo is unit-tested
+  without a GPU.
 - Frame-time HUD location — **decided (human, 2026-08-29): status bar.**
   Landed in step 2 as the right-aligned readout behind `set_frame_hud_visible`.
 - `TriMesh` positions — **decided (human, 2026-08-29): f64**, per

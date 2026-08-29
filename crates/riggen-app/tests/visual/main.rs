@@ -15,7 +15,7 @@
 
 mod harness;
 
-use harness::{scenario, settle};
+use harness::{click_at, pump_rendered, scenario, settle};
 
 fn fixture(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -49,5 +49,66 @@ fn cube() {
             state.instances[0].bounds,
             Some([[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]])
         );
+    });
+}
+
+/// Hover restyle on the cube: the whole-instance tint and the `hover:`
+/// readout in the status bar.
+///
+/// The rendered pump after `hover_at` is load-bearing — the pick is an
+/// ID-buffer pass with an async readback, so the restyle appears several
+/// *rendered* frames after the cursor moves.
+#[test]
+fn hover_cube() {
+    scenario("hover_cube", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("cube_binary.stl"))
+            .expect("open cube fixture");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        let center = harness
+            .state()
+            .viewport_center()
+            .expect("viewport laid out");
+        harness.hover_at(center);
+        pump_rendered(harness, 8);
+
+        let hovered = harness.state().debug_state().selection.hovered;
+        assert_eq!(
+            hovered.map(|h| h.instance),
+            Some(0),
+            "hovering the middle of a fitted view should hit the cube: {hovered:?}"
+        );
+        assert!(hovered.unwrap().triangle < 12);
+    });
+}
+
+/// Selection restyle: click = select, and `PointerGone` leaves the frame
+/// showing selection alone rather than selection under a hover.
+#[test]
+fn select_cube() {
+    scenario("select_cube", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("cube_binary.stl"))
+            .expect("open cube fixture");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        let center = harness
+            .state()
+            .viewport_center()
+            .expect("viewport laid out");
+        click_at(harness, center);
+
+        let selection = harness.state().debug_state().selection;
+        assert_eq!(
+            selection.selected.map(|h| h.instance),
+            Some(0),
+            "clicking the middle of a fitted view should select the cube: {selection:?}"
+        );
+        assert_eq!(selection.hovered, None, "the pointer left the viewport");
     });
 }

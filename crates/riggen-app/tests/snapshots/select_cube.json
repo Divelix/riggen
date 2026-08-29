@@ -101,7 +101,10 @@
   ],
   "selection": {
     "hovered": null,
-    "selected": null
+    "selected": {
+      "instance": 0,
+      "triangle": 1
+    }
   },
   "viewport_rect": [
     0.0,

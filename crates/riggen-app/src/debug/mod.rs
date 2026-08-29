@@ -43,16 +43,38 @@ pub fn round32(x: f32) -> f64 {
     round(x as f64)
 }
 
-/// A whole frame's worth of app state, as JSON. `selection` joins with
-/// picking (M0 step 9).
+/// A whole frame's worth of app state, as JSON.
 #[derive(Debug, Clone, Serialize)]
 pub struct DebugState {
     pub camera: CameraDebug,
     /// Every instance in draw order, hidden ones included.
     pub instances: Vec<InstanceDebug>,
+    pub selection: SelectionDebug,
     /// `[min_x, min_y, max_x, max_y]` of the viewport in egui logical points.
     /// `None` before the first frame has laid it out.
     pub viewport_rect: Option<[f64; 4]>,
+}
+
+/// What the ID buffer resolved: the hovered and the selected triangle.
+#[derive(Debug, Clone, Serialize)]
+pub struct SelectionDebug {
+    pub hovered: Option<HitDebug>,
+    pub selected: Option<HitDebug>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct HitDebug {
+    pub instance: u32,
+    pub triangle: u32,
+}
+
+impl From<riggen_viewport::PickHit> for HitDebug {
+    fn from(hit: riggen_viewport::PickHit) -> Self {
+        Self {
+            instance: hit.instance.0,
+            triangle: hit.triangle,
+        }
+    }
 }
 
 /// One viewport instance: identity, visibility, size and where it is.
@@ -93,6 +115,10 @@ impl RiggenApp {
                     },
                 })
                 .collect(),
+            selection: SelectionDebug {
+                hovered: self.viewport.hovered().map(HitDebug::from),
+                selected: self.viewport.selected().map(HitDebug::from),
+            },
             viewport_rect: self.viewport.viewport_rect().map(|rect| {
                 [
                     round32(rect.min.x),

@@ -35,6 +35,9 @@ pub struct GpuState {
     pub format: wgpu::TextureFormat,
     pub scene_pipeline: wgpu::RenderPipeline,
     pub background_pipeline: wgpu::RenderPipeline,
+    pub pick_pipeline: wgpu::RenderPipeline,
+    pub hover_pipeline: wgpu::RenderPipeline,
+    pub select_pipeline: wgpu::RenderPipeline,
     pub axes_pipeline: wgpu::RenderPipeline,
     pub blit_pipeline: wgpu::RenderPipeline,
     pub uniform_buffer: wgpu::Buffer,
@@ -139,13 +142,16 @@ impl ModelUniforms {
 
 /// The offscreen color+depth pair the 3D scene renders into before being
 /// blitted into egui's own render pass (depth testing needs a real depth
-/// attachment, which egui's pass does not provide), resized together to
-/// match the allocated viewport rect.
+/// attachment, which egui's pass does not provide), plus the ID-buffer
+/// pick target — resized together to match the allocated viewport rect.
 pub struct OffscreenTarget {
     pub size: (u32, u32),
     pub color_view: wgpu::TextureView,
     pub depth_view: wgpu::TextureView,
     pub blit_bind_group: wgpu::BindGroup,
+    pub pick_color_texture: wgpu::Texture,
+    pub pick_color_view: wgpu::TextureView,
+    pub pick_depth_view: wgpu::TextureView,
 }
 
 /// GPU buffer handles for one instance's [`crate::GpuMesh`], grouped so the
@@ -157,4 +163,7 @@ pub struct InstanceBuffers {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub index_count: u32,
+    /// Non-indexed, three vertices per triangle (`crate::GpuMesh`).
+    pub pick_vertex_buffer: wgpu::Buffer,
+    pub triangle_count: u32,
 }
