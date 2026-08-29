@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The M2 arm as a hand-written, Menagerie-style URDF: the M3 import fixture
+  (plans/m3-sim-ready step 13). Same design line as arm.riggen — base ─
+  shoulder (revolute Z at 0.040) ─ upper (revolute Y at 0.095) ─ fore
+  (continuous Y at 0.195) — with everything an imported URDF throws at the
+  document: package:// mesh paths that resolve beside the file, millimetre
+  meshes with a scale, <inertial> on every part (the values riggen computed
+  for arm.riggen), a box collision, collisions that repeat the visual, a
+  collision mesh that does not (fore_hull.stl), one continuous joint, a
+  <safety_controller> and a <mimic> to warn on.
+-->
+<robot name="arm">
+  <link name="base_link"/>
+
+  <link name="base">
+    <inertial>
+      <origin xyz="0 0 0.012983425628" rpy="0 0 0"/>
+      <mass value="0.215867486369"/>
+      <inertia ixx="0.000085401248" ixy="0" ixz="0" iyy="0.000085401248" iyz="0" izz="0.000117319157"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://arm/base.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.01" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.06 0.06 0.02"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="shoulder">
+    <inertial>
+      <origin xyz="0 0 0.046977030338" rpy="0 0 0"/>
+      <mass value="0.080768098011"/>
+      <inertia ixx="0.000027655685" ixy="0" ixz="0" iyy="0.00001290964" iyz="0" izz="0.000018814569"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 -0.04" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://arm/shoulder.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.04" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://arm/shoulder.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="upper">
+    <inertial>
+      <origin xyz="0 0 0.062903962543" rpy="0 0 0"/>
+      <mass value="0.066853501614"/>
+      <inertia ixx="0.000082306594" ixy="0" ixz="0" iyy="0.000075534335" iyz="0" izz="0.000010624767"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 -0.095" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://arm/upper.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.095" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://arm/upper.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="fore">
+    <inertial>
+      <origin xyz="0 0 0.027019120992" rpy="0 0 0"/>
+      <mass value="0.037595893505"/>
+      <inertia ixx="0.000028641623" ixy="0" ixz="0" iyy="0.000028840028" iyz="0" izz="0.0000024532"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.09 -0.07 -0.135" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://arm/fore.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="-0.09 -0.07 -0.135" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://arm/fore_hull.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="base_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="base"/>
+  </joint>
+
+  <joint name="shoulder_joint" type="revolute">
+    <origin xyz="0 0 0.04" rpy="0 0 0"/>
+    <parent link="base"/>
+    <child link="shoulder"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.96705972839" upper="2.96705972839" effort="5" velocity="3"/>
+    <dynamics damping="0.05" friction="0"/>
+  </joint>
+
+  <joint name="upper_joint" type="revolute">
+    <origin xyz="0 0 0.055" rpy="0 0 0"/>
+    <parent link="shoulder"/>
+    <child link="upper"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.745329251994" upper="1.745329251994" effort="5" velocity="3"/>
+    <dynamics damping="0.05" friction="0"/>
+    <safety_controller soft_lower_limit="-1.7" soft_upper_limit="1.7" k_position="10" k_velocity="1"/>
+  </joint>
+
+  <joint name="fore_joint" type="continuous">
+    <origin xyz="0 0 0.1" rpy="0 0 0"/>
+    <parent link="upper"/>
+    <child link="fore"/>
+    <axis xyz="0 1 0"/>
+    <dynamics damping="0.05" friction="0"/>
+    <mimic joint="upper_joint" multiplier="1" offset="0"/>
+  </joint>
+</robot>

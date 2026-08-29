@@ -14,9 +14,6 @@ riggen-core.workspace = true
 # `<name>.fk.json`, the FK samples the MuJoCo CI test reads (`fk_samples`).
 serde.workspace = true
 serde_json.workspace = true
-
-[dev-dependencies]
-# The URDF round-trip: our writer's output parsed by an independent reader,
-# FK recomputed from the parsed numbers (step 6). A real dependency once
-# `urdf_in` exists (step 13).
+# The URDF parser behind `urdf_in` (File › Import URDF…), and the
+# independent reader the writer's round-trip test parses our output with.
 urdf-rs.workspace = true

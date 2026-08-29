@@ -1,7 +1,7 @@
 //! `riggen --export mjcf|urdf|both --out DIR INPUT`: the headless export
 //! (ADR-0008), which returns before eframe starts. It is what CI's `mujoco`
 //! job runs, so it must need no display. `INPUT` is a `.riggen` document
-//! (a `.urdf` from step 13).
+//! or a `.urdf` (imported through `riggen_export::urdf_in` first).
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -72,10 +72,26 @@ pub fn parse(args: &[OsString]) -> Result<Option<ExportArgs>, String> {
 /// Loads, resolves and writes. The `Err` is what the user reads on stderr:
 /// every resolve error, one per line.
 pub fn run(args: &ExportArgs) -> Result<Vec<PathBuf>, String> {
-    let (robot, warnings) = riggen_core::load(&args.input).map_err(|e| e.to_string())?;
-    for w in &warnings {
-        eprintln!("warning: {w}");
-    }
+    let is_urdf = args
+        .input
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("urdf"));
+    let robot = if is_urdf {
+        let (robot, warnings) =
+            riggen_export::urdf_in::load(&args.input, &riggen_export::PackageMap::default())
+                .map_err(|e| e.to_string())?;
+        for w in &warnings {
+            eprintln!("warning: {w}");
+        }
+        robot
+    } else {
+        let (robot, warnings) = riggen_core::load(&args.input).map_err(|e| e.to_string())?;
+        for w in &warnings {
+            eprintln!("warning: {w}");
+        }
+        robot
+    };
     let (store, load_errors) = MeshStore::load(&robot);
     let options = ExportOptions {
         format: args.format,
@@ -198,6 +214,25 @@ mod tests {
             xml.contains("<joint name=\"hinge\" type=\"hinge\""),
             "{xml}"
         );
+        std::fs::remove_dir_all(&out).unwrap();
+    }
+
+    #[test]
+    fn export_of_the_urdf_fixture_writes_the_files() {
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fixtures/arm/arm.urdf");
+        let out = std::env::temp_dir().join(format!("riggen-cli-urdf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&out);
+        let written = run(&ExportArgs {
+            format: Format::Mjcf,
+            out: out.clone(),
+            input: fixture,
+            fk_samples: true,
+        })
+        .unwrap();
+        assert!(written.contains(&out.join("arm.xml")));
+        assert!(written.contains(&out.join("meshes/fore_hull.stl")));
+        assert!(written.contains(&out.join("arm.fk.json")));
         std::fs::remove_dir_all(&out).unwrap();
     }
 

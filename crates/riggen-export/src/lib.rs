@@ -14,6 +14,7 @@ pub mod resolve;
 #[cfg(test)]
 pub(crate) mod test_util;
 pub mod urdf;
+pub mod urdf_in;
 pub mod xml;
 
 pub use export::{ExportIoError, export};
@@ -22,3 +23,4 @@ pub use resolve::{
     ExportError, ExportOptions, Format, MeshPathStyle, ResolvedGeom, ResolvedJoint, ResolvedLink,
     ResolvedRobot, resolve,
 };
+pub use urdf_in::{ImportError, ImportWarning, PackageMap};

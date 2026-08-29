@@ -2074,12 +2074,17 @@ fn write_arm_fixtures() {
         FORE_EXPORT_OFFSET,
     ));
 
+    // The forearm's convex hull, as a separate collision mesh for the URDF
+    // import fixture (`arm.urdf`): what a Menagerie-style package ships.
+    let fore_hull = riggen_mesh::convex_hull(&fore.positions).unwrap();
+
     std::fs::create_dir_all(fixture("arm")).unwrap();
     for (name, mesh) in [
         ("base.stl", base),
         ("shoulder.stl", shoulder),
         ("upper.stl", upper),
         ("fore.stl", fore),
+        ("fore_hull.stl", fore_hull),
     ] {
         std::fs::write(arm_fixture(name), riggen_mesh::write_binary(&mesh)).unwrap();
     }
@@ -2600,6 +2605,49 @@ fn unsaved_confirm() {
         harness.get_by_label("Save");
         harness.get_by_label("Don't save");
         harness.get_by_label("Cancel");
+    });
+}
+
+/// File › Import URDF… (here through `open_path`): the hand-written arm
+/// URDF becomes the document, its dropped `<mimic>` reaches the status
+/// bar, and the imported collision shapes — a box, a separate hull mesh —
+/// show with the collision view on.
+#[test]
+fn import_urdf() {
+    scenario("import_urdf", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("arm/arm.urdf"))
+            .expect("the URDF imports");
+        app.set_show_collision(true);
+        app.fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.document.name, "arm");
+        assert_eq!(state.document.links.len(), 5);
+        assert_eq!(state.document.joints.len(), 4);
+        assert_eq!(state.document.file, None, "not a .riggen until saved");
+        let status = state.status.as_deref().unwrap_or_default();
+        assert!(
+            status.contains("arm.urdf")
+                && status.contains("<safety_controller>")
+                && status.contains("+1 more"),
+            "{status}"
+        );
+        // base's box, shoulder / upper repeat their visuals (nothing extra),
+        // fore's hull mesh: two translucent shapes.
+        assert_eq!(state.instances.iter().filter(|i| i.collision).count(), 2);
+        let app = harness.state();
+        let fore = app
+            .robot()
+            .links
+            .values()
+            .find(|l| l.name == "fore")
+            .unwrap();
+        assert!(matches!(
+            fore.collision,
+            riggen_core::CollisionPolicy::Meshes(_)
+        ));
     });
 }
 
