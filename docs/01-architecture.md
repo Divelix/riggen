@@ -31,9 +31,10 @@ Python module links against, and they are where the tests that matter live.
       glam is the one math library, re-exported by riggen-mesh
 ```
 
-`riggen-core` depends on `riggen-mesh` for `TriMesh` and mass properties
-(a link's computed inertial is a function of its meshes). `riggen-export`
-depends on both. Nothing below `riggen-app` knows about selection, hover, or
+`riggen-core` depends on `riggen-mesh` today only for the `glam` re-export
+(no geometry is stored in the document); M3 adds mass properties (a link's
+computed inertial is a function of its meshes). `riggen-export` depends on
+both. Nothing below `riggen-app` knows about selection, hover, or
 gizmos.
 
 ## Cargo workspace
@@ -45,12 +46,15 @@ riggen/
 ├── kittest.toml            # snapshot thresholds (ADR-0003); found by walking up from the crate
 ├── crates/
 │   ├── riggen-mesh/        # TriMesh, Aabb, Ray, load_stl / load_obj / load_mesh
-│   ├── riggen-core/        # placeholder until M1
+│   ├── riggen-core/        # ids, pose, robot, validate, fk, command, history, file
 │   ├── riggen-export/      # placeholder until M3
 │   ├── riggen-viewport/    # camera/, scene, pick_id, gpu_mesh, viewport/, shaders/
 │   └── riggen-app/         # bin "riggen"; cdylib for the wasm build check; tests/visual
+│       └── src/app/        # document, file_io, file_menu, shortcuts, status_bar,
+│                           # panels/{tree, properties, joints, materials}
 ├── assets/fixtures/        # cube_binary.stl, cube_ascii.stl, cube.obj — the unit cube
-│                           # (TriMesh::cube(0.5)) in every format; sample robots later
+│                           # (TriMesh::cube(0.5)) in every format; pendulum.riggen, the
+│                           # .riggen v1 corpus file (02 §Schema)
 ├── python/                 # v0.2: pyproject.toml, riggen/ package, riggen-py crate
 ├── docs/
 ├── SEED.md
@@ -70,28 +74,103 @@ wgpu is felt. A dependency's default features are checked against the wasm
 build (`tobj`'s `ahash` default pulled `getrandom` in, which does not compile
 for `wasm32-unknown-unknown`; it is off).
 
-`riggen-core` and `riggen-export` are empty `lib.rs` files that already
-carry the "no egui/wgpu" rule in their doc comment.
+`riggen-export` is an empty `lib.rs` that already carries the "no egui/wgpu"
+rule in its doc comment; `riggen-core` keeps the same rule and depends on
+`serde` / `serde_json` and nothing else. `eframe` is built with its
+`persistence` feature so the import-units choice (and egui's own window
+layout) survive a restart through eframe storage.
 
 ## The document is the only state
 
 `riggen-app` owns one `Robot` (02-data-model) plus derived, never-saved
-state: the FK pose for the current joint values, the viewport's instance
-table, selection, hover, gizmo interaction, and job results in flight.
+state:
+
+```rust
+pub struct RiggenApp {
+    robot: Robot, history: History, file: Option<PathBuf>,
+    mesh_store: HashMap<MeshId, LoadedMesh>,            // raw file mesh + the scaled/fixed-up Arc<TriMesh>
+    instances: BTreeMap<(LinkId, GeomId), InstanceId>,  // the only map between document and scene
+    q: JointState, selection: Selection,                // Selection = None | Link(LinkId) | Joint(JointId)
+    import_scale: f64, pending: Option<PendingAction>,  // File › Import units; New/Open/Quit awaiting the dirty answer
+    tree, props, joints_window, materials_window,       // transient panel state (a rename in progress, drafts)
+    viewport, next_instance, status, …
+}
+```
 
 Every user edit is a `Command` applied through `History`, which is
 **snapshot-based**: `Robot` is a few kilobytes of ids, poses and numbers
 (meshes are referenced by id, never copied), so `History` keeps
 `Vec<Robot>` and undo is a swap. This is deliberately simpler than RoboCAD's
 reversible commands; it stays correct as long as `Robot` never holds bulky
-data. Mesh geometry lives in a `MeshStore` beside the document, keyed by
-`MeshId`, loaded once per file and shared across snapshots by `Arc`.
+data. Mesh geometry lives in the mesh store beside the document, keyed by
+`MeshId`, loaded once per file (`LoadedMesh` keeps the raw mesh and the
+`scale` / `fix_up` derivative, so a scale edit re-derives without re-reading
+the file) and shared across snapshots by `Arc`.
+
+`RiggenApp::apply` / `undo` / `redo` wrap `History` and then run
+`sync_scene()`, which makes the viewport match the document: an instance
+per `(LinkId, GeomId)` visual is added or removed, a mesh whose asset scale
+changed is re-uploaded, every model matrix is written from
+`fk(robot, q)[link] ∘ geom.pose`, and every instance's colour from the
+geom's own colour, else the link's material, else the viewport default.
+`q` is pruned of vanished joints and clamped to freshly edited limits on
+the way. Opening a document (`replace_document`) resets history, selection,
+`q` and the mesh store, then syncs; the meshes come from the assets' paths.
+
+Selection is document-level and mirrored both ways: a viewport click
+selects the link owning the hit instance (`sync_selection_from_viewport`,
+once per frame after `Viewport::ui`), and selecting in the tree calls
+`Viewport::set_selected` with the link's first instance. A selected joint
+has no instance; a click on empty viewport space therefore leaves a joint
+selection alone (the viewport reports `None → None`).
 
 Granularity rule, kept from RoboCAD: **one gesture = one command.** A gizmo
 drag mutates a *preview* pose every frame and commits once on release; a
 slider preview of a joint angle is not a command at all (joint values are
 derived state, not document state — the document stores limits, not the
-current `q`).
+current `q`). Concretely: properties-panel numbers are text fields with a
+draft buffer that commit on Enter or lost focus, never per keystroke, and a
+commit equal to the shown value never becomes a command (`History` drops
+the remaining no-ops); the materials table's colour picker keeps a draft,
+tints the viewport live and sends one `UpsertMaterial` when the popup
+closes.
+
+### Panels and menus
+
+- **Links** (left): one row per link with its parent joint's name and kind
+  (`hinge · revolute`); click selects the link, click the joint label
+  selects the joint, double-click or F2 renames inline, "+ Link" adds an
+  empty link under the selection, Delete / "− Remove" removes the subtree
+  (root refused, reason in the status bar), dragging a row onto another
+  reparents with `keep_world_pose`. Every row is a `dnd_drop_zone` around a
+  `Button::selectable(..).sense(click_and_drag())` that sets its own
+  payload with `dnd_set_drag_payload` — egui's `dnd_drag_source` lays a
+  drag-only widget over its content and the hit test then swallows clicks
+  (`hit_test.rs`: a top-most widget that senses only drags hides the
+  click-widget under it). The panel draws from the document and applies
+  its actions after drawing.
+- **Properties** (right): a link's name, material, and per geom the pose
+  (xyz m, RPY °), asset scale and fix-up, "Add mesh to this link…"; a
+  joint's name, kind (limits appear with Revolute/Prismatic, defaulting to
+  ±π / ±1 m), origin, axis (normalised on commit), limits in ° or m,
+  dynamics. Fields are `labelled_by` their labels for the accessibility
+  tree.
+- **Window › Joints** / **Materials**: floating windows, closed by default.
+  Joints: one slider per movable joint in its limits (Continuous ±180°),
+  writing `q` and syncing every frame, "Reset all". Materials: name /
+  density / colour rows, add and remove (refused while a link uses it).
+- **File**: New, Open…, Save (Save As when untitled), Save As…, Import
+  units, Quit; **Edit**: Undo, Redo, Delete, greyed out when idle. The
+  window title is `name.riggen* — riggen`. Every route that would drop a
+  dirty document — New, Open, a dropped `.riggen`, Quit, the OS close button
+  (refused with `CancelClose` until answered) — goes through one
+  `PendingAction` and the Save / Don't save / Cancel modal.
+- **Shortcuts** (`shortcuts.rs`, run before the panels each frame): Ctrl+N
+  / O / S / Shift+S fire always; Delete, F2, Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y
+  yield while a `TextEdit` has focus (`TextEdit::load_state` on the focused
+  id — a clicked button holds focus too and must not block Delete), and the
+  shifted pattern is consumed before the bare one because egui matches
+  modifiers logically.
 
 ## Frame loop
 
@@ -104,16 +183,22 @@ Robot ──► fk(robot, q) ──► world pose per link
 ```
 
 The viewport draws **instances**, not links: one instance per `(LinkId,
-GeomId)` visual, with the uploaded `TriMesh` shared by `MeshId`. Moving a
-joint writes matrices; nothing is re-uploaded. Collision geometry renders as
-a second, toggleable instance set (translucent) sharing the same camera.
+GeomId)` visual, with the uploaded `TriMesh` shared by `MeshId` (scale and
+fix-up applied once at load through `TriMesh::transform`). Moving a joint
+writes matrices; nothing is re-uploaded. Collision geometry will render as
+a second, toggleable instance set (translucent) sharing the same camera
+(M3).
 
 `InstanceId(u32)` is handed out by the app and never reused in a session.
 `Scene<M>` keeps one entry per instance — payload (`GpuMesh`), `DMat4`
-model, visibility, model-space `Aabb` — in insertion order, which is draw
-order; `bounds()` unions the transformed boxes for zoom-to-fit. Model
-matrices go to the GPU as one dynamic-offset uniform buffer (grown by
-`next_power_of_two`), one `draw_indexed` per visible instance, no CPU merge.
+model, linear RGBA colour (the material tint; `DEFAULT_INSTANCE_COLOR`
+until told otherwise), visibility, model-space `Aabb` — in insertion
+order, which is draw order; `bounds()` unions the transformed boxes for
+zoom-to-fit. Model matrix and colour go to the GPU as one dynamic-offset
+uniform buffer (80 bytes per instance, grown by `next_power_of_two`), one
+`draw_indexed` per visible instance, no CPU merge; the pick and highlight
+shaders declare only the matrix, which is valid against the larger
+binding.
 The scene renders into an offscreen colour + `Depth32Float` pair (egui's
 own pass has no depth attachment) and is blitted in `paint()`; the axes
 triad draws last in its own corner viewport with a rotation-only camera.
@@ -124,7 +209,11 @@ Camera: `OrbitCamera` is robocad's turntable camera on glam — `f32`, radians,
 Z-up with Y standing in as the up hint at the poles. glam's
 `perspective_rh` / `orthographic_rh` produce wgpu's `[0, 1]` clip depth
 directly, so `view_proj = proj * view` with no OpenGL-to-wgpu remap; a
-camera test pins near → 0 and far → 1 in both projections. Wheel input is
+camera test pins near → 0 and far → 1 in both projections. Every fit sets
+the depth range from the fitted radius (`set_depth_range_for`: near
+`r/100`, far `r·1000`, clamped to `[1e-6, 1]` / `[100, 1e6]`) and the zoom
+range follows `[2·near, far/2]`, so a part imported at mm → m scale is
+neither clipped nor lost and a room-sized scene still fits. Wheel input is
 read from the raw events, not egui's smoothed delta (the smoothing reads as
 the camera coasting), and zooms toward the cursor. Numpad 1/3/7/0 (+ctrl)
 snap views, Num5 or `P` toggles projection, Home animates a fit; the
@@ -163,7 +252,10 @@ ID buffer at vsync rate forever; `PointerGone` clears the hover. The policy
 is the pure `decide_pick`, unit-tested without a GPU. The result is a
 `PickHit { instance, triangle }`; hover and selection tint the **whole
 instance** (a "face" on an STL is one triangle, so a face outline would
-trace a single triangle) and the status bar reads `i3/t120`.
+trace a single triangle) and the status bar reads `arm (i1/t120)`.
+`Viewport::set_selected(Option<InstanceId>)` is the other direction, for
+the tree; it records triangle `0`, since selection is per instance and the
+triangle is a readout only.
 
 `riggen_mesh::ray_triangle` (Möller–Trumbore, two-sided — the ID buffer has
 already chosen the triangle) recovers the exact hit point by intersecting
@@ -189,9 +281,11 @@ it is hovered.
 
 There is no evaluator. The only long-running work is mesh loading, convex
 hull / primitive fitting, and export. Mesh loading currently runs
-synchronously on the UI thread in `RiggenApp::load_files` (every route in —
-CLI arguments, drag-and-drop, File › Open — ends there and fits the view
-afterwards); `riggen-app::jobs` arrives with the hull work and runs them on a
+synchronously on the UI thread: every route in — CLI arguments,
+drag-and-drop, File › Open — ends in `RiggenApp::load_files` (through the
+dirty check when a `.riggen` is among the files) and fits the view
+afterwards, and `sync_scene` loads a document's assets from their paths;
+`riggen-app::jobs` arrives with the hull work and runs them on a
 `std::thread` with an `mpsc` channel and a `wake` callback bound to
 `ctx.request_repaint()`; results are drained once per frame. On wasm the
 same API runs inline (no threads from eframe on the web); nothing else in
@@ -201,11 +295,25 @@ made for, and a result for an id that no longer exists is dropped.
 
 ## File format
 
-`robot.riggen` is JSON: `{ "schema_version": 1, "robot": Robot }`. Mesh
-paths are stored **relative to the `.riggen` file**, with a content hash so a
-changed STL is noticed on open. Geometry is never embedded. A schema bump
-comes with an `upgrade_vN_to_vN+1` and a corpus test that keeps every old
-version opening forever (RoboCAD's rule).
+`robot.riggen` is JSON: `{ "schema_version": 1, "robot": Robot }`
+(02 §Schema). Mesh paths are **absolute in memory and relative to the
+`.riggen` file on disk**, forward slashes: `riggen_core::save` rebases
+them on the way out and `load` resolves them on the way in, so nothing
+outside `file.rs` ever meets a relative path. `riggen_core::absolute`
+(absolute + lexical normalization) is the one way a path enters the
+document — `std::path::absolute` alone keeps `a/../b`, and two spellings of
+one file would compare unequal. Every asset carries an FNV-1a 64 hash of
+its mesh bytes, taken at registration; `load` recomputes it and reports a
+mismatch or an unreadable file as a `Warning` (shown in the status bar),
+never an error — the document opens, the user is told. Geometry is never
+embedded; assets no geom references are dropped on save; the write goes
+through `<name>.riggen.tmp` and a rename so a crash leaves the old file. A
+schema bump comes with an `upgrade_vN_to_vN+1` and a corpus test that keeps
+every old version opening forever (RoboCAD's rule).
+
+In the app, `save_to` marks the history depth as saved and the status bar
+and window title show `name.riggen*` until then; the unsaved-changes modal
+guards every route that would drop a dirty document (§Panels and menus).
 
 Export writes a directory: `<name>.xml` / `<name>.urdf` plus `meshes/`,
 with mesh paths in the style the target expects (`package://`, relative, or
@@ -240,14 +348,38 @@ GUI is never entered from inside a Python call.
   drives the real `eframe::App` headlessly through wgpu (CPU adapter via
   lavapipe, so local and CI agree) and diffs PNGs. This is how an agent sees
   the window. A `debug_state()` JSON dump of what the app believes it drew
-  (camera, instances, selection, status, viewport rect) accompanies every
-  snapshot as a golden of its own; every float in it is rounded to six
-  decimals and `-0.0` normalised so goldens never churn. Harness facts that
-  must not be rediscovered:
+  (camera with near/far, the document — file, dirty, links, joints with
+  `q`, selection — the `ui` section — rename in progress, open windows,
+  modal, title — instances with their link/geom key, position and colour,
+  viewport selection, status, viewport rect) accompanies every snapshot as
+  a golden of its own; every float in it is rounded to six decimals and
+  `-0.0` normalised so goldens never churn. The M1 scenarios: `startup`,
+  `cube`, `hover_cube`, `select_cube`, `three_parts`, `pendulum`,
+  `mm_scale_part`, `tree_pendulum`, `tree_reparent`, `properties_link`,
+  `properties_joint`, `pendulum_swing`, `materials`, `dirty_title`,
+  `unsaved_confirm`, plus golden-less app tests including
+  `build_pendulum_numerically`, the M1 acceptance in executable form.
+  The harness sets the import scale to `1.0` (the fixtures are unit cubes
+  meant as meters; the app's default is mm). Harness facts that must not be
+  rediscovered:
   - `Harness::step()` runs egui's logic pass only, no GPU work; anything that
     depends on the GPU having run (the ID-buffer pick) needs `pump_rendered`.
-    `step()` also drains every queued event in one go, so a click is one raw
-    event per rendered frame (`click_at`), not `drag_at`/`drop_at`.
+    `step()` also drains every queued event in one go, running one logic
+    pass each, so a viewport click is one raw event per rendered frame
+    (`click_at`), not `drag_at`/`drop_at`; an egui widget needs only
+    `get_by_label("arm").click()` + `step()`.
+  - kittest cannot drag a tree row onto another: `tree_reparent` reparents
+    through the command API and only draws the result. A synthetic drag
+    (press, `PointerMoved` in steps, release) does work for a one-off check.
+  - Fields are found by their label (`labelled_by`): `get_all_by_label("x")
+    .nth(0)` is the origin's x, `.nth(1)` the axis's; a `ComboBox` by
+    `Role::ComboBox`, its items by label once open; a closed combo does not
+    expose its selected text. Menus: `get_by_label("Window").click()`,
+    `step()`, then the item. A slider is set exactly through the AccessKit
+    `SetValue` action (`harness.event(AccessKitActionRequest { .. })` with
+    the node's `locate()`) — its accessibility rect spans the value box, so
+    a rail click is not exact; its value is read with
+    `NodeT::accesskit_node().numeric_value()`.
   - `settle()` pumps until `RiggenApp::settled()` — no camera animation, no
     pick in flight — has held for four frames.
   - Scenarios serialise on a global `Mutex`: parallel lavapipe devices at

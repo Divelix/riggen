@@ -15,6 +15,13 @@ below with the reason, so the same idea is not re-brainstormed.
 - Vertex welding + `is_closed` for STL (M3's mass properties need a closed mesh)
 - Meshes over 2^20 triangles: decimate at load or widen the pick id (loaders reject them today)
 - Async mesh loading via `jobs` (M0 loads synchronously on the UI thread)
+- Per-drop import-units dialog for mixed-unit batches (M1 has one app-wide setting, ADR-0006)
+- Open the Joints window automatically when a document has a movable joint (M1 hides it under Window › Joints; the by-hand run missed it)
+- Drag feedback in the link tree: a ghost of the row at the cursor and a grab cursor while reparenting (only the drop target highlights today)
+- `Reparent { keep_world_pose }` at the current `q`, not the zero configuration (needs `JointState` in the command; a drag with non-zero sliders jumps)
+- Clicking empty viewport space with a *joint* selected in the tree does not clear the selection
+- Rename a material from the materials table (the name is the key; links reference it by name)
+- `SetRoot` across a movable joint (refused today; M3 decides the pivot convention)
 
 ## Rejected
 

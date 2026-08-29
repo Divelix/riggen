@@ -40,6 +40,10 @@ scenarios pass on the CPU adapter; wasm target builds.
 
 *Goal: a two-link pendulum you can save, reopen, and swing.*
 
+**Status: done 2026-08-29, tag `m1`.** `Reparent { keep_world_pose }`
+landed here (drag in the tree); M2 wires it to the gizmo. Decisions:
+ADR-0005 (ids, joints as edges), ADR-0006 (drops, removal, import scale).
+
 - `riggen-core`: types of 02-data-model, `validate`, `fk`, snapshot
   `History`, `.riggen` v1 serde with relative mesh paths and content hash.
 - Link tree panel (add/remove/rename/reparent by drag), properties panel
@@ -68,7 +72,7 @@ under five minutes, without typing a coordinate.*
   of segments) so a bad fit is obvious.
 - Joint glyphs in the overlay: axis line, limit arc, origin triad; hover a
   joint in the tree → highlight it in 3D and vice versa.
-- Reparent with `keep_world_pose`.
+- `Reparent { keep_world_pose }` (M1) wired to the gizmo.
 - Snapshot tests for every gizmo/glyph state; iterate on this milestone with
   the snapshots open, not after.
 

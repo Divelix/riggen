@@ -19,14 +19,19 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**M0 done (2026-08-29, tag `m0`):** five-crate workspace with green CI,
-`riggen-mesh` (TriMesh, STL/OBJ loaders, AABB, ray/triangle), the viewport
-ported from `robocad-viewport` to glam (orbit camera, instance scene,
-ID-buffer picking, whole-instance hover/select), an eframe shell that opens
-files from the CLI, drag-and-drop and File › Open, and the `egui_kittest`
-snapshot suite with `debug_state()`. `riggen-core` / `riggen-export` are
-placeholders. **Next: M1** — document, tree, joints, FK (03-roadmap §M1);
-mass properties from `robocad-kernel/src/mass.rs` come with M3.
+**M1 done (2026-08-29, tag `m1`):** `riggen-core` holds the `Robot`
+document (ids as counters, joints as tree edges — ADR-0005), `validate`,
+`fk`, the command layer with snapshot `History`, and `.riggen` v1
+(relative mesh paths, content hash, `assets/fixtures/pendulum.riggen` as
+the corpus file). `riggen-app` owns one `Robot` and derives the viewport
+from it (`sync_scene`); link tree with drag-reparent, properties panel
+(degrees in, radians stored), joint sliders and materials windows, File /
+Edit menus with the unsaved-changes confirm, undo/redo. M0 as before:
+`riggen-mesh`, the ported viewport (now with per-instance colour and a
+fitted depth range), the `egui_kittest` suite. `riggen-export` is a
+placeholder. **Next: M2** — gizmos, snapping, circle fit, joint glyphs
+(03-roadmap §M2); mass properties from `robocad-kernel/src/mass.rs` come
+with M3.
 
 ## Rules that are not derivable from the code
 
