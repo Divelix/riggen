@@ -112,7 +112,9 @@
   },
   "ui": {
     "renaming": null,
-    "windows": []
+    "windows": [],
+    "modal": null,
+    "title": "pendulum.riggen — riggen"
   },
   "instances": [
     {

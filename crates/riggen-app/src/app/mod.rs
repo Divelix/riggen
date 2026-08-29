@@ -3,6 +3,7 @@
 
 mod document;
 mod file_io;
+mod file_menu;
 mod panels;
 mod shortcuts;
 mod status_bar;
@@ -16,6 +17,8 @@ use web_time::Instant;
 
 pub(crate) use document::LoadedMesh;
 pub use document::Selection;
+pub use file_menu::PendingAction;
+use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 
 /// The eframe app: one `Robot` and what is derived from it
@@ -48,6 +51,12 @@ pub struct RiggenApp {
     pub(crate) joints_window: JointsWindow,
     /// The materials table window and its in-progress edits.
     pub(crate) materials_window: MaterialsWindow,
+    /// New / Open / Quit waiting on the unsaved-changes answer.
+    pub(crate) pending: Option<PendingAction>,
+    /// Set once Quit (or the OS close button) passed the dirty check.
+    pub(crate) quit_confirmed: bool,
+    /// The title last pushed to the OS window.
+    pub(crate) last_title: Option<String>,
     pub(crate) viewport: Viewport,
     /// The next [`InstanceId`] to hand out. Never reused within a session.
     next_instance: u32,
@@ -73,6 +82,16 @@ impl RiggenApp {
             .as_ref()
             .expect("riggen-app requires eframe's wgpu backend");
         let viewport = Viewport::new(&render_state.device, render_state.target_format);
+        let import_scale = cc
+            .storage
+            .and_then(|s| s.get_string(IMPORT_SCALE_KEY))
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|s| {
+                IMPORT_UNITS
+                    .iter()
+                    .any(|(_, known)| (known - s).abs() < 1e-12)
+            })
+            .unwrap_or(Self::DEFAULT_IMPORT_SCALE);
 
         Self {
             robot: Robot::new("robot"),
@@ -83,11 +102,14 @@ impl RiggenApp {
             q: JointState::default(),
             selection: Selection::None,
             last_viewport_selected: None,
-            import_scale: Self::DEFAULT_IMPORT_SCALE,
+            import_scale,
             tree: TreeState::default(),
             props: PropertiesState::default(),
             joints_window: JointsWindow::default(),
             materials_window: MaterialsWindow::default(),
+            pending: None,
+            quit_confirmed: false,
+            last_title: None,
             viewport,
             next_instance: 0,
             status: None,
@@ -108,16 +130,7 @@ impl RiggenApp {
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("menu_bar").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Open…").clicked() {
-                        ui.close();
-                        self.open_dialog();
-                    }
-                    ui.separator();
-                    if ui.button("Quit").clicked() {
-                        ui.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                });
+                ui.menu_button("File", |ui| self.file_menu(ui));
                 ui.menu_button("Window", |ui| {
                     ui.checkbox(&mut self.joints_window.open, "Joints");
                     ui.checkbox(&mut self.materials_window.open, "Materials");
@@ -138,10 +151,16 @@ impl RiggenApp {
 }
 
 impl eframe::App for RiggenApp {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        storage.set_string(IMPORT_SCALE_KEY, self.import_scale.to_string());
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.tick_frame_clock();
+        self.handle_close_request(ui.ctx());
         self.handle_file_drops(ui.ctx());
         self.handle_shortcuts(ui.ctx());
+        self.update_title(ui.ctx());
 
         self.menu_bar(ui);
 
@@ -177,5 +196,9 @@ impl eframe::App for RiggenApp {
         // Windows float over everything, so they go last.
         self.joints_window(ui.ctx());
         self.materials_window(ui.ctx());
+        self.unsaved_changes_modal(ui.ctx());
+        if self.quit_confirmed {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
     }
 }

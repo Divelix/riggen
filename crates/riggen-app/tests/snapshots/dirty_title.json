@@ -80,7 +80,7 @@
   "document": {
     "file": "pendulum.riggen",
     "name": "pendulum",
-    "dirty": false,
+    "dirty": true,
     "import_scale": 1.0,
     "links": [
       {
@@ -92,7 +92,7 @@
       },
       {
         "id": "l5",
-        "name": "arm",
+        "name": "upper_arm",
         "parent_joint": "j6",
         "geoms": 1,
         "material": "PLA"
@@ -108,13 +108,13 @@
         "q": 0.0
       }
     ],
-    "selection": "link l5"
+    "selection": null
   },
   "ui": {
     "renaming": null,
     "windows": [],
     "modal": null,
-    "title": "pendulum.riggen — riggen"
+    "title": "pendulum.riggen* — riggen"
   },
   "instances": [
     {
@@ -180,10 +180,7 @@
   ],
   "selection": {
     "hovered": null,
-    "selected": {
-      "instance": 1,
-      "triangle": 0
-    }
+    "selected": null
   },
   "status": null,
   "viewport_rect": [

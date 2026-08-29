@@ -12,6 +12,21 @@ use crate::app::{RiggenApp, Selection};
 
 impl RiggenApp {
     pub(crate) fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        use egui::{Key, Modifiers};
+        // File shortcuts fire always, text field or not. The shifted
+        // pattern is matched before the bare one.
+        let cmd = Modifiers::COMMAND;
+        if ctx.input_mut(|i| i.consume_key(cmd | Modifiers::SHIFT, Key::S)) {
+            self.save_as_dialog();
+        } else if ctx.input_mut(|i| i.consume_key(cmd, Key::S)) {
+            self.save();
+        }
+        if ctx.input_mut(|i| i.consume_key(cmd, Key::N)) {
+            self.request_new();
+        }
+        if ctx.input_mut(|i| i.consume_key(cmd, Key::O)) {
+            self.request_open_dialog();
+        }
         // A focused text field owns Delete / F2 / letters.
         if text_field_focused(ctx) {
             return;

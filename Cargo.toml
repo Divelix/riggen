@@ -43,7 +43,9 @@ tobj = { version = "4", default-features = false, features = ["use_f64"] }
 # UI stack pinned together: egui/eframe/egui-wgpu 0.36.x from crates.io, wgpu
 # version dictated by egui-wgpu — never depend on a different wgpu (ADR-0001).
 egui = "0.36"
-eframe = "0.36"
+# `persistence`: the import-units choice (and egui's window layout) survive
+# a restart through eframe's storage.
+eframe = { version = "0.36", features = ["persistence"] }
 egui-wgpu = "0.36"
 # Headless egui test harness: drives a real `eframe::App`, renders through
 # wgpu (preferring a CPU adapter, so local and CI agree) and diffs the result

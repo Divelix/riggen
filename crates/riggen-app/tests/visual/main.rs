@@ -992,3 +992,209 @@ fn materials_table_edits() {
         );
     });
 }
+
+/// A fresh, empty directory under the OS temp dir for a save test.
+fn scratch_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("riggen-app-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// The dirty marker: after an edit the title and the status bar both
+/// carry the `*`.
+#[test]
+fn dirty_title() {
+    scenario("dirty_title", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        assert_eq!(app.window_title(), "pendulum.riggen — riggen");
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        app.apply(Command::RenameLink(arm, "upper_arm".into()))
+            .unwrap();
+        app.fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert!(state.document.dirty);
+        assert_eq!(state.ui.title, "pendulum.riggen* — riggen");
+        assert_eq!(state.ui.modal, None);
+    });
+}
+
+/// The unsaved-changes confirm: New on a dirty document shows the modal
+/// with Save / Don't save / Cancel and touches nothing yet.
+#[test]
+fn unsaved_confirm() {
+    scenario("unsaved_confirm", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        open_link(app, "cube.obj");
+        app.request_new();
+        app.fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.ui.modal, Some("unsaved_changes"));
+        assert_eq!(
+            harness.state().pending_action(),
+            Some(&riggen_app::PendingAction::New)
+        );
+        assert_eq!(state.document.links.len(), 3, "nothing happened yet");
+        harness.get_by_label("Save");
+        harness.get_by_label("Don't save");
+        harness.get_by_label("Cancel");
+    });
+}
+
+/// Save → reopen → the same document, clean; then the confirm's three
+/// answers: Cancel keeps everything, Don't save runs the action, Save
+/// writes the file first. The OS close request takes the same path.
+#[test]
+fn save_reopen_and_confirm_answers() {
+    with_app(|harness| {
+        let dir = scratch_dir("save_reopen");
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        app.apply(Command::RenameLink(arm, "upper_arm".into()))
+            .unwrap();
+        assert!(app.history().is_dirty());
+
+        // Save As (through the API; the dialog is the only other route).
+        let file = dir.join("copy");
+        assert!(app.save_to(&file), "{:?}", app.debug_state().status);
+        let file = dir.join("copy.riggen");
+        assert!(file.exists(), "the extension is added");
+        assert!(!app.history().is_dirty());
+        assert_eq!(app.window_title(), "copy.riggen — riggen");
+        assert_eq!(
+            app.debug_state().status.as_deref(),
+            Some("saved copy.riggen")
+        );
+        let saved = app.robot().clone();
+
+        // New (clean, no confirm) then reopen: equal and clean.
+        app.request_new();
+        assert_eq!(app.robot().links.len(), 1);
+        assert_eq!(app.window_title(), "untitled — riggen");
+        app.open_path(&file).expect("reopen");
+        assert_eq!(app.robot(), &saved);
+        assert!(!app.history().is_dirty());
+        assert_eq!(app.debug_state().instances.len(), 2);
+
+        // Dirty again; Cancel keeps the document and the pending action.
+        app.apply(Command::RenameLink(arm, "arm".into())).unwrap();
+        app.request_new();
+        assert_eq!(app.pending_action(), Some(&riggen_app::PendingAction::New));
+        harness.step();
+        harness.get_by_label("Cancel").click();
+        harness.step();
+        let app = harness.state();
+        assert_eq!(app.pending_action(), None);
+        assert_eq!(app.robot().links.len(), 2);
+        assert!(app.history().is_dirty());
+
+        // Save answer: the file is rewritten, then the action runs.
+        harness.state_mut().request_new();
+        harness.step();
+        harness.get_by_label("Save").click();
+        harness.step();
+        let app = harness.state();
+        assert_eq!(app.pending_action(), None);
+        assert_eq!(app.robot().links.len(), 1, "New ran after the save");
+        let (reloaded, _) = riggen_core::load(&file).unwrap();
+        assert_eq!(reloaded.links[&arm].name, "arm");
+
+        // Don't save: a dropped .riggen replaces the dirty document.
+        let app = harness.state_mut();
+        open_link(app, "cube.obj");
+        assert!(app.history().is_dirty());
+        app.request_open(vec![file.clone()]);
+        assert!(matches!(
+            app.pending_action(),
+            Some(riggen_app::PendingAction::Open(Some(_)))
+        ));
+        harness.step();
+        harness.get_by_label("Don't save").click();
+        harness.step();
+        let app = harness.state();
+        assert_eq!(app.file(), Some(&file));
+        assert_eq!(app.robot().links.len(), 2);
+        assert!(!app.history().is_dirty());
+
+        // Meshes alone never ask.
+        let app = harness.state_mut();
+        app.request_open(vec![fixture("cube.obj")]);
+        assert_eq!(app.pending_action(), None);
+        assert_eq!(app.robot().links.len(), 3);
+
+        // Quit on a dirty document waits for the answer; Don't save agrees
+        // to close.
+        app.request_quit();
+        assert!(!app.quit_confirmed());
+        assert_eq!(app.pending_action(), Some(&riggen_app::PendingAction::Quit));
+        harness.step();
+        harness.get_by_label("Don't save").click();
+        harness.step();
+        assert!(harness.state().quit_confirmed());
+    });
+}
+
+/// Ctrl+S saves a titled document even while a text field has focus;
+/// Ctrl+N asks first when dirty.
+#[test]
+fn file_shortcuts() {
+    with_app(|harness| {
+        let dir = scratch_dir("shortcuts");
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let file = dir.join("keys.riggen");
+        assert!(app.save_to(&file));
+        open_link(app, "cube.obj");
+        assert!(app.history().is_dirty());
+        settle(harness);
+
+        // Focus the name field of the selected link (a text field).
+        harness.get_by_label("cube").click();
+        harness.step();
+        harness.get_by_label("name").focus();
+        harness.step();
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+        harness.step();
+        let app = harness.state();
+        assert!(
+            !app.history().is_dirty(),
+            "Ctrl+S saved with a text field focused"
+        );
+        assert_eq!(riggen_core::load(&file).unwrap().0.links.len(), 3);
+
+        let last = *harness.state().robot().links.keys().last().unwrap();
+        harness
+            .state_mut()
+            .apply(Command::RenameLink(last, "block".into()))
+            .unwrap();
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);
+        harness.step();
+        assert_eq!(
+            harness.state().pending_action(),
+            Some(&riggen_app::PendingAction::New)
+        );
+    });
+}
