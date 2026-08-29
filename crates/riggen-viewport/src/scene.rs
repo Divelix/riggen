@@ -49,6 +49,18 @@ pub trait InstancePayload: Sized {
 /// Linear RGBA, multiplied by the shader's lighting.
 pub const DEFAULT_INSTANCE_COLOR: [f32; 4] = [0.55, 0.65, 0.78, 1.0];
 
+/// Which pass draws an instance. Opaque instances draw first and write
+/// depth; translucent ones draw after every opaque one, alpha-blended and
+/// depth-tested without writing depth, and the pick pass skips them — a
+/// collision hull over a part must not steal the part's clicks
+/// (docs/01-architecture.md §Frame loop).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RenderGroup {
+    #[default]
+    Opaque,
+    Translucent,
+}
+
 /// One instance: its uploaded payload, where it sits, and whether it draws.
 pub struct InstanceEntry<M> {
     pub key: InstanceId,
@@ -59,6 +71,7 @@ pub struct InstanceEntry<M> {
     /// Linear RGBA; the material tint.
     pub color: [f32; 4],
     pub visible: bool,
+    pub group: RenderGroup,
     /// Model-space bounds, kept so zoom-to-fit never needs the CPU
     /// positions back.
     pub bounds: Option<Aabb>,
@@ -117,6 +130,7 @@ impl<M: InstancePayload> Scene<M> {
             model: DMat4::IDENTITY,
             color: DEFAULT_INSTANCE_COLOR,
             visible: true,
+            group: RenderGroup::default(),
             bounds,
         });
         Ok(())
@@ -161,6 +175,18 @@ impl<M> Scene<M> {
         match self.instances.iter_mut().find(|e| e.key == id) {
             Some(entry) => {
                 entry.color = color;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Moves an instance between the opaque and translucent passes. No
+    /// upload. `false` if `id` is not in the scene.
+    pub fn set_group(&mut self, id: InstanceId, group: RenderGroup) -> bool {
+        match self.instances.iter_mut().find(|e| e.key == id) {
+            Some(entry) => {
+                entry.group = group;
                 true
             }
             None => false,
@@ -347,6 +373,26 @@ mod tests {
         assert_eq!(entry.slot, slot);
         assert_eq!(entry.mesh.slot, slot);
         assert_eq!(entry.mesh.triangles, 2, "but the new mesh did land");
+    }
+
+    #[test]
+    fn group_is_bookkeeping_that_survives_a_reupload() {
+        let ctx = Uploads::default();
+        let mut scene = scene_of(&ctx, 2);
+        assert_eq!(scene.get(InstanceId(1)).unwrap().group, RenderGroup::Opaque);
+        assert!(scene.set_group(InstanceId(1), RenderGroup::Translucent));
+        assert!(!scene.set_group(InstanceId(9), RenderGroup::Translucent));
+        scene
+            .set_instance(&ctx, InstanceId(1), &two_triangles())
+            .unwrap();
+        assert_eq!(
+            scene.get(InstanceId(1)).unwrap().group,
+            RenderGroup::Translucent
+        );
+        assert_eq!(ctx.0.get(), 3, "the group change uploaded nothing");
+        // Still in the visible order: the translucent pass draws from the
+        // same list, after the opaque one.
+        assert_eq!(scene.visible().count(), 2);
     }
 
     #[test]

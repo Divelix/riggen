@@ -17,6 +17,7 @@ use crate::PickHit;
 use crate::camera::{OrbitCamera, Projection, StandardView};
 use crate::gpu_mesh::{AxesTriadMesh, GpuMesh, PickVertex, Vertex};
 use crate::overlay::{Overlay, OverlayItem};
+use crate::scene::RenderGroup;
 use crate::scene::{InstanceId, Scene, SceneFull};
 
 use gpu_state::{
@@ -88,6 +89,7 @@ pub struct InstanceState {
     pub model: DMat4,
     /// Linear RGBA tint.
     pub color: [f32; 4],
+    pub group: RenderGroup,
 }
 
 /// Embeddable 3D viewport: owns the renderer, camera, scene and
@@ -179,6 +181,16 @@ impl Viewport {
             wgpu::CompareFunction::Less,
             true,
         );
+        // Same shader, blended over what the opaque pass left, never
+        // writing depth: translucent instances order among themselves by
+        // draw order, which is all a collision overlay needs.
+        let translucent_pipeline = build_highlight_pipeline(
+            device,
+            "riggen-viewport translucent pipeline",
+            &[&uniform_bind_group_layout, &models.layout],
+            include_str!("../shaders/scene.wgsl"),
+            target_format,
+        );
         let pick_pipeline = build_render_pipeline(
             device,
             "riggen-viewport pick pipeline",
@@ -239,6 +251,7 @@ impl Viewport {
                 device: device.clone(),
                 format: target_format,
                 scene_pipeline,
+                translucent_pipeline,
                 background_pipeline,
                 pick_pipeline,
                 hover_pipeline,
@@ -312,6 +325,16 @@ impl Viewport {
         self.scene.set_color(id, color)
     }
 
+    /// Moves an instance to the opaque or translucent pass. A translucent
+    /// instance is never picked, so a hover or selection on it is dropped.
+    pub fn set_instance_group(&mut self, id: InstanceId, group: RenderGroup) -> bool {
+        let changed = self.scene.set_group(id, group);
+        if changed && group == RenderGroup::Translucent {
+            self.forget_missing_picks();
+        }
+        changed
+    }
+
     pub fn has_instance(&self, id: InstanceId) -> bool {
         self.scene.contains(id)
     }
@@ -330,6 +353,7 @@ impl Viewport {
             bounds: entry.bounds,
             model: entry.model,
             color: entry.color,
+            group: entry.group,
         })
     }
 
@@ -916,6 +940,7 @@ impl Viewport {
                 .copy_from_slice(bytemuck::cast_slice(&entry.color));
             instances.push(InstanceBuffers {
                 model_offset: self.gpu.models.offset(i),
+                group: entry.group,
                 vertex_buffer: entry.mesh.vertex_buffer.clone(),
                 index_buffer: entry.mesh.index_buffer.clone(),
                 index_count: entry.mesh.index_count,
@@ -945,6 +970,7 @@ impl Viewport {
             axes_uniform_buffer: self.gpu.axes_uniform_buffer.clone(),
             axes_uniform_bind_group: self.gpu.axes_uniform_bind_group.clone(),
             scene_pipeline: self.gpu.scene_pipeline.clone(),
+            translucent_pipeline: self.gpu.translucent_pipeline.clone(),
             background_pipeline: self.gpu.background_pipeline.clone(),
             hover_pipeline: self.gpu.hover_pipeline.clone(),
             select_pipeline: self.gpu.select_pipeline.clone(),

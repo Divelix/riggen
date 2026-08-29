@@ -19,12 +19,15 @@ use std::path::PathBuf;
 
 use riggen_core::{GeomId, History, JointId, JointState, LinkId, MeshId, Pose, Robot};
 use riggen_viewport::{InstanceId, PickHit, Viewport};
+
+/// eframe storage key for View › Collision geometry.
+pub(crate) const SHOW_COLLISION_KEY: &str = "riggen.show_collision";
 use web_time::Instant;
 
 pub use align::{ALIGN_PROMPT, ALIGN_WRONG_LINK, align_transform, aligned_status};
 pub use debug_menu::COPIED_STATUS;
-pub(crate) use document::LoadedMesh;
 pub use document::Selection;
+pub(crate) use document::{CollisionSource, LoadedMesh};
 pub use file_menu::PendingAction;
 use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use gizmo::GizmoState;
@@ -48,6 +51,13 @@ pub struct RiggenApp {
     /// The viewport's instance per visual geom (docs/02-data-model.md
     /// §Geom): the only map between document and scene.
     instances: BTreeMap<(LinkId, GeomId), InstanceId>,
+    /// The translucent instance per collision shape, keyed by the link and
+    /// the shape's index in its resolved collision list; empty while View ›
+    /// Collision geometry is off. Beside each, what was uploaded for it.
+    collision_instances: BTreeMap<(LinkId, usize), (InstanceId, CollisionSource)>,
+    /// View › Collision geometry. Off by default, remembered through eframe
+    /// storage.
+    show_collision: bool,
     /// Current joint values — slider state, never saved.
     q: JointState,
     selection: Selection,
@@ -131,6 +141,10 @@ impl RiggenApp {
                     .any(|(_, known)| (known - s).abs() < 1e-12)
             })
             .unwrap_or(Self::DEFAULT_IMPORT_SCALE);
+        let show_collision = cc
+            .storage
+            .and_then(|s| s.get_string(SHOW_COLLISION_KEY))
+            .is_some_and(|s| s == "true");
 
         Self {
             robot: Robot::new("robot"),
@@ -138,6 +152,8 @@ impl RiggenApp {
             file: None,
             mesh_store: HashMap::new(),
             instances: BTreeMap::new(),
+            collision_instances: BTreeMap::new(),
+            show_collision,
             q: JointState::default(),
             selection: Selection::None,
             tool: Tool::default(),
@@ -180,6 +196,12 @@ impl RiggenApp {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| self.file_menu(ui));
                 ui.menu_button("Edit", |ui| self.edit_menu(ui));
+                ui.menu_button("View", |ui| {
+                    let mut show = self.show_collision;
+                    if ui.checkbox(&mut show, "Collision geometry").changed() {
+                        self.set_show_collision(show);
+                    }
+                });
                 ui.menu_button("Window", |ui| {
                     ui.checkbox(&mut self.joints_window.open, "Joints");
                     ui.checkbox(&mut self.materials_window.open, "Materials");
@@ -260,6 +282,7 @@ impl RiggenApp {
 impl eframe::App for RiggenApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         storage.set_string(IMPORT_SCALE_KEY, self.import_scale.to_string());
+        storage.set_string(SHOW_COLLISION_KEY, self.show_collision.to_string());
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

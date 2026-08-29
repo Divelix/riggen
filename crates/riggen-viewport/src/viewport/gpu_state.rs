@@ -38,6 +38,10 @@ pub struct GpuState {
     pub device: wgpu::Device,
     pub format: wgpu::TextureFormat,
     pub scene_pipeline: wgpu::RenderPipeline,
+    /// The scene shader again, alpha-blended and depth-tested without a
+    /// depth write: the pass every [`crate::RenderGroup::Translucent`]
+    /// instance draws in, after the opaque ones.
+    pub translucent_pipeline: wgpu::RenderPipeline,
     pub background_pipeline: wgpu::RenderPipeline,
     pub pick_pipeline: wgpu::RenderPipeline,
     pub hover_pipeline: wgpu::RenderPipeline,
@@ -165,6 +169,7 @@ pub struct OffscreenTarget {
 /// matrix in [`ModelUniforms`].
 pub struct InstanceBuffers {
     pub model_offset: u32,
+    pub group: crate::RenderGroup,
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub index_count: u32,

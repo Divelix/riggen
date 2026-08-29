@@ -209,7 +209,7 @@ agrees with our FK" — is retired by step 5, before any UI exists.
   warning). Tests: each fit of its own generator mesh returns the
   generator's numbers; MJCF `size` is half-extents / (radius,
   half-length) — pinned in a test because it is the classic mistake.
-- [ ] Step 9 — Viewport `RenderGroup::Translucent` + app collision
+- [x] Step 9 — Viewport `RenderGroup::Translucent` + app collision
   instances from the policy (`SameAsVisual` draws nothing extra; hulls and
   primitives draw as translucent instances) + View › Collision geometry
   toggle, off by default, remembered through eframe storage. Snapshots:

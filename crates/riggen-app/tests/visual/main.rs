@@ -105,6 +105,121 @@ fn hover_cube() {
     });
 }
 
+/// View › Collision geometry with every arm part on `ConvexHull`: a
+/// translucent orange hull over each part, drawn after the opaque pass. The
+/// toggle goes through the menu, as a user does it.
+#[test]
+fn collision_hull() {
+    scenario("collision_hull", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        let links: Vec<LinkId> = harness
+            .state()
+            .robot()
+            .links
+            .iter()
+            .filter(|(_, l)| !l.visuals.is_empty())
+            .map(|(id, _)| *id)
+            .collect();
+        for link in &links {
+            harness
+                .state_mut()
+                .apply(Command::SetCollision(
+                    *link,
+                    riggen_core::CollisionPolicy::ConvexHull,
+                ))
+                .unwrap();
+        }
+        assert_eq!(
+            harness.state().debug_state().instances.len(),
+            4,
+            "the view is off: visuals only"
+        );
+
+        harness.get_by_label("View").click();
+        harness.step();
+        harness.get_by_label("Collision geometry").click();
+        harness.step();
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert!(state.ui.collision_view);
+        let hulls: Vec<_> = state.instances.iter().filter(|i| i.collision).collect();
+        assert_eq!(hulls.len(), 4, "one hull per part");
+        assert_eq!(state.instances.len(), 8);
+        for hull in &hulls {
+            assert!(hull.link.is_some(), "a hull knows its link");
+            assert_eq!(hull.geom, None);
+            assert!(hull.triangles > 0);
+            assert!((hull.color[3] - 0.35).abs() < 1e-6, "translucent");
+        }
+        // Each hull sits exactly where its part sits.
+        for hull in &hulls {
+            let part = state
+                .instances
+                .iter()
+                .find(|i| !i.collision && i.link == hull.link)
+                .unwrap();
+            assert_eq!(hull.position, part.position);
+        }
+    });
+}
+
+/// A box bigger than the cube and a capsule beside it, as translucent
+/// primitives — and the cursor over the box still hovers the *cube*: the
+/// pick pass skips the translucent group.
+#[test]
+fn collision_primitives() {
+    scenario("collision_primitives", |harness| {
+        let cube = open_link(harness.state_mut(), "cube_binary.stl");
+        harness
+            .state_mut()
+            .apply(Command::SetCollision(
+                cube,
+                riggen_core::CollisionPolicy::Primitives(vec![
+                    riggen_core::Primitive::Box {
+                        pose: Pose::IDENTITY,
+                        size: DVec3::splat(1.5),
+                    },
+                    riggen_core::Primitive::Capsule {
+                        pose: Pose::from_translation(DVec3::new(1.5, 0.0, 0.0)),
+                        radius: 0.3,
+                        length: 1.0,
+                    },
+                ]),
+            ))
+            .unwrap();
+        harness.state_mut().set_show_collision(true);
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        let center = harness
+            .state()
+            .viewport_center()
+            .expect("viewport laid out");
+        harness.hover_at(center);
+        pump_rendered(harness, 8);
+
+        let state = harness.state().debug_state();
+        let translucent: Vec<u32> = state
+            .instances
+            .iter()
+            .filter(|i| i.collision)
+            .map(|i| i.id)
+            .collect();
+        assert_eq!(translucent.len(), 2);
+        let hovered = state.selection.hovered.expect("something under the cursor");
+        assert_eq!(
+            hovered.instance, 0,
+            "the cube, not the box around it: {hovered:?}"
+        );
+        assert!(!translucent.contains(&hovered.instance));
+    });
+}
+
 /// Selection restyle: click = select, and `PointerGone` leaves the frame
 /// showing selection alone rather than selection under a hover. The click
 /// selects the *link* owning the hit instance in the document.
