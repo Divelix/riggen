@@ -76,7 +76,7 @@ snapshot scenarios and the scripted `five_minute_arm` acceptance.
 
 ## Steps
 
-- [ ] Step 1 — `riggen-mesh`: `TriMesh::cylinder` / `tube`,
+- [x] Step 1 — `riggen-mesh`: `TriMesh::cylinder` / `tube`,
   `stl::write_binary`, `feature::{adjacency, grow_region, fit_circle}`.
   Tests: a cylinder wall at random poses fits its axis within 1e-6 and
   its center on the axis; a tube's inner wall too (inward normals); a
