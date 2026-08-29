@@ -127,7 +127,7 @@ snapshot scenarios and the scripted `five_minute_arm` acceptance.
   = normal, origin = hit point; vertex / AABB / point: origin only).
   `with_app` test on a generated boss: axis within 0.5°, origin on the
   axis within 1 mm, one history entry. Snapshot `place_joint_bore`.
-- [ ] Step 9 — Align tool: first click a feature on the selected link,
+- [x] Step 9 — Align tool: first click a feature on the selected link,
   second click a feature anywhere; point→point translates, circle→circle
   makes concentric (minimal rotation axis→axis, then center→center); one
   `SetJoint` on the link's parent joint via `origin_for_world`. Test on a

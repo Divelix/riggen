@@ -314,6 +314,9 @@ impl RiggenApp {
     pub fn select(&mut self, selection: Selection) {
         if selection != self.selection {
             self.props.clear();
+            // The align gesture is about the link that was selected when it
+            // started; selecting another abandons it.
+            self.cancel_align();
         }
         self.selection = selection;
         let instance = match selection {

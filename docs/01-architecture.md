@@ -297,7 +297,10 @@ welded vertex cannot carry two triangles' ids; the shaded pass stays indexed.
 
 The pick pass runs on its own encoder after the scene pass, copies the 5×5
 pixel region around the cursor into a `MAP_READ` buffer and registers a
-`map_async`; a non-blocking `device.poll` at the top of the next
+`map_async`; a request still unanswered after `MAX_PICK_FRAMES` frames is
+abandoned and the memo cleared, because the readback is asynchronous and
+nothing guarantees it lands — a frame whose paint callback never ran would
+otherwise wedge hovering and selection for the rest of the session; a non-blocking `device.poll` at the top of the next
 `Viewport::ui` lets it resolve — the readback never stalls a frame. The hit
 nearest the cursor in the region wins (there is no B-Rep, so no vertex >
 edge > face ladder). At most one pick is in flight; a click's select pick
@@ -315,7 +318,9 @@ triangle is a readout only.
 `riggen_mesh::ray_triangle` (Möller–Trumbore, two-sided — the ID buffer has
 already chosen the triangle) recovers the exact hit point by intersecting
 `Viewport::cursor_ray` with that one triangle, taken into mesh space, so
-snap targets never need a spatial index. `app/snap.rs` builds the
+snap targets never need a spatial index. The 5×5 region means the named
+triangle can be the cursor's *neighbour*, and the exact ray then misses it
+by a pixel; its plane is the fallback. `app/snap.rs` builds the
 candidates and picks among them by a fixed ladder — **vertex > box >
 circle > point** — with the winner, its axis and its readout in
 `debug_state().snap`. Only the placement tools snap (`Tool::snaps`);
@@ -334,6 +339,19 @@ markers under the cursor while merely selecting would be noise.
   B-Rep, and it was the M2 risk item;
 - **point**: the ray/triangle hit itself, which always exists, with the
   triangle's normal for "axis = face normal".
+
+**Align** is the mouse-only route for a part that came out of CAD at the
+wrong origin: first click a feature on the **selected link**, second click
+a feature anywhere. Two circles are made concentric — the minimal rotation
+taking the first axis onto the second (the target axis is flipped first
+when that is the shorter way round, since a circle's axis has no preferred
+direction), about the first centre, then the centres together — and
+anything else is a plain point → point translation, because a vertex says
+nothing about orientation. The result is one `SetJoint` on the link's
+parent joint through `fk::origin_for_world`, so the link and its subtree
+move and the gesture costs one history entry. The pending first pick is
+drawn in magenta, not remembered silently, and a tool change or another
+selection abandons it.
 
 **Place joint** turns a candidate into one `MoveJointFrame` on the selected
 joint: the frame keeps its orientation and moves to the feature, and the
@@ -462,7 +480,7 @@ GUI is never entered from inside a Python call.
   `tree_reparent`, `properties_link`, `properties_joint`, `pendulum_swing`,
   `materials`, `toolbar`, `gizmo_move_link`, `gizmo_rotate_joint`,
   `glyph_revolute`, `glyph_prismatic`, `glyph_hover`, `snap_vertex`,
-  `snap_circle`, `place_joint_bore`,
+  `snap_circle`, `place_joint_bore`, `align_concentric`,
   `dirty_title`, `unsaved_confirm`, `debug_menu`, plus
   golden-less app tests including `build_pendulum_numerically`, the M1
   acceptance in executable form.

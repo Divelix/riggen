@@ -117,6 +117,17 @@ pub fn decide_pick(
     }
 }
 
+/// How many frames a pick may stay in flight before it is abandoned.
+///
+/// The readback is asynchronous and nothing *guarantees* it lands: a frame
+/// whose paint callback never executes (a lost surface, a headless harness
+/// whose logic pass was never rendered) leaves a request nobody will ever
+/// answer, and since at most one pick is in flight that wedges hovering and
+/// selection for the rest of the session. After this many `ui()` calls the
+/// request is dropped and the memo cleared, so the next hover asks again.
+/// Eight frames is well past the one or two a real readback takes.
+pub const MAX_PICK_FRAMES: u32 = 8;
+
 /// One in-flight ID-buffer readback. `result` is filled in by the
 /// `map_async` callback whenever wgpu gets around to it — never blocked on.
 /// Holds every pick id in `region`, row-major, so nearest-to-cursor can be
@@ -125,6 +136,8 @@ pub struct PendingPick {
     pub kind: PickKind,
     pub region: PickRegion,
     pub result: Arc<Mutex<Option<Vec<u32>>>>,
+    /// Frames this request has waited. See [`MAX_PICK_FRAMES`].
+    pub age: u32,
 }
 
 /// Resolves a mapped-back pick region to the `(slot, triangle)` nearest
