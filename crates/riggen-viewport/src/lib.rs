@@ -3,6 +3,7 @@
 
 mod camera;
 mod gpu_mesh;
+mod overlay;
 pub mod pick_id;
 mod scene;
 mod viewport;
@@ -12,6 +13,7 @@ pub use camera::{
     shortest_angular_delta,
 };
 pub use gpu_mesh::{AxesTriadMesh, ColorVertex, GpuMesh, PickVertex, Vertex};
+pub use overlay::{Overlay, OverlayItem};
 pub use scene::{
     DEFAULT_INSTANCE_COLOR, InstanceEntry, InstanceId, InstancePayload, MAX_INSTANCES, Scene,
     SceneFull,

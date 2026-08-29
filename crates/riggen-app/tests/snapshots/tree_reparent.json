@@ -232,6 +232,30 @@
     }
   },
   "gizmo": null,
+  "glyphs": [
+    {
+      "joint": "j6",
+      "name": "hinge",
+      "kind": "Revolute",
+      "origin": [
+        0.0,
+        0.0,
+        0.5
+      ],
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "size": 0.866025,
+      "q": 0.0,
+      "screen": [
+        554.493408,
+        404.2117
+      ],
+      "active": false
+    }
+  ],
   "status": null,
   "viewport_rect": [
     240.0,

@@ -1086,6 +1086,107 @@ fn gizmo_drag_on_a_joint_moves_only_the_pivot() {
     });
 }
 
+/// A revolute joint's glyph: axis segment through the pivot, origin triad,
+/// the limit arc and the tick at the current `q`. The hinge is selected, so
+/// it is drawn hot.
+#[test]
+fn glyph_revolute() {
+    scenario("glyph_revolute", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.set_joint_value(hinge, 30f64.to_radians());
+        app.select(Selection::Joint(hinge));
+        app.fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        let glyph = &state.glyphs[0];
+        assert_eq!(glyph.name, "hinge");
+        assert_eq!(glyph.kind, "Revolute");
+        // The pivot is the parent's frame composed with the origin, and it
+        // does not move with `q`.
+        assert_eq!(glyph.origin, [0.0, 0.0, 0.5]);
+        assert_eq!(glyph.axis, [0.0, 1.0, 0.0]);
+        assert!(glyph.active);
+        assert!(glyph.screen.is_some());
+    });
+}
+
+/// The same joint made prismatic: the arc becomes a travel segment with end
+/// stops and a tick at `q`, and the arm has slid a quarter metre up.
+#[test]
+fn glyph_prismatic() {
+    scenario("glyph_prismatic", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        let mut joint = app.robot().joints[&hinge].clone();
+        joint.kind = riggen_core::JointKind::Prismatic;
+        joint.axis = DVec3::Z;
+        joint.limits = Some(riggen_core::Limits {
+            lower: -0.5,
+            upper: 0.5,
+            effort: 10.0,
+            velocity: 3.0,
+        });
+        app.apply(Command::SetJoint(hinge, joint)).unwrap();
+        app.set_joint_value(hinge, 0.25);
+        app.fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        let glyph = &state.glyphs[0];
+        assert_eq!(glyph.kind, "Prismatic");
+        assert_eq!(glyph.axis, [0.0, 0.0, 1.0]);
+        assert_eq!(glyph.q, 0.25);
+        assert!(!glyph.active, "nothing is selected");
+        // The arm rode along: its geom was 0.5 above the link frame.
+        assert_eq!(state.instances[1].position, [0.0, 0.0, 1.25]);
+    });
+}
+
+/// Which joints get a glyph (plans/m2-placement-ux OPEN 4) and how big it
+/// is: every movable one plus the selected one, sized from the child link's
+/// own bounds.
+#[test]
+fn glyphs_cover_movable_joints_and_the_selection() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        let hinge = *app.robot().joints.keys().next().unwrap();
+
+        // One movable joint, one glyph, and its size is the arm cube's
+        // half-diagonal.
+        let glyphs = app.joint_glyphs();
+        assert_eq!(glyphs.len(), 1);
+        assert!(
+            (glyphs[0].size - 0.75f64.sqrt()).abs() < 1e-9,
+            "sized from the child's bounds: {}",
+            glyphs[0].size
+        );
+        assert!((glyphs[0].axis.length() - 1.0).abs() < 1e-12);
+
+        // Fixed and unselected: no glyph.
+        let mut joint = app.robot().joints[&hinge].clone();
+        joint.kind = riggen_core::JointKind::Fixed;
+        joint.limits = None;
+        app.apply(Command::SetJoint(hinge, joint)).unwrap();
+        assert!(app.joint_glyphs().is_empty());
+
+        // Fixed and selected: a glyph, drawn hot, without a limit arc.
+        app.select(Selection::Joint(hinge));
+        let glyphs = app.joint_glyphs();
+        assert_eq!(glyphs.len(), 1);
+        assert_eq!(app.active_joint(), Some(hinge));
+        assert!(app.debug_state().glyphs[0].active);
+    });
+}
+
 /// The materials table over the pendulum: base_link is aluminium and arm
 /// is PLA, and the viewport tints each cube with its material colour.
 #[test]

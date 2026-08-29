@@ -106,7 +106,7 @@ snapshot scenarios and the scripted `five_minute_arm` acceptance.
   If the crate fights the ID buffer or the bridging is worse than a
   gizmo of our own, the ADR says so and the step builds the own one
   (OPEN 3).
-- [ ] Step 5 — `riggen-viewport::Overlay`, `project`, `cursor_ray`; app
+- [x] Step 5 — `riggen-viewport::Overlay`, `project`, `cursor_ray`; app
   joint glyphs: axis segment sized from the child's AABB (fallback: scene
   radius), origin triad, revolute limit arc with a tick at the current
   `q`, prismatic limit segment; drawn for movable joints and the selected

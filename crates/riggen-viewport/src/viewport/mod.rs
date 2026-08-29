@@ -11,11 +11,12 @@ use web_time::Instant;
 
 use egui_wgpu::wgpu;
 use riggen_mesh::glam::{DMat4, DVec3, Mat4};
-use riggen_mesh::{Aabb, TriMesh};
+use riggen_mesh::{Aabb, Ray, TriMesh};
 
 use crate::PickHit;
 use crate::camera::{OrbitCamera, Projection, StandardView};
 use crate::gpu_mesh::{AxesTriadMesh, GpuMesh, PickVertex, Vertex};
+use crate::overlay::{Overlay, OverlayItem};
 use crate::scene::{InstanceId, Scene, SceneFull};
 
 use gpu_state::{
@@ -101,6 +102,9 @@ pub struct Viewport {
     pub camera: OrbitCamera,
     hovered: Option<PickHit>,
     selected: Option<PickHit>,
+    /// World-space primitives drawn over the scene after the paint
+    /// callback (`overlay.rs`). Rebuilt by the app every frame.
+    overlay: Overlay,
     /// While `true` the viewport ignores the pointer entirely: no camera
     /// input, no picking. The app sets it while the gizmo owns the cursor
     /// (ADR-0007) — the gizmo's own widget is registered after the viewport
@@ -249,6 +253,7 @@ impl Viewport {
             camera: OrbitCamera::default(),
             hovered: None,
             selected: None,
+            overlay: Overlay::default(),
             input_suppressed: false,
             pending_pick: None,
             last_pick: None,
@@ -396,6 +401,43 @@ impl Viewport {
             self.camera
                 .animate_frame_bounds(center.as_vec3(), radius as f32);
         }
+    }
+
+    /// Replaces what is drawn over the scene next frame.
+    pub fn set_overlay(&mut self, overlay: Overlay) {
+        self.overlay = overlay;
+    }
+
+    pub fn overlay(&self) -> &Overlay {
+        &self.overlay
+    }
+
+    /// The world-space ray through `pos` (egui logical points), from the
+    /// near plane into the scene.
+    ///
+    /// `f64`, and from the inverse view-projection rather than from the
+    /// camera basis, so it is right in both projections: under an
+    /// orthographic camera the ray's origin moves with the cursor and its
+    /// direction does not, which a basis-and-fov construction gets wrong.
+    /// `dir` is unit length.
+    pub fn cursor_ray(&self, pos: egui::Pos2) -> Option<Ray> {
+        let rect = self.last_rect?;
+        if rect.width() <= 0.0 || rect.height() <= 0.0 {
+            return None;
+        }
+        let aspect = rect.width() / rect.height();
+        let inverse = self.camera.view_proj(aspect).as_dmat4().inverse();
+        let ndc_x = ((pos.x - rect.min.x) / rect.width()) as f64 * 2.0 - 1.0;
+        let ndc_y = 1.0 - ((pos.y - rect.min.y) / rect.height()) as f64 * 2.0;
+        // wgpu clip depth is [0, 1]: 0 is the near plane (ADR-0001).
+        let unproject = |depth: f64| {
+            let p = inverse * riggen_mesh::glam::DVec4::new(ndc_x, ndc_y, depth, 1.0);
+            (p.w != 0.0).then(|| p.truncate() / p.w)
+        };
+        let near = unproject(0.0)?;
+        let far = unproject(1.0)?;
+        let dir = (far - near).normalize_or_zero();
+        (dir != DVec3::ZERO).then_some(Ray { origin: near, dir })
     }
 
     /// Whether the pointer is ignored this frame (see `input_suppressed`).
@@ -624,6 +666,88 @@ impl Viewport {
         changed
     }
 
+    /// Projects and strokes every overlay item. Items whose points are all
+    /// off screen (behind the camera, outside the depth range) are dropped;
+    /// a polyline is split so a partly visible one still draws its visible
+    /// run rather than vanishing.
+    fn paint_overlay(&self, ui: &egui::Ui, rect: egui::Rect) {
+        if self.overlay.is_empty() {
+            return;
+        }
+        let painter = ui.painter().with_clip_rect(rect);
+        let stroke_path = |points: &[DVec3], color: egui::Color32, width: f32| {
+            let mut run: Vec<egui::Pos2> = Vec::with_capacity(points.len());
+            for p in points {
+                match self.project(*p) {
+                    Some(screen) => run.push(screen),
+                    None => {
+                        if run.len() > 1 {
+                            painter.add(egui::Shape::line(
+                                std::mem::take(&mut run),
+                                egui::Stroke::new(width, color),
+                            ));
+                        } else {
+                            run.clear();
+                        }
+                    }
+                }
+            }
+            if run.len() > 1 {
+                painter.add(egui::Shape::line(run, egui::Stroke::new(width, color)));
+            }
+        };
+
+        for item in &self.overlay.items {
+            match item {
+                OverlayItem::Segment {
+                    from,
+                    to,
+                    color,
+                    width,
+                } => stroke_path(&[*from, *to], *color, *width),
+                OverlayItem::Polyline {
+                    points,
+                    color,
+                    width,
+                } => stroke_path(points, *color, *width),
+                OverlayItem::Arc {
+                    center,
+                    axis,
+                    start,
+                    radius,
+                    sweep,
+                    color,
+                    width,
+                } => stroke_path(
+                    &OverlayItem::arc_points(*center, *axis, *start, *radius, *sweep),
+                    *color,
+                    *width,
+                ),
+                OverlayItem::Point { at, radius, color } => {
+                    if let Some(screen) = self.project(*at) {
+                        painter.circle_filled(screen, *radius, *color);
+                    }
+                }
+                OverlayItem::Label {
+                    at,
+                    text,
+                    color,
+                    offset,
+                } => {
+                    if let Some(screen) = self.project(*at) {
+                        painter.text(
+                            screen + *offset,
+                            egui::Align2::LEFT_BOTTOM,
+                            text,
+                            egui::FontId::proportional(12.0),
+                            *color,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     /// Allocates the viewport rect, handles camera input and picking, and
     /// enqueues the paint callback. Call once per frame inside the central
     /// panel.
@@ -821,6 +945,8 @@ impl Viewport {
         };
         ui.painter()
             .add(egui_wgpu::Callback::new_paint_callback(rect, callback));
+
+        self.paint_overlay(ui, rect);
 
         // The projection label is render state a snapshot should show, so
         // it stays in the viewport corner; the wall-clock frame-time

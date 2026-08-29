@@ -1,26 +1,26 @@
 {
   "camera": {
     "eye": [
-      2.383198,
-      -2.383198,
-      2.341231
+      2.886519,
+      -2.670013,
+      2.620834
     ],
     "target": [
+      0.216506,
       0.0,
-      0.0,
-      0.5
+      0.558013
     ],
     "up": [
       -0.339005,
       0.339005,
       0.877583
     ],
-    "distance": 3.840495,
+    "distance": 4.302694,
     "yaw_deg": -45.0,
     "pitch_deg": 28.64789,
     "fov_y_deg": 45.0,
-    "near": 0.012247,
-    "far": 1224.744873,
+    "near": 0.013721,
+    "far": 1372.141479,
     "projection": "Perspective",
     "animating": false,
     "aspect": 0.960187,
@@ -44,9 +44,9 @@
         0.0
       ],
       [
-        0.0,
-        -0.438791,
-        -4.080207,
+        -0.153093,
+        -0.416306,
+        -4.704571,
         1.0
       ]
     ],
@@ -72,7 +72,7 @@
       [
         0.0,
         0.0,
-        -0.012248,
+        -0.013722,
         0.0
       ]
     ]
@@ -80,7 +80,7 @@
   "document": {
     "file": "pendulum.riggen",
     "name": "pendulum",
-    "dirty": true,
+    "dirty": false,
     "import_scale": 1.0,
     "links": [
       {
@@ -92,7 +92,7 @@
       },
       {
         "id": "l5",
-        "name": "upper_arm",
+        "name": "arm",
         "parent_joint": "j6",
         "geoms": 1,
         "material": "PLA"
@@ -105,17 +105,17 @@
         "kind": "Revolute",
         "parent": "l0",
         "child": "l5",
-        "q": 0.0
+        "q": 0.523599
       }
     ],
-    "selection": null
+    "selection": "joint j6"
   },
   "ui": {
     "tool": "Select",
     "renaming": null,
     "windows": [],
     "modal": null,
-    "title": "pendulum.riggen* — riggen"
+    "title": "pendulum.riggen — riggen"
   },
   "instances": [
     {
@@ -167,9 +167,9 @@
         ]
       ],
       "position": [
+        0.25,
         0.0,
-        0.0,
-        1.0
+        0.933013
       ],
       "color": [
         0.9,
@@ -199,13 +199,13 @@
         1.0,
         0.0
       ],
-      "size": 0.866025,
-      "q": 0.0,
+      "size": 1.087664,
+      "q": 0.523599,
       "screen": [
-        650.0,
-        450.000061
+        614.653076,
+        444.80838
       ],
-      "active": false
+      "active": true
     }
   ],
   "status": null,

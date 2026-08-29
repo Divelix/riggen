@@ -57,6 +57,8 @@ pub struct DebugState {
     pub selection: SelectionDebug,
     /// The transform gizmo, when one is drawn (ADR-0007).
     pub gizmo: Option<GizmoDebug>,
+    /// One entry per joint glyph the overlay drew, in joint id order.
+    pub glyphs: Vec<GlyphDebug>,
     /// The status bar's one-off message — a load error, a load summary.
     pub status: Option<String>,
     /// `[min_x, min_y, max_x, max_y]` of the viewport in egui logical points.
@@ -158,6 +160,31 @@ pub struct GizmoDebug {
     pub dragging: bool,
     /// Whether the gizmo owns the cursor, which suppresses viewport input.
     pub captured: bool,
+}
+
+/// One joint glyph: where its pivot and axis are, and how big it is drawn.
+///
+/// `screen` is the pivot through `Viewport::project` — the same projection
+/// the overlay strokes with, so a glyph that is drawn in the wrong place
+/// shows up here as a number rather than as a picture one has to measure.
+#[derive(Debug, Clone, Serialize)]
+pub struct GlyphDebug {
+    pub joint: String,
+    pub name: String,
+    pub kind: String,
+    /// The pivot in world coordinates: `world(parent) ∘ origin`.
+    pub origin: [f64; 3],
+    /// The joint axis in world coordinates, unit length.
+    pub axis: [f64; 3],
+    /// Half-length of the axis segment; every other measure is a fraction
+    /// of it.
+    pub size: f64,
+    /// Current joint value, radians or meters.
+    pub q: f64,
+    /// Where the pivot lands in the viewport, in egui points.
+    pub screen: Option<[f64; 2]>,
+    /// Drawn brighter and thicker: the selected (later also hovered) joint.
+    pub active: bool,
 }
 
 /// One viewport instance: identity, visibility, size and where it is.
@@ -264,6 +291,37 @@ impl RiggenApp {
             selection: SelectionDebug {
                 hovered: self.viewport.hovered().map(HitDebug::from),
                 selected: self.viewport.selected().map(HitDebug::from),
+            },
+            glyphs: {
+                let active = self.active_joint();
+                self.joint_glyphs()
+                    .into_iter()
+                    .map(|glyph| GlyphDebug {
+                        joint: glyph.joint.to_string(),
+                        name: robot
+                            .joints
+                            .get(&glyph.joint)
+                            .map(|j| j.name.clone())
+                            .unwrap_or_default(),
+                        kind: format!("{:?}", glyph.kind),
+                        origin: [
+                            round(glyph.pivot.t.x),
+                            round(glyph.pivot.t.y),
+                            round(glyph.pivot.t.z),
+                        ],
+                        axis: [
+                            round(glyph.axis.x),
+                            round(glyph.axis.y),
+                            round(glyph.axis.z),
+                        ],
+                        size: round(glyph.size),
+                        q: round(glyph.q),
+                        screen: self
+                            .project_world(glyph.pivot.t)
+                            .map(|p| [round32(p.x), round32(p.y)]),
+                        active: active == Some(glyph.joint),
+                    })
+                    .collect()
             },
             gizmo: self.gizmo_target().and_then(|target| {
                 let world = self.gizmo_world(target)?;

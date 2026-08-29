@@ -13,7 +13,8 @@ Python module links against, and they are where the tests that matter live.
 ├────────────────────────────────────────────────────────────────┤
 │  riggen-viewport  wgpu renderer via egui_wgpu callbacks:       │
 │                   instances, camera, ID-buffer picking,        │
-│                   overlays (axes triad, joint glyphs, frames)  │
+│                   project / cursor_ray, Overlay (world-space   │
+│                   segment, polyline, arc, point, label)        │
 ├──────────────────────────────┬─────────────────────────────────┤
 │  riggen-export               │  (riggen-py, v0.2)              │
 │  ResolvedRobot, MJCF + URDF  │  PyO3 over core + export        │
@@ -30,6 +31,15 @@ Python module links against, and they are where the tests that matter live.
       egui / eframe / wgpu appear ONLY in riggen-viewport and riggen-app
       glam is the one math library, re-exported by riggen-mesh
 ```
+
+The viewport owns the projection, so it owns the overlay: everything drawn
+on top of the scene — the joint glyphs, snap markers, readouts — arrives as
+world-space `OverlayItem`s and is projected through the same
+`camera.view_proj` the wgpu pass rasterized with, so an overlay cannot
+disagree with the geometry about where a point is. It is drawn with egui's
+painter after the paint callback and is **not** depth-tested; for a joint
+glyph inside a part that is the wanted behaviour. The viewport never sees a
+`Joint` — the app builds the items (`app/glyphs.rs`).
 
 `riggen-core` depends on `riggen-mesh` today only for the `glam` re-export
 (no geometry is stored in the document); M3 adds mass properties (a link's
@@ -167,6 +177,18 @@ closes.
   Align — in a popup frame floating over the viewport's top-left corner.
   Drawn *after* the viewport in the same layer, which is what gives it the
   pointer: egui's hit test prefers the widget registered last.
+- **Joint glyphs** (in the viewport): a joint has no geometry, so without
+  one it exists only in the tree and "which way does this hinge turn?" has
+  to be read off two number fields. Each glyph is an axis segment through
+  the **pivot** (`world(parent) ∘ origin`, which unlike the child link
+  frame has not slid away by `q`), an origin triad in the axes triad's
+  colours, and a limit arc (revolute; the full circle for `Continuous`) or
+  an offset travel segment with end stops (prismatic), each with a tick at
+  the current `q`. Sized from the child link's own world bounds, so a
+  glyph is the size of the part it belongs to; the scene radius, then one
+  metre, are the fallbacks. Drawn for every movable joint plus the
+  selected one whatever its kind (plans/m2-placement-ux OPEN 4) — every
+  weld in a big assembly would be noise.
 - **Properties** (right): a link's name, material, and per geom the pose
   (xyz m, RPY °), asset scale and fix-up, "Add mesh to this link…"; a
   joint's name, kind (limits appear with Revolute/Prismatic, defaulting to
@@ -200,6 +222,7 @@ closes.
 ```
 input ──► viewport.set_input_suppressed(gizmo owned the cursor last frame)
        ──► egui panels (tree, properties, joint sliders, status)
+       ──► viewport.set_overlay(joint glyphs, from the document and q)
        ──► viewport.ui ──► gizmo ──► toolbar   (registration order = pointer precedence)
        ──► gizmo / snapping / pick handling  ──► Commands ──► History ──► Robot
 Robot ──► fk(robot, q) ──► world pose per link
@@ -403,6 +426,7 @@ GUI is never entered from inside a Python call.
   `three_parts`, `pendulum`, `mm_scale_part`, `tree_pendulum`,
   `tree_reparent`, `properties_link`, `properties_joint`, `pendulum_swing`,
   `materials`, `toolbar`, `gizmo_move_link`, `gizmo_rotate_joint`,
+  `glyph_revolute`, `glyph_prismatic`,
   `dirty_title`, `unsaved_confirm`, `debug_menu`, plus
   golden-less app tests including `build_pendulum_numerically`, the M1
   acceptance in executable form.
