@@ -2771,6 +2771,10 @@ dependencies = [
 [[package]]
 name = "riggen-viewport"
 version = "0.1.0"
+dependencies = [
+ "riggen-mesh",
+ "web-time",
+]
 
 [[package]]
 name = "rustc-hash"

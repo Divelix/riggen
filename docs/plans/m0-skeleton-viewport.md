@@ -128,7 +128,7 @@ All present-tense text lands in the design docs at retirement; the deltas:
   12 triangles, same AABB as the STLs; `load_mesh(path)` dispatches on
   extension (case-insensitive) and returns `MeshError::UnsupportedFormat`
   otherwise.
-- [ ] Step 6 — `riggen-viewport::camera` ported to glam: `OrbitCamera`,
+- [x] Step 6 — `riggen-viewport::camera` ported to glam: `OrbitCamera`,
   `Projection`, `StandardView`, `ViewOrientation` (26-way, kept for the
   ViewCube later), `CameraAnimation`, `shortest_angular_delta`; `[0,1]`-depth
   projections, `OPENGL_TO_WGPU_MATRIX` gone, sketch fields gone. Test: the 19

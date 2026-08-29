@@ -5,3 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# `riggen_mesh::glam` is the math library; nothing here names glam directly
+# (docs/01-architecture.md §Crates).
+riggen-mesh.workspace = true
+web-time.workspace = true
