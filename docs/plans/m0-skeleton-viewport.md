@@ -105,7 +105,7 @@ All present-tense text lands in the design docs at retirement; the deltas:
   `startup.json` on lavapipe; show the human the PNG. Retires the
   "does kittest + eframe 0.36.1 + lavapipe work on this machine" unknown
   before any port code exists.
-- [ ] Step 3 — `riggen-mesh` core: `pub use glam`; `TriMesh { positions:
+- [x] Step 3 — `riggen-mesh` core: `pub use glam`; `TriMesh { positions:
   Vec<DVec3>, normals: Vec<DVec3>, indices: Vec<u32> }` with
   `triangle_count()`, `triangle(i) -> [DVec3; 3]`, `flat_normals()`,
   `validate()` (index range, non-multiple-of-3); `Aabb { min, max }` with
@@ -116,8 +116,9 @@ All present-tense text lands in the design docs at retirement; the deltas:
 - [ ] Step 4 — STL loader: `load_stl(path) -> Result<TriMesh, MeshError>`
   handling binary and ASCII (sniff: "solid" prefix *and* parseable facets, since
   some binary files start with "solid"), unwelded vertices, normals recomputed
-  from winding (file normals are unreliable), `MeshError` (`thiserror`-free
-  enum with `Display`). Fixtures in `assets/fixtures/`: `cube_binary.stl`,
+  from winding (file normals are unreliable), `MeshError` grows `Io` / `Parse`
+  variants (the enum itself landed in step 3 with the three `validate()`
+  variants; `thiserror`-free with `Display`). Fixtures in `assets/fixtures/`: `cube_binary.stl`,
   `cube_ascii.stl` (generated once by a test helper, committed, < 2 KB).
   Tests: both fixtures give 12 triangles, identical AABB, `validate()` ok;
   garbage bytes → error.
@@ -218,7 +219,11 @@ All present-tense text lands in the design docs at retirement; the deltas:
   earlier.**
 - Frame-time HUD location — **decided (human, 2026-08-29): status bar.**
   Landed in step 2 as the right-aligned readout behind `set_frame_hud_visible`.
-- ⚠ OPEN: Should `TriMesh` positions be `f32` from the start (a 1 M-triangle
-  unwelded STL is 72 MB at f64 vs 36 MB)? Plan assumes f64 per 02-data-model
-  ("f32 only past the GPU boundary"); mass properties in M3 want f64 anyway.
-  **Human, before step 3.**
+- `TriMesh` positions — **decided (human, 2026-08-29): f64**, per
+  02-data-model ("f32 only past the GPU boundary"); M3's mass properties want
+  it. The memory cost (72 MB per million unwelded triangles) is accepted.
+- Finding (step 3): `flat_normals()` **unwelds** — a vertex shared by two
+  faces cannot carry both their normals, and the pick pass needs per-corner
+  vertices anyway (step 7's `PickVertex`). STL is unwelded already; an OBJ
+  without normals gets tripled. `ray_triangle` is two-sided: the ID buffer
+  chose the triangle, the CPU test only recovers the point on it.
