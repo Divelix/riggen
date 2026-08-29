@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn inward_winding_is_folded_and_flagged() {
         let mut mesh = TriMesh::cube(0.5);
-        for tri in mesh.indices.chunks_exact_mut(3) {
+        for tri in mesh.indices.as_chunks_mut::<3>().0 {
             tri.swap(1, 2);
         }
         let inward = mass_properties(&mesh, DENSITY);

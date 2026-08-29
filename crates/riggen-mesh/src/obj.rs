@@ -51,14 +51,18 @@ pub(crate) fn parse_obj(bytes: &[u8], path: &Path) -> Result<TriMesh, MeshError>
         let base = mesh.positions.len() as u32;
         mesh.positions.extend(
             m.positions
-                .chunks_exact(3)
-                .map(|p| DVec3::new(p[0], p[1], p[2])),
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(|&[x, y, z]| DVec3::new(x, y, z)),
         );
         if m.normals.len() == m.positions.len() {
             mesh.normals.extend(
                 m.normals
-                    .chunks_exact(3)
-                    .map(|n| DVec3::new(n[0], n[1], n[2]).normalize_or_zero()),
+                    .as_chunks::<3>()
+                    .0
+                    .iter()
+                    .map(|&[x, y, z]| DVec3::new(x, y, z).normalize_or_zero()),
             );
         } else {
             all_have_normals = false;
