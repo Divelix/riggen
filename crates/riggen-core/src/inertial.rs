@@ -30,6 +30,12 @@ impl MeshLookup for BTreeMap<MeshId, TriMesh> {
     }
 }
 
+impl MeshLookup for BTreeMap<MeshId, std::sync::Arc<TriMesh>> {
+    fn mesh(&self, id: MeshId) -> Option<&TriMesh> {
+        self.get(&id).map(|m| &**m)
+    }
+}
+
 impl<T: MeshLookup> MeshLookup for &T {
     fn mesh(&self, id: MeshId) -> Option<&TriMesh> {
         (**self).mesh(id)

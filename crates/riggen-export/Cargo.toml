@@ -5,3 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# `TriMesh`, the STL writer and the hull: exported meshes are baked to
+# meters and written as binary STL (ADR-0008).
+riggen-mesh.workspace = true
+# `Robot`, `validate`, `fk` and `compose_inertial`: `resolve` reads the
+# document and the export CLI's `.riggen` loader is `riggen_core::load`.
+riggen-core.workspace = true
