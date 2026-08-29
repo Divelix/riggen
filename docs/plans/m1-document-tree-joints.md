@@ -215,7 +215,7 @@ hand-computed poses for a 3-joint chain.
   including the eframe `close_requested` / `CancelClose` path. Snapshots:
   `dirty_title` (status bar and title show the marker), `unsaved_confirm`
   (the modal). App test: save → reopen → `Robot` equal, `is_dirty` false.
-- [ ] Step 11 — Edit menu + shortcuts (`shortcuts.rs`): undo / redo /
+- [x] Step 11 — Edit menu + shortcuts (`shortcuts.rs`): undo / redo /
   delete with the ordering and text-focus rules above, `handle_shortcuts`
   called before the panels each frame. App tests: Ctrl+Shift+Z redoes and
   does not undo; Ctrl+Z inside a focused `TextEdit` leaves the document
@@ -409,6 +409,21 @@ Executable form, all green under `cargo test --workspace` on the CPU adapter:
     `save_to` adds the `.riggen` extension when missing. The dialogs
     (`open_dialog`, `save_as_dialog`, `add_mesh_dialog`) are the only
     untested paths — rfd needs a display.
+  - Step 11: the acceptance test surfaced that a dropped mesh's in-memory
+    path kept `crates/riggen-app/../../assets/…` (`std::path::absolute`
+    does not fold `..`) while `load` normalizes, so save → reopen was not
+    equal. `riggen_core::absolute` (absolute + lexical normalization) is
+    now the one way a path enters the document, used by `save`, `load`
+    and the app's registration. Harness facts: a slider is set exactly
+    through the AccessKit `SetValue` action (`harness.event(AccessKit
+    ActionRequest { .. })` with the node's `locate()`), because its
+    accessibility rect spans the value box too and a rail click is not
+    exact; a `ComboBox` is found by `Role::ComboBox`, its items by label
+    once open. Undo/redo: Ctrl+Shift+Z and Ctrl+Y before Ctrl+Z, all
+    after the text-field check; the Edit menu greys out what cannot run.
+    Executable acceptance: all green under `cargo test --workspace`. The
+    by-hand run (`cargo run -- assets/fixtures/pendulum.riggen`) is the
+    human's; its list goes to the backlog at retirement.
   - `validate` also checks material names (`InvalidName { kind:
     "material" }`) and that densities are finite and non-negative, so
     `UpsertMaterial` cannot smuggle an unexportable name into the table.

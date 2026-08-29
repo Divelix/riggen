@@ -131,12 +131,42 @@ impl RiggenApp {
         egui::Panel::top("menu_bar").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| self.file_menu(ui));
+                ui.menu_button("Edit", |ui| self.edit_menu(ui));
                 ui.menu_button("Window", |ui| {
                     ui.checkbox(&mut self.joints_window.open, "Joints");
                     ui.checkbox(&mut self.materials_window.open, "Materials");
                 });
             });
         });
+    }
+
+    /// Undo / Redo / Delete, greyed out when there is nothing to do.
+    fn edit_menu(&mut self, ui: &mut egui::Ui) {
+        if ui
+            .add_enabled(self.history.can_undo(), egui::Button::new("Undo"))
+            .clicked()
+        {
+            ui.close();
+            self.undo();
+        }
+        if ui
+            .add_enabled(self.history.can_redo(), egui::Button::new("Redo"))
+            .clicked()
+        {
+            ui.close();
+            self.redo();
+        }
+        ui.separator();
+        if ui
+            .add_enabled(
+                self.selection != Selection::None,
+                egui::Button::new("Delete"),
+            )
+            .clicked()
+        {
+            ui.close();
+            self.remove_selected();
+        }
     }
 
     /// `arm (i1/t120)`: the link and the instance/triangle the ID buffer

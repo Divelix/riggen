@@ -27,9 +27,19 @@ impl RiggenApp {
         if ctx.input_mut(|i| i.consume_key(cmd, Key::O)) {
             self.request_open_dialog();
         }
-        // A focused text field owns Delete / F2 / letters.
+        // A focused text field owns Delete / F2 / undo / redo: TextEdit's
+        // own editing history keeps working inside it.
         if text_field_focused(ctx) {
             return;
+        }
+        // Ctrl+Shift+Z before Ctrl+Z: egui matches modifiers logically, so
+        // the bare pattern would swallow the shifted one.
+        if ctx.input_mut(|i| i.consume_key(cmd | Modifiers::SHIFT, Key::Z))
+            || ctx.input_mut(|i| i.consume_key(cmd, Key::Y))
+        {
+            self.redo();
+        } else if ctx.input_mut(|i| i.consume_key(cmd, Key::Z)) {
+            self.undo();
         }
         let delete = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete));
         if delete {

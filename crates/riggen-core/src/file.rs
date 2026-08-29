@@ -128,6 +128,13 @@ impl fmt::Display for Warning {
     }
 }
 
+/// The absolute, lexically normalized form of `path` — what the document
+/// holds for every mesh path in memory. `std::path::absolute` alone keeps
+/// `a/../b`, and two spellings of one file would compare unequal.
+pub fn absolute(path: &Path) -> io::Result<PathBuf> {
+    std::path::absolute(path).map(|p| normalized(&p))
+}
+
 /// FNV-1a 64 — small, dependency-free, and a change anywhere in a mesh file
 /// flips it; not a security property.
 pub fn content_hash(bytes: &[u8]) -> u64 {
@@ -155,14 +162,14 @@ pub fn save(robot: &Robot, path: &Path) -> Result<(), FileError> {
         path: path.to_owned(),
         source,
     })?;
-    let path_abs = std::path::absolute(path).map_err(io)?;
+    let path_abs = absolute(path).map_err(io)?;
     let dir = path_abs.parent().unwrap_or(Path::new("/"));
 
     let mut on_disk = robot.clone();
     let referenced = robot.referenced_assets();
     on_disk.assets.retain(|id, _| referenced.contains(id));
     for asset in on_disk.assets.values_mut() {
-        let abs = std::path::absolute(&asset.path).map_err(io)?;
+        let abs = absolute(&asset.path).map_err(io)?;
         asset.path = relative_to(dir, &abs);
     }
 
@@ -203,7 +210,7 @@ pub fn load(path: &Path) -> Result<(Robot, Vec<Warning>), FileError> {
     let file: FileV1 = serde_json::from_str(&text).map_err(json)?;
     let mut robot = file.robot;
 
-    let path_abs = std::path::absolute(path).map_err(|source| FileError::Io {
+    let path_abs = absolute(path).map_err(|source| FileError::Io {
         path: path.to_owned(),
         source,
     })?;
@@ -559,5 +566,11 @@ mod tests {
         assert_eq!(normalized(Path::new("/a/./b/../c//d")), Path::new("/a/c/d"));
         assert_eq!(normalized(Path::new("/../a")), Path::new("/a"));
         assert_eq!(normalized(Path::new("../a")), Path::new("../a"));
+        // `absolute` folds `..` so two spellings of one file compare equal.
+        let here = std::env::current_dir().unwrap();
+        assert_eq!(
+            absolute(Path::new("sub/../x.stl")).unwrap(),
+            normalized(&here).join("x.stl")
+        );
     }
 }
