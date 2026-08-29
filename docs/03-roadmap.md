@@ -13,21 +13,28 @@ Spine: M0 → M1 → M2 → M3 → M4, then v0.2.
 
 *Goal: `riggen part.stl` opens a window with the part in it.*
 
+**Status: done 2026-08-29, tag `m0`.**
+
 - Workspace of 01-architecture; CI (fmt, clippy, test, wasm build check).
 - `riggen-mesh`: `TriMesh`, STL (binary + ASCII) and OBJ loaders, AABB,
   ray/triangle.
 - `riggen-viewport` ported from `robocad-viewport`: cgmath → glam, `BodyId`
-  → `InstanceId`, `RenderMesh` → `TriMesh`, `TopoRef` → `(InstanceId, tri)`,
-  sketch-plane code and edge/vertex pick passes removed. Camera, low-latency
-  surface config, hover/select restyle, axes triad, grid, zoom-to-fit kept.
-- `riggen-app`: eframe shell, file drop and `rfd` open, one instance per
-  dropped file, status bar with frame-time HUD.
+  → `InstanceId`, `RenderMesh` → `TriMesh`, `TopoRef` → `PickHit
+  (InstanceId, triangle)`, sketch-plane code, edge/vertex pick passes and
+  the face-outline pass removed. Camera, low-latency surface config,
+  whole-instance hover/select restyle, axes triad, gradient background,
+  zoom-to-fit kept. (robocad never had a ground grid or MSAA; both are
+  backlog items, not ports.)
+- `riggen-app`: eframe shell, CLI args, file drop and `rfd` open, one
+  instance per dropped file, File › Open/Quit menu, status bar with
+  frame-time HUD.
 - `egui_kittest` snapshot harness and `debug_state()` from day one.
 
-**Out:** any document; any panel beyond the status bar.
+**Out:** any document; any panel beyond the status bar and the File menu.
 
-**Accept:** drop three STLs → three orbitable, pickable parts; a `startup`
-snapshot test passes on the CPU adapter; wasm target builds.
+**Accept:** drop three STLs → three orbitable, pickable parts; the
+`startup`, `cube`, `hover_cube`, `select_cube`, `three_parts` snapshot
+scenarios pass on the CPU adapter; wasm target builds.
 
 ## M1 — Document, tree, joints, FK
 

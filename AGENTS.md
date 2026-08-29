@@ -19,11 +19,14 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**Pre-M0.** Design docs only; no code yet. M0 starts by porting
-`robocad-viewport`, `robocad-kernel/src/mass.rs`, the surviving
-`robocad-ui` panels and the `egui_kittest` harness from
-`~/Documents/code/pet/cad/robocad` (ADR-0001), swapping cgmath for glam in
-the process.
+**M0 done (2026-08-29, tag `m0`):** five-crate workspace with green CI,
+`riggen-mesh` (TriMesh, STL/OBJ loaders, AABB, ray/triangle), the viewport
+ported from `robocad-viewport` to glam (orbit camera, instance scene,
+ID-buffer picking, whole-instance hover/select), an eframe shell that opens
+files from the CLI, drag-and-drop and File › Open, and the `egui_kittest`
+snapshot suite with `debug_state()`. `riggen-core` / `riggen-export` are
+placeholders. **Next: M1** — document, tree, joints, FK (03-roadmap §M1);
+mass properties from `robocad-kernel/src/mass.rs` come with M3.
 
 ## Rules that are not derivable from the code
 
