@@ -3026,6 +3026,8 @@ version = "0.1.0"
 dependencies = [
  "riggen-core",
  "riggen-mesh",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
