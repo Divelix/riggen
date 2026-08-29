@@ -195,7 +195,7 @@ targets in CI — is retired first; README and polish come after.
   --git` per OPEN 1. CI and PyPI badges. `uvx twine check dist/*` passes on the sdist so the PyPI
   page renders. Snapshot: none (no UI change); the capture is checked by
   reading the PNG.
-- [ ] Step 7 — Acceptance and drift: the Acceptance block below green
+- [x] Step 7 — Acceptance and drift: the Acceptance block below green
   (the container half by the agent, the window half by the human on a
   clean VM), 01 read against the code with the discrepancy list emptied,
   the by-hand findings ("what was annoying installing and first-running
@@ -203,6 +203,12 @@ targets in CI — is retired first; README and polish come after.
   with sizes and the startup number. Then `/retire-plan`, tag `m4`; the
   `v0.1.0` tag and its push are the human's (git rules), and that push is
   the release.
+  *(2026-08-30: the local half of the Acceptance block is green — `uv
+  build`, the venv install, `test_wheel.py`, `cargo test --workspace`;
+  the `docker run … test.pypi.org` line waits for the TestPyPI dispatch;
+  the manylinux wheel was instead installed and run in `python:3.12-slim`
+  from a local file. Still the human's: the clean-VM window run, the
+  trusted publishers, the push, the dispatch, `/retire-plan`, tag `m4`.)*
 
 ## Acceptance
 

@@ -4,8 +4,8 @@ Native robot assembler for RL researchers: drop meshes, build the kinematic
 tree, place joints, compute inertials and collision geometry, export MJCF and
 URDF. Rust + egui/eframe + own wgpu viewport, shipped as a Python wheel.
 
-Read in this order: `SEED.md` (charter, competition, stack),
-`docs/01-architecture.md`, `docs/02-data-model.md`, `docs/03-roadmap.md`,
+Read in this order: `SEED.md` (charter, competition, stack), `README.md`
+(what the user sees: install, first run, the CLI), `docs/01-architecture.md`, `docs/02-data-model.md`, `docs/03-roadmap.md`,
 `docs/adr/`, then the rules in `.agents/rules/*.md` (git, docs lifecycle) —
 Claude Code loads them automatically via `.claude/rules`; any other agent
 reads them here. Skills for the idea → plan → work → retire pipeline live in
@@ -19,19 +19,20 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**M3 done (2026-08-29, tag `m3`):** the arm exports as MJCF and URDF from
-one `ResolvedRobot` (ADR-0004; ADR-0008: meshes baked to meters as STL,
-`fullinertia`, headless `riggen --export`); MuJoCo loads it with zero
-warnings and matches `fk` (`python/tests/test_mjcf_load.py`, the `mujoco`
-CI job); `urdf-rs` round-trips it. Inertials: `riggen_mesh::mass_properties`
-through `riggen_core::inertial` (three `InertialSpec` modes, `check`).
-Collision: hull, fitted primitives or imported `Meshes`, drawn translucent.
-Properties has Inertial and Collision blocks; File has Import URDF… and
-Export… (a modal listing every `ExportError`). `arm.riggen` / `arm.urdf`
-are the corpus. M2: the mouse-only arm (toolbar, gizmo, glyphs, snapping).
-M1: the `Robot` document, commands, history, `.riggen` v1, panels. M0:
-mesh, viewport, the `egui_kittest` suite (`visual-debug` skill).
-**Next: M4** — README, screencast, the wheel (ADR-0002).
+**M4 done (2026-08-30, tag `m4`):** `uv tool install riggen && riggen
+--example arm` (ADR-0002). Root `pyproject.toml`, maturin `bindings =
+"bin"`: the `riggen` binary sits in the wheel's `scripts/`, no console
+script; `python -m riggen` execs it. `--help` / `--version` (git hash via
+`build.rs`) / `--timing` / `--example arm`. `ci.yml` builds and smokes the
+linux wheel on every push; `release.yml` builds five targets + sdist,
+smokes each OS, publishes to TestPyPI on dispatch and PyPI + GitHub
+Release on a `v*` tag through trusted publishing. `README.md` is the user
+page and the PyPI page. M3: MJCF + URDF export from one `ResolvedRobot`
+(ADR-0004, ADR-0008), MuJoCo loads it clean and matches `fk`, URDF
+import, inertials, collision. M2: the mouse-only arm (toolbar, gizmo,
+glyphs, snapping). M1: the `Robot` document, commands, history, `.riggen`
+v1, panels. M0: mesh, viewport, the `egui_kittest` suite (`visual-debug`
+skill). **Next: v0.2** — the Python SDK (`riggen-py`, PyO3).
 
 ## Rules that are not derivable from the code
 
