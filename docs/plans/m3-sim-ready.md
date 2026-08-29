@@ -221,7 +221,7 @@ agrees with our FK" — is retired by step 5, before any UI exists.
   moments, "open mesh" in warning colour naming the geom). One
   `SetInertial` per commit. The status bar warns when a dropped mesh is
   open. Snapshots: `properties_inertial`, `properties_inertial_open_mesh`.
-- [ ] Step 11 — Properties › Collision: policy combo, primitives list with
+- [x] Step 11 — Properties › Collision: policy combo, primitives list with
   add (each kind, fitted to the link's geoms on creation) / remove / "Fit
   to mesh" / pose + size fields, `Meshes` shown read-only with its file
   names. One `SetCollision` per commit. Snapshot: `properties_collision`.

@@ -768,6 +768,88 @@ fn properties_inertial_open_mesh() {
     });
 }
 
+/// Properties › Collision on the pendulum's arm: the policy combo switched
+/// to Primitives starts with a box fitted to the cube, "+ Capsule" adds a
+/// capsule fitted the same way, each a single `SetCollision`; the shapes
+/// show translucent with the view on.
+#[test]
+fn properties_collision() {
+    scenario("properties_collision", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        harness.state_mut().set_show_collision(true);
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        harness.get_by_label("arm").click();
+        pump_rendered(harness, 4);
+        let depth = harness.state().history().undo_depth();
+        let arm = *harness
+            .state()
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .unwrap()
+            .0;
+
+        // material, inertial mode, collision policy: the third combo.
+        harness
+            .get_all_by_role(egui::accesskit::Role::ComboBox)
+            .nth(2)
+            .expect("the collision policy combo")
+            .click();
+        harness.step();
+        harness.get_by_label("Primitives").click();
+        harness.step();
+        harness.step();
+        let policy = harness.state().robot().links[&arm].collision.clone();
+        let riggen_core::CollisionPolicy::Primitives(prims) = &policy else {
+            panic!("{policy:?}");
+        };
+        // The unit cube at z = 0.5 in the link frame: a 1 m box there.
+        assert_eq!(prims.len(), 1);
+        let riggen_core::Primitive::Box { pose, size } = &prims[0] else {
+            panic!("{prims:?}");
+        };
+        assert!(
+            (pose.t - DVec3::new(0.0, 0.0, 0.5)).length() < 1e-9,
+            "{pose:?}"
+        );
+        assert!((*size - DVec3::ONE).length() < 1e-9, "{size}");
+
+        harness.get_by_label("+ Capsule").click();
+        harness.step();
+        harness.step();
+        let riggen_core::CollisionPolicy::Primitives(prims) =
+            harness.state().robot().links[&arm].collision.clone()
+        else {
+            panic!()
+        };
+        assert_eq!(prims.len(), 2);
+        let riggen_core::Primitive::Capsule { radius, length, .. } = &prims[1] else {
+            panic!("{prims:?}");
+        };
+        // A capsule around a unit cube: the corner radius, no straight part
+        // left after the caps.
+        assert!((radius - 0.5f64.sqrt()).abs() < 1e-9, "{radius}");
+        assert_eq!(*length, 0.0);
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth + 2,
+            "one command per gesture"
+        );
+        settle(harness);
+        let state = harness.state().debug_state();
+        assert_eq!(
+            state.instances.iter().filter(|i| i.collision).count(),
+            2,
+            "both primitives drawn translucent"
+        );
+    });
+}
+
 /// The properties panel for a joint: kind, origin, axis, limits in
 /// degrees, dynamics.
 #[test]

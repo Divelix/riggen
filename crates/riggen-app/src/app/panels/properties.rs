@@ -6,9 +6,12 @@
 
 use std::collections::HashMap;
 
-use riggen_core::glam::{DMat3, DVec3};
+use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::inertial::{Inertial, InertialError, principal_moments};
-use riggen_core::{Command, InertialSpec, JointId, JointKind, Limits, LinkId, Pose};
+use riggen_core::{
+    CollisionPolicy, Command, InertialSpec, JointId, JointKind, Limits, LinkId, Pose, Primitive,
+};
+use riggen_mesh::fit;
 
 use crate::app::{RiggenApp, Selection};
 
@@ -54,6 +57,137 @@ impl InertialMode {
             Self::Computed => "Computed",
             Self::Override => "Override",
             Self::Hybrid => "Hybrid",
+        }
+    }
+}
+
+/// The Collision block's policy combo: the policies a user picks by hand.
+/// `Meshes` (a URDF import) and `ConvexDecomposition` (post-MVP) are shown
+/// when present but not offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CollisionMode {
+    None,
+    SameAsVisual,
+    ConvexHull,
+    Primitives,
+    Meshes,
+    Decomposition,
+}
+
+impl CollisionMode {
+    const OFFERED: [Self; 4] = [
+        Self::None,
+        Self::SameAsVisual,
+        Self::ConvexHull,
+        Self::Primitives,
+    ];
+
+    fn of(policy: &CollisionPolicy) -> Self {
+        match policy {
+            CollisionPolicy::None => Self::None,
+            CollisionPolicy::SameAsVisual => Self::SameAsVisual,
+            CollisionPolicy::ConvexHull => Self::ConvexHull,
+            CollisionPolicy::Primitives(_) => Self::Primitives,
+            CollisionPolicy::Meshes(_) => Self::Meshes,
+            CollisionPolicy::ConvexDecomposition { .. } => Self::Decomposition,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::SameAsVisual => "Same as visual",
+            Self::ConvexHull => "Convex hull",
+            Self::Primitives => "Primitives",
+            Self::Meshes => "Meshes (imported)",
+            Self::Decomposition => "Convex decomposition",
+        }
+    }
+}
+
+/// The four primitive kinds, for the add buttons and the fit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrimitiveKind {
+    Box,
+    Cylinder,
+    Sphere,
+    Capsule,
+}
+
+impl PrimitiveKind {
+    const ALL: [Self; 4] = [Self::Box, Self::Cylinder, Self::Sphere, Self::Capsule];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Box => "Box",
+            Self::Cylinder => "Cylinder",
+            Self::Sphere => "Sphere",
+            Self::Capsule => "Capsule",
+        }
+    }
+
+    fn of(p: &Primitive) -> Self {
+        match p {
+            Primitive::Box { .. } => Self::Box,
+            Primitive::Cylinder { .. } => Self::Cylinder,
+            Primitive::Sphere { .. } => Self::Sphere,
+            Primitive::Capsule { .. } => Self::Capsule,
+        }
+    }
+
+    /// The primitive of this kind fitted to `points` (link frame): the
+    /// AABB-based fits of `riggen_mesh::fit`, with the axial ones' axis as
+    /// the pose's Z. A unit shape at the origin when there is nothing to
+    /// fit.
+    fn fitted(self, points: &[DVec3]) -> Primitive {
+        let axial_pose = |center: DVec3, axis: DVec3| {
+            Pose::new(center, DQuat::from_rotation_arc(DVec3::Z, axis))
+        };
+        match self {
+            Self::Box => match fit::box_fit(points) {
+                Some(f) => Primitive::Box {
+                    pose: Pose::from_translation(f.center),
+                    size: f.size,
+                },
+                None => Primitive::Box {
+                    pose: Pose::IDENTITY,
+                    size: DVec3::splat(0.1),
+                },
+            },
+            Self::Sphere => match fit::sphere_fit(points) {
+                Some(f) => Primitive::Sphere {
+                    pose: Pose::from_translation(f.center),
+                    radius: f.radius,
+                },
+                None => Primitive::Sphere {
+                    pose: Pose::IDENTITY,
+                    radius: 0.05,
+                },
+            },
+            Self::Cylinder => match fit::cylinder_fit(points) {
+                Some(f) => Primitive::Cylinder {
+                    pose: axial_pose(f.center, f.axis),
+                    radius: f.radius,
+                    length: f.length,
+                },
+                None => Primitive::Cylinder {
+                    pose: Pose::IDENTITY,
+                    radius: 0.05,
+                    length: 0.1,
+                },
+            },
+            Self::Capsule => match fit::capsule_fit(points) {
+                Some(f) => Primitive::Capsule {
+                    pose: axial_pose(f.center, f.axis),
+                    radius: f.radius,
+                    length: f.length,
+                },
+                None => Primitive::Capsule {
+                    pose: Pose::IDENTITY,
+                    radius: 0.05,
+                    length: 0.1,
+                },
+            },
         }
     }
 }
@@ -357,6 +491,212 @@ impl RiggenApp {
 
         ui.add_space(8.0);
         self.inertial_properties(ui, link, &data.inertial, base.with("inertial"), commands);
+
+        ui.add_space(8.0);
+        self.collision_properties(ui, link, &data.collision, base.with("collision"), commands);
+    }
+
+    /// Every vertex of the link's visual meshes, in the link frame: what a
+    /// primitive is fitted to.
+    fn link_points(&self, link: LinkId) -> Vec<DVec3> {
+        let Some(data) = self.robot.links.get(&link) else {
+            return Vec::new();
+        };
+        let mut points = Vec::new();
+        for g in &data.visuals {
+            if let Some(loaded) = self.mesh_store.get(&g.mesh) {
+                points.extend(
+                    loaded
+                        .mesh
+                        .positions
+                        .iter()
+                        .map(|p| g.pose.transform_point(*p)),
+                );
+            }
+        }
+        points
+    }
+
+    /// Properties › Collision: the policy combo; for `Primitives` the list
+    /// with add (fitted to the meshes on creation) / remove / fit-to-mesh
+    /// and each shape's pose and size; `Meshes` read-only. Every commit is
+    /// one `SetCollision`.
+    fn collision_properties(
+        &mut self,
+        ui: &mut egui::Ui,
+        link: LinkId,
+        policy: &CollisionPolicy,
+        base: egui::Id,
+        commands: &mut Vec<Command>,
+    ) {
+        let points = self.link_points(link);
+        let assets = &self.robot.assets;
+        let state = &mut self.props;
+
+        ui.strong("Collision");
+        ui.horizontal(|ui| {
+            ui.label("policy");
+            let mut mode = CollisionMode::of(policy);
+            let before = mode;
+            egui::ComboBox::from_id_salt(base.with("policy"))
+                .selected_text(mode.label())
+                .show_ui(ui, |ui| {
+                    for m in CollisionMode::OFFERED {
+                        ui.selectable_value(&mut mode, m, m.label());
+                    }
+                    if !CollisionMode::OFFERED.contains(&before) {
+                        ui.selectable_value(&mut mode, before, before.label());
+                    }
+                });
+            if mode != before {
+                let next = match mode {
+                    CollisionMode::None => CollisionPolicy::None,
+                    CollisionMode::SameAsVisual => CollisionPolicy::SameAsVisual,
+                    CollisionMode::ConvexHull => CollisionPolicy::ConvexHull,
+                    // Starts with a box around the meshes: something to see
+                    // and resize, not an empty list.
+                    CollisionMode::Primitives => {
+                        CollisionPolicy::Primitives(vec![PrimitiveKind::Box.fitted(&points)])
+                    }
+                    CollisionMode::Meshes | CollisionMode::Decomposition => policy.clone(),
+                };
+                if next != *policy {
+                    commands.push(Command::SetCollision(link, next));
+                }
+            }
+        });
+
+        match policy {
+            CollisionPolicy::Primitives(prims) => {
+                ui.horizontal(|ui| {
+                    ui.label("add");
+                    for kind in PrimitiveKind::ALL {
+                        if ui.small_button(format!("+ {}", kind.label())).clicked() {
+                            let mut next = prims.clone();
+                            next.push(kind.fitted(&points));
+                            commands.push(Command::SetCollision(
+                                link,
+                                CollisionPolicy::Primitives(next),
+                            ));
+                        }
+                    }
+                });
+                for (i, prim) in prims.iter().enumerate() {
+                    let pid = base.with(("prim", i));
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(PrimitiveKind::of(prim).label()).strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("Remove").clicked() {
+                                let mut next = prims.clone();
+                                next.remove(i);
+                                commands.push(Command::SetCollision(
+                                    link,
+                                    CollisionPolicy::Primitives(next),
+                                ));
+                            }
+                            if ui.small_button("Fit to mesh").clicked() {
+                                let mut next = prims.clone();
+                                next[i] = PrimitiveKind::of(prim).fitted(&points);
+                                commands.push(Command::SetCollision(
+                                    link,
+                                    CollisionPolicy::Primitives(next),
+                                ));
+                            }
+                        });
+                    });
+                    let mut edited = prim.clone();
+                    egui::Grid::new(pid.with("grid")).num_columns(2).show(
+                        ui,
+                        |ui| match &mut edited {
+                            Primitive::Box { pose, size } => {
+                                if let Some(p) = pose_rows(ui, state, pid.with("pose"), pose) {
+                                    *pose = p;
+                                }
+                                ui.label("size m");
+                                if let Some(v) =
+                                    vec3_row(ui, state, pid.with("size"), ["x", "y", "z"], *size)
+                                    && v.min_element() > 0.0
+                                {
+                                    *size = v;
+                                }
+                                ui.end_row();
+                            }
+                            Primitive::Sphere { pose, radius } => {
+                                if let Some(p) = pose_rows(ui, state, pid.with("pose"), pose) {
+                                    *pose = p;
+                                }
+                                if let Some(r) =
+                                    number_row(ui, state, pid.with("radius"), "radius m", *radius)
+                                    && r > 0.0
+                                {
+                                    *radius = r;
+                                }
+                            }
+                            Primitive::Cylinder {
+                                pose,
+                                radius,
+                                length,
+                            }
+                            | Primitive::Capsule {
+                                pose,
+                                radius,
+                                length,
+                            } => {
+                                if let Some(p) = pose_rows(ui, state, pid.with("pose"), pose) {
+                                    *pose = p;
+                                }
+                                if let Some(r) =
+                                    number_row(ui, state, pid.with("radius"), "radius m", *radius)
+                                    && r > 0.0
+                                {
+                                    *radius = r;
+                                }
+                                if let Some(l) =
+                                    number_row(ui, state, pid.with("length"), "length m", *length)
+                                    && l >= 0.0
+                                {
+                                    *length = l;
+                                }
+                            }
+                        },
+                    );
+                    if edited != *prim {
+                        let mut next = prims.clone();
+                        next[i] = edited;
+                        commands.push(Command::SetCollision(
+                            link,
+                            CollisionPolicy::Primitives(next),
+                        ));
+                    }
+                }
+            }
+            CollisionPolicy::Meshes(geoms) => {
+                ui.weak("collision meshes from the import; edit the files to change them");
+                for g in geoms {
+                    let file = assets
+                        .get(&g.mesh)
+                        .and_then(|a| a.path.file_name())
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| g.mesh.to_string());
+                    ui.label(file);
+                }
+            }
+            CollisionPolicy::None => {
+                ui.weak("this link does not collide");
+            }
+            CollisionPolicy::SameAsVisual => {
+                ui.weak("the visual meshes collide (MuJoCo takes their convex hulls)");
+            }
+            CollisionPolicy::ConvexHull => {
+                ui.weak("one convex hull per visual mesh (View › Collision geometry shows them)");
+            }
+            CollisionPolicy::ConvexDecomposition { max_hulls } => {
+                ui.weak(format!(
+                    "convex decomposition into {max_hulls} hulls: not supported yet"
+                ));
+            }
+        }
     }
 
     /// Properties › Inertial: the mode, its fields, and what the meshes
