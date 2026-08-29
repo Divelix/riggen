@@ -83,7 +83,7 @@ snapshot scenarios and the scripted `five_minute_arm` acceptance.
   cap loop gives axis = normal and center on the cap; a cube face fits
   nothing; jittered vertices report a matching `residual`; `segments`
   equals the generator's segment count.
-- [ ] Step 2 — `riggen-core`: `Command::MoveJointFrame` and
+- [x] Step 2 — `riggen-core`: `Command::MoveJointFrame` and
   `fk::origin_for_world`. Tests: `fk` at `q = 0` is identical before and
   after a frame move (geoms and grandchildren included); a zero axis is
   refused through `validate`; a no-op move adds no history entry;
