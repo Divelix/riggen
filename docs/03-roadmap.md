@@ -64,6 +64,9 @@ survive; `fk` unit tests against hand-computed poses for a 3-joint chain.
 *Goal: assemble a 3-DoF arm from a folder of STLs using only the mouse, in
 under five minutes, without typing a coordinate.*
 
+**Status: not started.** Prerequisite landed 2026-08-29: the agent sees the
+GUI itself (`visual-debug` skill, Debug menu, `RIGGEN_SCRATCH_OPEN`).
+
 - `transform-gizmo-egui` for geom pose and joint origin; drag = preview,
   release = one command.
 - Snapping: pick-point, triangle-vertex, AABB corners/centers, face normal.

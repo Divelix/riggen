@@ -359,12 +359,13 @@ GUI is never entered from inside a Python call.
   viewport selection, status, viewport rect) accompanies every snapshot as
   a golden of its own; every float in it is rounded to six decimals and
   `-0.0` normalised so goldens never churn. At runtime the same JSON is
-  under Debug › Copy / Save state (JSON), beside egui's layout overlays. The M1 scenarios: `startup`,
-  `cube`, `hover_cube`, `select_cube`, `three_parts`, `pendulum`,
-  `mm_scale_part`, `tree_pendulum`, `tree_reparent`, `properties_link`,
-  `properties_joint`, `pendulum_swing`, `materials`, `dirty_title`,
-  `unsaved_confirm`, `debug_menu`, plus golden-less app tests including
-  `build_pendulum_numerically`, the M1 acceptance in executable form.
+  under Debug › Copy / Save state (JSON), beside egui's layout overlays.
+  The scenarios: `startup`, `cube`, `hover_cube`, `select_cube`,
+  `three_parts`, `pendulum`, `mm_scale_part`, `tree_pendulum`,
+  `tree_reparent`, `properties_link`, `properties_joint`, `pendulum_swing`,
+  `materials`, `dirty_title`, `unsaved_confirm`, `debug_menu`, plus
+  golden-less app tests including `build_pendulum_numerically`, the M1
+  acceptance in executable form.
   The harness sets the import scale to `1.0` (the fixtures are unit cubes
   meant as meters; the app's default is mm). Harness facts that must not be
   rediscovered:
@@ -374,6 +375,10 @@ GUI is never entered from inside a Python call.
     pass each, so a viewport click is one raw event per rendered frame
     (`click_at`), not `drag_at`/`drop_at`; an egui widget needs only
     `get_by_label("arm").click()` + `step()`.
+  - A new popup or window is laid out invisibly on its first frame: its
+    AccessKit nodes exist at once, its pixels one frame later. `settle()`
+    (or one more `step()`) before a capture, or the menu is missing from
+    the PNG while every query on it passes.
   - kittest cannot drag a tree row onto another: `tree_reparent` reparents
     through the command API and only draws the result. A synthetic drag
     (press, `PointerMoved` in steps, release) does work for a one-off check.
