@@ -17,10 +17,17 @@ fn main() -> eframe::Result<()> {
         },
         ..Default::default()
     };
+    // `riggen a.stl b.obj`: every argument is a mesh to open, in file units
+    // at the origin (docs/03-roadmap.md §M0).
+    let files: Vec<std::path::PathBuf> = std::env::args_os().skip(1).map(Into::into).collect();
     eframe::run_native(
         "riggen",
         options,
-        Box::new(|cc| Ok(Box::new(riggen_app::RiggenApp::new(cc)))),
+        Box::new(move |cc| {
+            let mut app = riggen_app::RiggenApp::new(cc);
+            app.load_files(&files);
+            Ok(Box::new(app))
+        }),
     )
 }
 

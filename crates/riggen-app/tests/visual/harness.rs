@@ -61,6 +61,22 @@ pub fn scenario(name: &str, body: impl FnOnce(&mut Harness<'_, RiggenApp>)) {
     assert_state(&harness, name);
 }
 
+/// Runs `body` against a real app with no goldens: for asserting on
+/// `debug_state()` and the status bar without pinning a picture. Same
+/// skip-and-lock discipline as [`scenario`].
+pub fn with_app(body: impl FnOnce(&mut Harness<'_, RiggenApp>)) {
+    if !adapter_available() {
+        eprintln!(
+            "SKIPPING app test: no wgpu adapter on this machine. \
+             Install `mesa-vulkan-drivers` (lavapipe)."
+        );
+        return;
+    }
+    let _gpu = gpu_lock();
+    let mut harness = app_harness();
+    body(&mut harness);
+}
+
 /// Builds the real `RiggenApp` over `egui_kittest`'s wgpu renderer and pumps
 /// it until it is settled.
 ///

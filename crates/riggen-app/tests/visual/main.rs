@@ -15,7 +15,9 @@
 
 mod harness;
 
-use harness::{click_at, pump_rendered, scenario, settle};
+use harness::{click_at, pump_rendered, scenario, settle, with_app};
+
+use riggen_mesh::glam::DVec3;
 
 fn fixture(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -110,5 +112,59 @@ fn select_cube() {
             "clicking the middle of a fitted view should select the cube: {selection:?}"
         );
         assert_eq!(selection.hovered, None, "the pointer left the viewport");
+    });
+}
+
+/// The three fixtures — binary STL, ASCII STL, OBJ — side by side: every
+/// loader through `open_path`, three instances with their own model
+/// matrices, fitted together.
+#[test]
+fn three_parts() {
+    scenario("three_parts", |harness| {
+        let app = harness.state_mut();
+        for (i, name) in ["cube_binary.stl", "cube_ascii.stl", "cube.obj"]
+            .iter()
+            .enumerate()
+        {
+            let id = app.open_path(&fixture(name)).expect(name);
+            assert!(app.place_instance(id, DVec3::new(1.5 * i as f64, 0.0, 0.0)));
+        }
+        app.fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.instances.len(), 3);
+        assert!(state.instances.iter().all(|i| i.triangles == 12));
+        assert_eq!(state.instances[2].position, [3.0, 0.0, 0.0]);
+    });
+}
+
+/// A file that does not load leaves the scene alone and says why in the
+/// status bar; a batch with one bad file still opens the others.
+#[test]
+fn bad_path_reports_and_adds_nothing() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        let missing = fixture("does_not_exist.stl");
+        let err = app.open_path(&missing).unwrap_err();
+        assert!(err.contains("does_not_exist.stl"), "{err}");
+        assert_eq!(app.debug_state().status.as_deref(), Some(err.as_str()));
+        assert!(app.debug_state().instances.is_empty());
+
+        let err = app
+            .open_path(&fixture("cube.obj").with_extension("ply"))
+            .unwrap_err();
+        assert!(err.contains("unsupported format"), "{err}");
+        assert!(app.debug_state().instances.is_empty());
+
+        app.load_files(&[missing, fixture("cube.obj")]);
+        assert_eq!(app.debug_state().instances.len(), 1);
+        let status = app.debug_state().status.unwrap();
+        assert!(status.starts_with("opened 1 of 2 files"), "{status}");
+
+        app.load_files(&[fixture("cube_binary.stl")]);
+        assert_eq!(app.debug_state().status.as_deref(), Some("opened 1 file"));
+        assert_eq!(app.debug_state().instances.len(), 2);
+        assert!(app.debug_state().camera.animating, "loads fit the view");
     });
 }

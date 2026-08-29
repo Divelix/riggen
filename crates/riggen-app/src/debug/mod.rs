@@ -50,6 +50,8 @@ pub struct DebugState {
     /// Every instance in draw order, hidden ones included.
     pub instances: Vec<InstanceDebug>,
     pub selection: SelectionDebug,
+    /// The status bar's one-off message — a load error, a load summary.
+    pub status: Option<String>,
     /// `[min_x, min_y, max_x, max_y]` of the viewport in egui logical points.
     /// `None` before the first frame has laid it out.
     pub viewport_rect: Option<[f64; 4]>,
@@ -119,6 +121,7 @@ impl RiggenApp {
                 hovered: self.viewport.hovered().map(HitDebug::from),
                 selected: self.viewport.selected().map(HitDebug::from),
             },
+            status: self.status.clone(),
             viewport_rect: self.viewport.viewport_rect().map(|rect| {
                 [
                     round32(rect.min.x),

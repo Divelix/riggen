@@ -21,7 +21,7 @@
     "fov_y_deg": 45.0,
     "projection": "Perspective",
     "animating": false,
-    "aspect": 1.641961,
+    "aspect": 1.686183,
     "view": [
       [
         0.707107,
@@ -50,7 +50,7 @@
     ],
     "proj": [
       [
-        1.470323,
+        1.431763,
         0.0,
         0.0,
         0.0
@@ -106,9 +106,10 @@
       "triangle": 1
     }
   },
+  "status": null,
   "viewport_rect": [
     0.0,
-    0.0,
+    23.0,
     1440.0,
     877.0
   ]

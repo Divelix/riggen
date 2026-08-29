@@ -31,6 +31,11 @@ serde.workspace = true
 serde_json.workspace = true
 web-time.workspace = true
 
+# Native file dialogs (File › Open). Not built for wasm: the browser has no
+# filesystem to reach for.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rfd.workspace = true
+
 # The visual-snapshot suite (`tests/visual/`, ADR-0003). Native-only and
 # dev-only: it never reaches the shipped binary or the wasm build.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

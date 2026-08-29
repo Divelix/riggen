@@ -1,9 +1,8 @@
-//! The application state and its per-frame `ui`: status bar on the bottom,
-//! the viewport in the central panel.
+//! The application state and its per-frame `ui`: menu bar on top, status
+//! bar on the bottom, the viewport in the central panel.
 
+mod file_io;
 mod status_bar;
-
-use std::path::Path;
 
 use riggen_viewport::{InstanceId, Viewport};
 use web_time::Instant;
@@ -45,23 +44,12 @@ impl RiggenApp {
         }
     }
 
-    /// Loads a mesh file as a new instance at the origin, in file units
-    /// (M1's `MeshAsset` owns scaling). The camera is not moved; callers
-    /// decide whether to fit. Errors are returned *and* shown in the status
-    /// bar, since every caller wants both.
-    pub fn open_path(&mut self, path: &Path) -> Result<InstanceId, String> {
-        let result = riggen_mesh::load_mesh(path)
-            .map_err(|err| err.to_string())
-            .and_then(|mesh| {
-                let id = InstanceId(self.next_instance);
-                self.viewport
-                    .set_instance(id, &mesh)
-                    .map_err(|err| err.to_string())?;
-                self.next_instance += 1;
-                Ok(id)
-            });
-        self.status = result.as_ref().err().cloned();
-        result
+    /// Moves an instance to `position` (file units). M0 has no document to
+    /// keep poses in; this exists so a scenario can lay several parts side
+    /// by side.
+    pub fn place_instance(&mut self, id: InstanceId, position: riggen_mesh::glam::DVec3) -> bool {
+        self.viewport
+            .set_instance_model(id, riggen_mesh::glam::DMat4::from_translation(position))
     }
 
     fn tick_frame_clock(&mut self) {
@@ -71,11 +59,31 @@ impl RiggenApp {
             self.last_frame_dt = (dt > 0.0).then_some(dt);
         }
     }
+
+    fn menu_bar(&mut self, ui: &mut egui::Ui) {
+        egui::Panel::top("menu_bar").show(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Open…").clicked() {
+                        ui.close();
+                        self.open_dialog();
+                    }
+                    ui.separator();
+                    if ui.button("Quit").clicked() {
+                        ui.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+            });
+        });
+    }
 }
 
 impl eframe::App for RiggenApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.tick_frame_clock();
+        self.handle_file_drops(ui.ctx());
+
+        self.menu_bar(ui);
 
         // `i3/t120`: instance 3, triangle 120 — what the ID buffer resolved.
         let describe =

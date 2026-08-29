@@ -166,7 +166,7 @@ All present-tense text lands in the design docs at retirement; the deltas:
   centre) and `select_cube` (`click_at` centre) with their JSON asserting the
   hit instance and a triangle index; a pick memo unit test (same pixel + same
   camera → no second pick issued).
-- [ ] Step 10 — Files in: `riggen a.stl b.obj` CLI args, `egui` file drop
+- [x] Step 10 — Files in: `riggen a.stl b.obj` CLI args, `egui` file drop
   (`hovered_files` → tinted overlay + "drop to open", `dropped_files` → one
   instance per file, placed in file units at the origin), File › Open via
   `rfd` (native only) with STL/OBJ filter, load errors shown in the status
