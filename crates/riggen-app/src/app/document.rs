@@ -4,11 +4,12 @@
 //! instance table match the document's visual geoms at the FK pose for
 //! the current joint values. Nothing else writes to the viewport's scene.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use riggen_core::glam::{DMat4, DQuat, DVec3};
+use riggen_core::inertial::{InertialError, LinkInertial, MeshLookup, compose_inertial};
 use riggen_core::{
     CollisionPolicy, Command, EditError, GeomId, History, Joint, JointId, JointState, Link, LinkId,
     MeshAsset, MeshId, Pose, Primitive, Robot, fk,
@@ -141,6 +142,16 @@ impl LoadedMesh {
             );
         }
         self.hull.as_ref().expect("just built").clone()
+    }
+}
+
+/// The app's mesh store as core's [`MeshLookup`]: the drawn meshes, in
+/// meters, which is what `compose_inertial` and `resolve` read.
+pub(crate) struct AppMeshes<'a>(pub(crate) &'a HashMap<MeshId, LoadedMesh>);
+
+impl MeshLookup for AppMeshes<'_> {
+    fn mesh(&self, id: MeshId) -> Option<&TriMesh> {
+        self.0.get(&id).map(|l| &*l.mesh)
     }
 }
 
@@ -422,6 +433,18 @@ impl RiggenApp {
             .iter()
             .find(|(_, (id, _))| *id == instance)
             .map(|((link, _), _)| *link)
+    }
+
+    /// The link's inertial under its `InertialSpec`, from the loaded meshes
+    /// (docs/02-data-model.md §Inertials). What the properties panel's
+    /// Inertial block shows and the export resolves.
+    pub fn link_inertial(&self, link: LinkId) -> Result<LinkInertial, InertialError> {
+        let data = self
+            .robot
+            .links
+            .get(&link)
+            .ok_or(InertialError::NoDensity)?;
+        compose_inertial(data, &AppMeshes(&self.mesh_store), &self.robot.materials)
     }
 
     /// View › Collision geometry.

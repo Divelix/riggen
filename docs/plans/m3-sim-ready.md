@@ -215,7 +215,7 @@ agrees with our FK" — is retired by step 5, before any UI exists.
   toggle, off by default, remembered through eframe storage. Snapshots:
   `collision_hull`, `collision_primitives`; a pick over a translucent
   instance still hits the visual behind it.
-- [ ] Step 10 — Properties › Inertial: mode combo (Computed / Override /
+- [x] Step 10 — Properties › Inertial: mode combo (Computed / Override /
   Hybrid), density override, mass / CoM / tensor fields for Override, mass
   for Hybrid, and the computed readout beside it (mass, CoM, principal
   moments, "open mesh" in warning colour naming the geom). One

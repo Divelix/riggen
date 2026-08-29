@@ -100,7 +100,15 @@ impl RiggenApp {
         let geom = self.geom_for(mesh);
         link.visuals.push(geom);
         let parent = self.insertion_parent();
-        self.add_link(link, parent).map_err(|e| e.to_string())
+        let added = self.add_link(link, parent).map_err(|e| e.to_string())?;
+        // An open shell has no volume to weigh: say so at the drop, since
+        // the export will refuse it later (docs/02-data-model.md §Inertials).
+        let closed = self
+            .mesh_store
+            .get_mut(&mesh)
+            .is_none_or(|loaded| loaded.adjacency().is_closed());
+        self.status = (!closed).then(|| open_mesh_warning(&abs));
+        Ok(added)
     }
 
     /// "Add mesh to this link…": the file as another visual geom of
@@ -148,9 +156,10 @@ impl RiggenApp {
             match self.open_path(path) {
                 Ok(_) => {
                     opened += 1;
-                    // A document that opened with warnings left them here.
-                    if extension_of(path) == DOCUMENT_EXTENSION {
-                        warning = self.status.take();
+                    // A document that opened with warnings, or an open mesh,
+                    // left a warning here.
+                    if let Some(w) = self.status.take() {
+                        warning = Some(w);
                     }
                 }
                 Err(err) => {
@@ -231,4 +240,14 @@ impl RiggenApp {
             self.request_open(dropped);
         }
     }
+}
+
+/// The status-bar line for a dropped mesh that is not closed.
+pub fn open_mesh_warning(path: &Path) -> String {
+    format!(
+        "{}: mesh is not closed, so its mass properties cannot be computed",
+        path.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string())
+    )
 }

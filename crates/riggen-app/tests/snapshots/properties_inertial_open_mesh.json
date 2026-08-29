@@ -1,0 +1,169 @@
+{
+  "camera": {
+    "eye": [
+      1.685176,
+      -1.685176,
+      1.301947
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "up": [
+      -0.339005,
+      0.339005,
+      0.877583
+    ],
+    "distance": 2.71564,
+    "yaw_deg": -45.0,
+    "pitch_deg": 28.64789,
+    "fov_y_deg": 45.0,
+    "near": 0.00866,
+    "far": 866.025391,
+    "projection": "Perspective",
+    "animating": false,
+    "aspect": 0.960187,
+    "view": [
+      [
+        0.707107,
+        -0.339005,
+        0.620545,
+        0.0
+      ],
+      [
+        0.707107,
+        0.339005,
+        -0.620545,
+        0.0
+      ],
+      [
+        0.0,
+        0.877583,
+        0.479426,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        -2.71564,
+        1.0
+      ]
+    ],
+    "proj": [
+      [
+        2.514315,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        2.414213,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        -1.00001,
+        -1.0
+      ],
+      [
+        0.0,
+        0.0,
+        -0.00866,
+        0.0
+      ]
+    ]
+  },
+  "document": {
+    "file": null,
+    "name": "robot",
+    "dirty": true,
+    "import_scale": 1.0,
+    "links": [
+      {
+        "id": "l0",
+        "name": "base_link",
+        "parent_joint": null,
+        "geoms": 0,
+        "material": null
+      },
+      {
+        "id": "l3",
+        "name": "open_box",
+        "parent_joint": "j4",
+        "geoms": 1,
+        "material": "PLA"
+      }
+    ],
+    "joints": [
+      {
+        "id": "j4",
+        "name": "open_box_joint",
+        "kind": "Fixed",
+        "parent": "l0",
+        "child": "l3",
+        "q": 0.0
+      }
+    ],
+    "selection": "link l3"
+  },
+  "ui": {
+    "tool": "Select",
+    "renaming": null,
+    "windows": [],
+    "modal": null,
+    "title": "untitled* — riggen"
+  },
+  "instances": [
+    {
+      "id": 0,
+      "link": "l3",
+      "geom": "g2",
+      "visible": true,
+      "triangles": 10,
+      "bounds": [
+        [
+          -0.5,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.5,
+          0.5,
+          0.5
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.9,
+        0.55,
+        0.2,
+        1.0
+      ]
+    }
+  ],
+  "selection": {
+    "hovered": null,
+    "selected": {
+      "instance": 0,
+      "triangle": 0
+    }
+  },
+  "gizmo": null,
+  "glyphs": [],
+  "snap": null,
+  "status": "open_box.stl: mesh is not closed, so its mass properties cannot be computed",
+  "viewport_rect": [
+    240.0,
+    23.0,
+    1060.0,
+    877.0
+  ]
+}
