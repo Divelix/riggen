@@ -147,7 +147,7 @@ targets in CI — is retired first; README and polish come after.
   riggen --export …` works. Report the wheel and binary sizes. **This is
   the milestone's risk; stop and report if maturin cannot package a
   workspace bin this way.**
-- [ ] Step 2 — `--help`, `--version`, `build.rs` (`RIGGEN_GIT_HASH`
+- [x] Step 2 — `--help`, `--version`, `build.rs` (`RIGGEN_GIT_HASH`
   override → `git` → `unknown`), `[profile.release]`, and `--example arm`
   if OPEN 4 says yes. Tests: `parse` on each flag and on `-h`/`-V`,
   `--help` text lists every flag (a test that greps the usage for each

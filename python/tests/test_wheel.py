@@ -16,6 +16,7 @@ run, and nothing else.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ARM = ROOT / "assets" / "fixtures" / "arm" / "arm.riggen"
+VERSION_LINE = re.compile(r"^riggen \d+\.\d+\.\d+ \(\S+ \S+\)$")
 
 
 def scripts_dir(venv: Path) -> Path:
@@ -46,6 +48,16 @@ def check_export(riggen: Path) -> None:
         print(f"  wrote {len(written)} files")
 
 
+def check_version(riggen: Path, python: Path) -> None:
+    direct = run([riggen, "--version"]).stdout.strip()
+    assert VERSION_LINE.match(direct), f"unexpected --version output: {direct!r}"
+    print(f"  {direct}")
+    via_module = run([python, "-m", "riggen", "--version"]).stdout.strip()
+    assert via_module == direct, f"python -m riggen says {via_module!r}, the binary {direct!r}"
+    help_text = run([riggen, "--help"]).stdout
+    assert "usage:" in help_text and "--export" in help_text, help_text
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
@@ -57,6 +69,7 @@ def main(argv: list[str]) -> int:
     assert riggen.is_file(), f"no riggen binary in {scripts}"
     assert python.is_file(), f"no python in {scripts}"
 
+    check_version(riggen, python)
     check_export(riggen)
     print("ok")
     return 0

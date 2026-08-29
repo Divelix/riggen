@@ -7,7 +7,9 @@
 # Lives at the repository root so that `README.md` is both the GitHub page
 # and the PyPI page (plans/m4-distribution OPEN 3): one file, no copy.
 #
-# Build locally:  uv build            # dist/riggen-<ver>-py3-none-<platform>.whl + sdist
+# Build locally:  RIGGEN_GIT_HASH=$(git rev-parse --short HEAD) uv build
+#                 # dist/riggen-<ver>-py3-none-<platform>.whl + sdist; the wheel is
+#                 # built from the sdist, which has no .git, hence the variable
 # Smoke-test it:  uv venv target/wheel-venv && uv pip install --python target/wheel-venv dist/*.whl
 #                 python python/tests/test_wheel.py target/wheel-venv
 

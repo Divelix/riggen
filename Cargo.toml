@@ -25,6 +25,14 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 3
 
+# The wheel is the product (ADR-0002): its size is what `pip install` pulls
+# and its startup is what the user sees. Stripped, thin-LTO, one codegen
+# unit — the release build is the slow one and it only happens in CI.
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+
 [workspace.dependencies]
 riggen-mesh = { path = "crates/riggen-mesh" }
 riggen-core = { path = "crates/riggen-core" }
