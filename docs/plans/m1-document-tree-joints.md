@@ -159,7 +159,7 @@ hand-computed poses for a 3-joint chain.
   an offset origin, prismatic), a fixed joint is identity, a joint absent
   from `q` reads as 0, chain order independent of insertion order. This is
   the acceptance's `fk` test.
-- [ ] Step 3 — `Command`, `History`, `EditError`. Every variant validated
+- [x] Step 3 — `Command`, `History`, `EditError`. Every variant validated
   and applied; `RemoveLink` takes the subtree; `Reparent` refuses the root
   and any descendant of `link` (cycle), and with `keep_world_pose` rewrites
   the joint origin from `fk` so world poses are unchanged (tested against
@@ -280,6 +280,33 @@ Executable form, all green under `cargo test --workspace` on the CPU adapter:
   the file stem (deduplicated `arm`, `arm_2`). Alternative: dropping with a
   link selected adds a geom to it. Human decides by step 5; the properties
   panel's "Add mesh to this link…" covers the other case either way.
-- ⚠ OPEN: **`RemoveLink` semantics** — subtree removal (recommended, matches
-  every tree UI and is one undo) vs. splicing children onto the removed
-  link's parent. Agent decides by step 3 unless the human objects.
+- ~~⚠ OPEN~~ **Decided 2026-08-29 (step 3): `RemoveLink` removes the
+  subtree** (links, joints, and any frame on them) — one undo, matches every
+  tree UI. Splicing children onto the parent can be a later command if wanted.
+- Findings from step 3 (shipped as written; the human can object):
+  - `Reparent { keep_world_pose }` preserves world poses in the **zero
+    configuration** (`q = 0`): commands do not see the slider state. A drag
+    in the tree panel (step 6) while sliders are non-zero can therefore
+    jump. If that is annoying in the by-hand run, `Reparent` grows a
+    `JointState` and the origin is corrected for the ancestors' `q`.
+  - `History::apply` drops a command whose result equals the document, so
+    "a commit equal to what the document holds is dropped" (Design deltas,
+    Shortcuts) is guaranteed in core rather than by every panel; step 7's
+    no-history-entry test still stands as a check of the panels' commit
+    path.
+  - `History::apply` returns `Option<LinkId>` — the link `AddLink` made, so
+    step 5 can select a dropped mesh. `AddLink.link` is `Box<Link>` (clippy
+    `large_enum_variant`); geom ids inside it and in `AddGeom` come from
+    `robot.next_id.alloc()` at the caller.
+  - `SetRoot` reverses fixed joints on the path only and refuses a movable
+    one (`EditError::MovableJointOnRootPath`): a reversed revolute joint's
+    pivot is not expressible in the swapped child frame. M3 decides whether
+    to relax this.
+  - `EditError` as shipped: `Invalid(ValidationError)`, `UnknownId { kind,
+    id }`, `UnknownMaterial`, `WouldCreateCycle { link, new_parent }`,
+    `CannotRemoveRoot`, `CannotReparentRoot`, `MaterialInUse { material,
+    link }`, `MovableJointOnRootPath`. `SetJoint` ignores `parent` / `child`
+    in the value rather than erroring.
+  - `validate` also checks material names (`InvalidName { kind:
+    "material" }`) and that densities are finite and non-negative, so
+    `UpsertMaterial` cannot smuggle an unexportable name into the table.

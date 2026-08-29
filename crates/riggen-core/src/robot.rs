@@ -287,6 +287,32 @@ impl Robot {
             .map(|(id, _)| *id)
     }
 
+    /// `link` and every descendant, depth-first in parent-before-child
+    /// order; just `[link]` for a leaf. A loop (rejected by `validate`) is
+    /// visited once.
+    pub fn subtree(&self, link: LinkId) -> Vec<LinkId> {
+        let mut out = Vec::new();
+        let mut stack = vec![link];
+        while let Some(l) = stack.pop() {
+            if out.contains(&l) {
+                continue;
+            }
+            out.push(l);
+            // Reverse so the lowest child id is popped (visited) first.
+            let children: Vec<LinkId> = self
+                .child_joints(l)
+                .map(|j| self.joints[&j].child)
+                .collect();
+            stack.extend(children.into_iter().rev());
+        }
+        out
+    }
+
+    /// Whether `link` is `ancestor` itself or hangs somewhere below it.
+    pub fn is_in_subtree(&self, link: LinkId, ancestor: LinkId) -> bool {
+        self.subtree(ancestor).contains(&link)
+    }
+
     /// Mesh ids referenced by at least one geom.
     pub fn referenced_assets(&self) -> std::collections::BTreeSet<MeshId> {
         self.links
@@ -328,6 +354,31 @@ mod tests {
         assert_ne!(a.raw(), robot.root.raw(), "one counter across id kinds");
         assert_eq!(robot.assets.len(), 2);
         assert!(robot.referenced_assets().is_empty());
+    }
+
+    #[test]
+    fn subtree_is_parent_before_child() {
+        let mut robot = Robot::new("r");
+        let root = robot.root;
+        let add = |robot: &mut Robot, parent: LinkId, name: &str| -> LinkId {
+            let link: LinkId = robot.next_id.alloc();
+            robot.links.insert(link, Link::new(name));
+            let joint: JointId = robot.next_id.alloc();
+            robot
+                .joints
+                .insert(joint, Joint::fixed(format!("{name}_j"), parent, link));
+            link
+        };
+        let a = add(&mut robot, root, "a");
+        let b = add(&mut robot, a, "b");
+        let c = add(&mut robot, root, "c");
+        assert_eq!(robot.subtree(root), vec![root, a, b, c]);
+        assert_eq!(robot.subtree(a), vec![a, b]);
+        assert_eq!(robot.subtree(c), vec![c]);
+        assert!(robot.is_in_subtree(b, a));
+        assert!(robot.is_in_subtree(a, a));
+        assert!(!robot.is_in_subtree(a, b));
+        assert!(!robot.is_in_subtree(c, a));
     }
 
     #[test]
