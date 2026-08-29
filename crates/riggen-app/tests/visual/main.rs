@@ -3172,3 +3172,28 @@ fn debug_copy_state_reports() {
         );
     });
 }
+
+/// `riggen --example arm`: the bundled sample unpacks to a temp directory
+/// and opens as the document, meshes and all (plans/m4-distribution OPEN 4).
+/// Golden-less: `five_minute_arm` already pins the arm's picture.
+#[test]
+fn example_arm_opens_from_the_bundle() {
+    with_app(|harness| {
+        let temp = std::env::temp_dir().join(format!("riggen-example-app-{}", std::process::id()));
+        let document = riggen_app::cli::Example::Arm.extract_into(&temp).unwrap();
+        harness.state_mut().open_path(&document).unwrap();
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.document.file.as_deref(), Some("arm.riggen"));
+        assert_eq!(state.document.links.len(), 5, "root + four parts");
+        assert_eq!(
+            state.instances.len(),
+            4,
+            "every mesh was found beside the document"
+        );
+        assert!(!state.document.dirty);
+        std::fs::remove_dir_all(&temp).unwrap();
+    });
+}
