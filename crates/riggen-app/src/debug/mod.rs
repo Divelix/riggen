@@ -67,6 +67,8 @@ pub struct DebugState {
 pub struct UiDebug {
     /// The link an inline rename is editing, as `"l3"`, and the text so far.
     pub renaming: Option<(String, String)>,
+    /// Floating windows currently open, by name.
+    pub windows: Vec<&'static str>,
 }
 
 /// The `Robot` and the derived state around it.
@@ -195,6 +197,11 @@ impl RiggenApp {
                     .renaming
                     .as_ref()
                     .map(|(l, text)| (l.to_string(), text.clone())),
+                windows: self
+                    .joints_window_open()
+                    .then_some("joints")
+                    .into_iter()
+                    .collect(),
             },
             instances: self
                 .viewport

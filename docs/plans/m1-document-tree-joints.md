@@ -198,7 +198,7 @@ hand-computed poses for a 3-joint chain.
   (test: clicking through every field adds no history entry). Snapshots:
   `properties_link`, `properties_joint`; app test: typing an origin and RPY
   moves the arm's instance to the expected FK pose.
-- [ ] Step 8 — Joint sliders `Window`: one slider per non-fixed joint,
+- [x] Step 8 — Joint sliders `Window`: one slider per non-fixed joint,
   bounded by its limits (Continuous: ±π), driving `q` → `sync_scene` every
   frame (not a command; repaint while dragging). Reset-all button. Snapshot
   `pendulum_swing` at `q = 45°` asserting the arm's instance position from
@@ -369,6 +369,17 @@ Executable form, all green under `cargo test --workspace` on the CPU adapter:
     switching back restores them. `add_mesh_to_link(link, path)` is the
     API behind "Add mesh to this link…"; `register_mesh` is shared with
     the drop path. Panel default width 380 px so the `x y z` rows fit.
+  - Step 8: the sliders window is closed by default and toggled from a
+    new **Window** menu (`Window › Joints`; step 9's materials table joins
+    it) — a floating window over an empty document is noise. It opens at
+    the viewport's top-right and is draggable from there. Slider units:
+    degrees for Revolute (limits) and Continuous (±180°), meters for
+    Prismatic (limits); each change writes `q` through `set_joint_value`
+    (clamped) and re-syncs the scene; "Reset all" zeroes every joint.
+    `debug_state().ui.windows` lists open windows. Harness facts: a menu
+    is driven with `get_by_label("Window").click()` + `step()` then the
+    item; a slider's value is read with `NodeT::accesskit_node()
+    .numeric_value()` (import `egui_kittest::kittest::NodeT`).
   - `validate` also checks material names (`InvalidName { kind:
     "material" }`) and that densities are finite and non-negative, so
     `UpsertMaterial` cannot smuggle an unexportable name into the table.

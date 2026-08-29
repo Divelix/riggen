@@ -3,8 +3,10 @@
 //! document state of its own, only transient UI state (an inline rename in
 //! progress).
 
+mod joints;
 mod properties;
 mod tree;
 
+pub(crate) use joints::JointsWindow;
 pub(crate) use properties::PropertiesState;
 pub(crate) use tree::TreeState;

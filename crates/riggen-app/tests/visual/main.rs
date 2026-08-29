@@ -15,7 +15,7 @@
 
 mod harness;
 
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use harness::{click_at, pump_rendered, scenario, settle, with_app};
 
 use riggen_app::Selection;
@@ -766,5 +766,83 @@ fn clicking_through_every_field_adds_no_history_entry() {
             "at the link frame"
         );
         assert_eq!(app.history().undo_depth(), depth + 2);
+    });
+}
+
+/// The joint sliders window with the hinge at 45°: the arm cube swings
+/// about +Y through the hinge at (0, 0, 0.5), so its offset (0, 0, 0.5)
+/// becomes (sin 45°, 0, cos 45°) · 0.5 and the instance sits at
+/// (0.353553, 0, 0.853553).
+#[test]
+fn pendulum_swing() {
+    scenario("pendulum_swing", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.set_joints_window_open(true);
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.set_joint_value(hinge, std::f64::consts::FRAC_PI_4);
+        app.fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.ui.windows, vec!["joints"]);
+        assert_eq!(
+            state.document.joints[0].q,
+            riggen_app::debug::round(std::f64::consts::FRAC_PI_4)
+        );
+        assert_eq!(state.instances[0].position, [0.0, 0.0, 0.0]);
+        assert_eq!(state.instances[1].position, [0.353553, 0.0, 0.853553]);
+        // The slider reads 45°.
+        let slider = harness.get_by_role(egui::accesskit::Role::Slider);
+        let value = slider.accesskit_node().numeric_value();
+        assert!(value.is_some_and(|v| (v - 45.0).abs() < 1e-6), "{value:?}");
+    });
+}
+
+/// `q` follows the limits: editing the upper limit below the current
+/// value clamps it and moves the instance; "Reset all" zeroes it; the
+/// Window menu toggles the window.
+#[test]
+fn joint_value_clamps_to_edited_limits() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.set_joint_value(hinge, std::f64::consts::FRAC_PI_4);
+        let mut edited = app.robot().joints[&hinge].clone();
+        edited.limits.as_mut().unwrap().upper = 30f64.to_radians();
+        app.apply(Command::SetJoint(hinge, edited)).unwrap();
+        assert!((app.joint_value(hinge) - 30f64.to_radians()).abs() < 1e-12);
+        let state = app.debug_state();
+        assert_eq!(
+            state.document.joints[0].q,
+            riggen_app::debug::round(std::f64::consts::FRAC_PI_6)
+        );
+        assert_eq!(state.instances[1].position, [0.25, 0.0, 0.933013]);
+        // Setting past the limit clamps too.
+        app.set_joint_value(hinge, 10.0);
+        assert!((app.joint_value(hinge) - 30f64.to_radians()).abs() < 1e-12);
+
+        // Window menu → Joints opens the window; Reset all zeroes q.
+        let depth = app.history().undo_depth();
+        assert!(!app.joints_window_open());
+        harness.get_by_label("Window").click();
+        harness.step();
+        harness.get_by_label("Joints").click();
+        harness.step();
+        assert!(harness.state().joints_window_open());
+        assert_eq!(harness.state().debug_state().ui.windows, vec!["joints"]);
+        harness.get_by_label("Reset all").click();
+        harness.step();
+        let app = harness.state();
+        assert_eq!(app.joint_value(hinge), 0.0);
+        assert_eq!(app.debug_state().instances[1].position, [0.0, 0.0, 1.0]);
+        assert_eq!(
+            app.history().undo_depth(),
+            depth,
+            "joint values are not edits"
+        );
     });
 }
