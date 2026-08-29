@@ -618,6 +618,8 @@ GUI is never entered from inside a Python call.
     at all. The `visual-debug` skill is the how-to for all of this.
   - A scenario prints `SKIPPING` when no wgpu adapter exists. That is an
     environment failure, not a pass; CI installs `mesa-vulkan-drivers`.
-- CI: `cargo fmt --check`, `clippy -D warnings`, `cargo test`, and a
+- CI: `cargo fmt --check`, `clippy -D warnings`, `cargo test`, a
   `wasm32-unknown-unknown` **build** of `riggen-app` (build check only; the
-  web build is not a product in v1).
+  web build is not a product in v1), and the `mujoco` job — the app's
+  `--export` of `arm.riggen` and of `arm.urdf` (with `rust-cache`), then
+  `python/tests/test_mjcf_load.py` on both through `uv` (ADR-0008 §3).

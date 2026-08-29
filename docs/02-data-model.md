@@ -165,7 +165,9 @@ moves where a link's joint turns. Both work in the zero configuration
 editing tool. `RemoveMaterial` is refused while a link uses the material
 (`MaterialInUse`). `SetRoot` reverses the fixed joints on the path to the
 old root and refuses a movable one (a reversed revolute pivot has no home in
-the swapped child frame); M3 decides whether to relax that.
+the swapped child frame). That stays so: a URDF always has a root, and a
+reversed-pivot convention is a design question nothing needed
+(plans/m3-sim-ready OPEN 2, rejected).
 
 `Command::apply(self, &mut Robot) -> Result<Option<LinkId>, EditError>`
 mutates and then validates, so on `Err` the robot may be half-edited;
