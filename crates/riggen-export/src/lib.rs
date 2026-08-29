@@ -13,6 +13,7 @@ pub mod mjcf;
 pub mod resolve;
 #[cfg(test)]
 pub(crate) mod test_util;
+pub mod urdf;
 pub mod xml;
 
 pub use export::{ExportIoError, export};

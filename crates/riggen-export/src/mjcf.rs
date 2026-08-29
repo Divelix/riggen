@@ -214,47 +214,7 @@ fn pose_attrs(pose: &Pose) -> Vec<(&'static str, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::Builder;
-    use riggen_core::glam::DQuat;
-    use riggen_core::{CollisionPolicy, JointKind};
-    use riggen_mesh::TriMesh;
-    use std::f64::consts::FRAC_PI_2;
-
-    /// base ─(revolute)─ upper ─(prismatic)─ slider ─(continuous)─ wheel
-    /// ─(fixed)─ tip: every joint kind on one chain, an aluminium cube per
-    /// link, one primitive collision, a rotated geom.
-    pub(crate) fn every_joint_kind() -> Builder {
-        let mut b = Builder::new();
-        let cube = b.mesh("cube", TriMesh::cube(0.05));
-        let root = b.robot.root;
-        let g = b.geom(cube, Pose::IDENTITY);
-        riggen_core::Command::AddGeom(root, g)
-            .apply(&mut b.robot)
-            .unwrap();
-        let upper = b.link("upper", root, JointKind::Revolute, Some(cube));
-        let slider = b.link("slider", upper, JointKind::Prismatic, Some(cube));
-        let wheel = b.link("wheel", slider, JointKind::Continuous, Some(cube));
-        let tip = b.link("tip", wheel, JointKind::Fixed, None);
-        // Damping on the hinge; a rotated visual on the wheel; a box on the
-        // slider; nothing collides on the tip.
-        for j in b.robot.joints.values_mut() {
-            if j.child == upper {
-                j.dynamics.damping = 0.1;
-                j.axis = DVec3::Y;
-            }
-        }
-        b.robot.links.get_mut(&wheel).unwrap().visuals[0].pose = Pose::new(
-            DVec3::new(0.0, 0.02, 0.0),
-            DQuat::from_rotation_x(FRAC_PI_2),
-        );
-        b.robot.links.get_mut(&slider).unwrap().collision =
-            CollisionPolicy::Primitives(vec![Primitive::Box {
-                pose: Pose::from_translation(DVec3::Z * 0.01),
-                size: DVec3::new(0.1, 0.2, 0.3),
-            }]);
-        b.robot.links.get_mut(&tip).unwrap().collision = CollisionPolicy::None;
-        b
-    }
+    use crate::test_util::every_joint_kind;
 
     const GOLDEN: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <mujoco model="test">

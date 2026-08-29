@@ -189,7 +189,7 @@ agrees with our FK" — is retired by step 5, before any UI exists.
   --with numpy python python/tests/test_mjcf_load.py`. Also a
   `sample_arm_opens` corpus test in core. **This is the milestone's risk;
   stop and report if MuJoCo warns.**
-- [ ] Step 6 — `riggen-export::urdf` writer + the round-trip FK test:
+- [x] Step 6 — `riggen-export::urdf` writer + the round-trip FK test:
   export the sample arm as URDF, parse with `urdf-rs` (dev-dependency
   here, real dependency from step 13), compute FK **independently** from
   the parsed `xyz rpy axis` with glam alone, compare end-effector poses on
