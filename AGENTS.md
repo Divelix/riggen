@@ -29,9 +29,10 @@ from it (`sync_scene`); link tree with drag-reparent, properties panel
 Edit menus with the unsaved-changes confirm, undo/redo. M0 as before:
 `riggen-mesh`, the ported viewport (now with per-instance colour and a
 fitted depth range), the `egui_kittest` suite. `riggen-export` is a
-placeholder. **Next: M2** — gizmos, snapping, circle fit, joint glyphs
-(03-roadmap §M2); mass properties from `robocad-kernel/src/mass.rs` come
-with M3.
+placeholder. The agent sees the GUI itself (`visual-debug` skill, Debug
+menu, `RIGGEN_SCRATCH_OPEN`). **Next: M2** — gizmos, snapping, circle fit,
+joint glyphs (03-roadmap §M2); mass properties from
+`robocad-kernel/src/mass.rs` come with M3.
 
 ## Rules that are not derivable from the code
 
