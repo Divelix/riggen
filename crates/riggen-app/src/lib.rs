@@ -4,7 +4,7 @@
 mod app;
 pub mod debug;
 
-pub use app::{COPIED_STATUS, PendingAction, RiggenApp, Selection};
+pub use app::{COPIED_STATUS, PendingAction, RiggenApp, Selection, Tool, ZERO_CONFIG_STATUS};
 
 #[cfg(target_arch = "wasm32")]
 mod web {

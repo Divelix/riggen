@@ -91,6 +91,7 @@ pub struct RiggenApp {
     mesh_store: HashMap<MeshId, LoadedMesh>,            // raw file mesh + the scaled/fixed-up Arc<TriMesh>
     instances: BTreeMap<(LinkId, GeomId), InstanceId>,  // the only map between document and scene
     q: JointState, selection: Selection,                // Selection = None | Link(LinkId) | Joint(JointId)
+    tool: Tool,                                        // Select | Move | Rotate | PlaceJoint | Align
     import_scale: f64, pending: Option<PendingAction>,  // File › Import units; New/Open/Quit awaiting the dirty answer
     tree, props, joints_window, materials_window,       // transient panel state (a rename in progress, drafts)
     viewport, next_instance, status, …
@@ -124,6 +125,15 @@ once per frame after `Viewport::ui`), and selecting in the tree calls
 has no instance; a click on empty viewport space therefore leaves a joint
 selection alone (the viewport reports `None → None`).
 
+A `Tool` is modal: it decides what a viewport click and drag mean. `Select`
+is the M1 behaviour and the resting state, and `Esc` always returns to it
+(consumed only while a tool is active, so the rename / modal / field-revert
+uses of Escape still see it). The four editing tools commit frame-rewriting
+commands, which work in the **zero configuration**, so `set_tool` resets `q`
+first when something is off zero and says so in the status bar
+(plans/m2-placement-ux OPEN 1). Resetting `q` is not an edit and adds no
+history entry.
+
 Granularity rule, kept from RoboCAD: **one gesture = one command.** A gizmo
 drag mutates a *preview* pose every frame and commits once on release; a
 slider preview of a joint angle is not a command at all (joint values are
@@ -149,6 +159,10 @@ closes.
   (`hit_test.rs`: a top-most widget that senses only drags hides the
   click-widget under it). The panel draws from the document and applies
   its actions after drawing.
+- **Toolbar**: five buttons — Select / Move / Rotate / Place joint /
+  Align — in a popup frame floating over the viewport's top-left corner.
+  Drawn *after* the viewport in the same layer, which is what gives it the
+  pointer: egui's hit test prefers the widget registered last.
 - **Properties** (right): a link's name, material, and per geom the pose
   (xyz m, RPY °), asset scale and fix-up, "Add mesh to this link…"; a
   joint's name, kind (limits appear with Revolute/Prismatic, defaulting to
@@ -363,7 +377,7 @@ GUI is never entered from inside a Python call.
   The scenarios: `startup`, `cube`, `hover_cube`, `select_cube`,
   `three_parts`, `pendulum`, `mm_scale_part`, `tree_pendulum`,
   `tree_reparent`, `properties_link`, `properties_joint`, `pendulum_swing`,
-  `materials`, `dirty_title`, `unsaved_confirm`, `debug_menu`, plus
+  `materials`, `toolbar`, `dirty_title`, `unsaved_confirm`, `debug_menu`, plus
   golden-less app tests including `build_pendulum_numerically`, the M1
   acceptance in executable form.
   The harness sets the import scale to `1.0` (the fixtures are unit cubes
@@ -379,6 +393,13 @@ GUI is never entered from inside a Python call.
     AccessKit nodes exist at once, its pixels one frame later. `settle()`
     (or one more `step()`) before a capture, or the menu is missing from
     the PNG while every query on it passes.
+  - `click_widget(harness, label)` clicks a widget that floats **over** the
+    viewport (the toolbar, later the gizmo) with a real pointer, through
+    `click_at`. `Node::click()` cannot: it queues press and release
+    together, `step()` runs one unrendered logic pass per queued event, and
+    a pick issued by the pointer moving in is then recorded by a frame that
+    is never rendered — it stays in flight forever and the next `settle`
+    waits for a readback that cannot arrive.
   - kittest cannot drag a tree row onto another: `tree_reparent` reparents
     through the command API and only draws the result. A synthetic drag
     (press, `PointerMoved` in steps, release) does work for a one-off check.

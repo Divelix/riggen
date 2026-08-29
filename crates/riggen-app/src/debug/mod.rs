@@ -65,6 +65,8 @@ pub struct DebugState {
 /// What the panels are in the middle of.
 #[derive(Debug, Clone, Serialize)]
 pub struct UiDebug {
+    /// The active tool, by its toolbar label.
+    pub tool: &'static str,
     /// The link an inline rename is editing, as `"l3"`, and the text so far.
     pub renaming: Option<(String, String)>,
     /// Floating windows currently open, by name.
@@ -198,6 +200,7 @@ impl RiggenApp {
             camera: CameraDebug::capture(self),
             document,
             ui: UiDebug {
+                tool: self.tool().label(),
                 renaming: self
                     .tree
                     .renaming
