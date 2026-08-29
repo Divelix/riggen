@@ -22,6 +22,8 @@ test = false
 [dependencies]
 riggen-mesh.workspace = true
 riggen-core.workspace = true
+# `--export` on the command line and File › Export… (M3).
+riggen-export.workspace = true
 riggen-viewport.workspace = true
 eframe.workspace = true
 egui.workspace = true

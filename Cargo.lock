@@ -2999,6 +2999,7 @@ dependencies = [
  "pollster 1.0.1",
  "rfd",
  "riggen-core",
+ "riggen-export",
  "riggen-mesh",
  "riggen-viewport",
  "serde",

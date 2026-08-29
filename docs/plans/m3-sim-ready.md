@@ -172,7 +172,7 @@ agrees with our FK" — is retired by step 5, before any UI exists.
   `Meshes` collision resolution (hull deferred to step 7), the zero-mass
   movable link rule. Tests on the pendulum fixture and hand-built robots:
   order, each error, an empty static root resolves with no inertial.
-- [ ] Step 4 — `riggen-export::mjcf` + `export` (meshes baked to meters as
+- [x] Step 4 — `riggen-export::mjcf` + `export` (meshes baked to meters as
   STL) + the quaternion helper + **ADR-0008** (meters-STL meshes,
   `fullinertia`, headless CLI export) + `riggen --export` on the CLI.
   Tests: quaternion order, XML escaping, a golden MJCF string for a

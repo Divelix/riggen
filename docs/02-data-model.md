@@ -358,16 +358,22 @@ not a new resolve.
 | Revolute | `type="revolute"` + `<limit lower upper effort velocity/>` | `type="hinge" range="lo hi" limited="true"` |
 | Continuous | `type="continuous"` | `type="hinge"` without `range` |
 | Prismatic | `type="prismatic"` + `<limit/>` | `type="slide" range="lo hi"` |
-| Visual geom | `<visual><origin/><geometry><mesh filename scale/></geometry></visual>` | `<geom type="mesh" mesh=… pos quat contype="0" conaffinity="0" group="2"/>` |
-| Collision geom | `<collision>…` | `<geom … group="3"/>` (mesh → MuJoCo takes the convex hull itself; primitives map directly) |
-| Inertial | `<inertial><origin xyz(com) rpy="0 0 0"/><mass/><inertia ixx ixy ixz iyy iyz izz/></inertial>` | `<inertial pos(com) quat(principal axes) mass diaginertia/>` — eigendecomposition, or `fullinertia` when a principal frame is ill-defined |
-| Mesh assets | file path per geom | `<asset><mesh name file scale/></asset>`, one per `MeshId` |
-| Root | first `<link>` | `<worldbody>` child; a free-floating base gets `<freejoint/>` (setting) |
-| Effort / velocity | `<limit effort velocity/>` | `<actuator>` `forcerange`/`ctrlrange` — post-MVP, not silently dropped: a comment in the file says so |
-| Angles | radians | **`<compiler angle="radian" meshdir="meshes"/>` is always written** — MJCF's default is degrees |
+| Visual geom | `<visual><origin/><geometry><mesh filename/></geometry></visual>` | `<geom class="visual" mesh=… pos quat/>` with `<default class="visual">` = `type="mesh" contype="0" conaffinity="0" group="2"` |
+| Collision geom | `<collision>…` | `<geom class="collision" type="mesh" mesh=… />` (mesh → MuJoCo takes the convex hull itself; primitives map directly), `<default class="collision">` = `group="3"`, translucent rgba |
+| Primitive | `<box size>` (full extents), `<cylinder radius length>`, `<sphere radius>`; a capsule becomes a cylinder plus a warning | `type="box|cylinder|sphere|capsule" size pos quat` — **`size` is half-extents / (radius, half-length)**, pinned by a test |
+| Inertial | `<inertial><origin xyz(com) rpy="0 0 0"/><mass/><inertia ixx ixy ixz iyy iyz izz/></inertial>` | `<inertial pos(com) mass fullinertia="Ixx Iyy Izz Ixy Ixz Iyz"/>` — MuJoCo does the principal-axes decomposition itself (ADR-0008) |
+| Mesh assets | `meshes/<stem>.stl`, path style per `MeshPathStyle` | `<asset><mesh name file/></asset>`, one per `MeshId`; **meshes are written in meters as binary STL, no `scale`** (ADR-0008) |
+| Root | first `<link>` | `<worldbody>` child; `floating_base` in `ExportOptions` adds `<freejoint name="root"/>` |
+| Effort / velocity | `<limit effort velocity/>` | `<actuator>` `forcerange`/`ctrlrange` — post-MVP, not silently dropped: a comment after the `<joint>` names the values |
+| Dynamics | `<dynamics damping friction/>` | `damping`, `frictionloss`, `armature` on the `<joint>`, written only when non-zero |
+| Angles | radians | **`<compiler angle="radian" meshdir="meshes" autolimits="true"/>` is always written** — MJCF's default is degrees |
 
 Quaternion order: MJCF is `w x y z`; `glam::DQuat` is `x y z w`. One helper,
-one place, tested.
+one place, tested (`xml::quat_wxyz`). Numbers are written with twelve
+decimals, trailing zeros trimmed, `-0` folded, and `pos` / `quat` are
+omitted at their defaults, so the files read like hand-written ones and the
+golden tests stay legible. No XML crate: `xml.rs` is a 30-line escaping
+writer, since the output is fixed-shape.
 
 ## URDF import (`riggen-export::urdf_in`)
 
