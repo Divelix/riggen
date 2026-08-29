@@ -54,6 +54,7 @@ pub enum ValidationError {
     DuplicateLinkName(String),
     DuplicateJointName(String),
     /// Not an XML name / MJCF identifier: `[A-Za-z_][A-Za-z0-9_.-]*`.
+    /// `kind` is "link", "joint" or "material".
     InvalidName {
         kind: &'static str,
         name: String,
@@ -289,6 +290,14 @@ fn check_names(robot: &Robot, errors: &mut Vec<ValidationError>) {
             errors.push(ValidationError::DuplicateLinkName(link.name.clone()));
         }
     }
+    for name in robot.materials.keys() {
+        if !is_valid_name(name) {
+            errors.push(ValidationError::InvalidName {
+                kind: "material",
+                name: name.clone(),
+            });
+        }
+    }
     let mut seen = BTreeSet::new();
     for joint in robot.joints.values() {
         if !is_valid_name(&joint.name) {
@@ -304,6 +313,13 @@ fn check_names(robot: &Robot, errors: &mut Vec<ValidationError>) {
 }
 
 fn check_joints(robot: &Robot, errors: &mut Vec<ValidationError>) {
+    for (name, material) in &robot.materials {
+        if !material.density.is_finite() || material.density < 0.0 {
+            errors.push(ValidationError::NonFinite {
+                what: format!("density of material \"{name}\""),
+            });
+        }
+    }
     for (&jid, joint) in &robot.joints {
         if !joint.origin.t.is_finite() || !joint.origin.r.is_finite() {
             errors.push(ValidationError::NonFinite {
@@ -623,6 +639,36 @@ mod tests {
             validate(&robot),
             Err(ValidationError::NonFinite { .. })
         ));
+    }
+
+    #[test]
+    fn material_name_and_density() {
+        let (mut robot, ..) = chain();
+        robot.materials.insert(
+            "no way".into(),
+            crate::robot::Material {
+                density: 1.0,
+                color: [1.0; 4],
+            },
+        );
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::InvalidName {
+                kind: "material",
+                name: "no way".into()
+            })
+        );
+        robot.materials.remove("no way");
+        for density in [f64::NAN, f64::INFINITY, -1.0] {
+            robot.materials.get_mut("steel").unwrap().density = density;
+            assert_eq!(
+                validate(&robot),
+                Err(ValidationError::NonFinite {
+                    what: "density of material \"steel\"".into()
+                }),
+                "{density}"
+            );
+        }
     }
 
     #[test]
