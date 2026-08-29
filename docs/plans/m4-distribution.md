@@ -16,9 +16,9 @@ to TestPyPI on demand and to PyPI plus a GitHub Release when a `v*` tag is
 pushed. `riggen --help` documents the CLI and `riggen --version` prints the
 version and the git hash it was built from. The window is visible in under
 500 ms on the dev machine, and the headless part of that path is asserted
-in a test. The repository has a README with the install line, a hero
-image of the sample arm, a screencast slot and the 60-second first run,
-which is also the wheel's PyPI page.
+in a test. The repository has a user-facing README — uv first, Rust only under
+"Developing" — with the install line, a hero image of the sample arm and
+the 60-second first run; the same file is the wheel's PyPI page.
 
 ## Non-goals
 
@@ -29,6 +29,8 @@ which is also the wheel's PyPI page.
 - macOS code signing / notarization and a Windows installer. pip-installed
   files carry no quarantine attribute, so an unsigned binary in a wheel
   runs from a terminal; a signed `.app` is a later concern.
+- The screencast. The GUI gets polished before the announced release;
+  the recording waits for that (OPEN 2, decided). One backlog line.
 - conda-forge, Homebrew, AUR, the web demo build.
 - Any change to what the app does. The only new behaviour is CLI flags
   and a timing readout.
@@ -119,8 +121,10 @@ the `CI` environment variable is set (lavapipe on a shared runner is not
 the dev machine; the roadmap's number is the dev machine's). Startup
 regressions are what this guards, not the absolute number.
 
-**Docs**: root `README.md` (new; the PyPI page too), `docs/assets/arm.png`
-(hero image from the visual-debug scratch capture of `arm.riggen`), 01
+**Docs**: root `README.md` (new; user-facing, uv first; the PyPI page
+too), `docs/assets/arm.png` (hero image from the visual-debug scratch
+capture of `arm.riggen` — the only binary file M4 adds; the arm's meshes
+are already tracked for the tests, OPEN 4), 01
 §Cargo workspace, §Crates (CLI), §Python distribution, §Testing; 03 M4
 status line; AGENTS.md; BACKLOG.
 
@@ -176,23 +180,16 @@ targets in CI — is retired first; README and polish come after.
 - [ ] Step 6 — README and the hero image: `docs/assets/arm.png` captured
   through the visual-debug scratch target (`RIGGEN_SCRATCH_OPEN=assets/
   fixtures/arm/arm.riggen`, collision view off, selection cleared); root
-  `README.md` — one-line pitch, the hero, the screencast slot (OPEN 2),
-  install (`uv tool install riggen` / `uvx riggen` / `pip install
-  riggen`), the first run (`riggen --example arm` or the download line),
-  what it does in five bullets, the CLI from `--help`, export and MuJoCo
-  in four lines, building from source, links to `docs/`, licence; CI and
-  PyPI badges. `uvx twine check dist/*` passes on the sdist so the PyPI
+  `README.md`, written for the user who will never open Cargo (OPEN 3):
+  one-line pitch, the hero, install (`uv tool install riggen` / `uvx
+  riggen` / `pip install riggen`), the first run (`riggen --example
+  arm`), what it does in five bullets, the CLI from `--help`, export and
+  MuJoCo in four lines, licence; then one short "Developing" section —
+  `cargo run`, the docs reading order from `AGENTS.md`, `cargo install
+  --git` per OPEN 1. CI and PyPI badges. `uvx twine check dist/*` passes on the sdist so the PyPI
   page renders. Snapshot: none (no UI change); the capture is checked by
   reading the PNG.
-- [ ] Step 7 — Screencast per OPEN 2: either the human's recording
-  dropped into the README's slot, or the generated one (a `#[ignore]`d
-  `screencast` scenario in `tests/visual` replaying the `five_minute_arm`
-  clicks with a drawn cursor, one PNG per rendered frame under
-  `target/screencast/`, `ffmpeg` → `docs/assets/screencast.gif` at 720
-  px wide, 10 fps, palette-optimised, under 8 MB). Skipped with a note if
-  OPEN 2 says the human records later and the README ships with the
-  still.
-- [ ] Step 8 — Acceptance and drift: the Acceptance block below green
+- [ ] Step 7 — Acceptance and drift: the Acceptance block below green
   (the container half by the agent, the window half by the human on a
   clean VM), 01 read against the code with the discrepancy list emptied,
   the by-hand findings ("what was annoying installing and first-running
@@ -234,8 +231,10 @@ release. Tag `m4` on the retirement commit.
   sizes per platform, the measured startup time, what the by-hand
   install said.
 - `docs/BACKLOG.md` — new lines: publish the workspace to crates.io so
-  `cargo install riggen` works (OPEN 1); the M4 by-hand findings under an
-  M4 heading; macOS signing / notarization if the human's VM run hits
+  `cargo install riggen` works (if OPEN 1 says later); a 30-second
+  screencast for the README, recorded after the GUI polish and before
+  the announced release (OPEN 2); the M4 by-hand findings under an M4
+  heading; macOS signing / notarization if the human's VM run hits
   Gatekeeper.
 - `AGENTS.md` current state — M4 done, tag `m4`, the install line, next
   v0.2 (Python SDK); the docs reading order gains `README.md` if it says
@@ -245,32 +244,30 @@ release. Tag `m4` on the retirement commit.
 
 ## Open questions
 
-- `⚠ OPEN 1:` **crates.io.** The roadmap's M4 line "reserve the crates.io
-  name" is already done (`riggen` 0.0.1 published 2026-08-29). Making
-  `cargo install riggen` real means publishing `riggen-mesh`, `-core`,
-  `-export`, `-viewport` and `-app` too, with every release, and keeping
-  their versions in step. Recommendation: **out of M4** — the wheel is
-  the promise (SEED §5, ADR-0002); one backlog line, README says `cargo
-  install --git https://github.com/Divelix/riggen riggen-app`. Human
-  decides by step 6 (the README line).
-- `⚠ OPEN 2:` **Who records the screencast.** The agent can generate one
-  from the `five_minute_arm` scenario (deterministic, re-generatable on
-  every UI change, but a synthetic cursor and stepwise motion on a
-  1440×900 harness frame); the human can record the real thing in 30 s
-  with real mouse motion. Recommendation: **the human records**, the
-  agent writes the storyboard (the arm build's click sequence as a
-  numbered list in the step) and ships the README with the hero still
-  and an empty slot until the recording exists; step 7 is then a
-  one-file commit. Human decides by step 6.
-- `⚠ OPEN 3:` **`pyproject.toml` at the root or in `python/`.** Root:
-  one README for GitHub and PyPI, `uv build` / `uvx --from .` from the
-  checkout, licence files without copies. `python/`: the tree stays as 01
-  draws it, but the README and licences are duplicated or reached with
-  `..` paths maturin does not accept for `readme`. Recommendation:
-  **root**. Human decides by step 1.
-- `⚠ OPEN 4:` **Bundle the sample arm: `riggen --example arm`.** 64 KB
-  embedded in the binary makes the first run after install one command
-  and the README's first-run section three lines; without it the user
-  downloads five files from GitHub or clones. Recommendation: **yes**,
-  as part of step 2; the fixture files stay the single source
-  (`include_bytes!` from `assets/fixtures/arm/`). Human decides by step 2.
+- `⚠ OPEN 1:` **`cargo install riggen` in M4 or later.** The *name* is
+  reserved (`riggen` 0.0.1 on crates.io, 2026-08-29) — that roadmap line
+  is done. Making the command install the app is a further job: publish
+  `riggen-mesh`, `-core`, `-export`, `-viewport` too (crates.io refuses
+  path dependencies), rename `riggen-app` to `riggen` so the app takes
+  the reserved name (and delete `crates/riggen`), and add `cargo publish
+  --workspace` with crates.io trusted publishing to `release.yml`. About
+  one step's work, but one more publish surface that has to be green on
+  every tag push. Recommendation: **later, as its own small plan** — the
+  wheel is what 99 % of users touch (OPEN 3), the README says `cargo
+  install --git …` for the rest. If "now": it becomes step 6 of this
+  plan, before the README. Human decides by step 5 (the release
+  workflow).
+- `OPEN 2` — **decided (human, 2026-08-30):** no screencast in M4; the
+  GUI gets polished first, the recording comes before the announced
+  release. Backlog line at retirement. The README ships with the hero
+  still.
+- `OPEN 3` — **decided (human, 2026-08-30):** rerun's split of audiences —
+  the root README is for users and leads with uv; Rust appears only under
+  a short "Developing" section. `pyproject.toml` lives at the root so
+  that README is also the PyPI page with no copy (rerun's second
+  `rerun_py/README.md` is the duplication being avoided).
+- `OPEN 4` — **decided (human, 2026-08-30):** yes, `riggen --example
+  arm`, on the condition that no new mesh files enter git: the flag
+  `include_bytes!`s `assets/fixtures/arm/`, already tracked since M3 for
+  the tests and generated from `ARM_DESIGN` by `write_arm_fixtures`. The
+  hero PNG is the only binary file M4 adds.
