@@ -1,0 +1,57 @@
+# The `riggen` wheel (ADR-0002): maturin `bindings = "bin"` packages the
+# native `riggen` executable — built from `crates/riggen-app` — into a
+# `py3-none-<platform>` wheel, together with the `python/riggen` package
+# that `python -m riggen` needs. No PyO3, no extension module: the process
+# is the app, exactly as if installed with `cargo install`.
+#
+# Lives at the repository root so that `README.md` is both the GitHub page
+# and the PyPI page (plans/m4-distribution OPEN 3): one file, no copy.
+#
+# Build locally:  uv build            # dist/riggen-<ver>-py3-none-<platform>.whl + sdist
+# Smoke-test it:  uv venv target/wheel-venv && uv pip install --python target/wheel-venv dist/*.whl
+#                 python python/tests/test_wheel.py target/wheel-venv
+
+[project]
+name = "riggen"
+description = "The blazingly fast, lightweight robot assembler for RL researchers"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
+authors = [{ name = "Sergei Sergienko" }]
+keywords = ["robotics", "mujoco", "mjcf", "urdf", "reinforcement-learning", "simulation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+# The version is read from the workspace `Cargo.toml` (`version.workspace =
+# true` on riggen-app), so it lives once.
+dynamic = ["version"]
+
+# No `[project.scripts]` on purpose: maturin drops the `riggen` binary into
+# the wheel's `scripts/` directory — the venv's `bin/` — so the `riggen`
+# command *is* the binary, with no Python interpreter in front of it (the
+# startup budget, docs/03-roadmap.md §M4). A console script of the same
+# name would shadow it.
+
+[project.urls]
+Repository = "https://github.com/Divelix/riggen"
+Documentation = "https://github.com/Divelix/riggen#readme"
+
+[build-system]
+requires = ["maturin>=1.8,<2"]
+build-backend = "maturin"
+
+[tool.maturin]
+bindings = "bin"
+manifest-path = "crates/riggen-app/Cargo.toml"
+python-source = "python"
+# `--example arm` bakes `assets/fixtures/arm/` into the binary at compile
+# time, so a source build from the sdist needs the fixtures too.
+include = [{ path = "assets/fixtures/arm/*", format = "sdist" }]
+# The snapshot goldens are a few megabytes of PNG that no source build reads.
+exclude = [{ path = "crates/riggen-app/tests/snapshots/**", format = "sdist" }]

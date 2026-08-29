@@ -1,6 +1,7 @@
 /target
+# `uv build` output: the wheel and the sdist.
+/dist
 /python/**/*.so
-/python/dist
 /python/build
 __pycache__/
 .venv/

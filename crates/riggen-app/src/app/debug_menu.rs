@@ -1,5 +1,5 @@
-//! The Debug menu: egui's own layout overlays, plus the two ways out of the
-//! running app for `debug_state()` (ADR-0003).
+//! The Debug menu: egui's own layout overlays (debug builds only), plus the
+//! two ways out of the running app for `debug_state()` (ADR-0003).
 //!
 //! The overlays are a human's tool on their own; combined with a snapshot
 //! they become an agent's, because a frame captured with `show_widget_hits`
@@ -14,28 +14,34 @@ pub const COPIED_STATUS: &str = "debug state copied";
 
 impl RiggenApp {
     pub(crate) fn debug_menu(&mut self, ui: &mut egui::Ui) {
-        // Read the *active* theme's style but write both, so toggling an
-        // overlay doesn't silently un-toggle itself when the user switches
-        // between the light and dark styles.
-        let mut debug = ui.ctx().style_of(ui.ctx().theme()).debug;
-        let before = debug;
+        // egui compiles `Style::debug` only under `debug_assertions`, so the
+        // overlays exist in `cargo run` and the test suite, and the release
+        // binary in the wheel has just the two state items.
+        #[cfg(debug_assertions)]
+        {
+            // Read the *active* theme's style but write both, so toggling an
+            // overlay doesn't silently un-toggle itself when the user
+            // switches between the light and dark styles.
+            let mut debug = ui.ctx().style_of(ui.ctx().theme()).debug;
+            let before = debug;
 
-        ui.checkbox(&mut debug.debug_on_hover, "Debug on hover");
-        ui.checkbox(&mut debug.show_widget_hits, "Show widget hits");
-        ui.checkbox(
-            &mut debug.show_interactive_widgets,
-            "Show interactive widgets",
-        );
-        ui.checkbox(&mut debug.show_expand_width, "Show width expansion");
-        ui.checkbox(&mut debug.show_expand_height, "Show height expansion");
-        ui.checkbox(&mut debug.show_resize, "Show resize");
-        ui.checkbox(&mut debug.show_unaligned, "Show unaligned");
+            ui.checkbox(&mut debug.debug_on_hover, "Debug on hover");
+            ui.checkbox(&mut debug.show_widget_hits, "Show widget hits");
+            ui.checkbox(
+                &mut debug.show_interactive_widgets,
+                "Show interactive widgets",
+            );
+            ui.checkbox(&mut debug.show_expand_width, "Show width expansion");
+            ui.checkbox(&mut debug.show_expand_height, "Show height expansion");
+            ui.checkbox(&mut debug.show_resize, "Show resize");
+            ui.checkbox(&mut debug.show_unaligned, "Show unaligned");
 
-        if debug != before {
-            ui.ctx().all_styles_mut(|style| style.debug = debug);
+            if debug != before {
+                ui.ctx().all_styles_mut(|style| style.debug = debug);
+            }
+
+            ui.separator();
         }
-
-        ui.separator();
 
         if ui.button("Copy state (JSON)").clicked() {
             ui.close();
