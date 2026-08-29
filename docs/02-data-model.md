@@ -137,6 +137,7 @@ pub enum Command {
     RenameLink(LinkId, String), RenameJoint(JointId, String),
     AddGeom(LinkId, Geom), RemoveGeom(LinkId, GeomId), SetGeomPose(LinkId, GeomId, Pose),
     SetJoint(JointId, Joint),                                  // one gesture = one SetJoint; parent/child in the value are ignored
+    MoveJointFrame { joint: JointId, origin: Pose, axis: DVec3 },  // moves the pivot, not the geometry
     Reparent { link: LinkId, new_parent: LinkId, keep_world_pose: bool },
     SetLinkMaterial(LinkId, Option<String>), UpsertMaterial(String, Material), RemoveMaterial(String),
     SetAsset(MeshId, MeshAsset),                               // scale / fix-up edits
@@ -151,7 +152,16 @@ There is no `AddJoint` / `RemoveJoint`. `Reparent` refuses the root and any
 with `keep_world_pose` it rewrites the joint origin from `fk` in the
 **zero configuration** so every world pose at `q = 0` is unchanged — the
 single most common assembly operation and the reason FK lives in core.
-`RemoveMaterial` is refused while a link uses the material
+`MoveJointFrame` is the other half of that pair, and the one the placement
+tools commit: it writes a new `origin` (the child link frame in the parent
+frame) and `axis` (in the **new** child frame — the joint frame *is* the
+child link frame) and re-expresses the child's geom poses, its own child
+joints' origins, its frames and an `Override` inertial through
+`origin_new⁻¹ ∘ origin_old`, so no world pose at `q = 0` changes and only
+the pivot moves. `Reparent` moves a link between parents; `MoveJointFrame`
+moves where a link's joint turns. Both work in the zero configuration
+(plans/m2-placement-ux OPEN 1); the app resets `q` before entering an
+editing tool. `RemoveMaterial` is refused while a link uses the material
 (`MaterialInUse`). `SetRoot` reverses the fixed joints on the path to the
 old root and refuses a movable one (a reversed revolute pivot has no home in
 the swapped child frame); M3 decides whether to relax that.
@@ -192,6 +202,8 @@ pub struct JointState(pub BTreeMap<JointId, f64>);   // q per movable joint; der
 pub fn fk(robot: &Robot, q: &JointState) -> BTreeMap<LinkId, Pose>;
 /// The child frame's displacement for one joint value.
 pub fn motion(kind: JointKind, axis: DVec3, q: f64) -> Pose;
+/// The joint origin that puts `link` at `world` at q = 0; None for the root.
+pub fn origin_for_world(robot: &Robot, link: LinkId, world: Pose) -> Option<Pose>;
 ```
 
 `world(child) = world(parent) ∘ joint.origin ∘ motion(kind, axis, q)` where
@@ -202,6 +214,12 @@ depth-first pass from the root; the tree invariant makes the order trivial
 and independent of id order. This function is the oracle the export
 round-trip test compares against and what `Reparent { keep_world_pose }`
 reads.
+
+`origin_for_world` is the inverse of one step of it: `world(link) =
+world(parent) ∘ origin` at `q = 0`, so the origin wanted is
+`world(parent)⁻¹ ∘ world`. The link gizmo and the align tool know where a
+part should end up in the world and need the number the document stores;
+they commit it as one `SetJoint`.
 
 ## Mesh features (`riggen-mesh::feature`)
 

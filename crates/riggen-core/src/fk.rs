@@ -78,6 +78,23 @@ pub fn fk(robot: &Robot, q: &JointState) -> BTreeMap<LinkId, Pose> {
     world
 }
 
+/// The joint origin that puts `link` at `world` in the **zero
+/// configuration** — the inverse of one step of [`fk`].
+///
+/// `world(link) = world(parent) ∘ origin` at `q = 0`, so the origin wanted
+/// is `world(parent)⁻¹ ∘ world`. This is what the link gizmo and the align
+/// tool commit through a single `SetJoint`: the caller knows where the part
+/// should end up in the world and needs the number the document stores.
+///
+/// `None` for the root (no parent joint to write) and for a link the tree
+/// does not reach.
+pub fn origin_for_world(robot: &Robot, link: LinkId, world: Pose) -> Option<Pose> {
+    let joint = robot.parent_joint(link)?;
+    let parent = robot.joints[&joint].parent;
+    let poses = fk(robot, &JointState::default());
+    Some(poses.get(&parent)?.inverse().compose(&world))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +217,36 @@ mod tests {
             // slide 0.5 along l3's x, which is world (0,0,-1): (0,0,-0.5).
             Pose::new(DVec3::new(1.0, 2.0, -0.5), rzy),
         ]
+    }
+
+    #[test]
+    fn origin_for_world_round_trips_through_fk() {
+        let (mut robot, links, _) = chain(false);
+        // Every link of the chain, put somewhere awkward and read back.
+        for (i, &link) in links.iter().enumerate() {
+            let want = Pose::from_xyz_rpy(
+                DVec3::new(0.5 * i as f64 - 1.0, 2.25, -0.75),
+                DVec3::new(0.3, -0.9, 1.4),
+            );
+            let origin = origin_for_world(&robot, link, want).expect("a non-root link");
+            let joint = robot.parent_joint(link).unwrap();
+            robot.joints.get_mut(&joint).unwrap().origin = origin;
+            assert_eq!(crate::validate(&robot), Ok(()));
+            assert_pose_eq(&fk(&robot, &JointState::new())[&link], &want);
+        }
+        // …and the whole chain still hangs together afterwards.
+        let world = fk(&robot, &JointState::new());
+        assert_eq!(world.len(), 4);
+    }
+
+    #[test]
+    fn origin_for_world_has_nothing_to_write_for_the_root() {
+        let (robot, _, _) = chain(false);
+        assert_eq!(origin_for_world(&robot, robot.root, Pose::IDENTITY), None);
+        assert_eq!(
+            origin_for_world(&robot, LinkId::from_raw(999), Pose::IDENTITY),
+            None
+        );
     }
 
     #[test]

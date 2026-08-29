@@ -10,6 +10,8 @@ use std::fmt;
 use crate::fk::{JointState, fk};
 use crate::ids::{GeomId, Id, JointId, LinkId, MeshId};
 use crate::pose::Pose;
+use riggen_mesh::glam::{DMat3, DVec3};
+
 use crate::robot::{CollisionPolicy, Geom, InertialSpec, Joint, Link, Material, MeshAsset, Robot};
 use crate::validate::{ValidationError, validate};
 
@@ -39,6 +41,23 @@ pub enum Command {
     ///
     /// [`Reparent`]: Command::Reparent
     SetJoint(JointId, Joint),
+    /// Moves a joint's frame **without moving anything in the world**: the
+    /// new `origin` (the child link frame in the parent frame) and `axis`
+    /// (in the *new* child frame, since the joint frame is the child link
+    /// frame) are written, and the child's geom poses, its own child joints'
+    /// origins, its frames and an `Override` inertial are all re-expressed
+    /// so no world pose in the zero configuration changes. Only the pivot
+    /// the joint turns about moves.
+    ///
+    /// This is what "click the bore" and a gizmo on a *joint* commit
+    /// (plans/m2-placement-ux OPEN 2). Like every frame-rewriting command it
+    /// works in the zero configuration; a document at `q != 0` is reset
+    /// first by the app (OPEN 1).
+    MoveJointFrame {
+        joint: JointId,
+        origin: Pose,
+        axis: DVec3,
+    },
     /// Moves `link` (with its subtree) under `new_parent` by rewriting its
     /// parent joint's `parent`. Refused for the root and for a `new_parent`
     /// inside `link`'s own subtree. With `keep_world_pose` the joint origin
@@ -226,6 +245,45 @@ impl Command {
                     ..joint
                 };
             }
+            Command::MoveJointFrame {
+                joint,
+                origin,
+                axis,
+            } => {
+                let (child, delta) = {
+                    let j = robot.joints.get(&joint).ok_or_else(|| unknown(joint))?;
+                    // Old child coordinates → new child coordinates: a point
+                    // sits at `origin_old ∘ p_old` in the parent either way,
+                    // so `p_new = origin_new⁻¹ ∘ origin_old ∘ p_old`.
+                    (j.child, origin.inverse().compose(&j.origin))
+                };
+                let j = joint_mut(robot, joint)?;
+                j.origin = origin;
+                j.axis = axis;
+
+                let rotation = DMat3::from_quat(delta.r.normalize());
+                if let Some(link) = robot.links.get_mut(&child) {
+                    for geom in &mut link.visuals {
+                        geom.pose = delta.compose(&geom.pose);
+                    }
+                    // A measured inertial is in link axes about `com`, and
+                    // the link frame just moved under it (M3 has the UI).
+                    if let InertialSpec::Override { com, inertia, .. } = &mut link.inertial {
+                        *com = delta.transform_point(*com);
+                        *inertia = rotation * *inertia * rotation.transpose();
+                    }
+                }
+                for other in robot.joints.values_mut() {
+                    if other.parent == child {
+                        other.origin = delta.compose(&other.origin);
+                    }
+                }
+                for frame in robot.frames.values_mut() {
+                    if frame.parent == child {
+                        frame.pose = delta.compose(&frame.pose);
+                    }
+                }
+            }
             Command::Reparent {
                 link,
                 new_parent,
@@ -406,6 +464,180 @@ mod tests {
         );
         assert_eq!(validate(&robot), Ok(()));
         (robot, [arm, hand, tip, tail])
+    }
+
+    /// Every geom of every link at `q = 0`, in world coordinates: what a
+    /// frame move must leave alone.
+    fn world_geoms(robot: &Robot) -> Vec<(LinkId, GeomId, Pose)> {
+        let world = fk(robot, &JointState::default());
+        let mut out = Vec::new();
+        for (&link, l) in &robot.links {
+            for geom in &l.visuals {
+                out.push((link, geom.id, world[&link].compose(&geom.pose)));
+            }
+        }
+        out
+    }
+
+    /// The `arm()` chain with a geom on every link, so a frame move has
+    /// geometry to re-express as well as child joints.
+    fn arm_with_geoms() -> (Robot, [LinkId; 4]) {
+        let (mut robot, links) = arm();
+        let mesh = robot.add_asset(asset());
+        for (i, &link) in links.iter().enumerate() {
+            let id: GeomId = robot.next_id.alloc();
+            let pose = Pose::from_xyz_rpy(
+                DVec3::new(0.1 * i as f64, -0.2, 0.3),
+                DVec3::new(0.2, -0.4, 0.6),
+            );
+            apply(
+                &mut robot,
+                Command::AddGeom(
+                    link,
+                    Geom {
+                        id,
+                        mesh,
+                        pose,
+                        color: None,
+                    },
+                ),
+            )
+            .unwrap();
+        }
+        (robot, links)
+    }
+
+    #[test]
+    fn moving_a_joint_frame_changes_no_world_pose_at_zero() {
+        let (mut robot, links) = arm_with_geoms();
+        let [_arm, hand, ..] = links;
+        let wrist = robot.parent_joint(hand).unwrap();
+        let before_links = fk(&robot, &JointState::default());
+        let before_geoms = world_geoms(&robot);
+
+        // A new pivot well away from the old one, turned as well as moved.
+        let origin = Pose::from_xyz_rpy(DVec3::new(1.4, 0.25, -0.6), DVec3::new(0.3, 0.9, -0.2));
+        apply(
+            &mut robot,
+            Command::MoveJointFrame {
+                joint: wrist,
+                origin,
+                axis: DVec3::Y,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(robot.joints[&wrist].origin, origin);
+        assert_eq!(robot.joints[&wrist].axis, DVec3::Y);
+        let after = fk(&robot, &JointState::default());
+        for (link, pose) in &before_links {
+            if *link == hand {
+                // The moved link's own frame is the one thing that changes.
+                continue;
+            }
+            assert_pose_eq(&after[link], pose);
+        }
+        assert_pose_eq(&after[&hand], &origin_in_world(&robot, hand));
+        // Every geom, on the moved link and on its grandchildren, stays put.
+        for (link, geom, pose) in before_geoms {
+            let (_, _, now) = world_geoms(&robot)
+                .into_iter()
+                .find(|(l, g, _)| *l == link && *g == geom)
+                .expect("the geom survives");
+            assert_pose_eq(&now, &pose);
+        }
+    }
+
+    /// `fk` recomputed for one link, as a second opinion on the map above.
+    fn origin_in_world(robot: &Robot, link: LinkId) -> Pose {
+        let joint = robot.parent_joint(link).unwrap();
+        let parent = robot.joints[&joint].parent;
+        let world = fk(robot, &JointState::default());
+        world[&parent].compose(&robot.joints[&joint].origin)
+    }
+
+    #[test]
+    fn moving_a_joint_frame_moves_the_pivot() {
+        // The point of the command: at `q != 0` the child turns about the
+        // new axis through the new origin.
+        let (mut robot, [arm, ..]) = arm();
+        let shoulder = robot.parent_joint(arm).unwrap();
+        apply(
+            &mut robot,
+            Command::MoveJointFrame {
+                joint: shoulder,
+                origin: Pose::from_translation(DVec3::new(2.0, 0.0, 0.0)),
+                axis: DVec3::Z,
+            },
+        )
+        .unwrap();
+        let mut q = JointState::default();
+        q.set(shoulder, FRAC_PI_2);
+        let world = fk(&robot, &q);
+        // The link frame is now at (2,0,0) — the old one, at (1,0,0), is a
+        // point of the child that swings to (2,-1,0) about the new pivot.
+        assert_pose_eq(
+            &world[&arm],
+            &Pose::new(DVec3::new(2.0, 0.0, 0.0), DQuat::from_rotation_z(FRAC_PI_2)),
+        );
+        assert!(
+            (world[&arm].transform_point(DVec3::new(-1.0, 0.0, 0.0)) - DVec3::new(2.0, -1.0, 0.0))
+                .length()
+                < EPS
+        );
+    }
+
+    #[test]
+    fn a_zero_axis_is_refused_and_changes_nothing() {
+        let (mut robot, [arm, ..]) = arm();
+        let shoulder = robot.parent_joint(arm).unwrap();
+        let before = robot.clone();
+        let err = apply(
+            &mut robot,
+            Command::MoveJointFrame {
+                joint: shoulder,
+                origin: Pose::IDENTITY,
+                axis: DVec3::ZERO,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err, EditError::Invalid(ValidationError::ZeroAxis(shoulder)));
+        assert_eq!(robot, before, "a refused command leaves nothing behind");
+
+        // An unknown joint is an unknown id, not a panic.
+        let ghost = JointId::from_raw(999);
+        assert_eq!(
+            apply(
+                &mut robot,
+                Command::MoveJointFrame {
+                    joint: ghost,
+                    origin: Pose::IDENTITY,
+                    axis: DVec3::Z,
+                },
+            )
+            .unwrap_err(),
+            unknown(ghost)
+        );
+    }
+
+    #[test]
+    fn a_no_op_frame_move_adds_no_history_entry() {
+        let (mut robot, [arm, ..]) = arm_with_geoms();
+        let shoulder = robot.parent_joint(arm).unwrap();
+        let joint = robot.joints[&shoulder].clone();
+        let mut history = crate::History::new();
+        history
+            .apply(
+                &mut robot,
+                Command::MoveJointFrame {
+                    joint: shoulder,
+                    origin: joint.origin,
+                    axis: joint.axis,
+                },
+            )
+            .unwrap();
+        assert_eq!(history.undo_depth(), 0, "nothing changed, nothing recorded");
+        assert!(!history.can_undo());
     }
 
     #[test]
