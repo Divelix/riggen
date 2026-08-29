@@ -1,5 +1,9 @@
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
+    // The startup budget's clock (docs/03-roadmap.md §M4): everything from
+    // here to the first painted frame — window, wgpu device, `new`, the
+    // first `ui` pass — is what `--timing` reports.
+    let started = std::time::Instant::now();
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     // `--help`, `--version` and `riggen --export … INPUT` are headless and
     // return before eframe starts (ADR-0008): CI's mujoco job has no display.
@@ -51,12 +55,23 @@ fn main() -> eframe::Result<()> {
     // screen, which reads as the geometry dragging along behind the cursor.
     // One queued frame, presented without waiting for vsync, trades tearing
     // during a fast orbit for input that tracks the mouse.
+    //
+    // The backends are the platform's native ones only (Vulkan, Metal,
+    // DX12): eframe's default adds GL, and enumerating it loads the GLX/EGL
+    // stack and the vendor's GL driver for an adapter the app never picks —
+    // 100–150 ms of the startup budget (docs/03-roadmap.md §M4) on the dev
+    // machine. `WGPU_BACKEND=gl` is the escape hatch for a machine with no
+    // Vulkan driver at all.
+    let mut wgpu_setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
+    wgpu_setup.instance_descriptor.backends =
+        egui_wgpu::wgpu::Backends::from_env().unwrap_or(egui_wgpu::wgpu::Backends::PRIMARY);
     let options = eframe::NativeOptions {
         wgpu_options: egui_wgpu::WgpuConfiguration {
             surface: egui_wgpu::SurfaceConfig {
                 present_mode: egui_wgpu::wgpu::PresentMode::AutoNoVsync,
                 ..egui_wgpu::SurfaceConfig::LOW_LATENCY
             },
+            wgpu_setup: wgpu_setup.into(),
             ..Default::default()
         },
         ..Default::default()
@@ -65,7 +80,8 @@ fn main() -> eframe::Result<()> {
         "riggen",
         options,
         Box::new(move |cc| {
-            let mut app = riggen_app::RiggenApp::new(cc);
+            let mut app = riggen_app::RiggenApp::with_start(cc, started);
+            app.set_print_timing(open.timing);
             app.load_files(&files);
             Ok(Box::new(app))
         }),

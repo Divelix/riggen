@@ -66,6 +66,20 @@ pub struct DebugState {
     /// `[min_x, min_y, max_x, max_y]` of the viewport in egui logical points.
     /// `None` before the first frame has laid it out.
     pub viewport_rect: Option<[f64; 4]>,
+    /// Wall-clock numbers. Absent whenever the frame-time HUD is off — the
+    /// snapshot suite turns it off, so the goldens never see them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timing: Option<TimingDebug>,
+}
+
+/// The startup budget's readout (docs/03-roadmap.md §M4).
+#[derive(Debug, Clone, Serialize)]
+pub struct TimingDebug {
+    /// Milliseconds from the start clock (`main`, or `new` in a harness)
+    /// to the end of the first `ui` pass. `None` before the first frame.
+    pub first_frame_ms: Option<f64>,
+    /// Seconds between the last two frames.
+    pub frame_dt: Option<f64>,
 }
 
 /// What the panels are in the middle of.
@@ -421,6 +435,10 @@ impl RiggenApp {
                     round32(rect.max.x),
                     round32(rect.max.y),
                 ]
+            }),
+            timing: self.show_frame_hud.then(|| TimingDebug {
+                first_frame_ms: self.first_frame_ms.map(round),
+                frame_dt: self.last_frame_dt.map(round32),
             }),
         }
     }

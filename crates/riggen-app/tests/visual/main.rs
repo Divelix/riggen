@@ -3197,3 +3197,38 @@ fn example_arm_opens_from_the_bundle() {
         std::fs::remove_dir_all(&temp).unwrap();
     });
 }
+
+/// The startup budget (docs/03-roadmap.md §M4): `RiggenApp::new` to the
+/// first painted frame in under 500 ms on the CPU adapter, 2000 ms under
+/// `CI` (lavapipe on a shared runner is not the dev machine). What this
+/// guards is a regression — a font atlas, a pipeline, a persistence load
+/// that quietly grew — not the absolute number, which is the dev machine's
+/// and lives in the roadmap. The harness has no earlier clock than `new`;
+/// the real app's number (`riggen --timing`) also holds the window and the
+/// device.
+#[test]
+fn startup_first_frame_under_budget() {
+    with_app(|harness| {
+        let budget_ms = if std::env::var_os("CI").is_some() {
+            2000.0
+        } else {
+            500.0
+        };
+        let ms = harness
+            .state()
+            .first_frame_ms()
+            .expect("the harness settled, so a frame was painted");
+        eprintln!("startup: first frame after {ms:.0} ms (budget {budget_ms:.0})");
+        assert!(
+            ms < budget_ms,
+            "first frame took {ms:.0} ms, budget {budget_ms:.0} ms"
+        );
+
+        // The readout is a debug-state section when the HUD is on, and
+        // absent from the goldens otherwise.
+        assert!(harness.state().debug_state().timing.is_none());
+        harness.state_mut().set_frame_hud_visible(true);
+        let timing = harness.state().debug_state().timing.expect("timing");
+        assert_eq!(timing.first_frame_ms, Some(riggen_app::debug::round(ms)));
+    });
+}

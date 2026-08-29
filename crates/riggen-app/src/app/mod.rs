@@ -122,7 +122,16 @@ pub struct RiggenApp {
     pub(crate) show_frame_hud: bool,
     last_frame_instant: Option<Instant>,
     /// Seconds between the last two frames, for the frame-time readout.
-    last_frame_dt: Option<f32>,
+    pub(crate) last_frame_dt: Option<f32>,
+    /// When the process started (`main`'s first line), or when `new` ran
+    /// when nobody handed one in — the startup budget's clock
+    /// (docs/03-roadmap.md §M4).
+    started: Instant,
+    /// Milliseconds from `started` to the end of the first `ui` pass, i.e.
+    /// the first frame that is painted. `None` until then.
+    pub(crate) first_frame_ms: Option<f64>,
+    /// `--timing`: print `first_frame_ms` to stderr once it is known.
+    print_timing: bool,
 }
 
 impl RiggenApp {
@@ -130,6 +139,14 @@ impl RiggenApp {
     pub const DEFAULT_IMPORT_SCALE: f64 = 0.001;
 
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        Self::with_start(cc, Instant::now())
+    }
+
+    /// [`Self::new`] with the startup clock already running: `main` takes
+    /// `Instant::now()` before eframe creates the window and the wgpu
+    /// device, so those are inside the first-frame number of the real app.
+    /// The test harness has no earlier point and starts it here.
+    pub fn with_start(cc: &eframe::CreationContext<'_>, started: Instant) -> Self {
         let render_state = cc
             .wgpu_render_state
             .as_ref()
@@ -185,6 +202,39 @@ impl RiggenApp {
             show_frame_hud: true,
             last_frame_instant: None,
             last_frame_dt: None,
+            started,
+            first_frame_ms: None,
+            print_timing: false,
+        }
+    }
+
+    /// `--timing`: report the first frame on stderr when it lands, and
+    /// right now how long the window and the device took before `new`.
+    pub fn set_print_timing(&mut self, print: bool) {
+        self.print_timing = print;
+        if print {
+            eprintln!(
+                "startup: app created after {:.0} ms (window and wgpu device before it)",
+                self.started.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+    }
+
+    /// Milliseconds from the start clock to the first painted frame, once
+    /// there has been one.
+    pub fn first_frame_ms(&self) -> Option<f64> {
+        self.first_frame_ms
+    }
+
+    /// Called at the end of every `ui` pass; only the first one counts.
+    fn record_first_frame(&mut self) {
+        if self.first_frame_ms.is_some() {
+            return;
+        }
+        let ms = self.started.elapsed().as_secs_f64() * 1000.0;
+        self.first_frame_ms = Some(ms);
+        if self.print_timing {
+            eprintln!("startup: first frame after {ms:.0} ms");
         }
     }
 
@@ -386,5 +436,6 @@ impl eframe::App for RiggenApp {
         if self.quit_confirmed {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
+        self.record_first_frame();
     }
 }
