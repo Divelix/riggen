@@ -11,3 +11,6 @@ riggen-mesh.workspace = true
 # `Robot`, `validate`, `fk` and `compose_inertial`: `resolve` reads the
 # document and the export CLI's `.riggen` loader is `riggen_core::load`.
 riggen-core.workspace = true
+# `<name>.fk.json`, the FK samples the MuJoCo CI test reads (`fk_samples`).
+serde.workspace = true
+serde_json.workspace = true

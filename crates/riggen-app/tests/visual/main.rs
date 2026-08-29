@@ -1796,6 +1796,123 @@ fn write_arm_fixtures() {
     }
 }
 
+/// Regenerates `assets/fixtures/arm/arm.riggen`, the M3 sample robot: the
+/// four arm parts assembled on the design line with materials and limits,
+/// as `five_minute_arm` builds it by hand but with exact numbers. Ignored
+/// like `write_arm_fixtures`; run it when the design or the file format
+/// changes —
+/// `cargo test -p riggen-app --test visual write_arm_sample -- --ignored`.
+#[test]
+#[ignore = "writes the committed sample; run on purpose"]
+fn write_arm_sample() {
+    use riggen_core::glam::DVec3;
+    use riggen_core::{Geom, InertialSpec, Joint, JointKind, Limits, MeshAsset, Robot};
+
+    let mut robot = Robot::new("arm");
+    let root = robot.root;
+    let mm = 0.001;
+    let asset = |name: &str| {
+        let path = arm_fixture(name);
+        MeshAsset {
+            content_hash: riggen_core::hash_file(&path).unwrap(),
+            path,
+            scale: mm,
+            fix_up: None,
+        }
+    };
+    let pivots: Vec<DVec3> = ARM_DESIGN
+        .iter()
+        .map(|(o, _)| DVec3::from_array(*o))
+        .collect();
+    let axes: Vec<DVec3> = ARM_DESIGN
+        .iter()
+        .map(|(_, a)| DVec3::from_array(*a))
+        .collect();
+    let limits = |deg: f64| {
+        Some(Limits {
+            lower: -deg.to_radians(),
+            upper: deg.to_radians(),
+            effort: 5.0,
+            velocity: 3.0,
+        })
+    };
+    // (name, material, the STL's export offset, joint to the parent as
+    // (origin in the parent frame, axis, limits))
+    type Part = (
+        &'static str,
+        &'static str,
+        DVec3,
+        Option<(DVec3, DVec3, Option<Limits>)>,
+    );
+    let parts: [Part; 4] = [
+        ("base", "aluminium", DVec3::ZERO, None),
+        (
+            "shoulder",
+            "aluminium",
+            DVec3::ZERO,
+            Some((pivots[0], axes[0], limits(170.0))),
+        ),
+        (
+            "upper",
+            "PLA",
+            DVec3::ZERO,
+            Some((pivots[1] - pivots[0], axes[1], limits(100.0))),
+        ),
+        (
+            "fore",
+            "PLA",
+            FORE_EXPORT_OFFSET * mm,
+            Some((pivots[2] - pivots[1], axes[2], limits(120.0))),
+        ),
+    ];
+    let mut parent = root;
+    let mut parent_world = DVec3::ZERO;
+    for (name, material, export_offset, joint) in parts {
+        let mesh = robot.add_asset(asset(&format!("{name}.stl")));
+        let (origin, world) = match joint {
+            Some((origin, _, _)) => (origin, parent_world + origin),
+            None => (DVec3::ZERO, parent_world),
+        };
+        let mut link = Link::new(name);
+        link.material = Some(material.into());
+        link.inertial = InertialSpec::Computed {
+            density_override: None,
+        };
+        // The STL is modelled in world position (plus its export offset);
+        // the geom pose brings it into the link frame at rest.
+        link.visuals.push(Geom {
+            id: robot.next_id.alloc(),
+            mesh,
+            pose: Pose::from_translation(-world - export_offset),
+            color: None,
+        });
+        let joint = match joint {
+            Some((_, axis, limits)) => Joint {
+                kind: JointKind::Revolute,
+                axis,
+                origin: Pose::from_translation(origin),
+                limits,
+                dynamics: riggen_core::Dynamics {
+                    damping: 0.05,
+                    ..Default::default()
+                },
+                ..Joint::fixed(format!("{name}_joint"), parent, parent)
+            },
+            None => Joint::fixed(format!("{name}_joint"), parent, parent),
+        };
+        Command::AddLink {
+            link: Box::new(link),
+            parent,
+            joint,
+        }
+        .apply(&mut robot)
+        .unwrap();
+        parent = *robot.links.iter().find(|(_, l)| l.name == name).unwrap().0;
+        parent_world = world;
+    }
+    riggen_core::save(&robot, &arm_fixture("arm.riggen")).unwrap();
+}
+
 /// A screen point on the wall of a shaft, on the side facing the camera.
 ///
 /// `along` slides the aim off the shaft's mid-plane, to a stretch that is

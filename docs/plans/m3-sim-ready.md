@@ -178,7 +178,7 @@ agrees with our FK" — is retired by step 5, before any UI exists.
   Tests: quaternion order, XML escaping, a golden MJCF string for a
   two-link robot with every joint kind, the written STL's AABB is the
   scaled one, `--export` on `pendulum.riggen` produces the files.
-- [ ] Step 5 — Sample robot + MuJoCo load test: an `#[ignore]`d generator
+- [x] Step 5 — Sample robot + MuJoCo load test: an `#[ignore]`d generator
   test (beside `write_arm_fixtures`) builds the arm from `ARM_DESIGN`
   with materials and saves `assets/fixtures/arm/arm.riggen`;
   `--fk-samples` writes poses at five joint configurations;

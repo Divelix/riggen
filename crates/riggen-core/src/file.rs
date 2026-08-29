@@ -509,6 +509,69 @@ mod tests {
         ));
     }
 
+    /// `assets/fixtures/arm/arm.riggen`, the M3 sample robot (written by
+    /// `write_arm_sample` in the app's visual tests): four parts on three
+    /// revolute joints, every mesh hashed, and a re-save reproduces the
+    /// committed bytes.
+    #[test]
+    fn corpus_sample_arm_opens() {
+        let file = fixtures().join("arm/arm.riggen");
+        let (robot, warnings) = load(&file).unwrap();
+        assert_eq!(warnings, vec![], "fixture meshes must match their hashes");
+        assert_eq!(robot.name, "arm");
+        assert_eq!(robot.links.len(), 5, "root plus four parts");
+        assert_eq!(robot.joints.len(), 4);
+        let revolute = robot
+            .joints
+            .values()
+            .filter(|j| j.kind == JointKind::Revolute)
+            .count();
+        assert_eq!(revolute, 3);
+        assert!(
+            robot
+                .joints
+                .values()
+                .all(|j| !j.kind.requires_limits() || j.limits.is_some())
+        );
+        assert!(
+            robot
+                .links
+                .values()
+                .all(|l| l.name == "base_link" || l.material.is_some())
+        );
+        for asset in robot.assets.values() {
+            assert_eq!(asset.scale, 0.001, "the STLs are in millimetres");
+            assert!(asset.path.exists(), "{}", asset.path.display());
+        }
+        // The forearm's tip is where the design says: 0.235 m up at rest,
+        // and the shoulder swings it about Z.
+        let world = crate::fk(&robot, &crate::JointState::default());
+        let fore = *robot
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "fore")
+            .unwrap()
+            .0;
+        assert!((world[&fore].t - DVec3::new(0.0, 0.0, 0.195)).length() < 1e-12);
+
+        let dir = scratch("corpus-arm");
+        for mesh in ["base.stl", "shoulder.stl", "upper.stl", "fore.stl"] {
+            std::fs::copy(fixtures().join("arm").join(mesh), dir.join(mesh)).unwrap();
+        }
+        let mut relocated = robot.clone();
+        for asset in relocated.assets.values_mut() {
+            asset.path = dir.join(asset.path.file_name().unwrap());
+        }
+        let again = dir.join("arm.riggen");
+        save(&relocated, &again).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&again).unwrap(),
+            std::fs::read_to_string(&file).unwrap(),
+            "re-saving the sample must reproduce the committed bytes"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn corpus_pendulum_opens() {
         let file = fixtures().join("pendulum.riggen");

@@ -7,6 +7,7 @@
 //! and each writer is a dumb serialiser of that.
 
 mod export;
+pub mod fk_samples;
 pub mod mesh_store;
 pub mod mjcf;
 pub mod resolve;

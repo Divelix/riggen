@@ -8,13 +8,15 @@ use std::path::PathBuf;
 
 use riggen_export::{ExportOptions, Format, MeshStore};
 
-pub const USAGE: &str = "usage: riggen --export mjcf|urdf|both --out DIR INPUT";
+pub const USAGE: &str = "usage: riggen --export mjcf|urdf|both [--fk-samples] --out DIR INPUT";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExportArgs {
     pub format: Format,
     pub out: PathBuf,
     pub input: PathBuf,
+    /// Also write `<name>.fk.json` (`riggen_export::fk_samples`).
+    pub fk_samples: bool,
 }
 
 /// `Ok(None)` when the arguments are not an export invocation (the GUI
@@ -26,6 +28,7 @@ pub fn parse(args: &[OsString]) -> Result<Option<ExportArgs>, String> {
     let mut format = None;
     let mut out = None;
     let mut input = None;
+    let mut fk_samples = false;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.to_str() {
@@ -47,6 +50,7 @@ pub fn parse(args: &[OsString]) -> Result<Option<ExportArgs>, String> {
                         .ok_or(format!("--out expects a directory\n{USAGE}"))?,
                 ));
             }
+            Some("--fk-samples") => fk_samples = true,
             Some(flag) if flag.starts_with("--") => {
                 return Err(format!("unknown flag {flag}\n{USAGE}"));
             }
@@ -61,6 +65,7 @@ pub fn parse(args: &[OsString]) -> Result<Option<ExportArgs>, String> {
         format: format.ok_or(USAGE)?,
         out: out.ok_or(format!("--out is required\n{USAGE}"))?,
         input: input.ok_or(format!("INPUT is required\n{USAGE}"))?,
+        fk_samples,
     }))
 }
 
@@ -84,7 +89,15 @@ pub fn run(args: &ExportArgs) -> Result<Vec<PathBuf>, String> {
             return Err(join_errors(&errors));
         }
     };
-    riggen_export::export(&resolved, &options, &args.out).map_err(|e| e.to_string())
+    let mut written =
+        riggen_export::export(&resolved, &options, &args.out).map_err(|e| e.to_string())?;
+    if args.fk_samples {
+        let path = args.out.join(format!("{}.fk.json", robot.name));
+        std::fs::write(&path, riggen_export::fk_samples::to_json(&robot))
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        written.push(path);
+    }
+    Ok(written)
 }
 
 fn join_errors(errors: &[riggen_export::ExportError]) -> String {
@@ -119,13 +132,22 @@ mod tests {
                 format: Format::Mjcf,
                 out: "target/x".into(),
                 input: "r.riggen".into(),
+                fk_samples: false,
             }
         );
         // Order does not matter.
-        let parsed = parse(&args(&["r.riggen", "--out", "o", "--export", "both"]))
-            .unwrap()
-            .unwrap();
+        let parsed = parse(&args(&[
+            "r.riggen",
+            "--fk-samples",
+            "--out",
+            "o",
+            "--export",
+            "both",
+        ]))
+        .unwrap()
+        .unwrap();
         assert_eq!(parsed.format, Format::Both);
+        assert!(parsed.fk_samples);
     }
 
     #[test]
@@ -153,6 +175,7 @@ mod tests {
             format: Format::Mjcf,
             out: out.clone(),
             input: fixture,
+            fk_samples: true,
         })
         .unwrap();
         let names: Vec<String> = written
@@ -164,9 +187,12 @@ mod tests {
             [
                 "pendulum.xml",
                 "meshes/cube_ascii.stl",
-                "meshes/cube_binary.stl"
+                "meshes/cube_binary.stl",
+                "pendulum.fk.json"
             ]
         );
+        let json = std::fs::read_to_string(out.join("pendulum.fk.json")).unwrap();
+        assert!(json.contains("\"hinge\""), "{json}");
         let xml = std::fs::read_to_string(out.join("pendulum.xml")).unwrap();
         assert!(
             xml.contains("<joint name=\"hinge\" type=\"hinge\""),
@@ -181,6 +207,7 @@ mod tests {
             format: Format::Mjcf,
             out: std::env::temp_dir(),
             input: "/nowhere/none.riggen".into(),
+            fk_samples: false,
         })
         .unwrap_err();
         assert!(err.contains("none.riggen"), "{err}");
