@@ -166,7 +166,7 @@ targets in CI — is retired first; README and polish come after.
 - [x] Step 4 — `ci.yml` `wheel` job (linux x86_64, maturin-action,
   `manylinux: 2_28`, `test_wheel.py` in a fresh venv, `rust-cache`).
   Green on `main`. Note the job's wall time beside the `mujoco` job's.
-- [ ] Step 5 — `release.yml`: the five-target matrix + sdist, the three
+- [x] Step 5 — `release.yml`: the five-target matrix + sdist, the three
   smoke jobs, TestPyPI on `workflow_dispatch`, PyPI + GitHub Release on
   `v*`, trusted publishing, `RIGGEN_GIT_HASH` from `github.sha`. Ends by
   asking the human to (a) add trusted publishers for `Divelix/riggen` /
@@ -177,6 +177,12 @@ targets in CI — is retired first; README and polish come after.
   0.1.0 with a hash on the dev machine. The linux aarch64 cross build and
   the macOS x86_64 cross-target are the unknowns here; a failing target is
   dropped from the matrix and reported, not worked around blind.
+  *(2026-08-30: the linux aarch64 cross build ran locally in
+  `ghcr.io/rust-cross/manylinux_2_28-cross:aarch64` — a stripped ARM ELF
+  in `riggen-0.1.0-py3-none-manylinux_2_28_aarch64.whl`, 9.0 MB; no qemu
+  here to run it. The macOS x86_64 cross-target and the smoke matrix run
+  only on the runners. (a), (b), (c) and the TestPyPI acceptance are the
+  human's.)*
 - [ ] Step 6 — README and the hero image: `docs/assets/arm.png` captured
   through the visual-debug scratch target (`RIGGEN_SCRATCH_OPEN=assets/
   fixtures/arm/arm.riggen`, collision view off, selection cleared); root
