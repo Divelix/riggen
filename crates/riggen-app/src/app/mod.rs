@@ -4,6 +4,7 @@
 mod align;
 mod debug_menu;
 mod document;
+mod export_dialog;
 mod file_io;
 mod file_menu;
 mod gizmo;
@@ -28,6 +29,7 @@ pub use align::{ALIGN_PROMPT, ALIGN_WRONG_LINK, align_transform, aligned_status}
 pub use debug_menu::COPIED_STATUS;
 pub use document::Selection;
 pub(crate) use document::{CollisionSource, LoadedMesh};
+pub use export_dialog::ExportDialog;
 pub use file_menu::PendingAction;
 use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use gizmo::GizmoState;
@@ -102,6 +104,8 @@ pub struct RiggenApp {
     pub(crate) materials_window: MaterialsWindow,
     /// New / Open / Quit waiting on the unsaved-changes answer.
     pub(crate) pending: Option<PendingAction>,
+    /// File › Export… (`export_dialog.rs`).
+    pub(crate) export_dialog: ExportDialog,
     /// Set once Quit (or the OS close button) passed the dirty check.
     pub(crate) quit_confirmed: bool,
     /// The title last pushed to the OS window.
@@ -172,6 +176,7 @@ impl RiggenApp {
             joints_window: JointsWindow::default(),
             materials_window: MaterialsWindow::default(),
             pending: None,
+            export_dialog: ExportDialog::default(),
             quit_confirmed: false,
             last_title: None,
             viewport,
@@ -377,6 +382,7 @@ impl eframe::App for RiggenApp {
         self.joints_window(ui.ctx());
         self.materials_window(ui.ctx());
         self.unsaved_changes_modal(ui.ctx());
+        self.export_modal(ui.ctx());
         if self.quit_confirmed {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }

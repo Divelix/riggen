@@ -342,8 +342,17 @@ pub fn resolve(
                     Some(value)
                 }
             }
-            // A static, geometry-less body does not need a density.
-            Err(InertialError::NoDensity) if !moving && link.visuals.is_empty() => None,
+            // A geometry-less body has no mass whatever its density: fine
+            // when static, and the clearer of the two errors when moving.
+            Err(InertialError::NoDensity) if link.visuals.is_empty() => {
+                if moving {
+                    errors.push(ExportError::ZeroMassMovableLink {
+                        link: lid,
+                        name: link.name.clone(),
+                    });
+                }
+                None
+            }
             Err(error) => {
                 errors.push(ExportError::Inertial {
                     link: lid,

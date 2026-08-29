@@ -2603,6 +2603,130 @@ fn unsaved_confirm() {
     });
 }
 
+/// File › Export… on the sample arm: format, directory, mesh path style,
+/// floating base, and "ready" with the Export button enabled.
+#[test]
+fn export_dialog() {
+    scenario("export_dialog", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        harness.state_mut().fit_view_now();
+        harness.get_by_label("File").click();
+        harness.step();
+        harness.get_by_label("Export…").click();
+        harness.step();
+        // A directory the picture does not depend on.
+        harness
+            .state_mut()
+            .set_export_dir(std::path::Path::new("/tmp/arm_export"));
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.ui.modal, Some("export"));
+        assert!(harness.state().export_dialog().errors.is_empty());
+        harness.get_by_label("5 links, 4 joints, 4 mesh files — ready");
+        assert!(
+            !harness
+                .get_by_label("Export")
+                .accesskit_node()
+                .is_disabled()
+        );
+    });
+}
+
+/// The export blocked: an empty link on a revolute joint has no mass, an
+/// override with an impossible tensor fails the triangle inequality. Both
+/// are listed with the link's name and the Export button is disabled.
+#[test]
+fn export_blocked() {
+    scenario("export_blocked", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let root = app.robot().root;
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .unwrap()
+            .0;
+        app.apply(Command::AddLink {
+            link: Box::new(Link::new("ghost")),
+            parent: root,
+            joint: riggen_core::Joint {
+                kind: riggen_core::JointKind::Revolute,
+                limits: Some(riggen_core::Limits {
+                    lower: -1.0,
+                    upper: 1.0,
+                    effort: 1.0,
+                    velocity: 1.0,
+                }),
+                ..riggen_core::Joint::fixed("ghost_joint", root, root)
+            },
+        })
+        .unwrap();
+        app.apply(Command::SetInertial(
+            arm,
+            riggen_core::InertialSpec::Override {
+                mass: 1.0,
+                com: DVec3::ZERO,
+                inertia: riggen_core::glam::DMat3::from_diagonal(DVec3::new(1.0, 1.0, 3.0)),
+            },
+        ))
+        .unwrap();
+        app.set_export_dir(std::path::Path::new("/tmp/pendulum_export"));
+        app.open_export_dialog();
+        app.fit_view_now();
+        settle(harness);
+
+        let errors = harness.state().export_dialog().errors.clone();
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert!(
+            errors[0].contains("\"arm\"") && errors[0].contains("triangle"),
+            "{errors:?}"
+        );
+        assert!(errors[1].contains("\"ghost\" moves"), "{errors:?}");
+        assert!(
+            harness
+                .get_by_label("Export")
+                .accesskit_node()
+                .is_disabled()
+        );
+        assert!(!harness.state_mut().run_export(), "refused");
+    });
+}
+
+/// Export writes the files where the dialog says and reports it.
+#[test]
+fn export_writes_the_files() {
+    with_app(|harness| {
+        let dir = scratch_dir("export");
+        let app = harness.state_mut();
+        app.open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        app.open_export_dialog();
+        app.set_export_dir(&dir);
+        app.set_export_options(riggen_export::ExportOptions {
+            format: riggen_export::Format::Both,
+            mesh_paths: riggen_export::MeshPathStyle::Relative,
+            floating_base: false,
+        });
+        assert!(app.run_export());
+        assert!(!app.export_dialog().open, "the modal closed");
+        assert_eq!(
+            app.debug_state().status.as_deref(),
+            Some(format!("exported 6 files to {}", dir.display()).as_str())
+        );
+        for name in ["arm.xml", "arm.urdf", "meshes/base.stl", "meshes/fore.stl"] {
+            assert!(dir.join(name).is_file(), "{name}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    });
+}
+
 /// Save → reopen → the same document, clean; then the confirm's three
 /// answers: Cancel keeps everything, Don't save runs the action, Save
 /// writes the file first. The OS close request takes the same path.
