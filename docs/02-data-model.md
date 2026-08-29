@@ -93,6 +93,7 @@ pub enum CollisionPolicy {
     SameAsVisual,
     ConvexHull,                         // one hull per visual geom
     Primitives(Vec<Primitive>),         // boxes/cylinders/spheres/capsules in link frame
+    Meshes(Vec<Geom>),                  // collision meshes that are not the visuals (a URDF import)
     ConvexDecomposition { max_hulls: u32 }, // post-MVP
 }
 

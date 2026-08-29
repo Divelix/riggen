@@ -9,7 +9,8 @@ Python module links against, and they are where the tests that matter live.
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │  riggen-app       eframe shell, panels, gizmos, drag-drop,     │  binary
-│                   selection, snapping, jobs, snapshot suite    │  (maturin bin)
+│                   selection, snapping, export dialog, --export │  (maturin bin)
+│                   CLI, snapshot suite                          │
 ├────────────────────────────────────────────────────────────────┤
 │  riggen-viewport  wgpu renderer via egui_wgpu callbacks:       │
 │                   instances, camera, ID-buffer picking,        │
@@ -17,9 +18,10 @@ Python module links against, and they are where the tests that matter live.
 │                   segment, polyline, arc, point, label)        │
 ├──────────────────────────────┬─────────────────────────────────┤
 │  riggen-export               │  (riggen-py, v0.2)              │
-│  ResolvedRobot, MJCF + URDF  │  PyO3 over core + export        │
-│  writers, URDF import,       │                                 │
-│  validation, round-trip FK   │                                 │
+│  resolve → ResolvedRobot,    │  PyO3 over core + export        │
+│  MJCF + URDF writers, URDF   │                                 │
+│  import, export dir, FK      │                                 │
+│  samples, round-trip FK test │                                 │
 ├──────────────────────────────┴─────────────────────────────────┤
 │  riggen-core      Robot document (links, joints, frames,       │
 │                   inertial spec, collision policy), FK,        │
@@ -41,11 +43,12 @@ painter after the paint callback and is **not** depth-tested; for a joint
 glyph inside a part that is the wanted behaviour. The viewport never sees a
 `Joint` — the app builds the items (`app/glyphs.rs`).
 
-`riggen-core` depends on `riggen-mesh` today only for the `glam` re-export
-(no geometry is stored in the document); M3 adds mass properties (a link's
-computed inertial is a function of its meshes). `riggen-export` depends on
-both. Nothing below `riggen-app` knows about selection, hover, or
-gizmos.
+`riggen-core` depends on `riggen-mesh` for the `glam` re-export and for
+`mass_properties`: a link's computed inertial is a function of its meshes,
+which core reaches through the `MeshLookup` trait (02 §Inertials) rather
+than storing — no geometry is in the document. `riggen-export` depends on
+both plus `urdf-rs`. Nothing below `riggen-app` knows about selection,
+hover, or gizmos.
 
 ## Cargo workspace
 
@@ -56,23 +59,29 @@ riggen/
 ├── rust-toolchain.toml     # stable + rustfmt, clippy, wasm32-unknown-unknown
 ├── kittest.toml            # snapshot thresholds (ADR-0003); found by walking up from the crate
 ├── crates/
-│   ├── riggen-mesh/        # TriMesh, Aabb, Ray, load_stl / load_obj / load_mesh, feature/
-│   ├── riggen-core/        # ids, pose, robot, validate, fk, command, history, file
-│   ├── riggen-export/      # placeholder until M3
+│   ├── riggen-mesh/        # TriMesh, Aabb, Ray, load_stl / load_obj / load_mesh, feature/,
+│   │                       # mass, hull (quickhull), fit
+│   ├── riggen-core/        # ids, pose, robot, validate, fk, command, history, file, inertial
+│   ├── riggen-export/      # resolve, mesh_store, mjcf, urdf, urdf_in, export, fk_samples, xml
 │   ├── riggen-viewport/    # camera/, scene, pick_id, gpu_mesh, overlay, viewport/, shaders/
 │   ├── riggen-app/         # bin "riggen"; cdylib for the wasm build check; tests/visual
-│       └── src/app/        # document, file_io, file_menu, shortcuts, status_bar, tool,
-│                           # gizmo, glyphs, snap, align,
+│       ├── src/cli.rs      # `riggen --export …`, headless (ADR-0008)
+│       └── src/app/        # document, file_io, file_menu, export_dialog, shortcuts,
+│                           # status_bar, tool, gizmo, glyphs, snap, align,
 │                           # panels/{tree, properties, joints, materials}
 │   └── riggen/             # the crates.io name reservation: an empty 0.0.1 lib with the
 │                           # README; M4 publishes the app under this name (SEED.md §5)
 ├── assets/fixtures/        # cube_binary.stl, cube_ascii.stl, cube.obj — the unit cube
 │                           # (TriMesh::cube(0.5)) in every format; pendulum.riggen, the
 │                           # .riggen v1 corpus file (02 §Schema); arm/*.stl in mm, the
-│                           # M2 acceptance's four parts (an ignored generator test writes them)
+│                           # M2 acceptance's four parts plus fore_hull.stl (an ignored
+│                           # generator test writes them); arm/arm.riggen, the M3 sample
+│                           # robot (`write_arm_sample`), and arm/arm.urdf, the hand-written
+│                           # URDF import corpus file (02 §URDF import)
 ├── python/                 # the PyPI `riggen` 0.0.1 name reservation (hatchling; a `riggen`
 │                           # script that says the app is coming); M4 swaps the build for
-│                           # maturin `bindings = "bin"` (ADR-0002); v0.2 adds riggen-py
+│                           # maturin `bindings = "bin"` (ADR-0002); v0.2 adds riggen-py.
+│   └── tests/test_mjcf_load.py   # the MuJoCo load + FK test (§Testing), a plain script
 ├── LICENSE-MIT, LICENSE-APACHE   # "MIT OR Apache-2.0"; python/ carries real copies
 ├── docs/
 ├── SEED.md
@@ -108,14 +117,18 @@ state:
 ```rust
 pub struct RiggenApp {
     robot: Robot, history: History, file: Option<PathBuf>,
-    mesh_store: HashMap<MeshId, LoadedMesh>,            // raw file mesh + the scaled/fixed-up Arc<TriMesh>
+    mesh_store: HashMap<MeshId, LoadedMesh>,            // raw file mesh + the scaled/fixed-up Arc<TriMesh>,
+                                                        // its welded adjacency and convex hull, cached on first use
     instances: BTreeMap<(LinkId, GeomId), InstanceId>,  // the only map between document and scene
+    collision_instances: BTreeMap<(LinkId, usize), (InstanceId, CollisionSource)>, // translucent shapes,
+    show_collision: bool,                               // per link and shape index, while View › Collision geometry is on
     q: JointState, selection: Selection,                // Selection = None | Link(LinkId) | Joint(JointId)
     tool: Tool, gizmo_state: GizmoState,               // Select | Move | Rotate | PlaceJoint | Align; the gizmo and its drag
     preview_world: Option<(LinkId, Pose)>,             // a link's pose while a gizmo drag previews it
     hovered_joint, glyph_hover, snap_candidate,        // resolved every frame from the pointer
     snap_cache, align_source, toolbar_rect,            // the memoised fit, the align gesture's first pick
     import_scale: f64, pending: Option<PendingAction>,  // File › Import units; New/Open/Quit awaiting the dirty answer
+    export_dialog: ExportDialog,                        // File › Export…: options, directory, the resolve errors
     tree, props, joints_window, materials_window,       // transient panel state (a rename in progress, drafts)
     viewport, next_instance, status, …
 }
@@ -137,7 +150,12 @@ per `(LinkId, GeomId)` visual is added or removed, a mesh whose asset scale
 changed is re-uploaded, every model matrix is written from
 `fk(robot, q)[link] ∘ geom.pose`, and every instance's colour from the
 geom's own colour, else the link's material, else the viewport default.
-`q` is pruned of vanished joints and clamped to freshly edited limits on
+With View › Collision geometry on, `sync_collision` derives one translucent
+instance per collision shape the link's policy resolves to — a cached hull
+per visual mesh for `ConvexHull`, a generated mesh per primitive, each
+`Meshes` geom; nothing extra for `None` / `SameAsVisual` — at the same FK
+poses, re-uploading only when a shape's source changed; with it off they
+are all removed. `q` is pruned of vanished joints and clamped to freshly edited limits on
 the way, and `preview_world` — a link's pose while a gizmo drag is in
 flight — is applied as a correction to that link and its whole subtree, so
 the parts follow the handle exactly as they will after the commit while the
@@ -210,11 +228,20 @@ closes.
   hovered the viewport's own pick is suppressed, so the part behind it is
   not highlighted as well and a click selects the *joint*.
 - **Properties** (right): a link's name, material, and per geom the pose
-  (xyz m, RPY °), asset scale and fix-up, "Add mesh to this link…"; a
-  joint's name, kind (limits appear with Revolute/Prismatic, defaulting to
-  ±π / ±1 m), origin, axis (normalised on commit), limits in ° or m,
-  dynamics. Fields are `labelled_by` their labels for the accessibility
-  tree.
+  (xyz m, RPY °), asset scale and fix-up, "Add mesh to this link…"; then
+  **Inertial** — the `InertialSpec` mode combo (Computed / Override /
+  Hybrid) with its fields (density override; mass, CoM and the six tensor
+  entries; mass) and, beside them, what the meshes say (mass, CoM,
+  principal moments) or why they say nothing ("open mesh: <file>" in
+  warning colour) — and **Collision** — the policy combo (None / Same as
+  visual / Convex hull / Primitives; `Meshes` and decomposition shown
+  read-only when a document carries them), and for Primitives the list
+  with "+ Box / Cylinder / Sphere / Capsule" (each fitted to the link's
+  meshes on creation), Fit to mesh, Remove, pose and size fields. Every
+  commit is one `SetInertial` / `SetCollision`. A joint's name, kind
+  (limits appear with Revolute/Prismatic, defaulting to ±π / ±1 m),
+  origin, axis (normalised on commit), limits in ° or m, dynamics. Fields
+  are `labelled_by` their labels for the accessibility tree.
 - **Window › Joints** / **Materials**: floating windows, closed by default.
   Joints: one slider per movable joint in its limits (Continuous ±180°),
   writing `q` and syncing every frame, "Reset all". Materials: name /
@@ -225,11 +252,18 @@ closes.
   (JSON)…** — the runtime route to `debug_state()` (§Testing) for a state
   reached by hand rather than by a scenario.
 - **File**: New, Open…, Save (Save As when untitled), Save As…, Import
-  units, Quit; **Edit**: Undo, Redo, Delete, greyed out when idle. The
-  window title is `name.riggen* — riggen`. Every route that would drop a
-  dirty document — New, Open, a dropped `.riggen`, Quit, the OS close button
-  (refused with `CancelClose` until answered) — goes through one
-  `PendingAction` and the Save / Don't save / Cancel modal.
+  URDF…, Export…, Import units, Quit; **Edit**: Undo, Redo, Delete, greyed
+  out when idle; **View**: Collision geometry (off by default, remembered
+  through eframe storage). The window title is `name.riggen* — riggen`.
+  Every route that would drop a dirty document — New, Open, a dropped
+  `.riggen` or `.urdf`, Import URDF…, Quit, the OS close button (refused
+  with `CancelClose` until answered) — goes through one `PendingAction`
+  and the Save / Don't save / Cancel modal. **Export…** is a second modal
+  (`export_dialog.rs`): format (MJCF / URDF / both), directory (`rfd`),
+  URDF mesh path style, MJCF floating base; it resolves the document on
+  open and on every option change and lists each `ExportError` with the
+  link it names, the Export button disabled while any exist; success is
+  the status bar's `exported N files to <dir>`.
 - **Shortcuts** (`shortcuts.rs`, run before the panels each frame): Ctrl+N
   / O / S / Shift+S fire always; Delete, F2, Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y
   yield while a `TextEdit` has focus (`TextEdit::load_state` on the focused
@@ -256,9 +290,11 @@ Robot ──► fk(robot, q) ──► world pose per link
 The viewport draws **instances**, not links: one instance per `(LinkId,
 GeomId)` visual, with the uploaded `TriMesh` shared by `MeshId` (scale and
 fix-up applied once at load through `TriMesh::transform`). Moving a joint
-writes matrices; nothing is re-uploaded. Collision geometry will render as
-a second, toggleable instance set (translucent) sharing the same camera
-(M3).
+writes matrices; nothing is re-uploaded. Collision geometry is a second
+instance set in the same scene with `RenderGroup::Translucent`: drawn
+after every opaque instance through a second scene pipeline (alpha-blended,
+depth-tested, no depth write) and skipped by the pick pass, so a hull over
+a part never takes the part's hover or click.
 
 `InstanceId(u32)` is handed out by the app and never reused in a session.
 `Scene<M>` keeps one entry per instance — payload (`GpuMesh`), `DMat4`
@@ -421,19 +457,20 @@ disagree with the wgpu pass about where a point is: both start from
 
 ## Jobs and threads
 
-There is no evaluator. The only long-running work is mesh loading, convex
-hull / primitive fitting, and export. Mesh loading currently runs
-synchronously on the UI thread: every route in — CLI arguments,
-drag-and-drop, File › Open — ends in `RiggenApp::load_files` (through the
-dirty check when a `.riggen` is among the files) and fits the view
-afterwards, and `sync_scene` loads a document's assets from their paths;
-`riggen-app::jobs` arrives with the hull work and runs them on a
-`std::thread` with an `mpsc` channel and a `wake` callback bound to
-`ctx.request_repaint()`; results are drained once per frame. On wasm the
-same API runs inline (no threads from eframe on the web); nothing else in
-the app cares which. This is RoboCAD's `EvalExecutor` shape without the
-generation machinery — a job carries the `MeshId` or export request it was
-made for, and a result for an id that no longer exists is dropped.
+There is no evaluator and, as of M3, no job thread either. The only work
+that is not a frame's worth is mesh loading, convex hulls and export, and
+all of it runs synchronously on the UI thread: every route in — CLI
+arguments, drag-and-drop, File › Open, Import URDF — ends in
+`RiggenApp::load_files` (through the dirty check when a document is among
+the files) and fits the view afterwards; `sync_scene` loads a document's
+assets from their paths; a hull is computed the first time the collision
+view or a fit asks for it and cached beside the loaded mesh
+(`LoadedMesh::hull`); the export resolves in the dialog and writes on the
+button. The meshes M3 is built against make none of this noticeable.
+`riggen-app::jobs` — RoboCAD's `EvalExecutor` shape, a `std::thread` with
+an `mpsc` channel and a `wake` bound to `ctx.request_repaint()`, results
+drained once per frame, inline on wasm — is on the backlog for the first
+mesh that makes it hurt (plans/m3-sim-ready non-goals).
 
 ## File format
 
@@ -457,9 +494,17 @@ In the app, `save_to` marks the history depth as saved and the status bar
 and window title show `name.riggen*` until then; the unsaved-changes modal
 guards every route that would drop a dirty document (§Panels and menus).
 
-Export writes a directory: `<name>.xml` / `<name>.urdf` plus `meshes/`,
-with mesh paths in the style the target expects (`package://`, relative, or
-absolute — a user setting).
+Export writes a directory (ADR-0008): `<name>.xml` and/or `<name>.urdf`
+plus `meshes/<stem>.stl` — every mesh baked to meters as binary STL,
+`scale` and `fix_up` applied, `<stem>_hull.stl` beside it for hulls, no
+`scale` attribute anywhere — each file through a `.tmp` sibling and a
+rename. The URDF's `<mesh filename>` style is a dialog option
+(`MeshPathStyle`: relative, `package://<name>/`, absolute); MJCF has
+`meshdir`. `riggen --export mjcf|urdf|both [--fk-samples] --out DIR
+INPUT` does the same headlessly (`INPUT` is a `.riggen` or a `.urdf`),
+returning before eframe starts, which is what CI's `mujoco` job runs. A
+`.urdf` opens as a new, untitled document through `riggen_export::urdf_in`
+(02 §URDF import); the import's warnings go to the status bar.
 
 ## Python distribution (ADR-0002)
 
@@ -479,13 +524,19 @@ GUI is never entered from inside a Python call.
 
 - `riggen-mesh`, `riggen-core`, `riggen-export`: plain unit tests; no GPU,
   no egui. This is where correctness lives.
-- **Round-trip FK test** (`riggen-export/tests`): build a reference arm →
+- **Round-trip FK test** (`riggen-export/src/urdf.rs`): the sample arm →
   export URDF → parse with `urdf-rs` → compute FK independently from the
-  parsed file → compare end-effector poses over a joint-space grid against
-  `riggen-core::fk`. Catches frame-convention bugs mechanically.
-- **MuJoCo load test** (`python/tests`, CI only): `mujoco.MjModel.from_xml_path`
-  on the exported MJCF must succeed with zero compiler warnings, and
-  `mj_forward` body positions must match our FK.
+  parsed `xyz rpy axis` with glam matrices alone → compare end-effector
+  poses over a 5³ joint grid against `riggen-core::fk` to 1e-9. Catches
+  frame-convention bugs mechanically. The URDF import has the mirror test:
+  `arm.urdf` imported has `arm.riggen`'s FK.
+- **MuJoCo load test** (`python/tests/test_mjcf_load.py`; the `mujoco` CI
+  job, and locally `uv run --with mujoco --with numpy python …`):
+  `mujoco.MjModel.from_xml_path` on the exported MJCF must succeed with
+  zero compiler warnings (a `set_mju_user_warning` hook fails on any), and
+  `mj_forward` body poses must match the `<name>.fk.json` the export wrote
+  with `--fk-samples` to 1e-6 at five joint configurations — for both the
+  sample's export and the export of its URDF import.
 - **Visual snapshots** (`riggen-app/tests/visual`, ADR-0003): `egui_kittest`
   drives the real `eframe::App` headlessly through wgpu (CPU adapter via
   lavapipe, so local and CI agree) and diffs PNGs. This is how an agent sees
@@ -503,7 +554,11 @@ GUI is never entered from inside a Python call.
   `materials`, `toolbar`, `gizmo_move_link`, `gizmo_rotate_joint`,
   `glyph_revolute`, `glyph_prismatic`, `glyph_hover`, `snap_vertex`,
   `snap_circle`, `place_joint_bore`, `align_concentric`, `five_minute_arm`,
-  `dirty_title`, `unsaved_confirm`, `debug_menu`, plus
+  `dirty_title`, `unsaved_confirm`, `debug_menu`, and M3's `collision_hull`,
+  `collision_primitives` (a pick through a translucent box hits the part),
+  `properties_inertial`, `properties_inertial_open_mesh`,
+  `properties_collision`, `export_dialog`, `export_blocked`, `import_urdf`,
+  plus
   golden-less app tests including `build_pendulum_numerically`, the M1
   acceptance in executable form.
   The harness sets the import scale to `1.0` (the fixtures are unit cubes
