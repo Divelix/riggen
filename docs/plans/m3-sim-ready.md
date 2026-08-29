@@ -237,7 +237,7 @@ agrees with our FK" — is retired by step 5, before any UI exists.
   `<mimic>` to warn on). Tests: import validates and matches the sample's
   FK, warnings are the expected ones, import → MJCF export produces a
   file; the `mujoco` CI job loads that file too. Snapshot: `import_urdf`.
-- [ ] Step 14 — Acceptance and drift: the Acceptance block below green
+- [x] Step 14 — Acceptance and drift: the Acceptance block below green
   locally and in CI; the design docs read against the code (01, 02) with
   the discrepancy list emptied; the M2 exit-gate style by-hand run:
   export the arm, open it in `mujoco.viewer`, report what was annoying to

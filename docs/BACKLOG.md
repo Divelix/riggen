@@ -36,6 +36,23 @@ below with the reason, so the same idea is not re-brainstormed.
 - A ViewCube in the viewport corner with the persp/ortho toggle on it (robocad has one; M0 ships the axes triad and a text label)
 - WASD fly mode, and draw the orbit pivot while the camera moves (rerun's viewer is the reference; M0 ships turntable orbit only)
 
+### From the M3 exit gate (the export run, 2026-08-29)
+
+The by-hand half was done headlessly: both exports of the arm (`arm.riggen`,
+and `arm.urdf` imported) load in MuJoCo with zero warnings, agree with our
+FK, and swing under gravity for 10 s without a NaN; the interactive
+`mujoco.viewer` look is the human's. What was annoying on the way:
+
+- Properties › Inertial's tensor fields are 56 px wide and show six decimals: a kg·m² value like 2.86e-5 reads as `0.000029` and is clipped — the readout uses scientific notation, the editable fields should too, or be wider
+- Interpenetrating shells (the fixture parts are a box plus a shaft, not a boolean) count the overlap twice in `mass_properties`; a note in the Inertial readout ("N geoms, overlaps counted twice") would save a puzzled minute
+- `CollisionPolicy::Meshes` is read-only in the panel: per-geom collision editing (pose, remove, add a file)
+- No `PackageMap` UI: `package://` on import is resolved beside the file or up the tree; a "packages" table in Import URDF… for the cases that heuristic misses
+- An imported link without `<inertial>` has no material and `Computed` cannot run until one is assigned — a default material for imports, or a one-click "assign PLA to every link"
+- The export dialog re-resolves (hulls included) on every option change; fine for the arm, `riggen-app::jobs` for the first big mesh (plans/m3-sim-ready non-goals: hulls synchronous and cached per `MeshId`)
+- Oriented (PCA) primitive fits; today every fit starts from the AABB in the link frame and the user rotates it
+- MuJoCo's joint limits are soft: a freely swinging arm overshoots `range` by a few degrees with default `solref` — not an export bug, but a "joint limits are soft in MuJoCo" note in the export dialog would pre-empt the question
+- The `#[ignore]`d fixture generators (`write_arm_fixtures`, `write_arm_sample`) live in the visual test binary and need lavapipe to build; a `cargo xtask fixtures` would be lighter
+
 ## Rejected
 
 (none yet)
