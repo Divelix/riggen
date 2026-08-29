@@ -1,0 +1,12 @@
+# `transform-gizmo` depends on `ahash` with its default features, which
+# include `runtime-rng` → `getrandom` (ADR-0007). Cargo's feature unification
+# is additive, so no dependency of ours can turn that back off, and
+# `getrandom` 0.3 refuses to compile for `wasm32-unknown-unknown` until it is
+# told which backend the target has. `wasm_js` is the browser one — the
+# right answer for a build whose only target is a browser — and it needs
+# both this cfg and the `wasm_js` feature on the crate (see riggen-app's
+# wasm dependencies).
+#
+# Native builds are untouched; this is the only target section here.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

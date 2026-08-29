@@ -16,7 +16,7 @@
 mod harness;
 
 use egui_kittest::kittest::{NodeT, Queryable};
-use harness::{click_at, click_widget, pump_rendered, scenario, settle, with_app};
+use harness::{click_at, click_widget, pump_rendered, scenario, settle, synthetic_drag, with_app};
 
 use riggen_app::{Selection, Tool, ZERO_CONFIG_STATUS};
 use riggen_core::glam::DVec3;
@@ -908,6 +908,181 @@ fn tools_switch_and_reset_the_configuration() {
             depth,
             "resetting q is not an edit"
         );
+    });
+}
+
+/// The gizmo's own origin on screen, which is where its view-plane handle
+/// sits: a drag from there translates in the plane of the screen, and is the
+/// one handle a script can aim at without knowing the gizmo's geometry.
+fn gizmo_handle(harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>) -> egui::Pos2 {
+    let screen = harness
+        .state()
+        .debug_state()
+        .gizmo
+        .expect("a gizmo is drawn")
+        .screen
+        .expect("its origin is on screen");
+    egui::pos2(screen[0] as f32, screen[1] as f32)
+}
+
+/// The translate gizmo on a selected link (ADR-0007): local axes at the
+/// arm's own frame, the pointer away so nothing is highlighted.
+#[test]
+fn gizmo_move_link() {
+    scenario("gizmo_move_link", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::Move);
+        app.select(Selection::Link(arm));
+        settle(harness);
+
+        let gizmo = harness.state().debug_state().gizmo.expect("a gizmo");
+        assert_eq!(gizmo.target, format!("link {arm}"));
+        assert_eq!(gizmo.mode, "translate");
+        // The *link frame*, not the cube it draws: the geom sits half a
+        // metre above it (the pendulum's arm geom pose).
+        assert_eq!(gizmo.origin, [0.0, 0.0, 0.5]);
+        assert!(!gizmo.dragging && !gizmo.captured);
+    });
+}
+
+/// The rotate gizmo on a selected joint: it sits on the joint frame, which
+/// is the child link frame, and moving it moves the pivot alone (OPEN 2).
+#[test]
+fn gizmo_rotate_joint() {
+    scenario("gizmo_rotate_joint", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::Rotate);
+        app.select(Selection::Joint(hinge));
+        settle(harness);
+
+        let gizmo = harness.state().debug_state().gizmo.expect("a gizmo");
+        assert_eq!(gizmo.target, format!("joint {hinge}"));
+        assert_eq!(gizmo.mode, "rotate");
+        // The joint frame is the child link frame.
+        assert_eq!(gizmo.origin, [0.0, 0.0, 0.5]);
+    });
+}
+
+/// The whole gesture: drag the gizmo's view-plane handle, the part follows
+/// live, the release is **one** command, undo puts it back. The spike that
+/// ADR-0007 rests on.
+#[test]
+fn gizmo_drag_moves_the_link_in_one_command() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        let joint = app.robot().parent_joint(arm).unwrap();
+        let before = app.robot().joints[&joint].origin;
+        app.fit_view_now();
+        app.set_tool(Tool::Move);
+        app.select(Selection::Link(arm));
+        settle(harness);
+
+        let depth = harness.state().history().undo_depth();
+        // The gizmo's origin on screen is its view-plane handle: a drag
+        // from there translates in the plane of the screen.
+        let from = gizmo_handle(harness);
+        synthetic_drag(harness, from, from + egui::vec2(120.0, 0.0), 6);
+
+        let app = harness.state();
+        assert_eq!(
+            app.history().undo_depth(),
+            depth + 1,
+            "one gesture is one command"
+        );
+        assert!(!app.gizmo_dragging(), "the drag ended");
+        let after = app.robot().joints[&joint].origin;
+        assert!(
+            (after.t - before.t).length() > 0.05,
+            "the arm moved: {:?} → {:?}",
+            before.t,
+            after.t
+        );
+        assert!(
+            after.r.abs_diff_eq(before.r, 1e-9),
+            "a translate gizmo does not rotate"
+        );
+        // The instance is where the document says, not where the preview
+        // left it: the arm's geom sits half a metre above its link frame.
+        let state = app.debug_state();
+        assert_eq!(
+            state.instances[1].position,
+            [
+                riggen_app::debug::round(after.t.x),
+                riggen_app::debug::round(after.t.y),
+                riggen_app::debug::round(after.t.z + 0.5),
+            ]
+        );
+
+        harness.state_mut().undo();
+        let app = harness.state();
+        assert_eq!(app.robot().joints[&joint].origin.t, before.t);
+        assert_eq!(app.history().undo_depth(), depth);
+    });
+}
+
+/// A gizmo on a joint moves the pivot and leaves the geometry alone
+/// (OPEN 2): one `MoveJointFrame`, every instance where it was.
+#[test]
+fn gizmo_drag_on_a_joint_moves_only_the_pivot() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::Move);
+        app.select(Selection::Joint(hinge));
+        settle(harness);
+
+        let depth = harness.state().history().undo_depth();
+        let positions: Vec<_> = harness
+            .state()
+            .debug_state()
+            .instances
+            .iter()
+            .map(|i| i.position)
+            .collect();
+        let from = gizmo_handle(harness);
+        synthetic_drag(harness, from, from + egui::vec2(100.0, 0.0), 6);
+
+        let app = harness.state();
+        assert_eq!(app.history().undo_depth(), depth + 1);
+        let origin = app.robot().joints[&hinge].origin;
+        assert!(
+            (origin.t - DVec3::new(0.0, 0.0, 0.5)).length() > 0.05,
+            "the pivot moved: {:?}",
+            origin.t
+        );
+        let now: Vec<_> = app
+            .debug_state()
+            .instances
+            .iter()
+            .map(|i| i.position)
+            .collect();
+        assert_eq!(now, positions, "nothing in the world moved");
     });
 }
 

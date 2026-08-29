@@ -91,7 +91,8 @@ pub struct RiggenApp {
     mesh_store: HashMap<MeshId, LoadedMesh>,            // raw file mesh + the scaled/fixed-up Arc<TriMesh>
     instances: BTreeMap<(LinkId, GeomId), InstanceId>,  // the only map between document and scene
     q: JointState, selection: Selection,                // Selection = None | Link(LinkId) | Joint(JointId)
-    tool: Tool,                                        // Select | Move | Rotate | PlaceJoint | Align
+    tool: Tool, gizmo_state: GizmoState,               // Select | Move | Rotate | PlaceJoint | Align; the gizmo and its drag
+    preview_world: Option<(LinkId, Pose)>,             // a link's pose while a gizmo drag previews it
     import_scale: f64, pending: Option<PendingAction>,  // File › Import units; New/Open/Quit awaiting the dirty answer
     tree, props, joints_window, materials_window,       // transient panel state (a rename in progress, drafts)
     viewport, next_instance, status, …
@@ -115,7 +116,10 @@ changed is re-uploaded, every model matrix is written from
 `fk(robot, q)[link] ∘ geom.pose`, and every instance's colour from the
 geom's own colour, else the link's material, else the viewport default.
 `q` is pruned of vanished joints and clamped to freshly edited limits on
-the way. Opening a document (`replace_document`) resets history, selection,
+the way, and `preview_world` — a link's pose while a gizmo drag is in
+flight — is applied as a correction to that link and its whole subtree, so
+the parts follow the handle exactly as they will after the commit while the
+document stays untouched. Opening a document (`replace_document`) resets history, selection,
 `q` and the mesh store, then syncs; the meshes come from the assets' paths.
 
 Selection is document-level and mirrored both ways: a viewport click
@@ -194,7 +198,9 @@ closes.
 ## Frame loop
 
 ```
-input ──► egui panels (tree, properties, joint sliders, status)
+input ──► viewport.set_input_suppressed(gizmo owned the cursor last frame)
+       ──► egui panels (tree, properties, joint sliders, status)
+       ──► viewport.ui ──► gizmo ──► toolbar   (registration order = pointer precedence)
        ──► gizmo / snapping / pick handling  ──► Commands ──► History ──► Robot
 Robot ──► fk(robot, q) ──► world pose per link
        ──► for each visual geom: viewport.set_instance_model(instance, link_pose * geom.pose)
@@ -291,10 +297,29 @@ a spatial index:
 - **bounding box**: per-instance AABB corners/face centers, from the
   `Scene` bounds already kept for zoom-to-fit.
 
-Gizmos come from `transform-gizmo-egui`, fed the viewport's view/projection
-matrices; they draw with egui's painter over the viewport. If the gizmo's
-hit-testing fights the ID buffer (both want the mouse), the gizmo wins while
-it is hovered.
+Gizmos come from `transform-gizmo-egui` (ADR-0007), behind
+`app/gizmo.rs` — the only file that names the crate — fed the viewport's
+view/projection matrices as `mint` matrices and drawing with egui's painter
+over the viewport, not depth-tested. Both it and the ID buffer want the
+mouse, and the gizmo wins: its interaction widget is registered *after* the
+viewport's rect in the same layer, so egui's hit test gives it the click,
+and `Viewport::set_input_suppressed(bool)` — driven from
+`Gizmo::is_focused()`, one frame late — turns the viewport's camera input
+and picking off wholesale while it owns the cursor. The toolbar is
+registered after the gizmo in turn: viewport < gizmo < toolbar.
+
+What the gizmo edits follows the selection (plans/m2-placement-ux OPEN 2): a
+**link** moves through its parent joint's `origin` (one `SetJoint` via
+`fk::origin_for_world`; the subtree follows), a **joint** moves its pivot
+alone (one `MoveJointFrame`; the axis is expressed in the child frame, which
+is the frame the gizmo just moved, so it rides along unchanged and nothing
+in the world moves). Drag previews through `preview_world`, release commits.
+
+`Viewport::project(DVec3) -> Option<Pos2>` is the one projection everything
+drawn over the viewport goes through — glyphs, snap markers, a scripted
+click aimed at a part (`RiggenApp::project_world`) — so an overlay can never
+disagree with the wgpu pass about where a point is: both start from
+`camera.view_proj`.
 
 ## Jobs and threads
 
@@ -377,7 +402,8 @@ GUI is never entered from inside a Python call.
   The scenarios: `startup`, `cube`, `hover_cube`, `select_cube`,
   `three_parts`, `pendulum`, `mm_scale_part`, `tree_pendulum`,
   `tree_reparent`, `properties_link`, `properties_joint`, `pendulum_swing`,
-  `materials`, `toolbar`, `dirty_title`, `unsaved_confirm`, `debug_menu`, plus
+  `materials`, `toolbar`, `gizmo_move_link`, `gizmo_rotate_joint`,
+  `dirty_title`, `unsaved_confirm`, `debug_menu`, plus
   golden-less app tests including `build_pendulum_numerically`, the M1
   acceptance in executable form.
   The harness sets the import scale to `1.0` (the fixtures are unit cubes
@@ -400,6 +426,12 @@ GUI is never entered from inside a Python call.
     a pick issued by the pointer moving in is then recorded by a frame that
     is never rendered — it stays in flight forever and the next `settle`
     waits for a readback that cannot arrive.
+  - `synthetic_drag(harness, from, to, steps)` presses, walks the pointer
+    and releases with a rendered frame between each event. A gizmo drag is
+    *frames*, not a pair of queued events: `step()` runs every queued event
+    in one unrendered logic pass, and the press, the moves and the release
+    would never be seen apart. `RiggenApp::project_world` aims it — for the
+    gizmo, `debug_state().gizmo.screen` is its view-plane handle.
   - kittest cannot drag a tree row onto another: `tree_reparent` reparents
     through the command API and only draws the result. A synthetic drag
     (press, `PointerMoved` in steps, release) does work for a one-off check.

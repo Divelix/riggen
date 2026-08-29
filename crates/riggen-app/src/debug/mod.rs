@@ -55,6 +55,8 @@ pub struct DebugState {
     /// Every instance in draw order, hidden ones included.
     pub instances: Vec<InstanceDebug>,
     pub selection: SelectionDebug,
+    /// The transform gizmo, when one is drawn (ADR-0007).
+    pub gizmo: Option<GizmoDebug>,
     /// The status bar's one-off message — a load error, a load summary.
     pub status: Option<String>,
     /// `[min_x, min_y, max_x, max_y]` of the viewport in egui logical points.
@@ -135,6 +137,27 @@ impl From<riggen_viewport::PickHit> for HitDebug {
             triangle: hit.triangle,
         }
     }
+}
+
+/// The transform gizmo: what it is attached to and where it sits.
+///
+/// `screen` goes through the same `camera.view_proj` the wgpu pass uses, so
+/// a gizmo that has drifted from the geometry it edits shows up here as two
+/// numbers rather than as a picture that looks slightly wrong.
+#[derive(Debug, Clone, Serialize)]
+pub struct GizmoDebug {
+    /// `"link l3"` / `"joint j7"`.
+    pub target: String,
+    /// `"translate"` or `"rotate"`.
+    pub mode: &'static str,
+    /// World position of the frame the gizmo is on.
+    pub origin: [f64; 3],
+    /// Where that lands in the viewport, in egui points.
+    pub screen: Option<[f64; 2]>,
+    /// Whether a drag is in flight (the document is not yet edited).
+    pub dragging: bool,
+    /// Whether the gizmo owns the cursor, which suppresses viewport input.
+    pub captured: bool,
 }
 
 /// One viewport instance: identity, visibility, size and where it is.
@@ -242,6 +265,23 @@ impl RiggenApp {
                 hovered: self.viewport.hovered().map(HitDebug::from),
                 selected: self.viewport.selected().map(HitDebug::from),
             },
+            gizmo: self.gizmo_target().and_then(|target| {
+                let world = self.gizmo_world(target)?;
+                Some(GizmoDebug {
+                    target: target.describe(),
+                    mode: if self.tool() == crate::app::Tool::Rotate {
+                        "rotate"
+                    } else {
+                        "translate"
+                    },
+                    origin: [round(world.t.x), round(world.t.y), round(world.t.z)],
+                    screen: self
+                        .project_world(world.t)
+                        .map(|p| [round32(p.x), round32(p.y)]),
+                    dragging: self.gizmo_dragging(),
+                    captured: self.gizmo_captured(),
+                })
+            }),
             status: self.status.clone(),
             viewport_rect: self.viewport.viewport_rect().map(|rect| {
                 [

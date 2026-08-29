@@ -101,6 +101,12 @@ pub struct Viewport {
     pub camera: OrbitCamera,
     hovered: Option<PickHit>,
     selected: Option<PickHit>,
+    /// While `true` the viewport ignores the pointer entirely: no camera
+    /// input, no picking. The app sets it while the gizmo owns the cursor
+    /// (ADR-0007) — the gizmo's own widget is registered after the viewport
+    /// and so wins the *click*, but the viewport would otherwise still see
+    /// a hover and keep re-picking under it.
+    input_suppressed: bool,
     pending_pick: Option<PendingPick>,
     last_pick: Option<PickInputs>,
     /// The rect allocated by the most recent [`Viewport::ui`] call, in egui
@@ -243,6 +249,7 @@ impl Viewport {
             camera: OrbitCamera::default(),
             hovered: None,
             selected: None,
+            input_suppressed: false,
             pending_pick: None,
             last_pick: None,
             last_rect: None,
@@ -389,6 +396,35 @@ impl Viewport {
             self.camera
                 .animate_frame_bounds(center.as_vec3(), radius as f32);
         }
+    }
+
+    /// Whether the pointer is ignored this frame (see `input_suppressed`).
+    pub fn set_input_suppressed(&mut self, suppressed: bool) {
+        self.input_suppressed = suppressed;
+    }
+
+    /// Where `world` lands on screen, in egui logical points, or `None`
+    /// when it is behind the camera or outside the depth range.
+    ///
+    /// The one projection everything drawn *over* the viewport goes through
+    /// — glyphs, snap markers, a test aiming a click at a part — so an
+    /// overlay can never disagree with the wgpu pass about where a point is:
+    /// both start from `camera.view_proj`.
+    pub fn project(&self, world: DVec3) -> Option<egui::Pos2> {
+        let rect = self.last_rect?;
+        let aspect = rect.width().max(1.0) / rect.height().max(1.0);
+        let clip = self.camera.view_proj(aspect) * world.as_vec3().extend(1.0);
+        if clip.w <= 0.0 {
+            return None;
+        }
+        let ndc = clip.truncate() / clip.w;
+        if !(-1.0..=1.0).contains(&ndc.z) {
+            return None;
+        }
+        Some(egui::pos2(
+            rect.min.x + (ndc.x * 0.5 + 0.5) * rect.width(),
+            rect.min.y + (0.5 - ndc.y * 0.5) * rect.height(),
+        ))
     }
 
     /// The rect the last [`Self::ui`] call allocated, in logical points.
@@ -606,7 +642,7 @@ impl Viewport {
         self.last_rect = Some(rect);
         let aspect = rect.width().max(1.0) / rect.height().max(1.0);
 
-        if self.handle_input(ui, &response, rect) {
+        if !self.input_suppressed && self.handle_input(ui, &response, rect) {
             ui.ctx().request_repaint();
         }
 
@@ -657,12 +693,15 @@ impl Viewport {
         let view_proj = view_proj_matrix.to_cols_array_2d();
         let decision = decide_pick(
             self.pending_pick.is_some() || self.scene.is_empty(),
-            response
-                .clicked()
-                .then(|| response.interact_pointer_pos())
+            (!self.input_suppressed)
+                .then(|| response.clicked().then(|| response.interact_pointer_pos()))
+                .flatten()
                 .flatten()
                 .map(to_pixel),
-            response.hover_pos().map(to_pixel),
+            (!self.input_suppressed)
+                .then(|| response.hover_pos())
+                .flatten()
+                .map(to_pixel),
             self.last_pick,
             view_proj,
         );

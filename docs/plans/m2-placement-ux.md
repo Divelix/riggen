@@ -94,7 +94,7 @@ snapshot scenarios and the scripted `five_minute_arm` acceptance.
   `q ≠ 0` resets the sliders with a status message, OPEN 1),
   `debug_state.tool`. Snapshot `toolbar`; every golden refreshed
   (`snapshots:` — the toolbar overlays the viewport corner).
-- [ ] Step 4 — Gizmo spike and ADR-0007: `transform-gizmo-egui` 0.11 with
+- [x] Step 4 — Gizmo spike and ADR-0007: `transform-gizmo-egui` 0.11 with
   glam's `mint` feature; link selected + Move/Rotate → the gizmo at the
   link frame, drag previews through `preview_world`, release commits one
   `SetJoint` via `origin_for_world`; joint selected → the gizmo at the

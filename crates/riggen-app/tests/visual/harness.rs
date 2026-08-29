@@ -138,6 +138,46 @@ pub fn pump_rendered(harness: &mut Harness<'_, RiggenApp>, frames: usize) {
     }
 }
 
+/// A primary-button press or release at `pos`.
+fn pointer_button(pos: egui::Pos2, pressed: bool) -> egui::Event {
+    egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    }
+}
+
+/// Presses at `from`, walks the pointer to `to` in `steps` moves and
+/// releases, rendering between each event.
+///
+/// The gizmo reads `drag_started` / `dragging` from egui's pointer state and
+/// the app previews per frame, so a drag has to be *frames*, not a pair of
+/// queued events: `step()` would run them all in one unrendered logic pass
+/// (see [`click_widget`]) and the press, the move and the release would
+/// never be seen apart.
+#[allow(dead_code, reason = "used from the gizmo scenarios on")]
+pub fn synthetic_drag(
+    harness: &mut Harness<'_, RiggenApp>,
+    from: egui::Pos2,
+    to: egui::Pos2,
+    steps: usize,
+) {
+    harness.hover_at(from);
+    pump_rendered(harness, 4);
+    harness.event(pointer_button(from, true));
+    pump_rendered(harness, 2);
+    for i in 1..=steps {
+        let t = i as f32 / steps as f32;
+        harness.event(egui::Event::PointerMoved(from + (to - from) * t));
+        pump_rendered(harness, 2);
+    }
+    harness.event(pointer_button(to, false));
+    pump_rendered(harness, 4);
+    harness.event(egui::Event::PointerGone);
+    pump_rendered(harness, 4);
+}
+
 /// Hovers, presses and releases at `pos`, rendering between each step.
 ///
 /// `Harness::drag_at`/`drop_at` cannot be used for this. `step` drains *every*
@@ -151,15 +191,7 @@ pub fn pump_rendered(harness: &mut Harness<'_, RiggenApp>, frames: usize) {
 /// so the hover pick has to resolve before the click's is even scheduled.
 #[allow(dead_code, reason = "used from step 9's picking scenarios on")]
 pub fn click_at(harness: &mut Harness<'_, RiggenApp>, pos: egui::Pos2) {
-    fn button(pos: egui::Pos2, pressed: bool) -> egui::Event {
-        egui::Event::PointerButton {
-            pos,
-            button: egui::PointerButton::Primary,
-            pressed,
-            modifiers: egui::Modifiers::NONE,
-        }
-    }
-
+    let button = pointer_button;
     harness.hover_at(pos);
     pump_rendered(harness, 4);
     harness.event(button(pos, true));

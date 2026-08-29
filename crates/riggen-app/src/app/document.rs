@@ -438,7 +438,20 @@ impl RiggenApp {
             self.status = Some(err);
         }
 
-        let world = fk(&self.robot, &self.q);
+        let mut world = fk(&self.robot, &self.q);
+        // A gizmo drag previews a link's world pose without touching the
+        // document: correct that link and everything under it, so the
+        // subtree follows the handle exactly as it will after the commit.
+        if let Some((link, pose)) = self.preview_world
+            && let Some(current) = world.get(&link).copied()
+        {
+            let correction = pose.compose(&current.inverse());
+            for l in self.robot.subtree(link) {
+                if let Some(p) = world.get_mut(&l) {
+                    *p = correction.compose(p);
+                }
+            }
+        }
         for (&(link, geom), &id) in &self.instances {
             let Some(link_pose) = world.get(&link) else {
                 continue;
