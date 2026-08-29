@@ -22,6 +22,9 @@ below with the reason, so the same idea is not re-brainstormed.
 - Rename a material from the materials table (the name is the key; links reference it by name)
 - Snapping *during* a gizmo drag: the handles honour the snap ladder, not just the align tool (M2 keeps the two apart — align is the mouse-only route; the by-hand M2 run asked for it, wanting a joint to land on a parent bore's centre or a corner vertex)
 - A depth-tested overlay, so a joint glyph behind a part reads as behind it (M2 draws every overlay on top)
+- Publish the workspace to crates.io so `cargo install riggen` installs the app: publish `riggen-mesh`, `-core`, `-export`, `-viewport`, rename `riggen-app` to `riggen` over the 0.0.1 reservation, `cargo publish --workspace` in `release.yml` (plans/m4-distribution OPEN 1; the README says `cargo install --git` until then)
+- A 30-second screencast for the README, recorded after the GUI polish and before the announced release (plans/m4-distribution OPEN 2; the README ships with the hero PNG)
+- macOS code signing / notarization, if the clean-VM run of the wheel hits Gatekeeper (pip-installed files carry no quarantine attribute, so an unsigned binary should run from a terminal — unverified until the human's macOS run)
 
 ### From the M2 exit gate (the by-hand arm build, 2026-08-29)
 
@@ -51,6 +54,23 @@ FK, and swing under gravity for 10 s without a NaN; the interactive
 - Oriented (PCA) primitive fits; today every fit starts from the AABB in the link frame and the user rotates it
 - MuJoCo's joint limits are soft: a freely swinging arm overshoots `range` by a few degrees with default `solref` — not an export bug, but a "joint limits are soft in MuJoCo" note in the export dialog would pre-empt the question
 - The `#[ignore]`d fixture generators (`write_arm_fixtures`, `write_arm_sample`) live in the visual test binary and need lavapipe to build; a `cargo xtask fixtures` would be lighter
+
+### From the M4 exit gate (the wheel, 2026-08-30)
+
+The by-hand half was done headlessly: the manylinux wheel installed into
+`python:3.12-slim` with no Rust and no checkout, `--version` and
+`--export` ran; the window on a clean VM, the TestPyPI dispatch and the
+`v0.1.0` push are the human's. What was annoying on the way:
+
+- `uv build` builds the wheel from the sdist, which has no `.git`, so `--version` says `unknown` unless `RIGGEN_GIT_HASH` is set by hand (the workflows set it); `uv build --wheel` from the tree would know — or `build.rs` could read a hash file maturin is told to include
+- The NVIDIA Vulkan device creation is ~200 ms of the ~400 ms launch; creating the wgpu device on a thread while winit creates the window (`WgpuSetup::Existing`) would overlap them, at the cost of choosing the adapter without a surface
+- `WGPU_BACKEND=gl` fails on X11 + NVIDIA with `incompatible_surface_backends: GL` (pre-existing, eframe's default did the same), so the GL escape hatch is only a hatch on machines where wgpu's GL surface works
+- The linux aarch64 wheel is built and its ELF checked, but nothing in the pipeline *runs* it: the release smoke matrix has no ARM runner (ubuntu-24.04-arm exists on GitHub now — add it)
+- `--example arm` overwrites `<temp>/riggen-example-arm/` on every run, so a document saved there is lost next time; save should nudge the user to Save As
+- The wheel carries a 566 KB CycloneDX SBOM (`riggen-app.cyclonedx.json`) that maturin adds; fine for 0.1, worth a look when size matters
+- `python -m riggen` on Windows is `subprocess.call`, so Ctrl-C reaches the child through the console, not through the parent — good enough, but `riggen` on `PATH` is the real entry there
+- `load_files` starts a camera animation, so a harness test that opens a document through it never settles; the tests open through `open_path` + `fit_view_now` and the difference is only in the harness's head
+- `cargo build --release` had never been run before M4: egui's `Style::debug` is `cfg(debug_assertions)` and the Debug menu did not compile; CI now builds release through the wheel job, which is the only reason it stays caught
 
 ## Rejected
 

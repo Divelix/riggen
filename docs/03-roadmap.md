@@ -156,6 +156,29 @@ re-exporting it as MJCF loads too.
 - Startup time budget: window visible in < 500 ms on the dev machine, measured
   and asserted in a test.
 
+**Status: done 2026-08-30, tag `m4`** (plans/m4-distribution). The risk —
+a maturin `bin` wheel from this workspace that installs and runs on a
+clean venv — was retired at step 1 and held through the container
+matrix. Decisions: `pyproject.toml` at the repository root so the README
+is the PyPI page too (OPEN 3); the binary in the wheel's `scripts/`, no
+console script, so `riggen` is the executable with no interpreter in
+front of it; `python -m riggen` execs it; the version lives once, in
+Cargo; native wgpu backends only (eframe's GL enumeration cost 100–150
+ms for an adapter never picked); `--example arm` from `include_bytes!`
+of the tracked fixtures, no new mesh in git (OPEN 4); no screencast until
+the GUI is polished (OPEN 2); crates.io publishing is its own later plan
+(OPEN 1). Sizes: linux x86_64 wheel 9.6 MB (binary 22 MB, stripped +
+thin LTO; 566 KB of it is the CycloneDX SBOM maturin adds), linux aarch64
+9.0 MB, sdist 0.3 MB; the macOS and Windows numbers come from the first
+release run. Startup on the dev machine (RTX 5090, X11): `RiggenApp::new`
+to the first frame 8 ms; launch to the first frame 380–500 ms, of which
+~200 ms is the NVIDIA Vulkan device creation and the rest the X11 window
+— the budget test pins the part that is ours. The install was verified
+headlessly (`python:3.12-slim`, no Rust, no checkout: `pip install` the
+manylinux wheel, `--version`, `--export`); the clean-VM window run, the
+TestPyPI dispatch and the `v0.1.0` push are the human's. What was
+annoying is under an M4 heading in the backlog.
+
 **Accept:** a clean VM installs the wheel and opens the sample arm; the
 release workflow is a tag push.
 
