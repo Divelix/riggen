@@ -6,7 +6,7 @@ pub mod debug;
 
 pub use app::{
     COPIED_STATUS, GLYPH_HOVER_RADIUS, GizmoTarget, JointGlyph, PendingAction, RiggenApp,
-    Selection, Tool, ZERO_CONFIG_STATUS,
+    SNAP_PIXEL_RADIUS, Selection, SnapCandidate, SnapKind, Tool, ZERO_CONFIG_STATUS,
 };
 
 #[cfg(target_arch = "wasm32")]

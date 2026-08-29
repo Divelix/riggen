@@ -14,6 +14,7 @@ use riggen_core::{
     MeshId, Robot, fk,
 };
 use riggen_mesh::TriMesh;
+use riggen_mesh::feature::Adjacency;
 use riggen_viewport::InstanceId;
 
 use super::RiggenApp;
@@ -47,6 +48,9 @@ pub(crate) struct LoadedMesh {
     scale: f64,
     fix_up: Option<DQuat>,
     pub(crate) mesh: Arc<TriMesh>,
+    /// Welded topology of `mesh`, built the first time snapping asks for it
+    /// and dropped whenever `mesh` is re-derived (`riggen_mesh::feature`).
+    adjacency: Option<Adjacency>,
 }
 
 impl LoadedMesh {
@@ -58,6 +62,7 @@ impl LoadedMesh {
             scale: asset.scale,
             fix_up: asset.fix_up,
             mesh,
+            adjacency: None,
         }
     }
 
@@ -83,7 +88,20 @@ impl LoadedMesh {
         self.scale = asset.scale;
         self.fix_up = asset.fix_up;
         self.mesh = Self::derive(&self.raw, asset);
+        self.adjacency = None;
         true
+    }
+}
+
+impl LoadedMesh {
+    /// The welded adjacency of the drawn mesh, built on first use. Every
+    /// circle fit needs it and it is the expensive half, so it outlives the
+    /// per-triangle memo in `snap.rs`.
+    pub(crate) fn adjacency(&mut self) -> &Adjacency {
+        if self.adjacency.is_none() {
+            self.adjacency = Some(riggen_mesh::feature::adjacency(&self.mesh));
+        }
+        self.adjacency.as_ref().expect("just built")
     }
 }
 

@@ -117,7 +117,7 @@ snapshot scenarios and the scripted `five_minute_arm` acceptance.
   glyph; a hovered glyph (screen distance to the axis segment) highlights
   the tree row and the status bar names the joint; clicking a glyph
   selects the joint. Snapshot `glyph_hover`.
-- [ ] Step 7 — `snap.rs`: candidates from the hovered pick, memoised per
+- [x] Step 7 — `snap.rs`: candidates from the hovered pick, memoised per
   `(instance, triangle)`; marker and readout in the overlay
   (`circle r 12.0 mm · 24 seg · res 0.01 mm` — a bad fit is obvious);
   `debug_state.snap`. Pure-function tests for the priority ladder and the

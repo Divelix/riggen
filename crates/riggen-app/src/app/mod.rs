@@ -9,6 +9,7 @@ mod gizmo;
 mod glyphs;
 mod panels;
 mod shortcuts;
+mod snap;
 mod status_bar;
 mod tool;
 
@@ -28,6 +29,8 @@ use gizmo::GizmoState;
 pub use gizmo::GizmoTarget;
 pub use glyphs::{GLYPH_HOVER_RADIUS, JointGlyph};
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
+use snap::SnapCache;
+pub use snap::{SNAP_PIXEL_RADIUS, SnapCandidate, SnapKind};
 pub use tool::{Tool, ZERO_CONFIG_STATUS};
 
 /// The eframe app: one `Robot` and what is derived from it
@@ -60,6 +63,11 @@ pub struct RiggenApp {
     glyph_hover: Option<JointId>,
     /// The toolbar's rect, so a glyph behind it is not "hovered" through it.
     toolbar_rect: Option<egui::Rect>,
+    /// What the cursor is really pointing at, for the placement tools
+    /// (`snap.rs`). Rebuilt every frame from the hovered pick.
+    snap_candidate: Option<SnapCandidate>,
+    /// The last circle fit, so a resting cursor fits once and not per frame.
+    snap_cache: SnapCache,
     /// A link's world pose while a gizmo drag previews it: `sync_scene`
     /// puts the link and its subtree there instead of at the FK pose, and
     /// the document is untouched until the release commits.
@@ -133,6 +141,8 @@ impl RiggenApp {
             hovered_joint: None,
             glyph_hover: None,
             toolbar_rect: None,
+            snap_candidate: None,
+            snap_cache: SnapCache::default(),
             preview_world: None,
             last_viewport_selected: None,
             import_scale,
@@ -290,7 +300,9 @@ impl eframe::App for RiggenApp {
                 // drawn hot and whether the viewport gets the pointer at all.
                 let glyphs = self.joint_glyphs();
                 self.update_glyph_hover(ui.ctx(), &glyphs);
-                let overlay = self.glyph_overlay(&glyphs, self.active_joint());
+                self.update_snap(ui.ctx());
+                let mut overlay = self.glyph_overlay(&glyphs, self.active_joint());
+                self.push_snap_overlay(&mut overlay);
                 self.viewport.set_overlay(overlay);
                 // One frame behind for the gizmo, which cannot say whether it
                 // owns the cursor until it has run, and the viewport runs

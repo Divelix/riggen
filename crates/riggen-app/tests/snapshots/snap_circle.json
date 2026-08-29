@@ -1,9 +1,9 @@
 {
   "camera": {
     "eye": [
-      1.685176,
-      -1.685176,
-      1.301947
+      0.058796,
+      -0.058796,
+      0.045425
     ],
     "target": [
       0.0,
@@ -15,15 +15,15 @@
       0.339005,
       0.877583
     ],
-    "distance": 2.71564,
+    "distance": 0.09475,
     "yaw_deg": -45.0,
     "pitch_deg": 28.64789,
     "fov_y_deg": 45.0,
-    "near": 0.00866,
-    "far": 866.025391,
+    "near": 0.000302,
+    "far": 100.0,
     "projection": "Perspective",
     "animating": false,
-    "aspect": 0.954223,
+    "aspect": 0.960187,
     "view": [
       [
         0.707107,
@@ -46,13 +46,13 @@
       [
         0.0,
         0.0,
-        -2.71564,
+        -0.09475,
         1.0
       ]
     ],
     "proj": [
       [
-        2.530031,
+        2.514315,
         0.0,
         0.0,
         0.0
@@ -66,13 +66,13 @@
       [
         0.0,
         0.0,
-        -1.00001,
+        -1.000003,
         -1.0
       ],
       [
         0.0,
         0.0,
-        -0.00866,
+        -0.000302,
         0.0
       ]
     ]
@@ -92,7 +92,7 @@
       },
       {
         "id": "l3",
-        "name": "cube_binary",
+        "name": "boss",
         "parent_joint": "j4",
         "geoms": 1,
         "material": null
@@ -101,17 +101,17 @@
     "joints": [
       {
         "id": "j4",
-        "name": "cube_binary_joint",
+        "name": "boss_joint",
         "kind": "Fixed",
         "parent": "l0",
         "child": "l3",
         "q": 0.0
       }
     ],
-    "selection": "link l3"
+    "selection": null
   },
   "ui": {
-    "tool": "Select",
+    "tool": "Place joint",
     "renaming": null,
     "windows": [],
     "modal": null,
@@ -123,17 +123,17 @@
       "link": "l3",
       "geom": "g2",
       "visible": true,
-      "triangles": 12,
+      "triangles": 96,
       "bounds": [
         [
-          -0.5,
-          -0.5,
-          -0.5
+          -0.012,
+          -0.012,
+          -0.025
         ],
         [
-          0.5,
-          0.5,
-          0.5
+          0.012,
+          0.012,
+          0.025
         ]
       ],
       "position": [
@@ -150,18 +150,49 @@
     }
   ],
   "selection": {
-    "hovered": null,
-    "selected": {
+    "hovered": {
       "instance": 0,
-      "triangle": 1
-    }
+      "triangle": 43
+    },
+    "selected": null
   },
   "gizmo": null,
   "glyphs": [],
-  "snap": null,
+  "snap": {
+    "kind": "circle",
+    "point": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "normal": [
+      0.793353,
+      -0.608762,
+      0.0
+    ],
+    "axis": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "hit": [
+      0.008485,
+      -0.008485,
+      0.006556
+    ],
+    "link": "l3",
+    "radius_mm": 12.0,
+    "segments": 24,
+    "residual_mm": 0.0,
+    "readout": "circle r 12.0 mm · 24 seg · res 0.00 mm",
+    "screen": [
+      650.0,
+      450.0
+    ]
+  },
   "status": null,
   "viewport_rect": [
-    245.09375,
+    240.0,
     23.0,
     1060.0,
     877.0
