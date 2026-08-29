@@ -476,3 +476,45 @@ fn projections_map_near_to_depth_0_and_far_to_depth_1() {
         assert!(nearer.z < farther.z, "{projection:?}: depth not increasing");
     }
 }
+
+/// A fit sets the depth range from the radius, so a millimetre part sits
+/// well inside `[near, far]` and the zoom range follows.
+#[test]
+fn fit_sets_the_depth_range_from_the_radius() {
+    let mut cam = OrbitCamera::default();
+    assert_eq!((cam.near, cam.far), (0.01, 100.0));
+    cam.frame_bounds(Vec3::ZERO, 0.000_866);
+    assert!(cam.near < 1e-4, "near {}", cam.near);
+    assert!(
+        cam.near * 2.0 <= cam.distance,
+        "{} vs {}",
+        cam.near,
+        cam.distance
+    );
+    assert!(
+        cam.distance - 0.000_866 > cam.near,
+        "part in front of the near plane"
+    );
+    assert!(
+        cam.distance + 0.000_866 < cam.far,
+        "part inside the far plane"
+    );
+    // Zooming in stops short of the near plane, out short of the far one.
+    for _ in 0..200 {
+        cam.zoom(1000.0);
+    }
+    assert!(cam.distance >= cam.near * 2.0);
+    for _ in 0..200 {
+        cam.zoom(-1000.0);
+    }
+    assert!(cam.distance <= cam.far * 0.5);
+    // A room-sized scene keeps a sane range too.
+    cam.frame_bounds(Vec3::ZERO, 10.0);
+    assert!(
+        (cam.near - 0.1).abs() < 1e-6 && cam.far == 10_000.0,
+        "{} {}",
+        cam.near,
+        cam.far
+    );
+    assert!((cam.distance - 10.0 / (cam.fov_y * 0.5).sin() * 1.2).abs() < 1e-3);
+}

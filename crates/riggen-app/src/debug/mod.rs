@@ -19,7 +19,7 @@ pub use camera::CameraDebug;
 
 use serde::Serialize;
 
-use crate::app::RiggenApp;
+use crate::app::{RiggenApp, Selection};
 
 /// Decimal places every serialised float is rounded to.
 ///
@@ -47,6 +47,9 @@ pub fn round32(x: f32) -> f64 {
 #[derive(Debug, Clone, Serialize)]
 pub struct DebugState {
     pub camera: CameraDebug,
+    /// The document as the app holds it: what the instances are derived
+    /// from.
+    pub document: DocumentDebug,
     /// Every instance in draw order, hidden ones included.
     pub instances: Vec<InstanceDebug>,
     pub selection: SelectionDebug,
@@ -55,6 +58,44 @@ pub struct DebugState {
     /// `[min_x, min_y, max_x, max_y]` of the viewport in egui logical points.
     /// `None` before the first frame has laid it out.
     pub viewport_rect: Option<[f64; 4]>,
+}
+
+/// The `Robot` and the derived state around it.
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentDebug {
+    /// `name.riggen` of the file the document came from, `None` for a new
+    /// document.
+    pub file: Option<String>,
+    pub name: String,
+    pub dirty: bool,
+    /// `MeshAsset::scale` a dropped mesh gets.
+    pub import_scale: f64,
+    /// In id order, which is creation order.
+    pub links: Vec<LinkDebug>,
+    pub joints: Vec<JointDebug>,
+    /// `"link l3"` / `"joint j7"`, or `None`.
+    pub selection: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkDebug {
+    pub id: String,
+    pub name: String,
+    /// The joint whose child this is; `None` for the root.
+    pub parent_joint: Option<String>,
+    pub geoms: usize,
+    pub material: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct JointDebug {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub parent: String,
+    pub child: String,
+    /// The current joint value (`JointState`), radians or meters.
+    pub q: f64,
 }
 
 /// What the ID buffer resolved: the hovered and the selected triangle.
@@ -83,12 +124,15 @@ impl From<riggen_viewport::PickHit> for HitDebug {
 #[derive(Debug, Clone, Serialize)]
 pub struct InstanceDebug {
     pub id: u32,
+    /// The `(LinkId, GeomId)` this instance draws, as `"l3"` / `"g5"`.
+    pub link: Option<String>,
+    pub geom: Option<String>,
     pub visible: bool,
     pub triangles: u32,
     /// Model-space `[min, max]`, before `model`.
     pub bounds: Option<[[f64; 3]; 2]>,
-    /// Translation column of the model matrix — enough to tell instances
-    /// apart until M1 gives them real poses.
+    /// Translation column of the model matrix: the geom's world position
+    /// at the current joint values.
     pub position: [f64; 3],
 }
 
@@ -96,13 +140,53 @@ impl RiggenApp {
     /// Snapshot of everything this module reports. Cheap enough to call per
     /// frame; the snapshot suite calls it once per scenario.
     pub fn debug_state(&self) -> DebugState {
+        let robot = self.robot();
+        let document = DocumentDebug {
+            file: self
+                .file()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned()),
+            name: robot.name.clone(),
+            dirty: self.history().is_dirty(),
+            import_scale: round(self.import_scale()),
+            links: robot
+                .links
+                .iter()
+                .map(|(id, link)| LinkDebug {
+                    id: id.to_string(),
+                    name: link.name.clone(),
+                    parent_joint: robot.parent_joint(*id).map(|j| j.to_string()),
+                    geoms: link.visuals.len(),
+                    material: link.material.clone(),
+                })
+                .collect(),
+            joints: robot
+                .joints
+                .iter()
+                .map(|(id, joint)| JointDebug {
+                    id: id.to_string(),
+                    name: joint.name.clone(),
+                    kind: format!("{:?}", joint.kind),
+                    parent: joint.parent.to_string(),
+                    child: joint.child.to_string(),
+                    q: round(self.joint_value(*id)),
+                })
+                .collect(),
+            selection: match self.selection() {
+                Selection::None => None,
+                other => other.describe(),
+            },
+        };
         DebugState {
             camera: CameraDebug::capture(self),
+            document,
             instances: self
                 .viewport
                 .instance_states()
                 .map(|state| InstanceDebug {
                     id: state.id.0,
+                    link: self.link_of_instance(state.id).map(|l| l.to_string()),
+                    geom: self.geom_of_instance(state.id).map(|g| g.to_string()),
                     visible: state.visible,
                     triangles: state.triangle_count,
                     bounds: state.bounds.map(|b| {

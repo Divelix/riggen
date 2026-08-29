@@ -1,5 +1,5 @@
-//! Bottom status bar: `riggen | units: file | hover: i3/t120 | selected: … |
-//! 4.10 ms (244 fps)` (docs/03-roadmap.md §M0).
+//! Bottom status bar: `riggen | pendulum.riggen* | import: mm | hover: arm
+//! (i1/t120) | selected: … | 2 instances | 4.10 ms (244 fps)`.
 //!
 //! `hovered`/`selected` reflect the *previous* frame's viewport state — this
 //! panel is drawn before the viewport so the central panel gets whatever
@@ -7,9 +7,13 @@
 //! one). One frame of lag on a status readout is imperceptible.
 
 /// Everything the bar shows, pre-formatted by the app so this module never
-/// names viewport types.
+/// names viewport or document types.
 pub(crate) struct StatusView<'a> {
-    /// `i3/t120`-style readout of the hovered instance and triangle.
+    /// `name.riggen`, with `*` when there are unsaved changes.
+    pub document: &'a str,
+    /// What a dropped mesh is read as: `mm`, `m`, …
+    pub import_units: &'a str,
+    /// `arm (i1/t120)`-style readout of the hovered link and triangle.
     pub hovered: Option<&'a str>,
     pub selected: Option<&'a str>,
     pub instance_count: usize,
@@ -20,14 +24,30 @@ pub(crate) struct StatusView<'a> {
     pub frame_dt: Option<f32>,
 }
 
+/// `mm` / `cm` / `m` / `in` for the common import scales, `×0.5` otherwise.
+pub(crate) fn import_units_label(scale: f64) -> String {
+    let close = |x: f64| (scale - x).abs() < 1e-12;
+    if close(0.001) {
+        "mm".into()
+    } else if close(0.01) {
+        "cm".into()
+    } else if close(1.0) {
+        "m".into()
+    } else if close(0.0254) {
+        "in".into()
+    } else {
+        format!("×{scale}")
+    }
+}
+
 pub(crate) fn status_bar(ui: &mut egui::Ui, view: &StatusView<'_>) {
     egui::Panel::bottom("status_bar").show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label("riggen");
             ui.separator();
-            // M0 shows dropped files in file units as-is; M1's `MeshAsset`
-            // scaling turns this into a real unit readout.
-            ui.label("units: file");
+            ui.label(view.document);
+            ui.separator();
+            ui.label(format!("import: {}", view.import_units));
             ui.separator();
             match view.hovered {
                 Some(hit) => ui.label(format!("hover: {hit}")),
@@ -51,4 +71,18 @@ pub(crate) fn status_bar(ui: &mut egui::Ui, view: &StatusView<'_>) {
             }
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::import_units_label;
+
+    #[test]
+    fn import_units() {
+        assert_eq!(import_units_label(0.001), "mm");
+        assert_eq!(import_units_label(0.01), "cm");
+        assert_eq!(import_units_label(1.0), "m");
+        assert_eq!(import_units_label(0.0254), "in");
+        assert_eq!(import_units_label(0.5), "×0.5");
+    }
 }

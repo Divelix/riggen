@@ -21,6 +21,7 @@ test = false
 
 [dependencies]
 riggen-mesh.workspace = true
+riggen-core.workspace = true
 riggen-viewport.workspace = true
 eframe.workspace = true
 egui.workspace = true

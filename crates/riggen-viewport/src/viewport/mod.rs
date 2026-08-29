@@ -347,6 +347,19 @@ impl Viewport {
         self.selected = None;
     }
 
+    /// Selects an instance from outside the viewport (the tree panel), or
+    /// clears the selection with `None`. Selection is per instance, so the
+    /// hit's triangle is `0`; an id that is not in the scene selects
+    /// nothing rather than a ghost.
+    pub fn set_selected(&mut self, id: Option<InstanceId>) {
+        self.selected = id
+            .filter(|id| self.scene.contains(*id))
+            .map(|instance| PickHit {
+                instance,
+                triangle: 0,
+            });
+    }
+
     /// Bounding sphere `(center, radius)` of every visible instance.
     pub fn scene_bounds(&self) -> Option<(DVec3, f64)> {
         self.scene.bounds()

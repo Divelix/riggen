@@ -171,9 +171,26 @@ impl OrbitCamera {
     /// Distance at which a sphere of `radius` fills the vertical FOV with a
     /// 20 % margin, clamped to the zoom range.
     fn fit_distance(&self, radius: f32) -> f32 {
-        let radius = radius.max(1e-4);
+        let radius = radius.max(1e-6);
         let fit = radius / (self.fov_y * 0.5).sin();
-        (fit * 1.2).clamp(0.02, 50.0)
+        self.clamp_distance(fit * 1.2)
+    }
+
+    /// The zoom range, tied to the depth range so the camera can neither
+    /// pass through the near plane nor back off past the far one.
+    fn clamp_distance(&self, distance: f32) -> f32 {
+        distance.clamp(self.near * 2.0, self.far * 0.5)
+    }
+
+    /// Sets `near` / `far` for a scene of the given bounding radius, so a
+    /// part imported at mm → m scale (a thousandth of M0's unit cube) is
+    /// neither clipped nor lost in depth-buffer noise, and a room-sized one
+    /// still fits. The ratio is 10⁵, fine for a 32-bit depth buffer. Every
+    /// fit goes through here; a plain zoom keeps the range it has.
+    pub fn set_depth_range_for(&mut self, radius: f32) {
+        let radius = radius.max(1e-6);
+        self.near = (radius * 1e-2).clamp(1e-6, 1.0);
+        self.far = (radius * 1e3).clamp(100.0, 1e6);
     }
 
     /// Starts a smooth animation to re-center on `center`, back off to fit
@@ -192,6 +209,7 @@ impl OrbitCamera {
         target_yaw: f32,
         target_pitch: f32,
     ) {
+        self.set_depth_range_for(radius);
         let target_distance = self.fit_distance(radius);
         self.animation = Some(CameraAnimation::from_samples(
             CameraSample::new(self.target, self.distance, self.yaw, self.pitch),
@@ -204,6 +222,7 @@ impl OrbitCamera {
     /// Starts a smooth transition to re-center on `center` and back off to
     /// fit `radius`.
     pub fn animate_frame_bounds(&mut self, center: Vec3, radius: f32) {
+        self.set_depth_range_for(radius);
         let target_distance = self.fit_distance(radius);
         self.animate_to_target_and_distance(center, target_distance);
     }
@@ -261,6 +280,7 @@ impl OrbitCamera {
     /// [`Self::animate_frame_bounds`].
     pub fn frame_bounds(&mut self, center: Vec3, radius: f32) {
         self.cancel_animation();
+        self.set_depth_range_for(radius);
         self.target = center;
         self.distance = self.fit_distance(radius);
     }
@@ -285,7 +305,7 @@ impl OrbitCamera {
     pub fn zoom(&mut self, scroll_delta: f32) {
         self.cancel_animation();
         let factor = (1.0 - scroll_delta * 0.001).clamp(0.1, 10.0);
-        self.distance = (self.distance * factor).clamp(0.02, 50.0);
+        self.distance = self.clamp_distance(self.distance * factor);
     }
 
     /// World-space direction from the eye through normalized device

@@ -2870,6 +2870,7 @@ dependencies = [
  "egui_kittest",
  "pollster 1.0.1",
  "rfd",
+ "riggen-core",
  "riggen-mesh",
  "riggen-viewport",
  "serde",

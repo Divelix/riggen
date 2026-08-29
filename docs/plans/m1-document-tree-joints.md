@@ -171,7 +171,7 @@ hand-computed poses for a 3-joint chain.
   with limits) hand-written as the corpus file. Tests: round-trip equality,
   relative paths in the written JSON, hash mismatch is a warning not an
   error, unknown field is an error naming it, the corpus file opens.
-- [ ] Step 5 — `riggen-app` owns a `Robot`: `document.rs` (apply / undo /
+- [x] Step 5 — `riggen-app` owns a `Robot`: `document.rs` (apply / undo /
   redo / `sync_scene` / selection mapping), `mesh_store`, instance table,
   `load_files` dispatches on extension (`.riggen` → replace document; mesh →
   `AddLink` under the selection or root), CLI `riggen robot.riggen`,
@@ -270,16 +270,19 @@ Executable form, all green under `cargo test --workspace` on the CPU adapter:
 - ~~⚠ OPEN~~ **Decided 2026-08-29 (step 1): joints are edges** (`AddLink`
   carries its joint; `AddJoint` / `RemoveJoint` dropped; "connect two links"
   = `Reparent`). ADR-0005.
-- ⚠ OPEN: **Default import scale.** 02 says the import dialog defaults to mm
-  (×0.001); M1 has no dialog. Recommendation: an app-wide "Import units"
-  choice in the File menu (mm default, remembered via eframe storage), shown
-  on the asset row in the properties panel and editable there; the fixture
-  scenarios set `scale = 1.0` explicitly. Human decides by step 5.
-- ⚠ OPEN: **Where a dropped mesh goes.** Recommendation above: a new link
-  under the selected link (or root), `Fixed` joint at identity, named after
-  the file stem (deduplicated `arm`, `arm_2`). Alternative: dropping with a
-  link selected adds a geom to it. Human decides by step 5; the properties
-  panel's "Add mesh to this link…" covers the other case either way.
+- ~~⚠ OPEN~~ **Decided 2026-08-29 (step 5, human): app-wide import scale,
+  mm default.** `RiggenApp::import_scale` (`DEFAULT_IMPORT_SCALE = 0.001`)
+  is what a dropped mesh's `MeshAsset::scale` gets; the status bar shows it
+  as `import: mm`. The File-menu choice and its eframe-storage persistence
+  land with the menu in step 10; the asset row in the properties panel
+  (step 7) edits it per asset. The harness sets `1.0` for every scenario
+  (the fixtures are unit cubes meant as meters); `mm_scale_part` sets the
+  default back explicitly.
+- ~~⚠ OPEN~~ **Decided 2026-08-29 (step 5, human): a dropped mesh is a new
+  link** under the selected link (a selected joint's child; else the root),
+  `Fixed` joint at identity, named after the file stem made XML-valid
+  (`my part` → `my_part`, `3d` → `_3d`) and deduplicated (`arm_2`); the
+  joint is `<name>_joint`, deduplicated the same way.
 - ~~⚠ OPEN~~ **Decided 2026-08-29 (step 3): `RemoveLink` removes the
   subtree** (links, joints, and any frame on them) — one undo, matches every
   tree UI. Splicing children onto the parent can be a later command if wanted.
@@ -318,6 +321,23 @@ Executable form, all green under `cargo test --workspace` on the CPU adapter:
     Pendulum geometry: unit cubes, `hinge` revolute about Y at (0, 0, 0.5),
     arm geom at (0, 0, 0.5) in the arm frame → at `q = 0` the arm cube sits
     on the base cube at world (0, 0, 1); limits ±90°.
+  - Step 5: `open_path` returns `Option<LinkId>` (`None` for a `.riggen`,
+    the new link for a mesh); registering the asset happens before the
+    `AddLink`, so the pre-state snapshot holds it and undo/redo never
+    reloads the file (`drop_undo_redo` app test). `sync_scene` also
+    re-uploads an instance whose asset scale / fix-up changed (`LoadedMesh`
+    keeps the raw file mesh) and clamps `q` to freshly edited limits;
+    `set_joint_value` clamps too. The camera's depth range is set on every
+    fit (`OrbitCamera::set_depth_range_for`: near `r/100`, far `r·1000`,
+    clamped to `[1e-6, 1]` / `[100, 1e6]`) and the zoom range follows
+    `[2·near, far/2]` instead of M0's fixed `[0.02, 50]` m; `CameraDebug`
+    reports `near` / `far`. A `.riggen` dropped or opened replaces the
+    document without a confirm until step 10. `Viewport::set_selected`
+    marks triangle `0`: selection is per instance, the triangle is a
+    readout only. The viewport→document selection sync runs once per frame
+    after `Viewport::ui`; a click on empty space with a *joint* selected in
+    the tree leaves that selection alone (the viewport reports `None` →
+    `None`, nothing to notice) — revisit if it annoys.
   - `validate` also checks material names (`InvalidName { kind:
     "material" }`) and that densities are finite and non-negative, so
     `UpsertMaterial` cannot smuggle an unexportable name into the table.

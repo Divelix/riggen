@@ -17,7 +17,8 @@ mod harness;
 
 use harness::{click_at, pump_rendered, scenario, settle, with_app};
 
-use riggen_mesh::glam::DVec3;
+use riggen_core::glam::DVec3;
+use riggen_core::{Command, LinkId, Pose};
 
 fn fixture(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -25,22 +26,32 @@ fn fixture(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
+/// Opens a mesh as a new link, or panics with the loader's message.
+fn open_link(app: &mut riggen_app::RiggenApp, name: &str) -> LinkId {
+    app.open_path(&fixture(name))
+        .expect(name)
+        .expect("a mesh opens as a link")
+}
+
 /// The empty app: gradient background, axes triad, status bar. The broadest
 /// regression net in the suite: almost any layout or render change moves
 /// this frame.
 #[test]
 fn startup() {
-    scenario("startup", |_harness| {});
+    scenario("startup", |harness| {
+        let state = harness.state().debug_state();
+        assert_eq!(state.document.links.len(), 1, "a new document has its root");
+        assert!(!state.document.dirty);
+        assert_eq!(state.document.file, None);
+    });
 }
 
-/// One STL, fitted: the shaded cube, its bounds and the fitted camera.
+/// One STL, fitted: the shaded cube, its bounds and the fitted camera. The
+/// cube is a link under the root with a fixed joint at identity.
 #[test]
 fn cube() {
     scenario("cube", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("cube_binary.stl"))
-            .expect("open cube fixture");
+        let cube = open_link(harness.state_mut(), "cube_binary.stl");
         harness.state_mut().fit_view_now();
         settle(harness);
 
@@ -48,9 +59,17 @@ fn cube() {
         assert_eq!(state.instances.len(), 1);
         assert_eq!(state.instances[0].triangles, 12);
         assert_eq!(
+            state.instances[0].link.as_deref(),
+            Some(cube.to_string().as_str())
+        );
+        assert_eq!(
             state.instances[0].bounds,
             Some([[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]])
         );
+        assert_eq!(state.document.links.len(), 2);
+        assert_eq!(state.document.links[1].name, "cube_binary");
+        assert_eq!(state.document.joints[0].kind, "Fixed");
+        assert!(state.document.dirty, "a dropped mesh is an edit");
     });
 }
 
@@ -63,10 +82,7 @@ fn cube() {
 #[test]
 fn hover_cube() {
     scenario("hover_cube", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("cube_binary.stl"))
-            .expect("open cube fixture");
+        open_link(harness.state_mut(), "cube_binary.stl");
         harness.state_mut().fit_view_now();
         settle(harness);
 
@@ -88,14 +104,12 @@ fn hover_cube() {
 }
 
 /// Selection restyle: click = select, and `PointerGone` leaves the frame
-/// showing selection alone rather than selection under a hover.
+/// showing selection alone rather than selection under a hover. The click
+/// selects the *link* owning the hit instance in the document.
 #[test]
 fn select_cube() {
     scenario("select_cube", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("cube_binary.stl"))
-            .expect("open cube fixture");
+        let cube = open_link(harness.state_mut(), "cube_binary.stl");
         harness.state_mut().fit_view_now();
         settle(harness);
 
@@ -105,19 +119,28 @@ fn select_cube() {
             .expect("viewport laid out");
         click_at(harness, center);
 
-        let selection = harness.state().debug_state().selection;
+        let state = harness.state().debug_state();
         assert_eq!(
-            selection.selected.map(|h| h.instance),
+            state.selection.selected.map(|h| h.instance),
             Some(0),
-            "clicking the middle of a fitted view should select the cube: {selection:?}"
+            "clicking the middle of a fitted view should select the cube: {:?}",
+            state.selection
         );
-        assert_eq!(selection.hovered, None, "the pointer left the viewport");
+        assert_eq!(
+            state.selection.hovered, None,
+            "the pointer left the viewport"
+        );
+        assert_eq!(state.document.selection, Some(format!("link {cube}")));
+        assert_eq!(
+            harness.state().selection(),
+            riggen_app::Selection::Link(cube)
+        );
     });
 }
 
 /// The three fixtures — binary STL, ASCII STL, OBJ — side by side: every
-/// loader through `open_path`, three instances with their own model
-/// matrices, fitted together.
+/// loader through `open_path`, three links under the root, placed by
+/// editing their fixed joints' origins, fitted together.
 #[test]
 fn three_parts() {
     scenario("three_parts", |harness| {
@@ -126,8 +149,12 @@ fn three_parts() {
             .iter()
             .enumerate()
         {
-            let id = app.open_path(&fixture(name)).expect(name);
-            assert!(app.place_instance(id, DVec3::new(1.5 * i as f64, 0.0, 0.0)));
+            let link = open_link(app, name);
+            let joint = app.robot().parent_joint(link).expect("a parent joint");
+            let mut edited = app.robot().joints[&joint].clone();
+            edited.origin = Pose::from_translation(DVec3::new(1.5 * i as f64, 0.0, 0.0));
+            app.apply(Command::SetJoint(joint, edited))
+                .expect("SetJoint");
         }
         app.fit_view_now();
         settle(harness);
@@ -136,10 +163,76 @@ fn three_parts() {
         assert_eq!(state.instances.len(), 3);
         assert!(state.instances.iter().all(|i| i.triangles == 12));
         assert_eq!(state.instances[2].position, [3.0, 0.0, 0.0]);
+        let names: Vec<&str> = state
+            .document
+            .links
+            .iter()
+            .map(|l| l.name.as_str())
+            .collect();
+        assert_eq!(names, ["base_link", "cube_binary", "cube_ascii", "cube"]);
     });
 }
 
-/// A file that does not load leaves the scene alone and says why in the
+/// The corpus file: base and arm, one revolute hinge. At `q = 0` the arm
+/// cube sits on the base cube: the arm's instance is at the FK pose
+/// `hinge.origin ∘ geom.pose = (0, 0, 0.5) + (0, 0, 0.5)`.
+#[test]
+fn pendulum() {
+    scenario("pendulum", |harness| {
+        let opened = harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        assert_eq!(opened, None, "a document opens as a document, not a link");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.document.file.as_deref(), Some("pendulum.riggen"));
+        assert!(!state.document.dirty);
+        assert_eq!(state.status, None, "no warnings: the fixture hashes match");
+        assert_eq!(state.document.links.len(), 2);
+        assert_eq!(state.document.joints.len(), 1);
+        assert_eq!(state.document.joints[0].kind, "Revolute");
+        assert_eq!(state.instances.len(), 2);
+        assert_eq!(state.instances[0].position, [0.0, 0.0, 0.0]);
+        assert_eq!(state.instances[1].position, [0.0, 0.0, 1.0]);
+    });
+}
+
+/// A millimetre part: the cube fixture at `scale = 0.001` is a 1 mm cube.
+/// The fit sets the camera's depth range from the radius, so it is drawn
+/// rather than clipped by M0's fixed 1 cm near plane.
+#[test]
+fn mm_scale_part() {
+    scenario("mm_scale_part", |harness| {
+        let app = harness.state_mut();
+        app.set_import_scale(riggen_app::RiggenApp::DEFAULT_IMPORT_SCALE);
+        let link = open_link(app, "cube_binary.stl");
+        let mesh = app.robot().links[&link].visuals[0].mesh;
+        assert_eq!(app.robot().assets[&mesh].scale, 0.001);
+        app.fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert_eq!(
+            state.instances[0].bounds,
+            Some([[-0.0005, -0.0005, -0.0005], [0.0005, 0.0005, 0.0005]])
+        );
+        let camera = &state.camera;
+        let radius = 0.0005f64 * 3f64.sqrt();
+        assert!(
+            camera.near < camera.distance - radius,
+            "near {} clips a part at distance {}",
+            camera.near,
+            camera.distance
+        );
+        assert!(camera.far > camera.distance + radius);
+        assert!(camera.distance < 0.02, "fitted close: {}", camera.distance);
+    });
+}
+
+/// A file that does not load leaves the document alone and says why in the
 /// status bar; a batch with one bad file still opens the others.
 #[test]
 fn bad_path_reports_and_adds_nothing() {
@@ -150,12 +243,20 @@ fn bad_path_reports_and_adds_nothing() {
         assert!(err.contains("does_not_exist.stl"), "{err}");
         assert_eq!(app.debug_state().status.as_deref(), Some(err.as_str()));
         assert!(app.debug_state().instances.is_empty());
+        assert_eq!(app.robot().links.len(), 1);
+        assert!(!app.history().is_dirty());
 
         let err = app
             .open_path(&fixture("cube.obj").with_extension("ply"))
             .unwrap_err();
         assert!(err.contains("unsupported format"), "{err}");
         assert!(app.debug_state().instances.is_empty());
+
+        let err = app
+            .open_path(&fixture("does_not_exist.riggen"))
+            .unwrap_err();
+        assert!(err.contains("does_not_exist.riggen"), "{err}");
+        assert_eq!(app.debug_state().document.file, None);
 
         app.load_files(&[missing, fixture("cube.obj")]);
         assert_eq!(app.debug_state().instances.len(), 1);
@@ -166,5 +267,79 @@ fn bad_path_reports_and_adds_nothing() {
         assert_eq!(app.debug_state().status.as_deref(), Some("opened 1 file"));
         assert_eq!(app.debug_state().instances.len(), 2);
         assert!(app.debug_state().camera.animating, "loads fit the view");
+    });
+}
+
+/// Dropping a mesh is one undoable edit: undo removes the link and its
+/// instance, redo brings both back without reloading (the asset stayed
+/// registered), and the dirty flag follows the history.
+#[test]
+fn drop_undo_redo() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        let cube = open_link(app, "cube_binary.stl");
+        assert_eq!(app.robot().links.len(), 2);
+        assert_eq!(app.debug_state().instances.len(), 1);
+        assert!(app.history().is_dirty());
+
+        assert!(app.undo());
+        assert_eq!(app.robot().links.len(), 1);
+        assert!(app.debug_state().instances.is_empty());
+        assert!(!app.history().is_dirty());
+        assert_eq!(app.robot().assets.len(), 1, "the asset stays registered");
+
+        assert!(app.redo());
+        assert_eq!(app.robot().links.len(), 2);
+        assert!(app.robot().links.contains_key(&cube));
+        let state = app.debug_state();
+        assert_eq!(state.instances.len(), 1);
+        assert_eq!(
+            state.instances[0].link.as_deref(),
+            Some(cube.to_string().as_str())
+        );
+
+        // A second drop with the first selected lands under it.
+        app.select(riggen_app::Selection::Link(cube));
+        let child = open_link(app, "cube_ascii.stl");
+        let joint = app.robot().parent_joint(child).unwrap();
+        assert_eq!(app.robot().joints[&joint].parent, cube);
+        assert_eq!(app.robot().links[&child].name, "cube_ascii");
+        // And the same file again gets a deduplicated name.
+        let again = open_link(app, "cube_ascii.stl");
+        assert_eq!(app.robot().links[&again].name, "cube_ascii_2");
+    });
+}
+
+/// Opening a document replaces everything: the old links, instances,
+/// history and selection are gone, and the file is clean.
+#[test]
+fn open_document_replaces_the_scene() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        let cube = open_link(app, "cube_binary.stl");
+        app.select(riggen_app::Selection::Link(cube));
+        assert!(app.history().is_dirty());
+
+        app.load_files(&[fixture("pendulum.riggen")]);
+        let state = app.debug_state();
+        assert_eq!(state.document.file.as_deref(), Some("pendulum.riggen"));
+        assert!(!state.document.dirty);
+        assert_eq!(state.document.selection, None);
+        assert_eq!(state.document.links.len(), 2);
+        assert_eq!(state.instances.len(), 2);
+        assert_eq!(state.status.as_deref(), Some("opened 1 file"));
+        assert!(!app.undo(), "a fresh document has no history");
+
+        // Swinging the hinge moves the arm's instance, not the base's.
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.set_joint_value(hinge, std::f64::consts::FRAC_PI_2);
+        let state = app.debug_state();
+        assert_eq!(state.instances[0].position, [0.0, 0.0, 0.0]);
+        // Rotating (0, 0, 0.5) about +Y by 90° gives (0.5, 0, 0), plus the
+        // hinge origin (0, 0, 0.5).
+        assert_eq!(state.instances[1].position, [0.5, 0.0, 0.5]);
+        // Values are clamped to the limits (±90°).
+        app.set_joint_value(hinge, 10.0);
+        assert!((app.joint_value(hinge) - std::f64::consts::FRAC_PI_2).abs() < 1e-12);
     });
 }

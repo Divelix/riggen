@@ -21,6 +21,9 @@ pub struct CameraDebug {
     pub yaw_deg: f64,
     pub pitch_deg: f64,
     pub fov_y_deg: f64,
+    /// Depth range, set from the fitted radius on every fit.
+    pub near: f64,
+    pub far: f64,
     pub projection: &'static str,
     /// `true` while a view transition is in flight. A snapshot taken then is
     /// not reproducible — the animation reads the wall clock — so scenarios
@@ -58,6 +61,8 @@ impl CameraDebug {
             yaw_deg: round(camera.yaw.to_degrees() as f64),
             pitch_deg: round(camera.pitch.to_degrees() as f64),
             fov_y_deg: round(camera.fov_y.to_degrees() as f64),
+            near: round32(camera.near),
+            far: round32(camera.far),
             projection: camera.projection.label(),
             animating: camera.is_animating(),
             aspect: aspect.map(round),

@@ -1,16 +1,42 @@
 //! The application state and its per-frame `ui`: menu bar on top, status
 //! bar on the bottom, the viewport in the central panel.
 
+mod document;
 mod file_io;
 mod status_bar;
 
-use riggen_viewport::{InstanceId, Viewport};
+use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
+
+use riggen_core::{GeomId, History, JointState, LinkId, MeshId, Robot};
+use riggen_viewport::{InstanceId, PickHit, Viewport};
 use web_time::Instant;
 
-/// The eframe app. Will own the `Robot` document plus derived, never-saved
-/// state (docs/01-architecture.md §The document is the only state); in M0
-/// the viewport's instance table *is* the state.
+pub(crate) use document::LoadedMesh;
+pub use document::Selection;
+
+/// The eframe app: one `Robot` and what is derived from it
+/// (docs/01-architecture.md §The document is the only state).
 pub struct RiggenApp {
+    robot: Robot,
+    history: History,
+    /// Where the document lives on disk; `None` until saved or opened.
+    file: Option<PathBuf>,
+    /// Mesh geometry beside the document, keyed by asset, loaded once per
+    /// file and shared across history snapshots.
+    mesh_store: HashMap<MeshId, LoadedMesh>,
+    /// The viewport's instance per visual geom (docs/02-data-model.md
+    /// §Geom): the only map between document and scene.
+    instances: BTreeMap<(LinkId, GeomId), InstanceId>,
+    /// Current joint values — slider state, never saved.
+    q: JointState,
+    selection: Selection,
+    /// What the viewport reported selected last frame, to notice a click
+    /// resolving without mistaking a programmatic selection for one.
+    last_viewport_selected: Option<PickHit>,
+    /// `MeshAsset::scale` for a dropped mesh. Millimetres by default: that
+    /// is what most STL exporters write.
+    import_scale: f64,
     pub(crate) viewport: Viewport,
     /// The next [`InstanceId`] to hand out. Never reused within a session.
     next_instance: u32,
@@ -27,6 +53,9 @@ pub struct RiggenApp {
 }
 
 impl RiggenApp {
+    /// The import scale a fresh app starts with: millimetres.
+    pub const DEFAULT_IMPORT_SCALE: f64 = 0.001;
+
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let render_state = cc
             .wgpu_render_state
@@ -35,6 +64,15 @@ impl RiggenApp {
         let viewport = Viewport::new(&render_state.device, render_state.target_format);
 
         Self {
+            robot: Robot::new("robot"),
+            history: History::new(),
+            file: None,
+            mesh_store: HashMap::new(),
+            instances: BTreeMap::new(),
+            q: JointState::default(),
+            selection: Selection::None,
+            last_viewport_selected: None,
+            import_scale: Self::DEFAULT_IMPORT_SCALE,
             viewport,
             next_instance: 0,
             status: None,
@@ -42,14 +80,6 @@ impl RiggenApp {
             last_frame_instant: None,
             last_frame_dt: None,
         }
-    }
-
-    /// Moves an instance to `position` (file units). M0 has no document to
-    /// keep poses in; this exists so a scenario can lay several parts side
-    /// by side.
-    pub fn place_instance(&mut self, id: InstanceId, position: riggen_mesh::glam::DVec3) -> bool {
-        self.viewport
-            .set_instance_model(id, riggen_mesh::glam::DMat4::from_translation(position))
     }
 
     fn tick_frame_clock(&mut self) {
@@ -76,6 +106,16 @@ impl RiggenApp {
             });
         });
     }
+
+    /// `arm (i1/t120)`: the link and the instance/triangle the ID buffer
+    /// resolved.
+    fn describe_hit(&self, hit: PickHit) -> String {
+        let where_ = format!("i{}/t{}", hit.instance.0, hit.triangle);
+        match self.link_name_of_instance(hit.instance) {
+            Some(name) => format!("{name} ({where_})"),
+            None => where_,
+        }
+    }
 }
 
 impl eframe::App for RiggenApp {
@@ -85,14 +125,18 @@ impl eframe::App for RiggenApp {
 
         self.menu_bar(ui);
 
-        // `i3/t120`: instance 3, triangle 120 — what the ID buffer resolved.
-        let describe =
-            |hit: riggen_viewport::PickHit| format!("i{}/t{}", hit.instance.0, hit.triangle);
-        let hovered = self.viewport.hovered().map(describe);
-        let selected = self.viewport.selected().map(describe);
+        let hovered = self.viewport.hovered().map(|h| self.describe_hit(h));
+        let selected = self.viewport.selected().map(|h| self.describe_hit(h));
+        let document = format!(
+            "{}{}",
+            self.document_label(),
+            if self.history.is_dirty() { "*" } else { "" }
+        );
         status_bar::status_bar(
             ui,
             &status_bar::StatusView {
+                document: &document,
+                import_units: &status_bar::import_units_label(self.import_scale),
                 hovered: hovered.as_deref(),
                 selected: selected.as_deref(),
                 instance_count: self.viewport.instance_count(),
@@ -106,5 +150,6 @@ impl eframe::App for RiggenApp {
             .show(ui, |ui| {
                 self.viewport.ui(ui);
             });
+        self.sync_selection_from_viewport();
     }
 }
