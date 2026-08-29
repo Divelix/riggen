@@ -6,8 +6,9 @@
 
 use std::collections::HashMap;
 
-use riggen_core::glam::DVec3;
-use riggen_core::{Command, JointId, JointKind, Limits, LinkId, Pose};
+use riggen_core::glam::{DMat3, DVec3};
+use riggen_core::inertial::{Inertial, InertialError, principal_moments};
+use riggen_core::{Command, InertialSpec, JointId, JointKind, Limits, LinkId, Pose};
 
 use crate::app::{RiggenApp, Selection};
 
@@ -27,6 +28,45 @@ impl PropertiesState {
 
 /// Document ↔ field unit conversion (radians ↔ degrees, or none).
 type Convert = fn(f64) -> f64;
+
+/// The Inertial block's mode combo: the three `InertialSpec` variants by
+/// name, without their payloads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InertialMode {
+    Computed,
+    Override,
+    Hybrid,
+}
+
+impl InertialMode {
+    const ALL: [Self; 3] = [Self::Computed, Self::Override, Self::Hybrid];
+
+    fn of(spec: &InertialSpec) -> Self {
+        match spec {
+            InertialSpec::Computed { .. } => Self::Computed,
+            InertialSpec::Override { .. } => Self::Override,
+            InertialSpec::Hybrid { .. } => Self::Hybrid,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Computed => "Computed",
+            Self::Override => "Override",
+            Self::Hybrid => "Hybrid",
+        }
+    }
+}
+
+/// For the readout: small values (a tensor in kg·m²) in scientific
+/// notation, the rest like [`fmt_num`].
+fn fmt_readout(v: f64) -> String {
+    if v != 0.0 && v.abs() < 1e-3 {
+        format!("{v:.3e}")
+    } else {
+        fmt_num(v)
+    }
+}
 
 /// Default limits handed to a joint switched to a kind that needs them.
 fn default_limits(kind: JointKind) -> Limits {
@@ -313,6 +353,239 @@ impl RiggenApp {
                         }
                     }
                 });
+        }
+
+        ui.add_space(8.0);
+        self.inertial_properties(ui, link, &data.inertial, base.with("inertial"), commands);
+    }
+
+    /// Properties › Inertial: the mode, its fields, and what the meshes
+    /// say beside it (docs/02-data-model.md §Inertials). Every committed
+    /// field is one `SetInertial`.
+    fn inertial_properties(
+        &mut self,
+        ui: &mut egui::Ui,
+        link: LinkId,
+        spec: &InertialSpec,
+        base: egui::Id,
+        commands: &mut Vec<Command>,
+    ) {
+        let composed = self.link_inertial(link);
+        let computed: Option<Inertial> = composed.as_ref().ok().and_then(|c| c.computed);
+        // Why the meshes say nothing, when they do not.
+        let readout_error: Option<InertialError> = match &composed {
+            Err(e) => Some(e.clone()),
+            Ok(c) if c.computed.is_none() => self.robot.links.get(&link).and_then(|l| {
+                riggen_core::inertial::computed_inertial(
+                    l,
+                    &crate::app::document::AppMeshes(&self.mesh_store),
+                    &self.robot.materials,
+                )
+                .err()
+            }),
+            Ok(_) => None,
+        };
+        let material_density = self
+            .robot
+            .links
+            .get(&link)
+            .and_then(|l| l.material.as_ref())
+            .and_then(|m| self.robot.materials.get(m))
+            .map(|m| m.density);
+        let open_mesh_file = |geom: &riggen_core::GeomId| {
+            self.robot
+                .links
+                .get(&link)
+                .and_then(|l| l.visuals.iter().find(|g| g.id == *geom))
+                .and_then(|g| self.robot.assets.get(&g.mesh))
+                .and_then(|a| a.path.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| geom.to_string())
+        };
+        let state = &mut self.props;
+
+        ui.strong("Inertial");
+        egui::Grid::new(base.with("grid"))
+            .num_columns(2)
+            .show(ui, |ui| {
+                ui.label("mode");
+                let mut mode = InertialMode::of(spec);
+                let before = mode;
+                egui::ComboBox::from_id_salt(base.with("mode"))
+                    .selected_text(mode.label())
+                    .show_ui(ui, |ui| {
+                        for m in InertialMode::ALL {
+                            ui.selectable_value(&mut mode, m, m.label());
+                        }
+                    });
+                if mode != before {
+                    // A new mode starts from what the meshes say, so an
+                    // override is a correction, not a blank form.
+                    let seed = computed.unwrap_or(Inertial::ZERO);
+                    let next = match mode {
+                        InertialMode::Computed => InertialSpec::Computed {
+                            density_override: None,
+                        },
+                        InertialMode::Override => InertialSpec::Override {
+                            mass: seed.mass,
+                            com: seed.com,
+                            inertia: seed.inertia,
+                        },
+                        InertialMode::Hybrid => InertialSpec::Hybrid { mass: seed.mass },
+                    };
+                    commands.push(Command::SetInertial(link, next));
+                }
+                ui.end_row();
+
+                match spec {
+                    InertialSpec::Computed { density_override } => {
+                        let tag = ui.label("density override");
+                        ui.horizontal(|ui| {
+                            let mut on = density_override.is_some();
+                            if ui.checkbox(&mut on, "").changed() {
+                                commands.push(Command::SetInertial(
+                                    link,
+                                    InertialSpec::Computed {
+                                        density_override: on
+                                            .then(|| material_density.unwrap_or(1000.0)),
+                                    },
+                                ));
+                            }
+                            if let Some(d) = density_override
+                                && let Some(n) =
+                                    number_field(ui, state, base.with("density"), &tag, *d)
+                                && n > 0.0
+                            {
+                                commands.push(Command::SetInertial(
+                                    link,
+                                    InertialSpec::Computed {
+                                        density_override: Some(n),
+                                    },
+                                ));
+                            }
+                            ui.weak("kg/m³");
+                        });
+                        ui.end_row();
+                    }
+                    InertialSpec::Override { mass, com, inertia } => {
+                        if let Some(m) = number_row(ui, state, base.with("mass"), "mass kg", *mass)
+                        {
+                            commands.push(Command::SetInertial(
+                                link,
+                                InertialSpec::Override {
+                                    mass: m,
+                                    com: *com,
+                                    inertia: *inertia,
+                                },
+                            ));
+                        }
+                        ui.label("CoM m");
+                        if let Some(c) =
+                            vec3_row(ui, state, base.with("com"), ["x", "y", "z"], *com)
+                        {
+                            commands.push(Command::SetInertial(
+                                link,
+                                InertialSpec::Override {
+                                    mass: *mass,
+                                    com: c,
+                                    inertia: *inertia,
+                                },
+                            ));
+                        }
+                        ui.end_row();
+                        // Six independent entries; the tensor is symmetric.
+                        let entries = [
+                            ("Ixx", inertia.x_axis.x),
+                            ("Iyy", inertia.y_axis.y),
+                            ("Izz", inertia.z_axis.z),
+                            ("Ixy", inertia.y_axis.x),
+                            ("Ixz", inertia.z_axis.x),
+                            ("Iyz", inertia.z_axis.y),
+                        ];
+                        let mut edited: Option<[f64; 6]> = None;
+                        for (row, chunk) in entries.chunks(3).enumerate() {
+                            ui.label(if row == 0 { "inertia kg·m²" } else { "" });
+                            ui.horizontal(|ui| {
+                                for (col, (label, value)) in chunk.iter().enumerate() {
+                                    let tag = ui.label(*label);
+                                    let id = base.with(("inertia", row, col));
+                                    if let Some(n) = number_field(ui, state, id, &tag, *value) {
+                                        let mut all = entries.map(|(_, v)| v);
+                                        all[row * 3 + col] = n;
+                                        edited = Some(all);
+                                    }
+                                }
+                            });
+                            ui.end_row();
+                        }
+                        if let Some([ixx, iyy, izz, ixy, ixz, iyz]) = edited {
+                            commands.push(Command::SetInertial(
+                                link,
+                                InertialSpec::Override {
+                                    mass: *mass,
+                                    com: *com,
+                                    inertia: DMat3::from_cols(
+                                        DVec3::new(ixx, ixy, ixz),
+                                        DVec3::new(ixy, iyy, iyz),
+                                        DVec3::new(ixz, iyz, izz),
+                                    ),
+                                },
+                            ));
+                        }
+                    }
+                    InertialSpec::Hybrid { mass } => {
+                        if let Some(m) = number_row(ui, state, base.with("mass"), "mass kg", *mass)
+                            && m > 0.0
+                        {
+                            commands
+                                .push(Command::SetInertial(link, InertialSpec::Hybrid { mass: m }));
+                        }
+                    }
+                }
+            });
+
+        // What the meshes say, for comparison — or why they say nothing.
+        ui.add_space(4.0);
+        ui.weak("computed from the meshes");
+        match (computed, readout_error) {
+            (Some(c), _) => {
+                egui::Grid::new(base.with("readout"))
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.label("mass");
+                        ui.label(format!("{} kg", fmt_readout(c.mass)));
+                        ui.end_row();
+                        ui.label("CoM");
+                        ui.label(format!(
+                            "{} {} {} m",
+                            fmt_readout(c.com.x),
+                            fmt_readout(c.com.y),
+                            fmt_readout(c.com.z)
+                        ));
+                        ui.end_row();
+                        let [a, b, d] = principal_moments(&c.inertia);
+                        ui.label("principal");
+                        ui.label(format!(
+                            "{} {} {} kg·m²",
+                            fmt_readout(a),
+                            fmt_readout(b),
+                            fmt_readout(d)
+                        ));
+                        ui.end_row();
+                    });
+            }
+            (None, Some(err)) => {
+                let text = match &err {
+                    InertialError::OpenMesh { geom } => {
+                        format!("open mesh: {} is not closed", open_mesh_file(geom))
+                    }
+                    other => other.to_string(),
+                };
+                ui.colored_label(ui.visuals().warn_fg_color, text);
+            }
+            (None, None) => {
+                ui.weak("nothing to compute");
+            }
         }
     }
 

@@ -676,6 +676,98 @@ fn properties_link() {
     });
 }
 
+/// Properties › Inertial on the pendulum's arm: switching the mode combo
+/// to Override seeds the fields from the computed values (one command), and
+/// the computed readout stays beside them for comparison.
+#[test]
+fn properties_inertial() {
+    scenario("properties_inertial", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        harness.get_by_label("arm").click();
+        pump_rendered(harness, 4);
+        let depth = harness.state().history().undo_depth();
+
+        // The mode combo is the second combo box (material is the first).
+        harness
+            .get_all_by_role(egui::accesskit::Role::ComboBox)
+            .nth(1)
+            .expect("the inertial mode combo")
+            .click();
+        harness.step();
+        harness.get_by_label("Override").click();
+        harness.step();
+        harness.step();
+
+        let app = harness.state();
+        assert_eq!(app.history().undo_depth(), depth + 1, "one command");
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .unwrap()
+            .0;
+        let riggen_core::InertialSpec::Override { mass, com, .. } =
+            app.robot().links[&arm].inertial
+        else {
+            panic!("{:?}", app.robot().links[&arm].inertial);
+        };
+        // PLA (1240 kg/m³) unit cube, seeded from the computed value.
+        assert!((mass - 1240.0).abs() < 1e-6, "{mass}");
+        assert!((com - DVec3::new(0.0, 0.0, 0.5)).length() < 1e-9, "{com}");
+        assert_eq!(
+            harness.get_by_label("mass kg").value().as_deref(),
+            Some("1240")
+        );
+    });
+}
+
+/// A dropped mesh that is not closed: the status bar says so at the drop,
+/// and Properties › Inertial names the file in warning colour instead of a
+/// readout.
+#[test]
+fn properties_inertial_open_mesh() {
+    scenario("properties_inertial_open_mesh", |harness| {
+        // A cube without its top: written here, since no fixture is open on
+        // purpose.
+        let dir = scratch_dir("open_mesh");
+        let mut open = riggen_mesh::TriMesh::cube(0.5);
+        open.indices.truncate(open.indices.len() - 6);
+        let path = dir.join("open_box.stl");
+        std::fs::write(&path, riggen_mesh::write_binary(&open)).unwrap();
+
+        let link = harness
+            .state_mut()
+            .open_path(&path)
+            .expect("an open mesh still opens")
+            .expect("as a link");
+        assert_eq!(
+            harness.state().debug_state().status.as_deref(),
+            Some("open_box.stl: mesh is not closed, so its mass properties cannot be computed")
+        );
+        // With a material the density is known; the mesh is the problem.
+        harness
+            .state_mut()
+            .apply(Command::SetLinkMaterial(link, Some("PLA".into())))
+            .unwrap();
+        harness.state_mut().select(Selection::Link(link));
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        assert!(matches!(
+            harness.state().link_inertial(link),
+            Err(riggen_core::InertialError::OpenMesh { .. })
+        ));
+        harness.get_by_label("open mesh: open_box.stl is not closed");
+        std::fs::remove_dir_all(&dir).unwrap();
+    });
+}
+
 /// The properties panel for a joint: kind, origin, axis, limits in
 /// degrees, dynamics.
 #[test]
