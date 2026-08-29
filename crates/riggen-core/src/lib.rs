@@ -6,11 +6,13 @@
 //! per-document counters and joints are the edges of the link tree
 //! (ADR-0005).
 
+pub mod fk;
 pub mod ids;
 pub mod pose;
 pub mod robot;
 pub mod validate;
 
+pub use fk::{JointState, fk, motion};
 pub use ids::{FrameId, GeomId, Id, IdGen, JointId, LinkId, MeshId};
 pub use pose::Pose;
 pub use robot::{
