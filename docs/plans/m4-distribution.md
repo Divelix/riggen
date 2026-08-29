@@ -25,7 +25,7 @@ the 60-second first run; the same file is the wheel's PyPI page.
 - The Python SDK (`riggen-py`, PyO3) and `riggen.show()` — v0.2 (ADR-0002).
 - Publishing the workspace to crates.io so `cargo install riggen` works.
   The `riggen` 0.0.1 reservation crate stays as it is; the README says
-  `cargo install --git`. See OPEN 1.
+  `cargo install --git` (OPEN 1, decided).
 - macOS code signing / notarization and a Windows installer. pip-installed
   files carry no quarantine attribute, so an unsigned binary in a wheel
   runs from a terminal; a signed `.app` is a later concern.
@@ -231,7 +231,7 @@ release. Tag `m4` on the retirement commit.
   sizes per platform, the measured startup time, what the by-hand
   install said.
 - `docs/BACKLOG.md` — new lines: publish the workspace to crates.io so
-  `cargo install riggen` works (if OPEN 1 says later); a 30-second
+  `cargo install riggen` works (OPEN 1); a 30-second
   screencast for the README, recorded after the GUI polish and before
   the announced release (OPEN 2); the M4 by-hand findings under an M4
   heading; macOS signing / notarization if the human's VM run hits
@@ -244,19 +244,13 @@ release. Tag `m4` on the retirement commit.
 
 ## Open questions
 
-- `⚠ OPEN 1:` **`cargo install riggen` in M4 or later.** The *name* is
-  reserved (`riggen` 0.0.1 on crates.io, 2026-08-29) — that roadmap line
-  is done. Making the command install the app is a further job: publish
-  `riggen-mesh`, `-core`, `-export`, `-viewport` too (crates.io refuses
-  path dependencies), rename `riggen-app` to `riggen` so the app takes
-  the reserved name (and delete `crates/riggen`), and add `cargo publish
-  --workspace` with crates.io trusted publishing to `release.yml`. About
-  one step's work, but one more publish surface that has to be green on
-  every tag push. Recommendation: **later, as its own small plan** — the
-  wheel is what 99 % of users touch (OPEN 3), the README says `cargo
-  install --git …` for the rest. If "now": it becomes step 6 of this
-  plan, before the README. Human decides by step 5 (the release
-  workflow).
+- `OPEN 1` — **decided (human, 2026-08-30):** later, as its own small
+  plan. The crates.io *name* is reserved (`riggen` 0.0.1, 2026-08-29);
+  making `cargo install riggen` install the app — publishing
+  `riggen-mesh`, `-core`, `-export`, `-viewport`, renaming `riggen-app`
+  to `riggen`, `cargo publish --workspace` in `release.yml` — is one
+  backlog line. The README says `cargo install --git …` for the few who
+  want the Rust route.
 - `OPEN 2` — **decided (human, 2026-08-30):** no screencast in M4; the
   GUI gets polished first, the recording comes before the announced
   release. Backlog line at retirement. The README ships with the hero
