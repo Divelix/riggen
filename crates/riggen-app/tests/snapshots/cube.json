@@ -19,6 +19,8 @@
     "yaw_deg": -45.0,
     "pitch_deg": 28.64789,
     "fov_y_deg": 45.0,
+    "near": 0.00866,
+    "far": 866.025391,
     "projection": "Perspective",
     "animating": false,
     "aspect": 1.686183,
@@ -64,20 +66,55 @@
       [
         0.0,
         0.0,
-        -1.0001,
+        -1.00001,
         -1.0
       ],
       [
         0.0,
         0.0,
-        -0.010001,
+        -0.00866,
         0.0
       ]
     ]
   },
+  "document": {
+    "file": null,
+    "name": "robot",
+    "dirty": true,
+    "import_scale": 1.0,
+    "links": [
+      {
+        "id": "l0",
+        "name": "base_link",
+        "parent_joint": null,
+        "geoms": 0,
+        "material": null
+      },
+      {
+        "id": "l3",
+        "name": "cube_binary",
+        "parent_joint": "j4",
+        "geoms": 1,
+        "material": null
+      }
+    ],
+    "joints": [
+      {
+        "id": "j4",
+        "name": "cube_binary_joint",
+        "kind": "Fixed",
+        "parent": "l0",
+        "child": "l3",
+        "q": 0.0
+      }
+    ],
+    "selection": null
+  },
   "instances": [
     {
       "id": 0,
+      "link": "l3",
+      "geom": "g2",
       "visible": true,
       "triangles": 12,
       "bounds": [

@@ -19,6 +19,8 @@
     "yaw_deg": -45.0,
     "pitch_deg": 28.64789,
     "fov_y_deg": 45.0,
+    "near": 0.01,
+    "far": 100.0,
     "projection": "Perspective",
     "animating": false,
     "aspect": 1.686183,
@@ -74,6 +76,23 @@
         0.0
       ]
     ]
+  },
+  "document": {
+    "file": null,
+    "name": "robot",
+    "dirty": false,
+    "import_scale": 1.0,
+    "links": [
+      {
+        "id": "l0",
+        "name": "base_link",
+        "parent_joint": null,
+        "geoms": 0,
+        "material": null
+      }
+    ],
+    "joints": [],
+    "selection": null
   },
   "instances": [],
   "selection": {

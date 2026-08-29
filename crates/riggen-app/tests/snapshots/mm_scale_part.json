@@ -1,9 +1,9 @@
 {
   "camera": {
     "eye": [
-      1.685176,
-      -1.685176,
-      1.301947
+      0.001685,
+      -0.001685,
+      0.001302
     ],
     "target": [
       0.0,
@@ -15,12 +15,12 @@
       0.339005,
       0.877583
     ],
-    "distance": 2.71564,
+    "distance": 0.002716,
     "yaw_deg": -45.0,
     "pitch_deg": 28.64789,
     "fov_y_deg": 45.0,
-    "near": 0.00866,
-    "far": 866.025391,
+    "near": 9e-6,
+    "far": 100.0,
     "projection": "Perspective",
     "animating": false,
     "aspect": 1.686183,
@@ -46,7 +46,7 @@
       [
         0.0,
         0.0,
-        -2.71564,
+        -0.002716,
         1.0
       ]
     ],
@@ -66,13 +66,13 @@
       [
         0.0,
         0.0,
-        -1.00001,
+        -1.0,
         -1.0
       ],
       [
         0.0,
         0.0,
-        -0.00866,
+        -9e-6,
         0.0
       ]
     ]
@@ -81,7 +81,7 @@
     "file": null,
     "name": "robot",
     "dirty": true,
-    "import_scale": 1.0,
+    "import_scale": 0.001,
     "links": [
       {
         "id": "l0",
@@ -108,7 +108,7 @@
         "q": 0.0
       }
     ],
-    "selection": "link l3"
+    "selection": null
   },
   "instances": [
     {
@@ -119,14 +119,14 @@
       "triangles": 12,
       "bounds": [
         [
-          -0.5,
-          -0.5,
-          -0.5
+          -0.0005,
+          -0.0005,
+          -0.0005
         ],
         [
-          0.5,
-          0.5,
-          0.5
+          0.0005,
+          0.0005,
+          0.0005
         ]
       ],
       "position": [
@@ -138,10 +138,7 @@
   ],
   "selection": {
     "hovered": null,
-    "selected": {
-      "instance": 0,
-      "triangle": 1
-    }
+    "selected": null
   },
   "status": null,
   "viewport_rect": [

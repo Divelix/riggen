@@ -89,6 +89,10 @@ fn app_harness() -> Harness<'static, RiggenApp> {
         .wgpu()
         .build_eframe(|cc| RiggenApp::new(cc));
     harness.state_mut().set_frame_hud_visible(false);
+    // The fixtures are unit cubes meant as meters; the app's default is mm
+    // (plan m1-document-tree-joints, decided at step 5). A scenario that
+    // wants the default sets it back.
+    harness.state_mut().set_import_scale(1.0);
     settle(&mut harness);
     harness
 }

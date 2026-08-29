@@ -1,26 +1,26 @@
 {
   "camera": {
     "eye": [
-      1.685176,
-      -1.685176,
-      1.301947
+      2.383198,
+      -2.383198,
+      2.341231
     ],
     "target": [
       0.0,
       0.0,
-      0.0
+      0.5
     ],
     "up": [
       -0.339005,
       0.339005,
       0.877583
     ],
-    "distance": 2.71564,
+    "distance": 3.840495,
     "yaw_deg": -45.0,
     "pitch_deg": 28.64789,
     "fov_y_deg": 45.0,
-    "near": 0.00866,
-    "far": 866.025391,
+    "near": 0.012247,
+    "far": 1224.744873,
     "projection": "Perspective",
     "animating": false,
     "aspect": 1.686183,
@@ -45,8 +45,8 @@
       ],
       [
         0.0,
-        0.0,
-        -2.71564,
+        -0.438791,
+        -4.080207,
         1.0
       ]
     ],
@@ -72,48 +72,48 @@
       [
         0.0,
         0.0,
-        -0.00866,
+        -0.012248,
         0.0
       ]
     ]
   },
   "document": {
-    "file": null,
-    "name": "robot",
-    "dirty": true,
+    "file": "pendulum.riggen",
+    "name": "pendulum",
+    "dirty": false,
     "import_scale": 1.0,
     "links": [
       {
         "id": "l0",
         "name": "base_link",
         "parent_joint": null,
-        "geoms": 0,
-        "material": null
+        "geoms": 1,
+        "material": "aluminium"
       },
       {
-        "id": "l3",
-        "name": "cube_binary",
-        "parent_joint": "j4",
+        "id": "l5",
+        "name": "arm",
+        "parent_joint": "j6",
         "geoms": 1,
-        "material": null
+        "material": "PLA"
       }
     ],
     "joints": [
       {
-        "id": "j4",
-        "name": "cube_binary_joint",
-        "kind": "Fixed",
+        "id": "j6",
+        "name": "hinge",
+        "kind": "Revolute",
         "parent": "l0",
-        "child": "l3",
+        "child": "l5",
         "q": 0.0
       }
     ],
-    "selection": "link l3"
+    "selection": null
   },
   "instances": [
     {
       "id": 0,
-      "link": "l3",
+      "link": "l0",
       "geom": "g2",
       "visible": true,
       "triangles": 12,
@@ -134,14 +134,35 @@
         0.0,
         0.0
       ]
+    },
+    {
+      "id": 1,
+      "link": "l5",
+      "geom": "g4",
+      "visible": true,
+      "triangles": 12,
+      "bounds": [
+        [
+          -0.5,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.5,
+          0.5,
+          0.5
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        1.0
+      ]
     }
   ],
   "selection": {
     "hovered": null,
-    "selected": {
-      "instance": 0,
-      "triangle": 1
-    }
+    "selected": null
   },
   "status": null,
   "viewport_rect": [

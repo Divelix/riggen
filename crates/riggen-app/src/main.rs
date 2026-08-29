@@ -17,8 +17,8 @@ fn main() -> eframe::Result<()> {
         },
         ..Default::default()
     };
-    // `riggen a.stl b.obj`: every argument is a mesh to open, in file units
-    // at the origin (docs/03-roadmap.md §M0).
+    // `riggen robot.riggen` opens a document; `riggen a.stl b.obj` drops
+    // meshes as links under the root (docs/03-roadmap.md §M1).
     let files: Vec<std::path::PathBuf> = std::env::args_os().skip(1).map(Into::into).collect();
     eframe::run_native(
         "riggen",

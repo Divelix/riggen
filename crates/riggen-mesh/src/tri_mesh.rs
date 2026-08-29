@@ -1,4 +1,4 @@
-use glam::DVec3;
+use glam::{DMat3, DMat4, DVec3};
 
 use crate::{Aabb, MeshError};
 
@@ -93,6 +93,21 @@ impl TriMesh {
         Ok(())
     }
 
+    /// Applies a rigid-plus-uniform-scale transform in place: positions
+    /// through `m`, normals through its rotation (re-normalised). What
+    /// `MeshAsset::scale` / `fix_up` turn file units into document meters
+    /// with, once at load. A non-uniform or mirroring `m` is not rejected
+    /// but leaves normals only approximately right.
+    pub fn transform(&mut self, m: &DMat4) {
+        for p in &mut self.positions {
+            *p = m.transform_point3(*p);
+        }
+        let rotation = DMat3::from_mat4(*m);
+        for n in &mut self.normals {
+            *n = (rotation * *n).normalize_or_zero();
+        }
+    }
+
     /// Bounds of every vertex; `None` for an empty mesh.
     pub fn aabb(&self) -> Option<Aabb> {
         Aabb::of_points(self.positions.iter().copied())
@@ -177,6 +192,33 @@ impl TriMesh {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transform_scales_positions_and_rotates_normals() {
+        let mut mesh = TriMesh::cube(0.5);
+        let m = DMat4::from_scale_rotation_translation(
+            DVec3::splat(0.001),
+            glam::DQuat::from_rotation_x(std::f64::consts::FRAC_PI_2),
+            DVec3::ZERO,
+        );
+        mesh.transform(&m);
+        let aabb = mesh.aabb().unwrap();
+        assert!(
+            (aabb.min - DVec3::splat(-0.0005)).length() < 1e-12,
+            "{aabb:?}"
+        );
+        assert!(
+            (aabb.max - DVec3::splat(0.0005)).length() < 1e-12,
+            "{aabb:?}"
+        );
+        // The +Y face's normal is now +Z, and still unit length.
+        assert!(
+            mesh.normals.iter().any(|n| (*n - DVec3::Z).length() < 1e-9),
+            "{:?}",
+            mesh.normals
+        );
+        assert!(mesh.normals.iter().all(|n| (n.length() - 1.0).abs() < 1e-9));
+    }
 
     #[test]
     fn cube_is_twelve_valid_triangles_with_unit_aabb() {
