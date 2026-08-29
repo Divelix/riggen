@@ -12,3 +12,4 @@ Consequences, Alternatives considered.
 | [0004](0004-mjcf-acceptance-target-resolved-robot.md) | MJCF is the acceptance target; exporters read a convention-neutral `ResolvedRobot` | Accepted |
 | [0005](0005-ids-as-counters-joints-as-edges.md) | Ids are per-document counters; joints are the edges of the link tree | Accepted |
 | [0006](0006-drops-are-links-removal-takes-the-subtree.md) | A dropped mesh is a link; removal takes the subtree; import scale is an app setting | Accepted |
+| [0007](0007-transform-gizmo-crate-over-our-own.md) | The gizmo comes from `transform-gizmo-egui`, bridged through `mint` | Accepted |

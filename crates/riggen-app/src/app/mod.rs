@@ -5,6 +5,7 @@ mod debug_menu;
 mod document;
 mod file_io;
 mod file_menu;
+mod gizmo;
 mod panels;
 mod shortcuts;
 mod status_bar;
@@ -13,7 +14,7 @@ mod tool;
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
-use riggen_core::{GeomId, History, JointState, LinkId, MeshId, Robot};
+use riggen_core::{GeomId, History, JointState, LinkId, MeshId, Pose, Robot};
 use riggen_viewport::{InstanceId, PickHit, Viewport};
 use web_time::Instant;
 
@@ -22,6 +23,8 @@ pub(crate) use document::LoadedMesh;
 pub use document::Selection;
 pub use file_menu::PendingAction;
 use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
+use gizmo::GizmoState;
+pub use gizmo::GizmoTarget;
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 pub use tool::{Tool, ZERO_CONFIG_STATUS};
 
@@ -43,6 +46,13 @@ pub struct RiggenApp {
     selection: Selection,
     /// What a viewport gesture means (`tool.rs`).
     tool: Tool,
+    /// The transform gizmo and the drag it is in the middle of
+    /// (`gizmo.rs`, ADR-0007).
+    gizmo_state: GizmoState,
+    /// A link's world pose while a gizmo drag previews it: `sync_scene`
+    /// puts the link and its subtree there instead of at the FK pose, and
+    /// the document is untouched until the release commits.
+    preview_world: Option<(LinkId, Pose)>,
     /// What the viewport reported selected last frame, to notice a click
     /// resolving without mistaking a programmatic selection for one.
     last_viewport_selected: Option<PickHit>,
@@ -108,6 +118,8 @@ impl RiggenApp {
             q: JointState::default(),
             selection: Selection::None,
             tool: Tool::default(),
+            gizmo_state: GizmoState::default(),
+            preview_world: None,
             last_viewport_selected: None,
             import_scale,
             tree: TreeState::default(),
@@ -200,6 +212,11 @@ impl eframe::App for RiggenApp {
         self.handle_shortcuts(ui.ctx());
         self.update_title(ui.ctx());
 
+        // One frame behind on purpose: the gizmo cannot say whether it owns
+        // the cursor until it has run, and the viewport runs first.
+        self.viewport
+            .set_input_suppressed(self.gizmo_state.captured);
+
         self.menu_bar(ui);
 
         let hovered = self.viewport.hovered().map(|h| self.describe_hit(h));
@@ -229,7 +246,11 @@ impl eframe::App for RiggenApp {
             .frame(egui::Frame::NONE)
             .show(ui, |ui| {
                 let rect = self.viewport.ui(ui).rect;
-                // After the viewport: the later widget wins the pointer.
+                // After the viewport, in registration order: egui's hit
+                // test prefers the widget registered last, so the gizmo
+                // takes the pointer from the viewport and the toolbar from
+                // the gizmo.
+                self.gizmo_ui(ui, rect);
                 self.tool_bar(ui, rect);
             });
         self.sync_selection_from_viewport();

@@ -106,6 +106,7 @@
     "hovered": null,
     "selected": null
   },
+  "gizmo": null,
   "status": null,
   "viewport_rect": [
     240.0,

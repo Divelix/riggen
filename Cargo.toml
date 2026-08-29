@@ -31,7 +31,10 @@ riggen-viewport = { path = "crates/riggen-viewport" }
 
 # The one math library (ADR-0001): f64 in the document, f32 past the GPU
 # boundary. Re-exported by `riggen-mesh`; nobody else names it directly.
-glam = { version = "0.30", features = ["serde"] }
+# `mint`: the neutral vector types `transform-gizmo` speaks, which is how
+# our glam 0.30 and its glam 0.32 are bridged without a second math library
+# leaking into our code (ADR-0007).
+glam = { version = "0.30", features = ["serde", "mint"] }
 
 # Mesh loaders. `stl_io` reads binary and ASCII STL; `tobj` reads OBJ.
 stl_io = "0.11"
@@ -51,6 +54,10 @@ egui-wgpu = "0.36"
 # wgpu (preferring a CPU adapter, so local and CI agree) and diffs the result
 # against a committed PNG. Dev-dependency only — see ADR-0003.
 egui_kittest = { version = "0.36.1", features = ["wgpu", "snapshot", "eframe"] }
+
+# The transform gizmo (ADR-0007). Pins its own glam ^0.32 beside our 0.30;
+# the two never meet, `mint` is the boundary.
+transform-gizmo-egui = "0.11"
 
 bytemuck = { version = "1", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }

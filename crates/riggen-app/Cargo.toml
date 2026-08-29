@@ -31,6 +31,7 @@ egui-wgpu.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 web-time.workspace = true
+transform-gizmo-egui.workspace = true
 
 # Native file dialogs (File › Open). Not built for wasm: the browser has no
 # filesystem to reach for.
@@ -44,6 +45,11 @@ egui_kittest.workspace = true
 pollster.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# Not used directly: `ahash`, pulled in with default features by
+# `transform-gizmo` (ADR-0007), wants a `getrandom` backend, and on
+# wasm32-unknown-unknown one has to be named. See `.cargo/config.toml` for
+# the matching cfg — the feature alone is not enough.
+getrandom = { version = "0.3", features = ["wasm_js"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
