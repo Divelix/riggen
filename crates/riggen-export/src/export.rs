@@ -1,5 +1,5 @@
-//! Writing the export directory (ADR-0008): `<name>.xml` (and `<name>.urdf`
-//! from step 6) beside a `meshes/` folder of binary STL in meters, every
+//! Writing the export directory (ADR-0008): `<name>.xml` and/or
+//! `<name>.urdf` beside a `meshes/` folder of binary STL in meters, every
 //! file through a `.tmp` sibling and a rename so a crash mid-write never
 //! leaves a half file behind — the same discipline as `file::save`.
 
@@ -7,8 +7,8 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::mjcf;
 use crate::resolve::{ExportOptions, ResolvedRobot};
+use crate::{mjcf, urdf};
 
 /// A file that could not be written.
 #[derive(Debug)]
@@ -43,6 +43,12 @@ pub fn export(
     if options.format.writes_mjcf() {
         let path = dir.join(format!("{}.xml", robot.name));
         write_atomically(&path, mjcf::write(robot, options).as_bytes()).map_err(io(&path))?;
+        written.push(path);
+    }
+    if options.format.writes_urdf() {
+        let path = dir.join(format!("{}.urdf", robot.name));
+        let text = urdf::write(robot, options, dir);
+        write_atomically(&path, text.as_bytes()).map_err(io(&path))?;
         written.push(path);
     }
     for (stem, mesh) in &robot.meshes {
@@ -106,6 +112,12 @@ mod tests {
         assert!(leftovers.is_empty(), "{leftovers:?}");
         let xml = std::fs::read_to_string(dir.join("test.xml")).unwrap();
         assert!(xml.starts_with("<?xml"));
+        assert!(!dir.join("test.urdf").exists(), "MJCF only was asked for");
+
+        let both = export(&resolved, &ExportOptions::default(), &dir).unwrap();
+        assert_eq!(both[..2], [dir.join("test.xml"), dir.join("test.urdf")]);
+        let urdf = std::fs::read_to_string(dir.join("test.urdf")).unwrap();
+        assert!(urdf.contains("<robot name=\"test\">"), "{urdf}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

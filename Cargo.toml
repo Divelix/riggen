@@ -69,6 +69,10 @@ rfd = "0.15"
 # `std::time::Instant` panics on wasm32; `web-time` is a drop-in that reads
 # `performance.now()` there and re-exports `std::time` natively.
 web-time = "1"
+# URDF parser: the round-trip FK test reads our own URDF back through it
+# (dev, step 6), and File › Import URDF… is built on it (step 13).
+urdf-rs = "0.9"
+
 # Only to block on `Instance::enumerate_adapters` in the "is there a GPU at
 # all?" probe of the snapshot harness — `egui_kittest` panics rather than
 # reporting that itself.
