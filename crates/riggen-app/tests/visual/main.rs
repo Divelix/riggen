@@ -1187,6 +1187,90 @@ fn glyphs_cover_movable_joints_and_the_selection() {
     });
 }
 
+/// Pointing at a joint's glyph in the viewport: the glyph is drawn hot, the
+/// tree row brightens, and the status bar names the joint instead of the
+/// part behind it.
+#[test]
+fn glyph_hover() {
+    scenario("glyph_hover", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        settle(harness);
+
+        let at = glyph_axis_point(harness, 0.8);
+        harness.hover_at(at);
+        pump_rendered(harness, 6);
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert!(state.glyphs[0].hovered && state.glyphs[0].active);
+        // The viewport's own pick is suppressed while a glyph is hovered, so
+        // the part behind it is not highlighted as well.
+        assert_eq!(state.selection.hovered, None);
+    });
+}
+
+/// A point on the hinge glyph's axis segment, `t` of the way out from the
+/// pivot: what a hover has to land on.
+fn glyph_axis_point(
+    harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+    t: f64,
+) -> egui::Pos2 {
+    let glyph = harness.state().joint_glyphs()[0];
+    harness
+        .state()
+        .project_world(glyph.pivot.t + glyph.axis * glyph.size * t)
+        .expect("the glyph is on screen")
+}
+
+/// Hover both ways, and the click: the tree row lights its glyph, the glyph
+/// lights its row and names itself, and clicking it selects the joint.
+#[test]
+fn hover_runs_both_ways_and_a_glyph_click_selects_the_joint() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        settle(harness);
+        assert_eq!(harness.state().hovered_joint(), None);
+
+        // Tree → glyph: hovering the joint's row makes its glyph hot.
+        let row = harness
+            .get_by_label("hinge · revolute")
+            .accesskit_node()
+            .bounding_box()
+            .expect("the joint row has bounds");
+        harness.hover_at(egui::pos2(
+            ((row.x0 + row.x1) / 2.0) as f32,
+            ((row.y0 + row.y1) / 2.0) as f32,
+        ));
+        pump_rendered(harness, 3);
+        assert_eq!(harness.state().hovered_joint(), Some(hinge));
+        assert!(harness.state().debug_state().glyphs[0].active);
+
+        // Glyph → tree: pointing at the axis segment in the viewport.
+        let at = glyph_axis_point(harness, 0.8);
+        harness.hover_at(at);
+        pump_rendered(harness, 3);
+        assert_eq!(harness.state().hovered_joint(), Some(hinge));
+
+        // Missing it by more than the pixel radius is not a hover.
+        harness.hover_at(at + egui::vec2(0.0, riggen_app::GLYPH_HOVER_RADIUS + 6.0));
+        pump_rendered(harness, 3);
+        assert_eq!(harness.state().hovered_joint(), None);
+
+        // And a click on it selects the joint, not the part behind it.
+        harness.hover_at(at);
+        pump_rendered(harness, 3);
+        click_at(harness, at);
+        assert_eq!(harness.state().selection(), Selection::Joint(hinge));
+    });
+}
+
 /// The materials table over the pendulum: base_link is aluminium and arm
 /// is PLA, and the viewport tints each cube with its material colour.
 #[test]

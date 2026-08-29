@@ -15,7 +15,7 @@ mod tool;
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
-use riggen_core::{GeomId, History, JointState, LinkId, MeshId, Pose, Robot};
+use riggen_core::{GeomId, History, JointId, JointState, LinkId, MeshId, Pose, Robot};
 use riggen_viewport::{InstanceId, PickHit, Viewport};
 use web_time::Instant;
 
@@ -26,7 +26,7 @@ pub use file_menu::PendingAction;
 use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use gizmo::GizmoState;
 pub use gizmo::GizmoTarget;
-pub use glyphs::JointGlyph;
+pub use glyphs::{GLYPH_HOVER_RADIUS, JointGlyph};
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 pub use tool::{Tool, ZERO_CONFIG_STATUS};
 
@@ -51,6 +51,15 @@ pub struct RiggenApp {
     /// The transform gizmo and the drag it is in the middle of
     /// (`gizmo.rs`, ADR-0007).
     gizmo_state: GizmoState,
+    /// The joint under the pointer: hovered in the tree, or its glyph
+    /// hovered in the viewport. Highlights both, both ways (`glyphs.rs`).
+    hovered_joint: Option<JointId>,
+    /// Set when that hover came from the *glyph* rather than the tree: a
+    /// click then selects the joint, and the viewport's own pick is
+    /// suppressed so it does not select the part behind it instead.
+    glyph_hover: Option<JointId>,
+    /// The toolbar's rect, so a glyph behind it is not "hovered" through it.
+    toolbar_rect: Option<egui::Rect>,
     /// A link's world pose while a gizmo drag previews it: `sync_scene`
     /// puts the link and its subtree there instead of at the FK pose, and
     /// the document is untouched until the release commits.
@@ -121,6 +130,9 @@ impl RiggenApp {
             selection: Selection::None,
             tool: Tool::default(),
             gizmo_state: GizmoState::default(),
+            hovered_joint: None,
+            glyph_hover: None,
+            toolbar_rect: None,
             preview_world: None,
             last_viewport_selected: None,
             import_scale,
@@ -191,6 +203,30 @@ impl RiggenApp {
         }
     }
 
+    /// Resolves what the pointer is on: a tree row hovered while this frame
+    /// was drawn wins, otherwise a glyph under the cursor in the viewport.
+    ///
+    /// The toolbar and the gizmo are cut out first — both float *over* the
+    /// viewport, and a glyph behind them is not something the user is
+    /// pointing at.
+    fn update_glyph_hover(&mut self, ctx: &egui::Context, glyphs: &[JointGlyph]) {
+        let from_tree = self.tree.hovered_joint.take();
+        self.glyph_hover = None;
+        if from_tree.is_none()
+            && self.pending.is_none()
+            && !self.gizmo_state.captured
+            && let Some(pos) = ctx.pointer_hover_pos()
+            && self
+                .viewport
+                .viewport_rect()
+                .is_some_and(|r| r.contains(pos))
+            && !self.toolbar_rect.is_some_and(|r| r.contains(pos))
+        {
+            self.glyph_hover = self.glyph_at(glyphs, pos);
+        }
+        self.hovered_joint = from_tree.or(self.glyph_hover);
+    }
+
     /// `arm (i1/t120)`: the link and the instance/triangle the ID buffer
     /// resolved.
     fn describe_hit(&self, hit: PickHit) -> String {
@@ -214,20 +250,14 @@ impl eframe::App for RiggenApp {
         self.handle_shortcuts(ui.ctx());
         self.update_title(ui.ctx());
 
-        // One frame behind on purpose: the gizmo cannot say whether it owns
-        // the cursor until it has run, and the viewport runs first.
-        self.viewport
-            .set_input_suppressed(self.gizmo_state.captured);
-        // Glyphs are derived from the document and the current `q`, so they
-        // are rebuilt every frame and handed to the viewport before it
-        // paints (docs/01-architecture.md §Frame loop).
-        let glyphs = self.joint_glyphs();
-        let overlay = self.glyph_overlay(&glyphs, self.active_joint());
-        self.viewport.set_overlay(overlay);
-
         self.menu_bar(ui);
 
-        let hovered = self.viewport.hovered().map(|h| self.describe_hit(h));
+        // A hovered glyph names its joint; otherwise the ID buffer's hit.
+        // Both are last frame's — this panel is drawn before the viewport.
+        let hovered = match self.hovered_joint.and_then(|j| self.robot.joints.get(&j)) {
+            Some(joint) => Some(format!("{} (joint)", joint.name)),
+            None => self.viewport.hovered().map(|h| self.describe_hit(h)),
+        };
         let selected = self.viewport.selected().map(|h| self.describe_hit(h));
         let document = format!(
             "{}{}",
@@ -253,6 +283,21 @@ impl eframe::App for RiggenApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ui, |ui| {
+                // Glyphs are derived from the document and the current `q`,
+                // so they are rebuilt every frame and handed to the viewport
+                // before it paints (docs/01-architecture.md §Frame loop).
+                // The hover has to be resolved first: it decides both what is
+                // drawn hot and whether the viewport gets the pointer at all.
+                let glyphs = self.joint_glyphs();
+                self.update_glyph_hover(ui.ctx(), &glyphs);
+                let overlay = self.glyph_overlay(&glyphs, self.active_joint());
+                self.viewport.set_overlay(overlay);
+                // One frame behind for the gizmo, which cannot say whether it
+                // owns the cursor until it has run, and the viewport runs
+                // first.
+                self.viewport
+                    .set_input_suppressed(self.gizmo_state.captured || self.glyph_hover.is_some());
+
                 let rect = self.viewport.ui(ui).rect;
                 // After the viewport, in registration order: egui's hit
                 // test prefers the widget registered last, so the gizmo
@@ -260,6 +305,13 @@ impl eframe::App for RiggenApp {
                 // the gizmo.
                 self.gizmo_ui(ui, rect);
                 self.tool_bar(ui, rect);
+                // The viewport's pick is suppressed while a glyph is
+                // hovered, so this click is unambiguous.
+                if let Some(joint) = self.glyph_hover
+                    && ui.input(|i| i.pointer.primary_clicked())
+                {
+                    self.select(Selection::Joint(joint));
+                }
             });
         self.sync_selection_from_viewport();
         // Windows float over everything, so they go last.

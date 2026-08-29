@@ -85,7 +85,7 @@ impl RiggenApp {
         const MARGIN: f32 = 8.0;
         let corner = egui::Rect::from_min_max(rect.min + egui::Vec2::splat(MARGIN), rect.max);
         let mut chosen = None;
-        ui.scope_builder(
+        let response = ui.scope_builder(
             egui::UiBuilder::new()
                 .max_rect(corner)
                 .layout(egui::Layout::top_down(egui::Align::LEFT)),
@@ -104,6 +104,9 @@ impl RiggenApp {
                 });
             },
         );
+        // Remembered so a joint glyph *behind* the toolbar is not treated as
+        // hovered through it (`update_glyph_hover`).
+        self.toolbar_rect = Some(response.response.rect);
         if let Some(tool) = chosen {
             self.set_tool(tool);
         }

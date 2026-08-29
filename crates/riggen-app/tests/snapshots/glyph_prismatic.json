@@ -205,7 +205,8 @@
         650.0,
         476.755249
       ],
-      "active": false
+      "active": false,
+      "hovered": false
     }
   ],
   "status": null,

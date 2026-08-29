@@ -250,7 +250,8 @@
         650.0,
         450.000061
       ],
-      "active": false
+      "active": false,
+      "hovered": false
     }
   ],
   "status": null,

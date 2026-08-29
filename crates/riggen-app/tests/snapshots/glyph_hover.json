@@ -108,10 +108,10 @@
         "q": 0.0
       }
     ],
-    "selection": "link l5"
+    "selection": null
   },
   "ui": {
-    "tool": "Move",
+    "tool": "Select",
     "renaming": null,
     "windows": [],
     "modal": null,
@@ -181,26 +181,9 @@
   ],
   "selection": {
     "hovered": null,
-    "selected": {
-      "instance": 1,
-      "triangle": 0
-    }
+    "selected": null
   },
-  "gizmo": {
-    "target": "link l5",
-    "mode": "translate",
-    "origin": [
-      0.0,
-      0.0,
-      0.5
-    ],
-    "screen": [
-      650.0,
-      450.000061
-    ],
-    "dragging": false,
-    "captured": false
-  },
+  "gizmo": null,
   "glyphs": [
     {
       "joint": "j6",
@@ -222,8 +205,8 @@
         650.0,
         450.000061
       ],
-      "active": false,
-      "hovered": false
+      "active": true,
+      "hovered": true
     }
   ],
   "status": null,

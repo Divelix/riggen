@@ -205,7 +205,8 @@
         614.653076,
         444.80838
       ],
-      "active": true
+      "active": true,
+      "hovered": false
     }
   ],
   "status": null,
