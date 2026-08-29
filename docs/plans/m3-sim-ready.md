@@ -225,7 +225,7 @@ agrees with our FK" — is retired by step 5, before any UI exists.
   add (each kind, fitted to the link's geoms on creation) / remove / "Fit
   to mesh" / pose + size fields, `Meshes` shown read-only with its file
   names. One `SetCollision` per commit. Snapshot: `properties_collision`.
-- [ ] Step 12 — File › Export…: a modal with format (MJCF / URDF / both),
+- [x] Step 12 — File › Export…: a modal with format (MJCF / URDF / both),
   directory (`rfd`), mesh path style (URDF only), floating base (MJCF
   only, OPEN 3), the `resolve` errors listed with the link they name and
   the Export button disabled while any exist; success in the status bar

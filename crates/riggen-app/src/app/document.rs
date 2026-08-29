@@ -719,7 +719,7 @@ impl RiggenApp {
     /// The store entry for `mesh_id`, loading the file on first use.
     /// `None` when the asset is missing or the file does not load — the
     /// visual sync already put that error in the status bar.
-    fn ensure_loaded(&mut self, mesh_id: MeshId) -> Option<&mut LoadedMesh> {
+    pub(crate) fn ensure_loaded(&mut self, mesh_id: MeshId) -> Option<&mut LoadedMesh> {
         let asset = self.robot.assets.get(&mesh_id)?;
         if let std::collections::hash_map::Entry::Vacant(slot) = self.mesh_store.entry(mesh_id) {
             let raw = riggen_mesh::load_mesh(&asset.path).ok()?;

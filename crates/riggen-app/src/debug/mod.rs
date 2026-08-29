@@ -300,7 +300,11 @@ impl RiggenApp {
                 .into_iter()
                 .flatten()
                 .collect(),
-                modal: self.pending_action().map(|_| "unsaved_changes"),
+                modal: if self.export_dialog().open {
+                    Some("export")
+                } else {
+                    self.pending_action().map(|_| "unsaved_changes")
+                },
                 title: self.window_title(),
                 collision_view: self.show_collision(),
             },

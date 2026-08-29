@@ -257,6 +257,11 @@ impl RiggenApp {
             self.save_as_dialog();
         }
         ui.separator();
+        if ui.button("Export…").clicked() {
+            ui.close();
+            self.open_export_dialog();
+        }
+        ui.separator();
         ui.menu_button("Import units", |ui| {
             for (label, scale) in IMPORT_UNITS {
                 let selected = (self.import_scale - scale).abs() < 1e-12;
