@@ -47,7 +47,7 @@ impl RiggenApp {
     /// Replaces the document with the file's. Warnings (a mesh that changed
     /// or went missing) go to the status bar; the document still opens.
     fn open_document_path(&mut self, path: &Path) -> Result<(), String> {
-        let abs = std::path::absolute(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let abs = riggen_core::absolute(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let (robot, warnings) = riggen_core::load(&abs).map_err(|e| e.to_string())?;
         // Step 10 adds the unsaved-changes confirm in front of this.
         self.replace_document(robot, Some(abs));
@@ -64,7 +64,7 @@ impl RiggenApp {
     /// Not a command: the asset stays for the session, so undoing the
     /// link or geom that uses it and redoing never reloads the file.
     fn register_mesh(&mut self, path: &Path) -> Result<(MeshId, PathBuf), String> {
-        let abs = std::path::absolute(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let abs = riggen_core::absolute(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let raw = riggen_mesh::load_mesh(&abs).map_err(|e| e.to_string())?;
         let content_hash =
             riggen_core::hash_file(&abs).map_err(|e| format!("{}: {e}", abs.display()))?;

@@ -1198,3 +1198,197 @@ fn file_shortcuts() {
         );
     });
 }
+
+/// Undo / redo shortcuts: Ctrl+Shift+Z redoes and does not undo (the
+/// shifted pattern is matched first), Ctrl+Y redoes too, Ctrl+Z undoes;
+/// inside a focused text field Ctrl+Z leaves the document alone. The
+/// Edit menu does the same.
+#[test]
+fn undo_redo_shortcuts() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        let a = open_link(app, "cube_binary.stl");
+        let b = open_link(app, "cube_ascii.stl");
+        assert_eq!(app.history().undo_depth(), 2);
+        settle(harness);
+
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        harness.step();
+        let app = harness.state();
+        assert_eq!(app.history().undo_depth(), 1);
+        assert!(!app.robot().links.contains_key(&b));
+        assert!(app.robot().links.contains_key(&a));
+
+        harness.key_press_modifiers(
+            egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            egui::Key::Z,
+        );
+        harness.step();
+        let app = harness.state();
+        assert_eq!(
+            app.history().undo_depth(),
+            2,
+            "Ctrl+Shift+Z redid, it did not undo"
+        );
+        assert!(app.robot().links.contains_key(&b));
+
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        harness.step();
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+        harness.step();
+        assert_eq!(harness.state().history().undo_depth(), 2, "Ctrl+Y redid");
+
+        // A focused text field keeps Ctrl+Z for itself.
+        harness.get_by_label("cube_ascii").click();
+        harness.step();
+        harness.get_by_label("name").focus();
+        harness.step();
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        harness.step();
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            2,
+            "text field owns Ctrl+Z"
+        );
+        harness.key_press(egui::Key::Escape);
+        harness.step();
+
+        // Edit › Undo through the menu.
+        harness.get_by_label("Edit").click();
+        harness.step();
+        harness.get_by_label("Undo").click();
+        harness.step();
+        assert_eq!(harness.state().history().undo_depth(), 1);
+        harness.get_by_label("Edit").click();
+        harness.step();
+        harness.get_by_label("Redo").click();
+        harness.step();
+        assert_eq!(harness.state().history().undo_depth(), 2);
+    });
+}
+
+/// Sets the (only) slider through its AccessKit `SetValue` action — the
+/// path a screen reader takes, which egui routes through the same `set`
+/// as a drag. A pointer click on the rail is not exact: the slider's
+/// accessibility rect also spans its value box.
+fn set_slider_value(harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>, value: f64) {
+    let (target_node, target_tree) = harness
+        .get_by_role(egui::accesskit::Role::Slider)
+        .accesskit_node()
+        .locate();
+    harness.event(egui::Event::AccessKitActionRequest(
+        egui::accesskit::ActionRequest {
+            action: egui::accesskit::Action::SetValue,
+            target_node,
+            target_tree,
+            data: Some(egui::accesskit::ActionData::NumericValue(value)),
+        },
+    ));
+    harness.step();
+    harness.step();
+}
+
+/// The M1 acceptance (docs/03-roadmap.md §M1): two cube fixtures dropped
+/// as base and arm, the joint typed numerically in the properties panel
+/// (kind, origin, axis, limits), the slider swung to 45° within its
+/// limits, undo twice / redo twice back to the same document, saved to a
+/// temp dir and reopened equal and clean.
+#[test]
+fn build_pendulum_numerically() {
+    with_app(|harness| {
+        let dir = scratch_dir("acceptance");
+        let app = harness.state_mut();
+        let base = open_link(app, "cube_binary.stl");
+        app.select(Selection::Link(base));
+        let arm = open_link(app, "cube_ascii.stl");
+        let hinge = app.robot().parent_joint(arm).unwrap();
+        assert_eq!(app.robot().joints[&hinge].parent, base);
+        settle(harness);
+
+        // The joint: kind through the combo, then the numbers.
+        harness.get_by_label("cube_ascii_joint · fixed").click();
+        harness.step();
+        harness.get_by_role(egui::accesskit::Role::ComboBox).click();
+        harness.step();
+        harness.get_by_label("Revolute").click();
+        harness.step();
+        harness.step();
+        let app = harness.state();
+        assert_eq!(
+            app.robot().joints[&hinge].kind,
+            riggen_core::JointKind::Revolute
+        );
+        assert!(
+            app.robot().joints[&hinge].limits.is_some(),
+            "defaults arrive with the kind"
+        );
+        // Origin z, axis (0, 1, 0), limits ±90°.
+        type_into(harness, "z", 0, "0.5");
+        type_into(harness, "y", 1, "1");
+        type_into(harness, "z", 1, "0");
+        type_into(harness, "lower °", 0, "-90");
+        type_into(harness, "upper °", 0, "90");
+        let app = harness.state();
+        let j = &app.robot().joints[&hinge];
+        assert!(
+            (j.origin.t - DVec3::new(0.0, 0.0, 0.5)).length() < 1e-9,
+            "{:?}",
+            j.origin
+        );
+        assert!((j.axis - DVec3::Y).length() < 1e-9, "{}", j.axis);
+        let limits = j.limits.unwrap();
+        assert!((limits.lower + std::f64::consts::FRAC_PI_2).abs() < 1e-9);
+        assert!((limits.upper - std::f64::consts::FRAC_PI_2).abs() < 1e-9);
+
+        // The arm's mesh sits half a cube above the hinge.
+        harness.get_by_label("cube_ascii").click();
+        harness.step();
+        type_into(harness, "z", 0, "0.5");
+        let app = harness.state();
+        assert_eq!(app.debug_state().instances[1].position, [0.0, 0.0, 1.0]);
+        let built = app.robot().clone();
+        let depth = app.history().undo_depth();
+
+        // The slider at 45°, inside the ±90° limits: the arm swings and
+        // the document is untouched. 120° is clamped by the slider range.
+        harness.state_mut().set_joints_window_open(true);
+        harness.step();
+        set_slider_value(harness, 45.0);
+        let app = harness.state();
+        let q = app.joint_value(hinge);
+        assert!((q - std::f64::consts::FRAC_PI_4).abs() < 1e-9, "q = {q}");
+        assert_eq!(
+            app.debug_state().instances[1].position,
+            [0.353553, 0.0, 0.853553]
+        );
+        assert_eq!(app.robot(), &built, "the slider is not an edit");
+        set_slider_value(harness, 120.0);
+        let q = harness.state().joint_value(hinge);
+        assert!(
+            (q - std::f64::consts::FRAC_PI_2).abs() < 1e-9,
+            "clamped: q = {q}"
+        );
+
+        // Undo twice, redo twice: the same document.
+        let app = harness.state_mut();
+        assert!(app.undo());
+        assert!(app.undo());
+        assert_eq!(app.history().undo_depth(), depth - 2);
+        assert_ne!(app.robot(), &built);
+        assert!(app.redo());
+        assert!(app.redo());
+        assert_eq!(app.robot(), &built);
+
+        // Save, reopen: equal and clean.
+        let file = dir.join("pendulum.riggen");
+        assert!(app.save_to(&file), "{:?}", app.debug_state().status);
+        assert!(!app.history().is_dirty());
+        app.new_document();
+        assert_eq!(app.robot().links.len(), 1);
+        app.open_path(&file).expect("reopen");
+        assert_eq!(app.robot(), &built);
+        assert!(!app.history().is_dirty());
+        assert_eq!(app.debug_state().instances.len(), 2);
+        assert_eq!(app.window_title(), "pendulum.riggen — riggen");
+    });
+}
