@@ -479,17 +479,12 @@ fn tree_add_rename_delete() {
             "+ Link starts an inline rename"
         );
 
-        // Replace the text and commit with Enter. Delete must not fire
-        // while the field has focus.
-        harness.step();
-        let field = harness.get_by_role(egui::accesskit::Role::TextInput);
-        field.focus();
+        // The rename field took focus when it appeared. Replace the text
+        // and commit with Enter. Delete must not fire while it has focus.
         harness.step();
         harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
         harness.step();
-        harness
-            .get_by_role(egui::accesskit::Role::TextInput)
-            .type_text("hand");
+        harness.event(egui::Event::Text("hand".to_owned()));
         harness.step();
         harness.key_press(egui::Key::Delete);
         harness.step();
@@ -535,5 +530,241 @@ fn tree_add_rename_delete() {
         let cube_joint = app.robot().parent_joint(cube).unwrap();
         assert_eq!(app.robot().joints[&cube_joint].parent, arm);
         let _ = Link::new("unused");
+    });
+}
+
+/// The properties panel for a link: name, material, the one mesh with
+/// its pose (z = 0.5 m), scale and fix-up.
+#[test]
+fn properties_link() {
+    scenario("properties_link", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        harness.get_by_label("arm").click();
+        pump_rendered(harness, 4);
+
+        let state = harness.state().debug_state();
+        assert!(
+            state
+                .document
+                .selection
+                .as_deref()
+                .unwrap()
+                .starts_with("link ")
+        );
+        // The name field shows the link name; the golden pins the rest.
+        assert_eq!(harness.get_by_label("name").value().as_deref(), Some("arm"));
+    });
+}
+
+/// The properties panel for a joint: kind, origin, axis, limits in
+/// degrees, dynamics.
+#[test]
+fn properties_joint() {
+    scenario("properties_joint", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        harness.get_by_label("hinge · revolute").click();
+        pump_rendered(harness, 4);
+
+        let state = harness.state().debug_state();
+        assert!(
+            state
+                .document
+                .selection
+                .as_deref()
+                .unwrap()
+                .starts_with("joint ")
+        );
+        assert_eq!(
+            harness.get_by_label("lower °").value().as_deref(),
+            Some("-90")
+        );
+        assert_eq!(
+            harness.get_by_label("upper °").value().as_deref(),
+            Some("90")
+        );
+        assert_eq!(
+            harness.get_by_label("damping").value().as_deref(),
+            Some("0.1")
+        );
+    });
+}
+
+/// Replaces a field's text and commits it with Enter.
+fn type_into(
+    harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+    node_label: &str,
+    nth: usize,
+    text: &str,
+) {
+    let node = harness
+        .get_all_by_label(node_label)
+        .nth(nth)
+        .unwrap_or_else(|| panic!("field {node_label:?} #{nth}"));
+    node.focus();
+    harness.step();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    harness.step();
+    harness
+        .get_all_by_label(node_label)
+        .nth(nth)
+        .unwrap()
+        .type_text(text);
+    harness.step();
+    harness.key_press(egui::Key::Enter);
+    harness.step();
+    harness.step();
+}
+
+/// Typing an origin and a yaw into the hinge's fields moves the arm's
+/// instance to the FK pose: origin (0.25, 0, 0.5), Rz(90°) applied to the
+/// geom offset (0, 0, 0.5) stays (0, 0, 0.5), so the cube sits at
+/// (0.25, 0, 1). Two commits, two history entries.
+#[test]
+fn typing_origin_and_rpy_moves_the_arm() {
+    with_app(|harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        settle(harness);
+        harness.get_by_label("hinge · revolute").click();
+        harness.step();
+        let depth = harness.state().history().undo_depth();
+
+        // The origin row is the first "x" / "yaw" in the panel; the axis
+        // row is the second "x".
+        type_into(harness, "x", 0, "0.25");
+        type_into(harness, "yaw", 0, "90");
+
+        let app = harness.state();
+        let state = app.debug_state();
+        let hinge = app
+            .robot()
+            .joints
+            .values()
+            .find(|j| j.name == "hinge")
+            .unwrap();
+        assert!(
+            (hinge.origin.t - DVec3::new(0.25, 0.0, 0.5)).length() < 1e-9,
+            "{:?}",
+            hinge.origin
+        );
+        let (_, rpy) = hinge.origin.to_xyz_rpy();
+        assert!((rpy.z - std::f64::consts::FRAC_PI_2).abs() < 1e-9, "{rpy}");
+        assert_eq!(state.instances[1].position, [0.25, 0.0, 1.0]);
+        assert_eq!(
+            app.history().undo_depth(),
+            depth + 2,
+            "one commit per field"
+        );
+
+        // The axis row: normalised on commit.
+        type_into(harness, "x", 1, "3");
+        let app = harness.state();
+        let hinge = app
+            .robot()
+            .joints
+            .values()
+            .find(|j| j.name == "hinge")
+            .unwrap();
+        assert!(
+            (hinge.axis - DVec3::new(3.0, 1.0, 0.0).normalize()).length() < 1e-9,
+            "{}",
+            hinge.axis
+        );
+
+        // A limit typed in degrees lands in radians.
+        type_into(harness, "upper °", 0, "45");
+        let app = harness.state();
+        let hinge = app
+            .robot()
+            .joints
+            .values()
+            .find(|j| j.name == "hinge")
+            .unwrap();
+        assert!((hinge.limits.unwrap().upper - std::f64::consts::FRAC_PI_4).abs() < 1e-9);
+        assert_eq!(app.history().undo_depth(), depth + 4);
+    });
+}
+
+/// Focusing every field in turn and leaving it commits its unchanged
+/// value, which is a no-op: the history does not grow. Same for the link
+/// panel, plus a real rename and a second mesh through the API.
+#[test]
+fn clicking_through_every_field_adds_no_history_entry() {
+    with_app(|harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        settle(harness);
+        for row in ["hinge · revolute", "arm"] {
+            harness.get_by_label(row).click();
+            harness.step();
+            let depth = harness.state().history().undo_depth();
+            let fields: Vec<egui::Rect> = harness
+                .get_all_by_role(egui::accesskit::Role::TextInput)
+                .map(|n| n.rect())
+                .collect();
+            assert!(fields.len() >= 5, "{row}: {} fields", fields.len());
+            for rect in fields {
+                let pos = rect.center();
+                harness.event(egui::Event::PointerMoved(pos));
+                harness.event(egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                });
+                harness.event(egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Default::default(),
+                });
+                harness.step();
+            }
+            harness.key_press(egui::Key::Enter);
+            harness.step();
+            harness.step();
+            assert_eq!(harness.state().history().undo_depth(), depth, "{row}");
+        }
+
+        // Renaming through the panel is one entry; a second mesh on the
+        // link is another and shows up as an instance at the link's pose.
+        let depth = harness.state().history().undo_depth();
+        type_into(harness, "name", 0, "upper_arm");
+        let app = harness.state();
+        assert!(app.robot().links.values().any(|l| l.name == "upper_arm"));
+        assert_eq!(app.history().undo_depth(), depth + 1);
+        let arm = match app.selection() {
+            Selection::Link(l) => l,
+            other => panic!("{other:?}"),
+        };
+        let geom = harness
+            .state_mut()
+            .add_mesh_to_link(arm, &fixture("cube.obj"))
+            .expect("add mesh");
+        let app = harness.state();
+        assert_eq!(app.robot().links[&arm].visuals.len(), 2);
+        assert_eq!(app.robot().links[&arm].visuals[1].id, geom);
+        let state = app.debug_state();
+        assert_eq!(state.instances.len(), 3);
+        assert_eq!(
+            state.instances[2].position,
+            [0.0, 0.0, 0.5],
+            "at the link frame"
+        );
+        assert_eq!(app.history().undo_depth(), depth + 2);
     });
 }

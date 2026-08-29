@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use riggen_core::{Geom, Link, LinkId, MeshAsset, Pose};
+use riggen_core::{Command, Geom, GeomId, Link, LinkId, MeshAsset, MeshId, Pose};
 
 use super::document::name_from_stem;
 use super::{LoadedMesh, RiggenApp};
@@ -60,10 +60,10 @@ impl RiggenApp {
         Ok(())
     }
 
-    /// Registers the mesh as an asset (not a command) and adds a link for
-    /// it under the selection or the root through `AddLink`, so undo
-    /// removes the link and the asset stays registered for redo.
-    fn open_mesh_path(&mut self, path: &Path) -> Result<LinkId, String> {
+    /// Loads a mesh file and registers it as an asset at the import scale.
+    /// Not a command: the asset stays for the session, so undoing the
+    /// link or geom that uses it and redoing never reloads the file.
+    fn register_mesh(&mut self, path: &Path) -> Result<(MeshId, PathBuf), String> {
         let abs = std::path::absolute(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let raw = riggen_mesh::load_mesh(&abs).map_err(|e| e.to_string())?;
         let content_hash =
@@ -76,20 +76,61 @@ impl RiggenApp {
         };
         let mesh = self.robot.add_asset(asset.clone());
         self.mesh_store.insert(mesh, LoadedMesh::new(raw, &asset));
+        Ok((mesh, abs))
+    }
 
+    fn geom_for(&mut self, mesh: MeshId) -> Geom {
+        Geom {
+            id: self.robot.next_id.alloc(),
+            mesh,
+            pose: Pose::IDENTITY,
+            color: None,
+        }
+    }
+
+    /// A dropped mesh: a new link named after the file under the selection
+    /// or the root, through `AddLink`.
+    fn open_mesh_path(&mut self, path: &Path) -> Result<LinkId, String> {
+        let (mesh, abs) = self.register_mesh(path)?;
         let stem = abs
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
         let mut link = Link::new(name_from_stem(&stem));
-        link.visuals.push(Geom {
-            id: self.robot.next_id.alloc(),
-            mesh,
-            pose: Pose::IDENTITY,
-            color: None,
-        });
+        let geom = self.geom_for(mesh);
+        link.visuals.push(geom);
         let parent = self.insertion_parent();
         self.add_link(link, parent).map_err(|e| e.to_string())
+    }
+
+    /// "Add mesh to this link…": the file as another visual geom of
+    /// `link`, at identity in the link frame, through `AddGeom`.
+    pub fn add_mesh_to_link(&mut self, link: LinkId, path: &Path) -> Result<GeomId, String> {
+        let (mesh, _) = self.register_mesh(path)?;
+        let geom = self.geom_for(mesh);
+        let id = geom.id;
+        self.apply(Command::AddGeom(link, geom))
+            .map(|_| id)
+            .map_err(|e| e.to_string())
+    }
+
+    /// The dialog behind "Add mesh to this link…".
+    pub(crate) fn add_mesh_dialog(&mut self, link: LinkId) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = link;
+            self.status = Some("no filesystem in the browser; drop files onto the window".into());
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("Meshes (STL, OBJ)", &MESH_EXTENSIONS)
+                .pick_file()
+                && let Err(err) = self.add_mesh_to_link(link, &path)
+            {
+                self.status = Some(err);
+            }
+        }
     }
 
     /// Opens every path, then fits the view to whatever is now in the scene.

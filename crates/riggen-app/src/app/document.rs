@@ -273,6 +273,9 @@ impl RiggenApp {
     /// Selects in document terms and mirrors it into the viewport (a link's
     /// first visual instance; joints have no instance).
     pub fn select(&mut self, selection: Selection) {
+        if selection != self.selection {
+            self.props.clear();
+        }
         self.selection = selection;
         let instance = match selection {
             Selection::Link(link) => self
