@@ -23,6 +23,9 @@ pub enum MeshError {
         normal_count: usize,
         vertex_count: usize,
     },
+    /// [`crate::convex_hull`] of a cloud that spans no volume: fewer than
+    /// four distinct points, collinear, or coplanar.
+    DegenerateHull { reason: String },
 }
 
 impl fmt::Display for MeshError {
@@ -55,6 +58,7 @@ impl fmt::Display for MeshError {
                 f,
                 "{normal_count} normals for {vertex_count} vertices (expected none or one per vertex)"
             ),
+            Self::DegenerateHull { reason } => write!(f, "no convex hull: {reason}"),
         }
     }
 }
