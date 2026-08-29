@@ -167,16 +167,21 @@ Cargo; native wgpu backends only (eframe's GL enumeration cost 100–150
 ms for an adapter never picked); `--example arm` from `include_bytes!`
 of the tracked fixtures, no new mesh in git (OPEN 4); no screencast until
 the GUI is polished (OPEN 2); crates.io publishing is its own later plan
-(OPEN 1). Sizes: linux x86_64 wheel 9.6 MB (binary 22 MB, stripped +
-thin LTO; 566 KB of it is the CycloneDX SBOM maturin adds), linux aarch64
-9.0 MB, sdist 0.3 MB; the macOS and Windows numbers come from the first
-release run. Startup on the dev machine (RTX 5090, X11): `RiggenApp::new`
+(OPEN 1). Wheel sizes from the `v0.1.0` release run: linux x86_64
+9.1 MB (binary 22 MB, stripped + thin LTO; 566 KB of it is the CycloneDX
+SBOM maturin adds), linux aarch64 8.6 MB, macOS x86_64 6.2 MB, macOS
+arm64 5.8 MB, Windows x86_64 7.0 MB, sdist 0.3 MB. Startup on the dev machine (RTX 5090, X11): `RiggenApp::new`
 to the first frame 8 ms; launch to the first frame 380–500 ms, of which
 ~200 ms is the NVIDIA Vulkan device creation and the rest the X11 window
-— the budget test pins the part that is ours. The install was verified
-headlessly (`python:3.12-slim`, no Rust, no checkout: `pip install` the
-manylinux wheel, `--version`, `--export`); the clean-VM window run, the
-TestPyPI dispatch and the `v0.1.0` push are the human's. What was
+— the budget test pins the part that is ours. Verified headlessly against
+the published indexes: `uvx --index-url https://test.pypi.org/simple/ …
+riggen --version` on the dev machine and `pip install riggen` in
+`python:3.12-slim` (no Rust, no checkout) both print `riggen 0.1.0
+(fbd26be 2026-08-30)`; `release.yml` was green for the TestPyPI dispatch
+and for the `v0.1.0` tag (all five wheels, three smokes, PyPI + GitHub
+Release). PyPI's CDN served the old 0.0.1 for a few minutes after the
+upload — a first `pip install` right after a release can lag. The
+clean-VM window run is still the human's. What was
 annoying is under an M4 heading in the backlog.
 
 **Accept:** a clean VM installs the wheel and opens the sample arm; the
