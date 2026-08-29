@@ -142,7 +142,7 @@ hand-computed poses for a 3-joint chain.
 
 ## Steps
 
-- [ ] Step 1 — `riggen-core` foundation: `ids` (`u32` newtypes, `"l3"` serde,
+- [x] Step 1 — `riggen-core` foundation: `ids` (`u32` newtypes, `"l3"` serde,
   `IdGen`), `Pose` (compose / inverse / mat4 / RPY both ways, with tests
   against hand-computed rotations and a random-round-trip test), the `Robot` /
   `Link` / `Geom` / `Joint` / `JointKind` / `Limits` / `Dynamics` /
@@ -265,14 +265,11 @@ Executable form, all green under `cargo test --workspace` on the CPU adapter:
 
 ## Open questions
 
-- ⚠ OPEN: **Ids as `u32` counters + `BTreeMap` instead of `slotmap`** (design
-  delta above). Human decides by step 1. Recommendation: counters — the
-  readable `"l3"` serialisation 02 asks for is lossless only this way, and
-  nothing in the roadmap needs slotmap's O(1) dense storage.
-- ⚠ OPEN: **Joints as edges** (`AddLink` carries its joint; `AddJoint` /
-  `RemoveJoint` dropped; "connect two links" = `Reparent`). Human decides by
-  step 1; the alternative is allowing orphan links between two commands and
-  validating only on save/export. Recommendation: edges.
+- ~~⚠ OPEN~~ **Decided 2026-08-29 (step 1): ids as `u32` counters +
+  `BTreeMap`**, one counter for every kind (`Robot::next_id`). ADR-0005.
+- ~~⚠ OPEN~~ **Decided 2026-08-29 (step 1): joints are edges** (`AddLink`
+  carries its joint; `AddJoint` / `RemoveJoint` dropped; "connect two links"
+  = `Reparent`). ADR-0005.
 - ⚠ OPEN: **Default import scale.** 02 says the import dialog defaults to mm
   (×0.001); M1 has no dialog. Recommendation: an app-wide "Import units"
   choice in the File menu (mm default, remembered via eframe storage), shown

@@ -2883,6 +2883,11 @@ dependencies = [
 [[package]]
 name = "riggen-core"
 version = "0.1.0"
+dependencies = [
+ "riggen-mesh",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "riggen-export"
