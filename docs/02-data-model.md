@@ -340,7 +340,11 @@ error }, ZeroMassMovableLink, UnloadableMesh, Unsupported}`. A link whose
 parent joint is movable — or the root when `floating_base` is set — must
 have mass, because MuJoCo refuses a moving body without it; an empty static
 body is fine and gets no `<inertial>`. Mesh file stems are the assets' own
-stems made into identifiers, `_2`, `_3`, … when two collide. `MeshStore`
+stems made into identifiers, `_2`, `_3`, … when two collide;
+`CollisionPolicy::ConvexHull` adds `<stem>_hull` — `riggen_mesh::convex_hull`
+(quickhull) of the visual mesh, computed once per `MeshId` however many
+links share it, at the visual's pose; a mesh that spans no volume is
+`ExportError::DegenerateHull`. `MeshStore`
 is the headless `MeshLookup` (files read and brought to meters as the
 viewport does); the app implements the trait on its own store.
 

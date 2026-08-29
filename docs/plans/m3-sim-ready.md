@@ -195,7 +195,7 @@ agrees with our FK" — is retired by step 5, before any UI exists.
   the parsed `xyz rpy axis` with glam alone, compare end-effector poses on
   a 5³ joint grid against `riggen_core::fk` to 1e-9. Golden URDF string
   for the two-link robot; every `MeshPathStyle`.
-- [ ] Step 7 — `riggen-mesh::hull` (quickhull) + `CollisionPolicy::
+- [x] Step 7 — `riggen-mesh::hull` (quickhull) + `CollisionPolicy::
   ConvexHull` in `resolve` (one `<stem>_hull.stl` per referenced mesh, the
   hull cached per `MeshId` in the resolver). Tests: hull of a cube with
   interior points has 8 vertices and 12 triangles, every input point is

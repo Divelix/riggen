@@ -84,6 +84,12 @@ pub enum ExportError {
         path: PathBuf,
         reason: String,
     },
+    /// `ConvexHull` of a mesh that spans no volume (a flat plate, a line).
+    DegenerateHull {
+        mesh: MeshId,
+        path: PathBuf,
+        reason: String,
+    },
     /// A collision policy the writers do not handle yet.
     Unsupported {
         link: LinkId,
@@ -102,6 +108,9 @@ impl fmt::Display for ExportError {
                 "link \"{name}\" moves but has no mass (add a mesh, a material, or an override)"
             ),
             Self::UnloadableMesh { path, reason, .. } => {
+                write!(f, "mesh {}: {reason}", path.display())
+            }
+            Self::DegenerateHull { path, reason, .. } => {
                 write!(f, "mesh {}: {reason}", path.display())
             }
             Self::Unsupported { name, what, .. } => {
@@ -182,7 +191,8 @@ impl ResolvedRobot {
 }
 
 /// Resolves `robot` for export, or every reason it cannot be. Hulls are
-/// computed here (step 7), once per referenced mesh.
+/// computed here, once per referenced mesh however many links share it,
+/// and written as `<stem>_hull.stl` beside the mesh (ADR-0008).
 pub fn resolve(
     robot: &Robot,
     meshes: &impl MeshLookup,
@@ -201,6 +211,7 @@ pub fn resolve(
 
     let names = mesh_names(robot);
     let mut files = BTreeMap::new();
+    let mut hulls: BTreeMap<MeshId, Result<Arc<TriMesh>, ExportError>> = BTreeMap::new();
     let mut links = Vec::with_capacity(order.len());
     let mut joints = Vec::with_capacity(order.len().saturating_sub(1));
 
@@ -257,14 +268,44 @@ pub fn resolve(
                 ps.iter().cloned().map(ResolvedGeom::Primitive).collect()
             }
             CollisionPolicy::Meshes(geoms) => resolve_geoms(geoms),
-            CollisionPolicy::ConvexHull => {
-                errors.push(ExportError::Unsupported {
-                    link: lid,
-                    name: link.name.clone(),
-                    what: "convex hull collision",
-                });
-                Vec::new()
-            }
+            CollisionPolicy::ConvexHull => link
+                .visuals
+                .iter()
+                .filter_map(|g| {
+                    let hull = hulls.entry(g.mesh).or_insert_with(|| {
+                        let mesh = meshes.mesh(g.mesh).ok_or(ExportError::UnloadableMesh {
+                            mesh: g.mesh,
+                            path: robot.assets[&g.mesh].path.clone(),
+                            reason: "not loaded".into(),
+                        })?;
+                        riggen_mesh::convex_hull(&mesh.positions)
+                            .map(Arc::new)
+                            .map_err(|e| ExportError::DegenerateHull {
+                                mesh: g.mesh,
+                                path: robot.assets[&g.mesh].path.clone(),
+                                reason: e.to_string(),
+                            })
+                    });
+                    match hull {
+                        Ok(hull) => {
+                            let name = format!("{}_hull", names[&g.mesh]);
+                            files.entry(name.clone()).or_insert_with(|| hull.clone());
+                            Some(ResolvedGeom::Mesh {
+                                name,
+                                mesh: hull.clone(),
+                                pose: g.pose,
+                            })
+                        }
+                        Err(e) => {
+                            // Reported once per mesh, on its first use.
+                            if !errors.contains(e) {
+                                errors.push(e.clone());
+                            }
+                            None
+                        }
+                    }
+                })
+                .collect(),
             CollisionPolicy::ConvexDecomposition { .. } => {
                 errors.push(ExportError::Unsupported {
                     link: lid,
@@ -531,8 +572,9 @@ mod tests {
             com: DVec3::ZERO,
             inertia: DMat3::from_diagonal(DVec3::new(1.0, 1.0, 3.0)),
         };
-        let hull = b.link("hull", root, JointKind::Fixed, Some(cube));
-        b.robot.links.get_mut(&hull).unwrap().collision = CollisionPolicy::ConvexHull;
+        let decomposed = b.link("decomposed", root, JointKind::Fixed, Some(cube));
+        b.robot.links.get_mut(&decomposed).unwrap().collision =
+            CollisionPolicy::ConvexDecomposition { max_hulls: 4 };
         let lost = b.link("lost", root, JointKind::Fixed, Some(unloaded));
         let empty = b.link("empty", root, JointKind::Prismatic, None);
 
@@ -544,6 +586,7 @@ mod tests {
                 ExportError::ZeroMassMovableLink { link, .. } => format!("zero {link}"),
                 ExportError::UnloadableMesh { mesh, .. } => format!("unloadable {mesh}"),
                 ExportError::Unsupported { link, what, .. } => format!("unsupported {link} {what}"),
+                ExportError::DegenerateHull { mesh, .. } => format!("degenerate {mesh}"),
                 ExportError::Invalid(e) => format!("invalid {e}"),
             })
             .collect();
@@ -553,7 +596,7 @@ mod tests {
             [
                 format!("inertial {a} OpenMesh {{ geom: {open_geom:?} }}"),
                 format!("inertial {bad} TriangleInequality {{ moments: [1.0, 1.0, 3.0] }}"),
-                format!("unsupported {hull} convex hull collision"),
+                format!("unsupported {decomposed} convex decomposition"),
                 format!("unloadable {unloaded}"),
                 format!(
                     "inertial {lost} MissingMesh {{ geom: {:?}, mesh: {unloaded:?} }}",
@@ -618,6 +661,79 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert_eq!(resolved.meshes.len(), 2);
+    }
+
+    #[test]
+    fn convex_hull_is_one_hull_per_visual_cached_per_mesh() {
+        let mut b = Builder::new();
+        // A cube with an extra interior vertex: the hull is the cube.
+        let mut dented = TriMesh::cube(0.05);
+        dented.positions.push(DVec3::ZERO);
+        let cube = b.mesh("cube", dented);
+        let root = b.robot.root;
+        let a = b.link("a", root, JointKind::Fixed, Some(cube));
+        let c = b.link("c", root, JointKind::Fixed, Some(cube));
+        for l in [a, c] {
+            let link = b.robot.links.get_mut(&l).unwrap();
+            link.collision = CollisionPolicy::ConvexHull;
+            let g = Geom {
+                id: b.robot.next_id.alloc(),
+                mesh: cube,
+                pose: Pose::from_translation(DVec3::X),
+                color: None,
+            };
+            b.robot.links.get_mut(&l).unwrap().visuals.push(g);
+        }
+        let resolved = b.resolve().unwrap();
+        let stems: Vec<&String> = resolved.meshes.keys().collect();
+        assert_eq!(stems, ["cube", "cube_hull"]);
+        let hull = &resolved.meshes["cube_hull"];
+        assert_eq!((hull.positions.len(), hull.triangle_count()), (8, 12));
+        for name in ["a", "c"] {
+            let link = resolved.links.iter().find(|l| l.name == name).unwrap();
+            assert_eq!(link.collisions.len(), 2, "one hull per visual");
+            for (col, vis) in link.collisions.iter().zip(&link.visuals) {
+                let (ResolvedGeom::Mesh { name, mesh, pose }, ResolvedGeom::Mesh { pose: vp, .. }) =
+                    (col, vis)
+                else {
+                    panic!("{col:?}");
+                };
+                assert_eq!(name, "cube_hull");
+                assert_eq!(pose, vp, "the hull sits where the visual sits");
+                assert!(Arc::ptr_eq(mesh, hull), "one hull, shared");
+            }
+        }
+
+        // A flat plate has no hull: one error, however many geoms use it.
+        let plate = b.mesh(
+            "plate",
+            TriMesh {
+                positions: vec![DVec3::ZERO, DVec3::X, DVec3::Y, DVec3::ONE - DVec3::Z],
+                normals: vec![],
+                indices: vec![0, 1, 2, 1, 3, 2],
+            },
+        );
+        let flat = b.link("flat", root, JointKind::Fixed, Some(plate));
+        let link = b.robot.links.get_mut(&flat).unwrap();
+        link.collision = CollisionPolicy::ConvexHull;
+        link.inertial = InertialSpec::Override {
+            mass: 1.0,
+            com: DVec3::ZERO,
+            inertia: DMat3::IDENTITY,
+        };
+        let g = Geom {
+            id: b.robot.next_id.alloc(),
+            mesh: plate,
+            pose: Pose::IDENTITY,
+            color: None,
+        };
+        b.robot.links.get_mut(&flat).unwrap().visuals.push(g);
+        let errors = b.resolve().unwrap_err();
+        assert!(
+            matches!(&errors[..], [ExportError::DegenerateHull { mesh, .. }] if *mesh == plate),
+            "{errors:?}"
+        );
+        assert!(errors[0].to_string().contains("coplanar"), "{}", errors[0]);
     }
 
     #[test]
