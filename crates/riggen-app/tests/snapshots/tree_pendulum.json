@@ -108,7 +108,7 @@
         "q": 0.0
       }
     ],
-    "selection": null
+    "selection": "link l5"
   },
   "ui": {
     "renaming": null
@@ -165,7 +165,10 @@
   ],
   "selection": {
     "hovered": null,
-    "selected": null
+    "selected": {
+      "instance": 1,
+      "triangle": 0
+    }
   },
   "status": null,
   "viewport_rect": [

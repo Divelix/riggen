@@ -23,7 +23,7 @@
     "far": 866.025391,
     "projection": "Perspective",
     "animating": false,
-    "aspect": 1.686183,
+    "aspect": 1.399188,
     "view": [
       [
         0.707107,
@@ -52,7 +52,7 @@
     ],
     "proj": [
       [
-        1.431763,
+        1.725439,
         0.0,
         0.0,
         0.0
@@ -110,6 +110,9 @@
     ],
     "selection": null
   },
+  "ui": {
+    "renaming": null
+  },
   "instances": [
     {
       "id": 0,
@@ -142,7 +145,7 @@
   },
   "status": null,
   "viewport_rect": [
-    0.0,
+    245.09375,
     23.0,
     1440.0,
     877.0

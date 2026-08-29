@@ -23,7 +23,7 @@
     "far": 100.0,
     "projection": "Perspective",
     "animating": false,
-    "aspect": 1.686183,
+    "aspect": 1.405152,
     "view": [
       [
         0.707107,
@@ -52,7 +52,7 @@
     ],
     "proj": [
       [
-        1.431763,
+        1.718115,
         0.0,
         0.0,
         0.0
@@ -94,6 +94,9 @@
     "joints": [],
     "selection": null
   },
+  "ui": {
+    "renaming": null
+  },
   "instances": [],
   "selection": {
     "hovered": null,
@@ -101,7 +104,7 @@
   },
   "status": null,
   "viewport_rect": [
-    0.0,
+    240.0,
     23.0,
     1440.0,
     877.0

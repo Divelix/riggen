@@ -7,13 +7,12 @@
 //! the selected link or the root (plan m1-document-tree-joints, decided by
 //! the human at step 5).
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use riggen_core::{Command, Geom, Joint, Link, LinkId, MeshAsset, Pose};
+use riggen_core::{Geom, Link, LinkId, MeshAsset, Pose};
 
-use super::document::{name_from_stem, unique_name};
-use super::{LoadedMesh, RiggenApp, Selection};
+use super::document::name_from_stem;
+use super::{LoadedMesh, RiggenApp};
 
 /// Extensions the open dialog offers, matching `riggen_mesh::load_mesh`.
 const MESH_EXTENSIONS: [&str; 2] = ["stl", "obj"];
@@ -82,36 +81,15 @@ impl RiggenApp {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let link_names: BTreeSet<&str> =
-            self.robot.links.values().map(|l| l.name.as_str()).collect();
-        let name = unique_name(&name_from_stem(&stem), &link_names);
-        let joint_names: BTreeSet<&str> = self
-            .robot
-            .joints
-            .values()
-            .map(|j| j.name.as_str())
-            .collect();
-        let joint_name = unique_name(&format!("{name}_joint"), &joint_names);
-        let parent = match self.selection {
-            Selection::Link(l) => l,
-            Selection::Joint(j) => self.robot.joints[&j].child,
-            Selection::None => self.robot.root,
-        };
-        let mut link = Link::new(name);
+        let mut link = Link::new(name_from_stem(&stem));
         link.visuals.push(Geom {
             id: self.robot.next_id.alloc(),
             mesh,
             pose: Pose::IDENTITY,
             color: None,
         });
-        let joint = Joint::fixed(joint_name, parent, parent);
-        self.apply(Command::AddLink {
-            link: Box::new(link),
-            parent,
-            joint,
-        })
-        .map_err(|e| e.to_string())
-        .map(|created| created.expect("AddLink returns the new link"))
+        let parent = self.insertion_parent();
+        self.add_link(link, parent).map_err(|e| e.to_string())
     }
 
     /// Opens every path, then fits the view to whatever is now in the scene.
