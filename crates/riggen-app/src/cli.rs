@@ -56,6 +56,12 @@ pub const FLAGS: &[Flag] = &[
         doc: "with --export: also write <name>.fk.json, five sampled joint configurations",
     },
     Flag {
+        long: "--timing",
+        short: None,
+        value: None,
+        doc: "print the time from launch to the first frame on stderr",
+    },
+    Flag {
         long: "--help",
         short: Some("-h"),
         value: None,
@@ -204,6 +210,8 @@ pub enum Invocation {
 pub struct OpenArgs {
     pub files: Vec<PathBuf>,
     pub example: Option<Example>,
+    /// `--timing`: report the first frame on stderr.
+    pub timing: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -224,6 +232,7 @@ pub fn parse(args: &[OsString]) -> Result<Invocation, String> {
     let mut out = None;
     let mut fk_samples = false;
     let mut example = None;
+    let mut timing = false;
     let mut positional = Vec::new();
     let mut it = args.iter();
     while let Some(arg) = it.next() {
@@ -249,6 +258,7 @@ pub fn parse(args: &[OsString]) -> Result<Invocation, String> {
                 ));
             }
             Some("--fk-samples") => fk_samples = true,
+            Some("--timing") => timing = true,
             Some("--example") => {
                 let name = it.next().and_then(|v| v.to_str());
                 example = Some(name.and_then(Example::from_name).ok_or_else(|| {
@@ -271,11 +281,12 @@ pub fn parse(args: &[OsString]) -> Result<Invocation, String> {
         return Ok(Invocation::Open(OpenArgs {
             files: positional,
             example,
+            timing,
         }));
     };
-    if example.is_some() {
+    if example.is_some() || timing {
         return Err(format!(
-            "--example opens the window; --export does not\n{USAGE}"
+            "--example and --timing are for the window; --export opens none\n{USAGE}"
         ));
     }
     let mut inputs = positional.into_iter();
@@ -362,6 +373,7 @@ mod tests {
             Invocation::Open(OpenArgs {
                 files: vec!["a.stl".into(), "b.riggen".into()],
                 example: None,
+                timing: false,
             })
         );
         assert_eq!(
@@ -413,6 +425,15 @@ mod tests {
             Invocation::Open(OpenArgs {
                 files: vec!["extra.stl".into()],
                 example: Some(Example::Arm),
+                timing: false,
+            })
+        );
+        assert_eq!(
+            parse(&args(&["--timing"])).unwrap(),
+            Invocation::Open(OpenArgs {
+                files: vec![],
+                example: None,
+                timing: true,
             })
         );
         // Every listed flag parses: a value-taking one with a plausible
@@ -493,6 +514,7 @@ mod tests {
             vec!["--example"],
             vec!["--example", "spaceship"],
             vec!["--example", "arm", "--export", "mjcf", "--out", "o", "r"],
+            vec!["--timing", "--export", "mjcf", "--out", "o", "r"],
             vec!["-x"],
         ] {
             let err = parse(&args(&bad)).unwrap_err();

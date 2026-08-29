@@ -155,7 +155,7 @@ targets in CI — is retired first; README and polish come after.
   `CARGO_BIN_EXE_riggen` in an integration test, `--example arm` extracts
   five files and opens them (harness test). `test_wheel.py` gains
   `--version` and `python -m riggen --version`.
-- [ ] Step 3 — Startup timing: the `Instant` from `main`, `first_frame_ms`
+- [x] Step 3 — Startup timing: the `Instant` from `main`, `first_frame_ms`
   in `debug_state().timing`, `--timing`, and the
   `startup_first_frame_under_budget` test (500 ms / 2000 ms under `CI`).
   Measure the real window on the dev machine with `cargo run --release --
