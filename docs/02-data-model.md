@@ -203,6 +203,57 @@ and independent of id order. This function is the oracle the export
 round-trip test compares against and what `Reparent { keep_world_pose }`
 reads.
 
+## Mesh features (`riggen-mesh::feature`)
+
+There is no B-Rep. An STL is a triangle soup that repeats the same
+coordinates verbatim per facet, so `feature::adjacency` recovers topology by
+welding positions **exactly** — bit-for-bit, `-0.0` folded to `0.0`, no
+tolerance (a tolerance would merge two genuinely distinct vertices a micron
+apart, and no exporter writes a shared corner as two different floats). It
+yields the welded index per vertex, the neighbour across each triangle edge
+(manifold edges only: a boundary or a three-way seam has none) and
+`is_closed()`, which M3's mass properties need.
+
+```rust
+pub fn adjacency(mesh: &TriMesh) -> Adjacency;
+/// Triangles reachable from `seed` without turning more than `max_dihedral` in one step.
+pub fn grow_region(mesh: &TriMesh, adjacency: &Adjacency, seed: usize, max_dihedral: f64) -> Vec<usize>;
+pub fn fit_circle_with(mesh: &TriMesh, adjacency: &Adjacency, triangle: usize) -> Option<CircleFit>;
+
+pub struct CircleFit { center: DVec3, axis: DVec3, radius: f64, residual: f64, segments: usize }
+```
+
+`grow_region` compares the dihedral angle **locally**, between a triangle
+and the neighbour it is entered from, which is what lets a cylinder wall
+grow all the way round while a 90° corner stops it. `DEFAULT_MAX_DIHEDRAL`
+is 70°: the coarsest cylinder `MIN_SEGMENTS` accepts turns by 60° per step.
+
+`fit_circle` is "click the bore, get the joint axis" (01 §Picking and
+snapping). For a **curved** region the axis is the normalised sum of the
+adjacent normals' cross products (each neighbouring pair turns about the
+cylinder's axis; the signs are made consistent against the first one, and
+the result is flipped to give its largest component a positive sign, since
+a joint axis has no preferred direction) and the circle is a Kåsa
+least-squares fit of every region vertex projected into the plane ⟂ axis,
+centred at the region's mean height along it. For a **planar** region the
+axis is the face normal and the fit runs on the region's boundary loop —
+a shaft's end face is exactly its rim. No eigen solver, no B-Rep.
+
+`residual` is the RMS distance of the fitted points from the circle, in
+document meters, and is shown in the viewport so a bad fit is obvious
+rather than silent. `segments` is the number of distinct angular positions
+around the axis — the generator's segment count for a machine-made
+cylinder. A fit with fewer than `MIN_SEGMENTS` = 6 is refused: four
+coplanar corners of a square are exactly concyclic, and nothing in the
+residual tells a cube face from a very coarse bore, so the segment count
+has to.
+
+`TriMesh::cylinder` / `TriMesh::tube` generate the test and fixture
+geometry (ring vertices are computed once and copied, so a quad's two
+triangles share bit-identical positions), and `stl::write_binary` writes
+it out — the M2 arm fixtures are produced by an `#[ignore]`d generator
+test rather than checked in as opaque bytes.
+
 ## Inertials (`riggen-mesh` → `riggen-core`)
 
 Per `Geom`, `riggen-mesh::mass_properties(mesh, density)` returns volume,

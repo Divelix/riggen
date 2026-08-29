@@ -32,6 +32,28 @@ pub fn load_stl(path: &Path) -> Result<TriMesh, MeshError> {
     parse_stl(&bytes, path)
 }
 
+/// Serialises `mesh` as binary STL: an 80-byte zero header, the facet count,
+/// then 50 bytes per triangle (normal from the winding, three `f32`
+/// vertices, a zero attribute count).
+///
+/// The generator behind `assets/fixtures/` — the arm fixtures of M2 are
+/// written by an `#[ignore]`d test rather than checked in as opaque bytes.
+/// `f64` positions narrow to `f32`, which is all the format has.
+pub fn write_binary(mesh: &TriMesh) -> Vec<u8> {
+    let mut out = vec![0u8; BINARY_HEADER];
+    out.extend_from_slice(&(mesh.triangle_count() as u32).to_le_bytes());
+    for i in 0..mesh.triangle_count() {
+        let normal = mesh.face_normal(i);
+        for v in [normal].into_iter().chain(mesh.triangle(i)) {
+            for c in [v.x, v.y, v.z] {
+                out.extend_from_slice(&(c as f32).to_le_bytes());
+            }
+        }
+        out.extend_from_slice(&[0, 0]);
+    }
+    out
+}
+
 /// [`load_stl`] on bytes already in memory; `path` is only for messages.
 pub(crate) fn parse_stl(bytes: &[u8], path: &Path) -> Result<TriMesh, MeshError> {
     let ascii_error = if bytes.starts_with(b"solid") {
@@ -131,21 +153,7 @@ mod tests {
             .join(name)
     }
 
-    /// Serialises `mesh` as binary STL, bit-exact for float positions.
-    fn to_binary(mesh: &TriMesh) -> Vec<u8> {
-        let mut out = vec![0u8; BINARY_HEADER];
-        out.extend_from_slice(&(mesh.triangle_count() as u32).to_le_bytes());
-        for i in 0..mesh.triangle_count() {
-            let n = mesh.face_normal(i);
-            for v in [n].into_iter().chain(mesh.triangle(i)) {
-                for c in [v.x, v.y, v.z] {
-                    out.extend_from_slice(&(c as f32).to_le_bytes());
-                }
-            }
-            out.extend_from_slice(&[0, 0]);
-        }
-        out
-    }
+    use super::write_binary as to_binary;
 
     fn to_ascii(mesh: &TriMesh) -> String {
         let mut s = String::from("solid cube\n");

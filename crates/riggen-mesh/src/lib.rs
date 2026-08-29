@@ -1,4 +1,5 @@
-//! Mesh geometry: [`TriMesh`], STL/OBJ loaders, [`Aabb`], ray/triangle. No
+//! Mesh geometry: [`TriMesh`], STL/OBJ loaders, [`Aabb`], ray/triangle and
+//! the [`feature`] module (welded adjacency, circle fits). No
 //! egui, no wgpu (docs/01-architecture.md §Crates).
 //!
 //! `f64` throughout — the document is f64 and mass properties (M3) want it;
@@ -9,6 +10,7 @@ pub use glam;
 
 mod aabb;
 mod error;
+pub mod feature;
 mod obj;
 mod ray;
 mod stl;
@@ -18,7 +20,7 @@ pub use aabb::Aabb;
 pub use error::MeshError;
 pub use obj::load_obj;
 pub use ray::{Ray, ray_triangle};
-pub use stl::load_stl;
+pub use stl::{load_stl, write_binary};
 pub use tri_mesh::TriMesh;
 
 /// Loads a mesh by file extension, case-insensitively: `.stl` → [`load_stl`],
