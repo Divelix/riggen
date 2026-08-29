@@ -47,4 +47,6 @@ mass properties from `robocad-kernel/src/mass.rs` come with M3.
 - Trunk-based git, `main` always green, commit per plan step, never push
   unasked: `.agents/rules/git.md`.
 - Crates.io and local checkouts: egui/rerun under `~/Documents/code/rust/`
-  are reference reading, never `path =` deps.
+  and RoboCAD at `~/Documents/code/pet/cad/robocad` (the ancestor: viewport,
+  `mass.rs`, snapshot harness, the `consume_key` shortcut lesson in its
+  `CLAUDE.md`) are reference reading, never `path =` deps.
