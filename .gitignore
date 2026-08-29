@@ -1,0 +1,6 @@
+/target
+/python/**/*.so
+/python/dist
+/python/build
+__pycache__/
+.venv/
