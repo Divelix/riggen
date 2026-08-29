@@ -41,8 +41,9 @@ scenarios pass on the CPU adapter; wasm target builds.
 *Goal: a two-link pendulum you can save, reopen, and swing.*
 
 **Status: done 2026-08-29, tag `m1`.** `Reparent { keep_world_pose }`
-landed here (drag in the tree); M2 wires it to the gizmo. Decisions:
-ADR-0005 (ids, joints as edges), ADR-0006 (drops, removal, import scale).
+landed here, as a drag in the tree, and stayed there — M2's gizmo moves a
+link within its parent instead. Decisions: ADR-0005 (ids, joints as edges),
+ADR-0006 (drops, removal, import scale).
 
 - `riggen-core`: types of 02-data-model, `validate`, `fk`, snapshot
   `History`, `.riggen` v1 serde with relative mesh paths and content hash.
@@ -64,18 +65,36 @@ survive; `fk` unit tests against hand-computed poses for a 3-joint chain.
 *Goal: assemble a 3-DoF arm from a folder of STLs using only the mouse, in
 under five minutes, without typing a coordinate.*
 
-**Status: not started.** Prerequisite landed 2026-08-29: the agent sees the
-GUI itself (`visual-debug` skill, Debug menu, `RIGGEN_SCRATCH_OPEN`).
+**Status: done 2026-08-29, tag `m2`.** The risk — a circle fit good enough
+to place a joint from one click on STL data with no B-Rep — came out
+cheaper than feared: exact-position welding plus a local dihedral walk plus
+a Kåsa least-squares fit, and the segment count is what tells a bore from a
+cube face. Decisions: ADR-0007 (the gizmo comes from `transform-gizmo-egui`,
+bridged through `mint`). The four open questions were settled by the human
+before the work started: editing tools work in the zero configuration; a
+gizmo on a link moves the link and on a joint moves the pivot; the crate
+before an own gizmo; glyphs for movable joints plus the selection.
 
-- `transform-gizmo-egui` for geom pose and joint origin; drag = preview,
-  release = one command.
-- Snapping: pick-point, triangle-vertex, AABB corners/centers, face normal.
+The by-hand exit gate was run and came back "generally fine", with nine
+lines now in `docs/BACKLOG.md` — the largest being that the gizmo swallows
+all viewport pointer input while it is near the cursor, which reads as a
+dead camera and clicks that do not select.
+
+- `transform-gizmo-egui` on a link (its parent joint's origin; the subtree
+  follows) or on a joint (its pivot, the geometry staying put); drag =
+  preview, release = one command. A geom's own pose stayed
+  properties-panel-only.
+- Snapping: pick-point, triangle-vertex, AABB corners/centers, face normal,
+  behind the Place joint and Align tools.
 - **Circle fit from a picked triangle fan** → joint axis and origin from a
   bore or shaft in one click; a visible confidence readout (residual, number
   of segments) so a bad fit is obvious.
 - Joint glyphs in the overlay: axis line, limit arc, origin triad; hover a
   joint in the tree → highlight it in 3D and vice versa.
-- `Reparent { keep_world_pose }` (M1) wired to the gizmo.
+- Align: two clicks bring a part exported out of place onto a feature, as
+  one `SetJoint` through `fk::origin_for_world`. Reparenting stayed the
+  tree drag it was in M1 — the gizmo moves a link *within* its parent, and
+  the two gestures turned out not to want the same handle.
 - Snapshot tests for every gizmo/glyph state; iterate on this milestone with
   the snapshots open, not after.
 

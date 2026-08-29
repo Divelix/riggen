@@ -19,20 +19,22 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**M1 done (2026-08-29, tag `m1`):** `riggen-core` holds the `Robot`
-document (ids as counters, joints as tree edges — ADR-0005), `validate`,
-`fk`, the command layer with snapshot `History`, and `.riggen` v1
-(relative mesh paths, content hash, `assets/fixtures/pendulum.riggen` as
-the corpus file). `riggen-app` owns one `Robot` and derives the viewport
-from it (`sync_scene`); link tree with drag-reparent, properties panel
-(degrees in, radians stored), joint sliders and materials windows, File /
-Edit menus with the unsaved-changes confirm, undo/redo. M0 as before:
-`riggen-mesh`, the ported viewport (now with per-instance colour and a
-fitted depth range), the `egui_kittest` suite. `riggen-export` is a
-placeholder. The agent sees the GUI itself (`visual-debug` skill, Debug
-menu, `RIGGEN_SCRATCH_OPEN`). **Next: M2** — gizmos, snapping, circle fit,
-joint glyphs (03-roadmap §M2); mass properties from
-`robocad-kernel/src/mass.rs` come with M3.
+**M2 done (2026-08-29, tag `m2`):** a 3-DoF arm is assembled from a
+folder of STLs with the mouse alone — a modal toolbar (Select / Move /
+Rotate / Place joint / Align), a transform gizmo behind `app/gizmo.rs`
+(ADR-0007), joint glyphs in a world-space `Overlay` the viewport projects,
+and snapping whose ladder is vertex > box > circle > point.
+`riggen_mesh::feature` welds an STL's positions exactly to recover topology
+and fits the circle "click the bore" turns into a joint axis;
+`MoveJointFrame` and `origin_for_world` are what the tools commit;
+`five_minute_arm` (`assets/fixtures/arm/*.stl`) is the acceptance. M1: the
+`Robot` document (ADR-0005), `validate`, `fk`, commands with snapshot
+`History`, `.riggen` v1, tree, properties, joint sliders, materials, File /
+Edit menus. M0: `riggen-mesh`, the ported viewport, the `egui_kittest`
+suite; the agent sees the GUI itself (`visual-debug` skill).
+`riggen-export` is a placeholder. **Next: M3** — inertials, collision,
+MJCF/URDF export and import; mass properties from
+`robocad-kernel/src/mass.rs`.
 
 ## Rules that are not derivable from the code
 

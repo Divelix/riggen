@@ -52,15 +52,17 @@ gizmos.
 ```
 riggen/
 ├── Cargo.toml              # [workspace], resolver 3, edition 2024, every dep version
+├── .cargo/config.toml      # one rustflag, wasm32 only: getrandom's backend (ADR-0007)
 ├── rust-toolchain.toml     # stable + rustfmt, clippy, wasm32-unknown-unknown
 ├── kittest.toml            # snapshot thresholds (ADR-0003); found by walking up from the crate
 ├── crates/
-│   ├── riggen-mesh/        # TriMesh, Aabb, Ray, load_stl / load_obj / load_mesh
+│   ├── riggen-mesh/        # TriMesh, Aabb, Ray, load_stl / load_obj / load_mesh, feature/
 │   ├── riggen-core/        # ids, pose, robot, validate, fk, command, history, file
 │   ├── riggen-export/      # placeholder until M3
-│   ├── riggen-viewport/    # camera/, scene, pick_id, gpu_mesh, viewport/, shaders/
+│   ├── riggen-viewport/    # camera/, scene, pick_id, gpu_mesh, overlay, viewport/, shaders/
 │   └── riggen-app/         # bin "riggen"; cdylib for the wasm build check; tests/visual
-│       └── src/app/        # document, file_io, file_menu, shortcuts, status_bar,
+│       └── src/app/        # document, file_io, file_menu, shortcuts, status_bar, tool,
+│                           # gizmo, glyphs, snap, align,
 │                           # panels/{tree, properties, joints, materials}
 ├── assets/fixtures/        # cube_binary.stl, cube_ascii.stl, cube.obj — the unit cube
 │                           # (TriMesh::cube(0.5)) in every format; pendulum.riggen, the
@@ -74,8 +76,10 @@ riggen/
 
 Dependency policy (ADR-0001): egui/eframe/egui-wgpu 0.36.x from crates.io,
 wgpu version dictated by egui-wgpu — never depend on a different wgpu.
-`glam` 0.30 with the `serde` feature, re-exported as `riggen_mesh::glam`;
-no other crate lists it. Every version lives once in
+`glam` 0.30 with the `serde` and `mint` features, re-exported as
+`riggen_mesh::glam`; no other crate lists it. `transform-gizmo` pins its own
+`glam ^0.32`, so two versions are in the lock file — they never meet, `mint`
+is the boundary and nothing of ours names 0.32 (ADR-0007). Every version lives once in
 `[workspace.dependencies]`; crates say `.workspace = true`. Local checkouts
 of egui and rerun under `~/Documents/code/rust/` are reference reading only;
 no `path =` or `[patch]` unless an unreleased fix is needed, and then with a
@@ -104,6 +108,8 @@ pub struct RiggenApp {
     q: JointState, selection: Selection,                // Selection = None | Link(LinkId) | Joint(JointId)
     tool: Tool, gizmo_state: GizmoState,               // Select | Move | Rotate | PlaceJoint | Align; the gizmo and its drag
     preview_world: Option<(LinkId, Pose)>,             // a link's pose while a gizmo drag previews it
+    hovered_joint, glyph_hover, snap_candidate,        // resolved every frame from the pointer
+    snap_cache, align_source, toolbar_rect,            // the memoised fit, the align gesture's first pick
     import_scale: f64, pending: Option<PendingAction>,  // File › Import units; New/Open/Quit awaiting the dirty answer
     tree, props, joints_window, materials_window,       // transient panel state (a rename in progress, drafts)
     viewport, next_instance, status, …
@@ -130,8 +136,9 @@ geom's own colour, else the link's material, else the viewport default.
 the way, and `preview_world` — a link's pose while a gizmo drag is in
 flight — is applied as a correction to that link and its whole subtree, so
 the parts follow the handle exactly as they will after the commit while the
-document stays untouched. Opening a document (`replace_document`) resets history, selection,
-`q` and the mesh store, then syncs; the meshes come from the assets' paths.
+document stays untouched. Opening a document (`replace_document`) resets
+history, selection, `q` and the mesh store, then syncs; the meshes come
+from the assets' paths.
 
 Selection is document-level and mirrored both ways: a viewport click
 selects the link owning the hit instance (`sync_selection_from_viewport`,
@@ -228,11 +235,14 @@ closes.
 ## Frame loop
 
 ```
-input ──► viewport.set_input_suppressed(gizmo owned the cursor last frame)
-       ──► egui panels (tree, properties, joint sliders, status)
-       ──► viewport.set_overlay(joint glyphs, from the document and q)
-       ──► viewport.ui ──► gizmo ──► toolbar   (registration order = pointer precedence)
-       ──► gizmo / snapping / pick handling  ──► Commands ──► History ──► Robot
+input ──► shortcuts ──► menu bar, status bar, tree, properties
+       ──► central panel:
+             joint glyphs from (Robot, q)  ──► glyph hover ──► snap candidate
+             viewport.set_overlay(glyphs + align pick + snap marker)
+             viewport.set_input_suppressed / set_select_suppressed
+             viewport.ui ──► gizmo ──► toolbar   (registration order = pointer precedence)
+             a click ──► select a joint / place a joint / align
+       ──► Commands ──► History ──► Robot
 Robot ──► fk(robot, q) ──► world pose per link
        ──► for each visual geom: viewport.set_instance_model(instance, link_pose * geom.pose)
        ──► viewport.ui(...)   (records the wgpu callback; picks resolve next frame)
@@ -337,7 +347,7 @@ markers under the cursor while merely selecting would be noise.
   segments. **No pixel radius**: the centre of a bore is nowhere near the
   wall the user is pointing at, which is the point. This is the mechanic
   that makes "click the bore, get the joint axis" work on STL data with no
-  B-Rep, and it was the M2 risk item;
+  B-Rep, and it was the milestone's risk item;
 - **point**: the ray/triangle hit itself, which always exists, with the
   triangle's normal for "axis = face normal".
 
