@@ -1376,6 +1376,146 @@ fn snapping_is_off_outside_the_placement_tools() {
     });
 }
 
+/// Place joint on a bore: the selected joint's pivot lands on the circle's
+/// centre with the circle's axis, in one command, and nothing in the world
+/// moves. The M2 gesture the five-minute arm is built out of.
+#[test]
+fn place_joint_bore() {
+    scenario("place_joint_bore", |harness| {
+        let path = cylinder_stl("place_joint", 0.012, 0.05, 24);
+        let app = harness.state_mut();
+        let boss = app.open_path(&path).expect("open the boss").unwrap();
+        let joint = app.robot().parent_joint(boss).unwrap();
+
+        // Offset the geometry from the link frame and give the joint an axis
+        // that is wrong on purpose, so placing has something to fix.
+        let geom = app.robot().links[&boss].visuals[0].id;
+        let offset = DVec3::new(0.03, 0.02, 0.01);
+        app.apply(Command::SetGeomPose(
+            boss,
+            geom,
+            Pose::from_translation(offset),
+        ))
+        .unwrap();
+        let mut j = app.robot().joints[&joint].clone();
+        j.kind = riggen_core::JointKind::Revolute;
+        j.axis = DVec3::X;
+        j.limits = Some(riggen_core::Limits {
+            lower: -1.0,
+            upper: 1.0,
+            effort: 0.0,
+            velocity: 0.0,
+        });
+        app.apply(Command::SetJoint(joint, j)).unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::PlaceJoint);
+        app.select(Selection::Joint(joint));
+        settle(harness);
+
+        let before: Vec<_> = harness
+            .state()
+            .debug_state()
+            .instances
+            .iter()
+            .map(|i| i.position)
+            .collect();
+        let depth = harness.state().history().undo_depth();
+
+        // The middle of the silhouette is the bore's wall.
+        let at = harness.state().viewport_center().unwrap();
+        hover_until_snapped(harness, at);
+        assert_eq!(
+            harness.state().snap().map(|s| s.kind),
+            Some(riggen_app::SnapKind::Circle)
+        );
+        click_at(harness, at);
+        settle(harness);
+
+        let app = harness.state();
+        assert_eq!(
+            app.history().undo_depth(),
+            depth + 1,
+            "one click, one command"
+        );
+        let placed = &app.robot().joints[&joint];
+        // Axis within half a degree of the cylinder's own.
+        let angle = placed
+            .axis
+            .normalize()
+            .dot(DVec3::Z)
+            .clamp(-1.0, 1.0)
+            .acos();
+        assert!(
+            angle < 0.5f64.to_radians(),
+            "axis {} is {}° off",
+            placed.axis,
+            angle.to_degrees()
+        );
+        // Origin on that axis, within a millimetre.
+        let to_axis = {
+            let d = placed.origin.t - offset;
+            (d - DVec3::Z * d.dot(DVec3::Z)).length()
+        };
+        assert!(
+            to_axis < 1e-3,
+            "origin {} is {to_axis} m off the axis",
+            placed.origin.t
+        );
+        // Nothing in the world moved: only the pivot did.
+        let after: Vec<_> = app
+            .debug_state()
+            .instances
+            .iter()
+            .map(|i| i.position)
+            .collect();
+        assert_eq!(after, before);
+        assert_eq!(
+            app.debug_state().status.as_deref(),
+            Some("placed boss_joint on circle r 12.0 mm · 24 seg · res 0.00 mm"),
+            "the status bar carries the fit it placed on"
+        );
+        // The click placed; it did not re-select the part under the cursor.
+        assert_eq!(app.selection(), Selection::Joint(joint));
+    });
+}
+
+/// A vertex or a box corner places the origin and leaves the axis alone —
+/// a corner says nothing about direction, and guessing one would be a
+/// decision the user cannot see.
+#[test]
+fn place_joint_on_a_corner_moves_the_origin_only() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        let cube = open_link(app, "cube_binary.stl");
+        let joint = app.robot().parent_joint(cube).unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::PlaceJoint);
+        app.select(Selection::Joint(joint));
+        let axis_before = app.robot().joints[&joint].axis;
+        settle(harness);
+
+        let corner = DVec3::new(0.5, -0.5, 0.5);
+        let at = harness.state().project_world(corner).expect("on screen");
+        let centre = harness.state().viewport_center().unwrap();
+        let at = at + (centre - at).normalized() * 6.0;
+        hover_until_snapped(harness, at);
+        assert_eq!(
+            harness.state().snap().map(|s| s.kind),
+            Some(riggen_app::SnapKind::Vertex)
+        );
+        click_at(harness, at);
+
+        let app = harness.state();
+        let placed = &app.robot().joints[&joint];
+        assert!(
+            (placed.origin.t - corner).length() < 1e-9,
+            "{}",
+            placed.origin.t
+        );
+        assert_eq!(placed.axis, axis_before, "a corner has no direction");
+    });
+}
+
 /// The materials table over the pendulum: base_link is aluminium and arm
 /// is PLA, and the viewport tints each cube with its material colour.
 #[test]

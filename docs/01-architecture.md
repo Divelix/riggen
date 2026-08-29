@@ -335,6 +335,21 @@ markers under the cursor while merely selecting would be noise.
 - **point**: the ray/triangle hit itself, which always exists, with the
   triangle's normal for "axis = face normal".
 
+**Place joint** turns a candidate into one `MoveJointFrame` on the selected
+joint: the frame keeps its orientation and moves to the feature, and the
+axis is the feature's, re-expressed in that frame. A circle gives both
+(centre and axis); a plain point on a face gives the hit and the face
+normal; a vertex or a box corner gives a position and **nothing** about
+direction, so the axis is left alone — inventing one from a corner is a
+decision the user cannot see. Nothing in the world moves; only the pivot
+does, and the status bar repeats the fit it placed on.
+
+While a placement tool is active the viewport's *select* click is
+suppressed (`set_select_suppressed`) while its hover keeps running — the
+click means "put it here", and the hover is what the snap is computed from
+— and a glyph never takes the pointer, because the selected joint's own
+glyph sits exactly where the user is aiming.
+
 The marker is cyan and carries the fit's own confidence —
 `circle r 12.0 mm · 24 seg · res 0.01 mm` — so a bad fit is obvious rather
 than silent. The fit is memoised per `(instance, triangle)` and the welded
@@ -447,7 +462,7 @@ GUI is never entered from inside a Python call.
   `tree_reparent`, `properties_link`, `properties_joint`, `pendulum_swing`,
   `materials`, `toolbar`, `gizmo_move_link`, `gizmo_rotate_joint`,
   `glyph_revolute`, `glyph_prismatic`, `glyph_hover`, `snap_vertex`,
-  `snap_circle`,
+  `snap_circle`, `place_joint_bore`,
   `dirty_title`, `unsaved_confirm`, `debug_menu`, plus
   golden-less app tests including `build_pendulum_numerically`, the M1
   acceptance in executable form.

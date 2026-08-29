@@ -30,7 +30,7 @@ pub use gizmo::GizmoTarget;
 pub use glyphs::{GLYPH_HOVER_RADIUS, JointGlyph};
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 use snap::SnapCache;
-pub use snap::{SNAP_PIXEL_RADIUS, SnapCandidate, SnapKind};
+pub use snap::{SNAP_PIXEL_RADIUS, SnapCandidate, SnapKind, placed_status};
 pub use tool::{Tool, ZERO_CONFIG_STATUS};
 
 /// The eframe app: one `Robot` and what is derived from it
@@ -222,7 +222,11 @@ impl RiggenApp {
     fn update_glyph_hover(&mut self, ctx: &egui::Context, glyphs: &[JointGlyph]) {
         let from_tree = self.tree.hovered_joint.take();
         self.glyph_hover = None;
+        // A placement tool never lets a glyph take the pointer: the whole
+        // gesture is "point at that feature", and the selected joint's own
+        // glyph sits exactly where the user is aiming.
         if from_tree.is_none()
+            && !self.tool.snaps()
             && self.pending.is_none()
             && !self.gizmo_state.captured
             && let Some(pos) = ctx.pointer_hover_pos()
@@ -309,6 +313,10 @@ impl eframe::App for RiggenApp {
                 // first.
                 self.viewport
                     .set_input_suppressed(self.gizmo_state.captured || self.glyph_hover.is_some());
+                // A placement click means "put it here", not "select what is
+                // under the cursor" — but the hover pick has to keep running,
+                // because it is what the snap is computed from.
+                self.viewport.set_select_suppressed(self.tool.snaps());
 
                 let rect = self.viewport.ui(ui).rect;
                 // After the viewport, in registration order: egui's hit
@@ -318,11 +326,17 @@ impl eframe::App for RiggenApp {
                 self.gizmo_ui(ui, rect);
                 self.tool_bar(ui, rect);
                 // The viewport's pick is suppressed while a glyph is
-                // hovered, so this click is unambiguous.
-                if let Some(joint) = self.glyph_hover
-                    && ui.input(|i| i.pointer.primary_clicked())
-                {
+                // hovered, so these clicks are unambiguous, and a hovered
+                // glyph and a snap are mutually exclusive.
+                let clicked = ui.input(|i| i.pointer.primary_clicked());
+                if let Some(joint) = self.glyph_hover.filter(|_| clicked) {
                     self.select(Selection::Joint(joint));
+                } else if clicked
+                    && self.tool == Tool::PlaceJoint
+                    && let Selection::Joint(joint) = self.selection
+                    && let Some(snap) = self.snap_candidate
+                {
+                    self.place_joint(joint, &snap);
                 }
             });
         self.sync_selection_from_viewport();
