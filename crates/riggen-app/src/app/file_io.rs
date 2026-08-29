@@ -19,7 +19,7 @@ const MESH_EXTENSIONS: [&str; 2] = ["stl", "obj"];
 /// The document's own extension.
 pub(crate) const DOCUMENT_EXTENSION: &str = "riggen";
 
-fn extension_of(path: &Path) -> String {
+pub(crate) fn extension_of(path: &Path) -> String {
     path.extension()
         .and_then(|e| e.to_str())
         .unwrap_or_default()
@@ -226,6 +226,9 @@ impl RiggenApp {
                 .map(|file| file.path().to_path_buf())
                 .collect()
         });
-        self.load_files(&dropped);
+        if !dropped.is_empty() {
+            // A dropped `.riggen` replaces the document: dirty check first.
+            self.request_open(dropped);
+        }
     }
 }

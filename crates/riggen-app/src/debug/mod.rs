@@ -69,6 +69,10 @@ pub struct UiDebug {
     pub renaming: Option<(String, String)>,
     /// Floating windows currently open, by name.
     pub windows: Vec<&'static str>,
+    /// The modal being shown, if any: `"unsaved_changes"`.
+    pub modal: Option<&'static str>,
+    /// What the OS window title reads.
+    pub title: String,
 }
 
 /// The `Robot` and the derived state around it.
@@ -206,6 +210,8 @@ impl RiggenApp {
                 .into_iter()
                 .flatten()
                 .collect(),
+                modal: self.pending_action().map(|_| "unsaved_changes"),
+                title: self.window_title(),
             },
             instances: self
                 .viewport

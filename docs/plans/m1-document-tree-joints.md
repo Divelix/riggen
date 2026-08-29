@@ -208,7 +208,7 @@ hand-computed poses for a 3-joint chain.
   refused while a link uses it, with the reason in the status bar); the link
   material combo reads the same table; the viewport tints instances with the
   material colour. Snapshot `materials`.
-- [ ] Step 10 — File menu: New, Open…, Save (Ctrl+S; Save As when untitled),
+- [x] Step 10 — File menu: New, Open…, Save (Ctrl+S; Save As when untitled),
   Save As…, Quit; `.riggen` filter in the dialogs; window title
   `name.riggen — riggen` with `*` when dirty; the confirm modal (Save /
   Don't save / Cancel) on New / Open / Quit / dropped `.riggen` when dirty,
@@ -393,6 +393,22 @@ Executable form, all green under `cargo test --workspace` on the CPU adapter:
     its key and is not renamable from the table (links reference it by
     name); "Add" makes `density 1000, grey`. Windows open from `Window ›
     Materials` next to `Joints`.
+  - Step 10: every route that drops the document (`request_new`,
+    `request_open_dialog`, `request_open(paths)` for drops and the CLI,
+    `request_quit`, the OS close button via `close_requested` +
+    `CancelClose`) goes through one `PendingAction` and the modal's
+    three answers (`answer_save` runs the action only if the save
+    succeeded; Escape is Cancel). A drop of meshes alone never asks. The
+    title is pushed with `ViewportCommand::Title` only when it changes
+    and mirrored in `debug_state().ui.title`; the modal in `ui.modal`.
+    `Import units` is a File submenu (mm / cm / m / in) remembered through
+    eframe storage (`persistence` feature enabled on the workspace
+    `eframe`; the key is `riggen.import_scale`, unknown values fall back
+    to mm). Ctrl+S / Ctrl+Shift+S / Ctrl+N / Ctrl+O live in
+    `shortcuts.rs` ahead of the text-field check, shifted pattern first.
+    `save_to` adds the `.riggen` extension when missing. The dialogs
+    (`open_dialog`, `save_as_dialog`, `add_mesh_dialog`) are the only
+    untested paths — rfd needs a display.
   - `validate` also checks material names (`InvalidName { kind:
     "material" }`) and that densities are finite and non-negative, so
     `UpsertMaterial` cannot smuggle an unexportable name into the table.

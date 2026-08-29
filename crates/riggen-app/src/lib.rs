@@ -4,7 +4,7 @@
 mod app;
 pub mod debug;
 
-pub use app::{RiggenApp, Selection};
+pub use app::{PendingAction, RiggenApp, Selection};
 
 #[cfg(target_arch = "wasm32")]
 mod web {

@@ -114,7 +114,9 @@
     "renaming": null,
     "windows": [
       "joints"
-    ]
+    ],
+    "modal": null,
+    "title": "pendulum.riggen — riggen"
   },
   "instances": [
     {

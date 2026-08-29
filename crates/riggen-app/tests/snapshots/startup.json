@@ -96,7 +96,9 @@
   },
   "ui": {
     "renaming": null,
-    "windows": []
+    "windows": [],
+    "modal": null,
+    "title": "untitled — riggen"
   },
   "instances": [],
   "selection": {
