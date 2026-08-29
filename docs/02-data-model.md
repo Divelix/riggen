@@ -274,11 +274,16 @@ test rather than checked in as opaque bytes.
 
 ## Inertials (`riggen-mesh` → `riggen-core`)
 
-Per `Geom`, `riggen-mesh::mass_properties(mesh, density)` returns volume,
-mass, CoM and the inertia tensor about the CoM in mesh axes, via the signed
-tetrahedra decomposition ported from RoboCAD (with its independent volume
-cross-check as the "is this mesh closed?" signal — an open STL gives a
-nonsense tensor, and the UI must say so). `riggen-core::compose_inertial`
+Per `Geom`, `riggen_mesh::mass_properties(&mesh, density) -> MassProps {
+volume, mass, com, inertia: DMat3, is_closed, inward_winding }` returns
+volume, mass, CoM and the inertia tensor about the CoM in mesh axes, via
+the signed tetrahedra decomposition ported from RoboCAD. RoboCAD's
+independent-volume cross-check is replaced by topology: `is_closed` is
+`feature::adjacency(mesh).is_closed()` (every edge shared by exactly two
+triangles), exact rather than a tolerance — an open STL gives a nonsense
+tensor, and the UI must say so. A negative signed volume means the mesh is
+wound inward; it is folded (`abs`) and flagged, not treated as an error.
+`riggen-core::compose_inertial`
 transforms each geom's result into the link frame (rotate the tensor,
 parallel-axis shift), sums, then applies the `InertialSpec` mode.
 
