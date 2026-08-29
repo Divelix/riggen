@@ -84,6 +84,8 @@ pub struct InstanceState {
     /// Model-space bounds, before `model`.
     pub bounds: Option<Aabb>,
     pub model: DMat4,
+    /// Linear RGBA tint.
+    pub color: [f32; 4],
 }
 
 /// Embeddable 3D viewport: owns the renderer, camera, scene and
@@ -285,6 +287,12 @@ impl Viewport {
         self.scene.set_model(id, model)
     }
 
+    /// Tints an instance (the link's material colour). A uniform write,
+    /// no upload.
+    pub fn set_instance_color(&mut self, id: InstanceId, color: [f32; 4]) -> bool {
+        self.scene.set_color(id, color)
+    }
+
     pub fn has_instance(&self, id: InstanceId) -> bool {
         self.scene.contains(id)
     }
@@ -302,6 +310,7 @@ impl Viewport {
             triangle_count: entry.mesh.triangle_count,
             bounds: entry.bounds,
             model: entry.model,
+            color: entry.color,
         })
     }
 
@@ -702,8 +711,8 @@ impl Viewport {
             .and_then(|h| self.scene.visible_instance(h.instance))
             .map(|(i, _)| i);
 
-        // One model matrix per visible instance, packed at the uniform
-        // stride and indexed by visible order.
+        // One model matrix and colour per visible instance, packed at the
+        // uniform stride and indexed by visible order.
         let visible_count = self.scene.visible().count();
         self.gpu.models.reserve(&self.gpu.device, visible_count);
         let stride = self.gpu.models.stride as usize;
@@ -713,8 +722,11 @@ impl Viewport {
             // Model space is `f64`; the GPU layout is `f32`, narrowed here
             // like every other value the viewport uploads.
             let m = entry.model.as_mat4().to_cols_array_2d();
-            model_data[i * stride..i * stride + std::mem::size_of::<[[f32; 4]; 4]>()]
-                .copy_from_slice(bytemuck::cast_slice(&[m]));
+            let matrix_bytes = std::mem::size_of::<[[f32; 4]; 4]>();
+            let at = i * stride;
+            model_data[at..at + matrix_bytes].copy_from_slice(bytemuck::cast_slice(&[m]));
+            model_data[at + matrix_bytes..at + matrix_bytes + std::mem::size_of::<[f32; 4]>()]
+                .copy_from_slice(bytemuck::cast_slice(&entry.color));
             instances.push(InstanceBuffers {
                 model_offset: self.gpu.models.offset(i),
                 vertex_buffer: entry.mesh.vertex_buffer.clone(),

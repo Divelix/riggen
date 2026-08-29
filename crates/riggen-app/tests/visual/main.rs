@@ -846,3 +846,149 @@ fn joint_value_clamps_to_edited_limits() {
         );
     });
 }
+
+/// The materials table over the pendulum: base_link is aluminium and arm
+/// is PLA, and the viewport tints each cube with its material colour.
+#[test]
+fn materials() {
+    scenario("materials", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.set_materials_window_open(true);
+        app.fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.ui.windows, vec!["materials"]);
+        let robot = harness.state().robot();
+        let expect = |name: &str| robot.materials[name].color.map(riggen_app::debug::round32);
+        assert_eq!(state.instances[0].color, expect("aluminium"));
+        assert_eq!(state.instances[1].color, expect("PLA"));
+        assert_eq!(state.document.links[1].material.as_deref(), Some("PLA"));
+    });
+}
+
+/// Table edits are commands: removing a material a link uses is refused
+/// with the reason, freeing the link lets it go, "Add" makes a new row,
+/// a density typed into the table lands in the document, and the tint
+/// follows a material change on the link.
+#[test]
+fn materials_table_edits() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.set_materials_window_open(true);
+        settle(harness);
+        let app = harness.state();
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        let depth = app.history().undo_depth();
+
+        // The second "Remove" row is PLA (rows are in name order: ABS, PLA, …).
+        harness.get_all_by_label("Remove").nth(1).unwrap().click();
+        harness.step();
+        let app = harness.state();
+        assert!(app.robot().materials.contains_key("PLA"));
+        assert_eq!(
+            app.debug_state().status.as_deref(),
+            Some(format!("material \"PLA\" is used by link {arm}").as_str())
+        );
+        assert_eq!(
+            app.history().undo_depth(),
+            depth,
+            "a refused command is not an entry"
+        );
+
+        // Free the link, then the removal goes through and the tint falls
+        // back to the default.
+        harness
+            .state_mut()
+            .apply(Command::SetLinkMaterial(arm, None))
+            .unwrap();
+        harness.get_all_by_label("Remove").nth(1).unwrap().click();
+        harness.step();
+        let app = harness.state();
+        assert!(!app.robot().materials.contains_key("PLA"));
+        assert_eq!(
+            app.debug_state().instances[1].color,
+            riggen_viewport::DEFAULT_INSTANCE_COLOR.map(riggen_app::debug::round32)
+        );
+
+        // Add a material by name.
+        let new_name = harness
+            .get_all_by_role(egui::accesskit::Role::TextInput)
+            .last()
+            .expect("the new-material field is the last text input");
+        new_name.focus();
+        harness.step();
+        harness.event(egui::Event::Text("foam".to_owned()));
+        harness.step();
+        harness.get_by_label("Add").click();
+        harness.step();
+        let app = harness.state();
+        assert_eq!(app.robot().materials["foam"].density, 1000.0);
+
+        // Type a density into foam's row (rows in name order: ABS, aluminium,
+        // foam, …; foam is the third density field).
+        let index = app
+            .robot()
+            .materials
+            .keys()
+            .position(|k| k == "foam")
+            .unwrap();
+        let rect = harness
+            .get_all_by_role(egui::accesskit::Role::TextInput)
+            .nth(index)
+            .unwrap()
+            .rect();
+        let pos = rect.center();
+        harness.event(egui::Event::PointerMoved(pos));
+        harness.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        });
+        harness.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        });
+        harness.step();
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        harness.step();
+        harness.event(egui::Event::Text("120".to_owned()));
+        harness.step();
+        harness.key_press(egui::Key::Enter);
+        harness.step();
+        harness.step();
+        let app = harness.state();
+        assert_eq!(app.robot().materials["foam"].density, 120.0);
+
+        // The link combo reads the same table: give arm the new material
+        // and the tint follows.
+        harness
+            .state_mut()
+            .apply(Command::SetLinkMaterial(arm, Some("foam".into())))
+            .unwrap();
+        let app = harness.state();
+        assert_eq!(
+            app.debug_state().instances[1].color,
+            [0.6, 0.6, 0.6, 1.0].map(riggen_app::debug::round32)
+        );
+        assert!(
+            app.robot()
+                .links
+                .values()
+                .any(|l| l.material.as_deref() == Some("foam"))
+        );
+    });
+}

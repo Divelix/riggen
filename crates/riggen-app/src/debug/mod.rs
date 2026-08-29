@@ -145,6 +145,8 @@ pub struct InstanceDebug {
     /// Translation column of the model matrix: the geom's world position
     /// at the current joint values.
     pub position: [f64; 3],
+    /// Linear RGBA tint: the link's material colour.
+    pub color: [f64; 4],
 }
 
 impl RiggenApp {
@@ -197,11 +199,13 @@ impl RiggenApp {
                     .renaming
                     .as_ref()
                     .map(|(l, text)| (l.to_string(), text.clone())),
-                windows: self
-                    .joints_window_open()
-                    .then_some("joints")
-                    .into_iter()
-                    .collect(),
+                windows: [
+                    self.joints_window_open().then_some("joints"),
+                    self.materials_window_open().then_some("materials"),
+                ]
+                .into_iter()
+                .flatten()
+                .collect(),
             },
             instances: self
                 .viewport
@@ -222,6 +226,7 @@ impl RiggenApp {
                         let t = state.model.w_axis;
                         [round(t.x), round(t.y), round(t.z)]
                     },
+                    color: state.color.map(round32),
                 })
                 .collect(),
             selection: SelectionDebug {
