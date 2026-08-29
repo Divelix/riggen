@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "robot": {
+    "name": "pendulum",
+    "links": {
+      "l0": {
+        "name": "base_link",
+        "visuals": [
+          {
+            "id": "g2",
+            "mesh": "m1",
+            "pose": {
+              "t": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "r": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ]
+            },
+            "color": null
+          }
+        ],
+        "collision": "SameAsVisual",
+        "inertial": {
+          "Computed": {
+            "density_override": null
+          }
+        },
+        "material": "aluminium"
+      },
+      "l5": {
+        "name": "arm",
+        "visuals": [
+          {
+            "id": "g4",
+            "mesh": "m3",
+            "pose": {
+              "t": [
+                0.0,
+                0.0,
+                0.5
+              ],
+              "r": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ]
+            },
+            "color": null
+          }
+        ],
+        "collision": "SameAsVisual",
+        "inertial": {
+          "Computed": {
+            "density_override": null
+          }
+        },
+        "material": "PLA"
+      }
+    },
+    "joints": {
+      "j6": {
+        "name": "hinge",
+        "kind": "Revolute",
+        "parent": "l0",
+        "child": "l5",
+        "origin": {
+          "t": [
+            0.0,
+            0.0,
+            0.5
+          ],
+          "r": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        },
+        "axis": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "limits": {
+          "lower": -1.5707963267948966,
+          "upper": 1.5707963267948966,
+          "effort": 10.0,
+          "velocity": 3.0
+        },
+        "dynamics": {
+          "damping": 0.1,
+          "friction": 0.0,
+          "armature": 0.0
+        }
+      }
+    },
+    "frames": {},
+    "assets": {
+      "m1": {
+        "path": "cube_binary.stl",
+        "content_hash": 16366162079779491545,
+        "scale": 1.0,
+        "fix_up": null
+      },
+      "m3": {
+        "path": "cube_ascii.stl",
+        "content_hash": 13076597094302796077,
+        "scale": 1.0,
+        "fix_up": null
+      }
+    },
+    "root": "l0",
+    "materials": {
+      "ABS": {
+        "density": 1040.0,
+        "color": [
+          0.2,
+          0.45,
+          0.85,
+          1.0
+        ]
+      },
+      "PLA": {
+        "density": 1240.0,
+        "color": [
+          0.9,
+          0.55,
+          0.2,
+          1.0
+        ]
+      },
+      "aluminium": {
+        "density": 2700.0,
+        "color": [
+          0.77,
+          0.78,
+          0.8,
+          1.0
+        ]
+      },
+      "nylon": {
+        "density": 1150.0,
+        "color": [
+          0.92,
+          0.92,
+          0.85,
+          1.0
+        ]
+      },
+      "rubber": {
+        "density": 1100.0,
+        "color": [
+          0.15,
+          0.15,
+          0.15,
+          1.0
+        ]
+      },
+      "steel": {
+        "density": 7850.0,
+        "color": [
+          0.45,
+          0.47,
+          0.5,
+          1.0
+        ]
+      }
+    },
+    "next_id": 7
+  }
+}
