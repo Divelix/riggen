@@ -694,5 +694,7 @@ GUI is never entered from inside a Python call.
   `python/tests/test_mjcf_load.py` on both through `uv` (ADR-0008 §3) —
   and the `wheel` job: maturin-action builds the linux x86_64 wheel in the
   manylinux 2_28 container, a fresh `uv venv` installs it, `test_wheel.py`
-  runs. The binary links only libc, so no container needs a package
-  installed first. `release.yml` is §Python distribution.
+  runs — about 6.5 min wall time, the same as the `mujoco` job (a release
+  build of the app from cold either way). The binary links only libc, so
+  no container needs a package installed first. The `clippy` job runs the
+  *latest* stable, so a new lint reaches CI before the local hook. `release.yml` is §Python distribution.
