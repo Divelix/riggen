@@ -16,7 +16,7 @@ use web_time::Instant;
 
 pub(crate) use document::LoadedMesh;
 pub use document::Selection;
-use panels::TreeState;
+use panels::{PropertiesState, TreeState};
 
 /// The eframe app: one `Robot` and what is derived from it
 /// (docs/01-architecture.md §The document is the only state).
@@ -42,6 +42,8 @@ pub struct RiggenApp {
     import_scale: f64,
     /// Transient state of the tree panel (an inline rename in progress).
     pub(crate) tree: TreeState,
+    /// Transient state of the properties panel (fields being typed into).
+    pub(crate) props: PropertiesState,
     pub(crate) viewport: Viewport,
     /// The next [`InstanceId`] to hand out. Never reused within a session.
     next_instance: u32,
@@ -79,6 +81,7 @@ impl RiggenApp {
             last_viewport_selected: None,
             import_scale: Self::DEFAULT_IMPORT_SCALE,
             tree: TreeState::default(),
+            props: PropertiesState::default(),
             viewport,
             next_instance: 0,
             status: None,
@@ -153,6 +156,7 @@ impl eframe::App for RiggenApp {
         );
 
         self.tree_panel(ui);
+        self.properties_panel(ui);
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)

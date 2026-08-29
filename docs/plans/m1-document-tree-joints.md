@@ -189,7 +189,7 @@ hand-computed poses for a 3-joint chain.
   Snapshots: `tree_pendulum` (selection on `arm`, viewport tinted),
   `tree_reparent` (reparent through the command API — kittest cannot drag —
   then the tree re-drawn; the world pose assertion lives in `debug_state`).
-- [ ] Step 7 — Properties panel (right `SidePanel`): for a link — name,
+- [x] Step 7 — Properties panel (right `SidePanel`): for a link — name,
   material combo, geoms list with xyz + RPY (degrees) and the asset's scale /
   fix-up, "Add mesh to this link…", remove geom; for a joint — name, kind
   combo (limits appear / vanish with the kind), origin xyz + RPY (degrees),
@@ -354,6 +354,21 @@ Executable form, all green under `cargo test --workspace` on the CPU adapter:
     selection, so a multi-file drop lands side by side instead of chained.
     A selected joint counts as its child for both "+ Link" and drops. The
     `⟂` glyph is not in egui's default font — rows say `hinge · revolute`.
+  - Step 7: numeric fields are `TextEdit`s with a per-field draft buffer
+    (`PropertiesState.drafts`, keyed by widget id, alive only while the
+    field has focus); commit on `lost_focus` (Enter surrenders focus, so
+    it is the same path), Escape reverts, and a commit that formats to the
+    shown value is dropped before it becomes a command. Drafts are cleared
+    when the selection changes rather than committed to a field that is
+    no longer drawn. Every field is `labelled_by` its label, so kittest's
+    `get_all_by_label("x").nth(0)` is the origin's x and `.nth(1)` the
+    axis's — the harness fact for the docs. A closed `ComboBox` does not
+    expose its selected text as a label (the golden pins it instead).
+    Switching a joint to Revolute/Prismatic with no limits gives ±π /
+    ±1 m; switching away keeps the limits in the document (hidden), so
+    switching back restores them. `add_mesh_to_link(link, path)` is the
+    API behind "Add mesh to this link…"; `register_mesh` is shared with
+    the drop path. Panel default width 380 px so the `x y z` rows fit.
   - `validate` also checks material names (`InvalidName { kind:
     "material" }`) and that densities are finite and non-negative, so
     `UpsertMaterial` cannot smuggle an unexportable name into the table.
