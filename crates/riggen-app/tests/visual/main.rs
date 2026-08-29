@@ -1392,3 +1392,63 @@ fn build_pendulum_numerically() {
         assert_eq!(app.window_title(), "pendulum.riggen — riggen");
     });
 }
+
+/// The Debug menu open over the pendulum: egui's layout overlays and the
+/// Copy / Save state items — the runtime route to `debug_state()`.
+#[test]
+fn debug_menu() {
+    scenario("debug_menu", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        settle(harness);
+
+        harness.get_by_label("Debug").click();
+        harness.step();
+        // A new popup area is laid out invisibly on its first frame, so the
+        // capture needs another one to actually show the menu.
+        settle(harness);
+        assert!(harness.query_by_label("Copy state (JSON)").is_some());
+        assert!(harness.query_by_label("Show widget hits").is_some());
+    });
+}
+
+/// An overlay toggle lands in both themes' styles. No golden: the overlay
+/// is egui's, and a picture of it would churn with every egui upgrade
+/// while showing nothing about riggen.
+#[test]
+fn debug_overlay_toggle_sets_both_themes() {
+    with_app(|harness| {
+        harness.get_by_label("Debug").click();
+        harness.step();
+        harness.get_by_label("Show widget hits").click();
+        harness.step();
+        for theme in [egui::Theme::Dark, egui::Theme::Light] {
+            assert!(
+                harness.ctx.style_of(theme).debug.show_widget_hits,
+                "{theme:?}"
+            );
+        }
+    });
+}
+
+/// Copy state (JSON) closes the menu and reports in the status bar; the
+/// clipboard itself is egui's and not observable here.
+#[test]
+fn debug_copy_state_reports() {
+    with_app(|harness| {
+        harness.get_by_label("Debug").click();
+        harness.step();
+        harness.get_by_label("Copy state (JSON)").click();
+        harness.step();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.status.as_deref(), Some(riggen_app::COPIED_STATUS));
+        assert!(
+            harness.query_by_label("Copy state (JSON)").is_none(),
+            "the menu closed"
+        );
+    });
+}

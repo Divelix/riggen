@@ -159,6 +159,11 @@ closes.
   Joints: one slider per movable joint in its limits (Continuous ±180°),
   writing `q` and syncing every frame, "Reset all". Materials: name /
   density / colour rows, add and remove (refused while a link uses it).
+- **Debug**: egui's `DebugOptions` overlays (debug on hover, widget hits,
+  interactive widgets, width / height expansion, resize, unaligned) toggled
+  in both themes at once, then **Copy state (JSON)** / **Save state
+  (JSON)…** — the runtime route to `debug_state()` (§Testing) for a state
+  reached by hand rather than by a scenario.
 - **File**: New, Open…, Save (Save As when untitled), Save As…, Import
   units, Quit; **Edit**: Undo, Redo, Delete, greyed out when idle. The
   window title is `name.riggen* — riggen`. Every route that would drop a
@@ -353,11 +358,12 @@ GUI is never entered from inside a Python call.
   modal, title — instances with their link/geom key, position and colour,
   viewport selection, status, viewport rect) accompanies every snapshot as
   a golden of its own; every float in it is rounded to six decimals and
-  `-0.0` normalised so goldens never churn. The M1 scenarios: `startup`,
+  `-0.0` normalised so goldens never churn. At runtime the same JSON is
+  under Debug › Copy / Save state (JSON), beside egui's layout overlays. The M1 scenarios: `startup`,
   `cube`, `hover_cube`, `select_cube`, `three_parts`, `pendulum`,
   `mm_scale_part`, `tree_pendulum`, `tree_reparent`, `properties_link`,
   `properties_joint`, `pendulum_swing`, `materials`, `dirty_title`,
-  `unsaved_confirm`, plus golden-less app tests including
+  `unsaved_confirm`, `debug_menu`, plus golden-less app tests including
   `build_pendulum_numerically`, the M1 acceptance in executable form.
   The harness sets the import scale to `1.0` (the fixtures are unit cubes
   meant as meters; the app's default is mm). Harness facts that must not be

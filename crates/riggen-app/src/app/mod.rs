@@ -1,6 +1,7 @@
 //! The application state and its per-frame `ui`: menu bar on top, status
 //! bar on the bottom, the viewport in the central panel.
 
+mod debug_menu;
 mod document;
 mod file_io;
 mod file_menu;
@@ -15,6 +16,7 @@ use riggen_core::{GeomId, History, JointState, LinkId, MeshId, Robot};
 use riggen_viewport::{InstanceId, PickHit, Viewport};
 use web_time::Instant;
 
+pub use debug_menu::COPIED_STATUS;
 pub(crate) use document::LoadedMesh;
 pub use document::Selection;
 pub use file_menu::PendingAction;
@@ -136,6 +138,7 @@ impl RiggenApp {
                     ui.checkbox(&mut self.joints_window.open, "Joints");
                     ui.checkbox(&mut self.materials_window.open, "Materials");
                 });
+                ui.menu_button("Debug", |ui| self.debug_menu(ui));
             });
         });
     }
