@@ -113,7 +113,7 @@ snapshot scenarios and the scripted `five_minute_arm` acceptance.
   joint (OPEN 4). `debug_state.glyphs` with screen positions. Snapshots
   `glyph_revolute`, `glyph_prismatic`; `pendulum`, `tree_pendulum`,
   `properties_joint`, `pendulum_swing` refreshed and shown.
-- [ ] Step 6 — Hover both ways: a hovered tree row highlights its joint's
+- [x] Step 6 — Hover both ways: a hovered tree row highlights its joint's
   glyph; a hovered glyph (screen distance to the axis segment) highlights
   the tree row and the status bar names the joint; clicking a glyph
   selects the joint. Snapshot `glyph_hover`.

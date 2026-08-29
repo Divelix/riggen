@@ -13,6 +13,10 @@ use crate::app::{RiggenApp, Selection};
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TreeState {
     pub(crate) renaming: Option<(LinkId, String)>,
+    /// The joint whose row the pointer was over while this frame was drawn:
+    /// its glyph is highlighted in the viewport (`glyphs.rs`). Consumed once
+    /// per frame by `update_glyph_hover`.
+    pub(crate) hovered_joint: Option<JointId>,
     /// Set when a rename starts so the text field grabs focus on its first
     /// frame, then cleared.
     focus_rename: bool,
@@ -22,6 +26,8 @@ pub(crate) struct TreeState {
 enum TreeAction {
     Select(Selection),
     StartRename(LinkId),
+    /// The pointer is over this joint's row.
+    HoverJoint(JointId),
     /// A keystroke in the rename field: the buffer lives on `self`.
     TypeRename(LinkId, String),
     CommitRename(LinkId, String),
@@ -86,6 +92,7 @@ impl RiggenApp {
             match action {
                 TreeAction::Select(selection) => self.select(selection),
                 TreeAction::StartRename(link) => self.start_rename(link),
+                TreeAction::HoverJoint(joint) => self.tree.hovered_joint = Some(joint),
                 TreeAction::TypeRename(link, text) => self.tree.renaming = Some((link, text)),
                 TreeAction::CommitRename(link, name) => {
                     self.tree.renaming = None;
@@ -192,6 +199,13 @@ impl RiggenApp {
         let response =
             ui.add(egui::Button::selectable(selected, name).sense(egui::Sense::click_and_drag()));
         response.dnd_set_drag_payload(link);
+        // Hovering a link's row highlights the joint that holds it up: the
+        // row and the glyph are two views of the same edge.
+        if response.hovered()
+            && let Some(joint) = self.robot.parent_joint(link)
+        {
+            actions.push(TreeAction::HoverJoint(joint));
+        }
         if response.double_clicked() {
             actions.push(TreeAction::StartRename(link));
         } else if response.clicked() {
@@ -202,14 +216,26 @@ impl RiggenApp {
     fn row_joint(&self, ui: &mut egui::Ui, joint: JointId, actions: &mut Vec<TreeAction>) {
         let j = &self.robot.joints[&joint];
         let selected = self.selection == Selection::Joint(joint);
-        let text = egui::RichText::new(format!(
+        let hovered = self.hovered_joint == Some(joint);
+        let mut text = egui::RichText::new(format!(
             "{} · {}",
             j.name,
             format!("{:?}", j.kind).to_lowercase()
         ))
-        .weak()
         .small();
-        if ui.selectable_label(selected, text).clicked() {
+        // Hovered but not selected reads as "this one", not as a second
+        // selection: the row brightens rather than taking the selectable
+        // background.
+        text = if hovered && !selected {
+            text.strong().color(egui::Color32::from_rgb(255, 236, 179))
+        } else {
+            text.weak()
+        };
+        let response = ui.selectable_label(selected, text);
+        if response.hovered() {
+            actions.push(TreeAction::HoverJoint(joint));
+        }
+        if response.clicked() {
             actions.push(TreeAction::Select(Selection::Joint(joint)));
         }
     }

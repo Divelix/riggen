@@ -183,8 +183,10 @@ pub struct GlyphDebug {
     pub q: f64,
     /// Where the pivot lands in the viewport, in egui points.
     pub screen: Option<[f64; 2]>,
-    /// Drawn brighter and thicker: the selected (later also hovered) joint.
+    /// Drawn brighter and thicker: the hovered joint, else the selected one.
     pub active: bool,
+    /// The pointer is on this glyph, or on its row in the tree.
+    pub hovered: bool,
 }
 
 /// One viewport instance: identity, visibility, size and where it is.
@@ -320,6 +322,7 @@ impl RiggenApp {
                             .project_world(glyph.pivot.t)
                             .map(|p| [round32(p.x), round32(p.y)]),
                         active: active == Some(glyph.joint),
+                        hovered: self.hovered_joint() == Some(glyph.joint),
                     })
                     .collect()
             },

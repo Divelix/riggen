@@ -188,7 +188,14 @@ closes.
   glyph is the size of the part it belongs to; the scene radius, then one
   metre, are the fallbacks. Drawn for every movable joint plus the
   selected one whatever its kind (plans/m2-placement-ux OPEN 4) — every
-  weld in a big assembly would be noise.
+  weld in a big assembly would be noise. **Hover runs both ways**: a
+  hovered tree row (the link's name or the joint's label) draws that
+  joint's glyph hot, and a glyph under the cursor — nearest axis segment
+  within `GLYPH_HOVER_RADIUS` screen points, measured in screen space
+  because what the user aims at is the line they can see — brightens the
+  tree row and names the joint in the status bar. While a glyph is
+  hovered the viewport's own pick is suppressed, so the part behind it is
+  not highlighted as well and a click selects the *joint*.
 - **Properties** (right): a link's name, material, and per geom the pose
   (xyz m, RPY °), asset scale and fix-up, "Add mesh to this link…"; a
   joint's name, kind (limits appear with Revolute/Prismatic, defaulting to
@@ -426,7 +433,7 @@ GUI is never entered from inside a Python call.
   `three_parts`, `pendulum`, `mm_scale_part`, `tree_pendulum`,
   `tree_reparent`, `properties_link`, `properties_joint`, `pendulum_swing`,
   `materials`, `toolbar`, `gizmo_move_link`, `gizmo_rotate_joint`,
-  `glyph_revolute`, `glyph_prismatic`,
+  `glyph_revolute`, `glyph_prismatic`, `glyph_hover`,
   `dirty_title`, `unsaved_confirm`, `debug_menu`, plus
   golden-less app tests including `build_pendulum_numerically`, the M1
   acceptance in executable form.

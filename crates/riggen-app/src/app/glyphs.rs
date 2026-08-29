@@ -36,6 +36,12 @@ const TRIAD_COLORS: [egui::Color32; 3] = [
 /// The tick at the current `q`.
 const TICK_COLOR: egui::Color32 = egui::Color32::from_rgb(245, 245, 245);
 
+/// How near the cursor has to come to a glyph's axis segment, in screen
+/// points, to count as pointing at it. Roughly a finger's worth of slop on
+/// a line that is 1.5 points wide — a joint is a small target and missing it
+/// by two pixels should not mean picking the part behind it instead.
+pub const GLYPH_HOVER_RADIUS: f32 = 8.0;
+
 /// Fractions of the glyph's size (§`glyph_size`).
 const AXIS_HALF_LENGTH: f64 = 1.15;
 const TRIAD_LENGTH: f64 = 0.4;
@@ -176,13 +182,38 @@ impl RiggenApp {
         overlay
     }
 
-    /// The joint a glyph is drawn hot for: the selected one for now, and
-    /// from step 6 the hovered one too.
+    /// The joint a glyph is drawn hot for: the one under the pointer, else
+    /// the selected one.
     pub fn active_joint(&self) -> Option<JointId> {
-        match self.selection {
+        self.hovered_joint.or(match self.selection {
             Selection::Joint(j) => Some(j),
             _ => None,
-        }
+        })
+    }
+
+    /// The joint the pointer is on, from the tree or from its glyph.
+    pub fn hovered_joint(&self) -> Option<JointId> {
+        self.hovered_joint
+    }
+
+    /// The joint whose glyph is under `pos`, by screen distance to its axis
+    /// segment; the nearest within [`GLYPH_HOVER_RADIUS`] wins.
+    ///
+    /// Screen space, not a ray cast: the glyph is a line drawn at a fixed
+    /// pixel width and what the user is aiming at is the line they can see,
+    /// not a cylinder around it that shrinks with distance.
+    pub fn glyph_at(&self, glyphs: &[JointGlyph], pos: egui::Pos2) -> Option<JointId> {
+        glyphs
+            .iter()
+            .filter_map(|glyph| {
+                let (from, to) = glyph.axis_ends();
+                let a = self.project_world(from)?;
+                let b = self.project_world(to)?;
+                let distance = distance_to_segment(pos, a, b);
+                (distance <= GLYPH_HOVER_RADIUS).then_some((distance, glyph.joint))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, joint)| joint)
     }
 
     /// The swept range of a revolute joint, with a tick at the current `q`.
@@ -251,5 +282,37 @@ impl RiggenApp {
             TICK_COLOR,
             width,
         );
+    }
+}
+
+/// Distance in screen points from `pos` to the segment `a`–`b`; the
+/// distance to the nearer end when the projection falls outside it.
+pub(crate) fn distance_to_segment(pos: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
+    let ab = b - a;
+    let length_sq = ab.length_sq();
+    if length_sq <= f32::EPSILON {
+        return (pos - a).length();
+    }
+    let t = ((pos - a).dot(ab) / length_sq).clamp(0.0, 1.0);
+    (pos - (a + ab * t)).length()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::pos2;
+
+    #[test]
+    fn distance_to_a_segment_clamps_to_its_ends() {
+        let (a, b) = (pos2(10.0, 10.0), pos2(30.0, 10.0));
+        // Beside the middle.
+        assert!((distance_to_segment(pos2(20.0, 15.0), a, b) - 5.0).abs() < 1e-5);
+        // On it.
+        assert!(distance_to_segment(pos2(25.0, 10.0), a, b) < 1e-5);
+        // Past an end: the distance to the end, not to the infinite line.
+        assert!((distance_to_segment(pos2(40.0, 10.0), a, b) - 10.0).abs() < 1e-5);
+        assert!((distance_to_segment(pos2(0.0, 10.0), a, b) - 10.0).abs() < 1e-5);
+        // A degenerate segment is a point.
+        assert!((distance_to_segment(pos2(13.0, 14.0), a, a) - 5.0).abs() < 1e-5);
     }
 }

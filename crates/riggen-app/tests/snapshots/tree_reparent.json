@@ -253,7 +253,8 @@
         554.493408,
         404.2117
       ],
-      "active": false
+      "active": false,
+      "hovered": false
     }
   ],
   "status": null,

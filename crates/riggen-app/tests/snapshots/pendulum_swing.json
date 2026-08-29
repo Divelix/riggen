@@ -207,7 +207,8 @@
         604.931946,
         434.444885
       ],
-      "active": false
+      "active": false,
+      "hovered": false
     }
   ],
   "status": null,

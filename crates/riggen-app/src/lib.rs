@@ -5,8 +5,8 @@ mod app;
 pub mod debug;
 
 pub use app::{
-    COPIED_STATUS, GizmoTarget, JointGlyph, PendingAction, RiggenApp, Selection, Tool,
-    ZERO_CONFIG_STATUS,
+    COPIED_STATUS, GLYPH_HOVER_RADIUS, GizmoTarget, JointGlyph, PendingAction, RiggenApp,
+    Selection, Tool, ZERO_CONFIG_STATUS,
 };
 
 #[cfg(target_arch = "wasm32")]
