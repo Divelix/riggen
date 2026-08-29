@@ -398,8 +398,11 @@ GUI is never entered from inside a Python call.
   - `tests/visual_scratch.rs` is `test = false` and run by name
     (`cargo test -p riggen-app --test visual_scratch -- --nocapture`); it
     writes `target/visual-scratch/scratch.{png,json}` and compares against
-    nothing — the "show me the app right now" path. `with_app()` runs a body
-    against the real app with no goldens at all.
+    nothing — the "show me the app right now" path. `RIGGEN_SCRATCH_OPEN=
+    <path>` (relative to the workspace root) opens a document or mesh and
+    fits the view before the capture, so no tracked file is edited to look
+    at one. `with_app()` runs a body against the real app with no goldens
+    at all. The `visual-debug` skill is the how-to for all of this.
   - A scenario prints `SKIPPING` when no wgpu adapter exists. That is an
     environment failure, not a pass; CI installs `mesa-vulkan-drivers`.
 - CI: `cargo fmt --check`, `clippy -D warnings`, `cargo test`, and a

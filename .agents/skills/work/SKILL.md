@@ -16,7 +16,8 @@ argument-hint: <plan slug> [step number or range]
    are edited in the same step (`.agents/rules/git.md`).
 3. Run the checks the hook will run: `cargo fmt --all`, `cargo clippy
    --workspace --all-targets -- -D warnings`, `cargo test --workspace`. For
-   a visible UI change, capture a snapshot and look at the image.
+   a visible UI change, capture a snapshot and look at the image
+   (`visual-debug` skill).
 4. Commit: `type(scope): summary (plans/<slug> step N)`; body says why and
    cites docs/ADRs. Tick the box in the plan and include the plan file in
    the same commit.
