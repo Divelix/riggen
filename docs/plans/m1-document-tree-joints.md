@@ -153,7 +153,7 @@ hand-computed poses for a 3-joint chain.
   XML-valid names, non-zero axis, limits present and ordered for
   Revolute/Prismatic) and a test per error. **ADR-0005**: ids as counters and
   joints as edges, with the reasons above.
-- [ ] Step 2 — `fk`: `JointState`, `motion(kind, axis, q)`, one depth-first
+- [x] Step 2 — `fk`: `JointState`, `motion(kind, axis, q)`, one depth-first
   pass from the root returning `BTreeMap<LinkId, Pose>`. Tests: the 3-joint
   chain against hand-computed poses (revolute about Z, revolute about Y with
   an offset origin, prismatic), a fixed joint is identity, a joint absent
