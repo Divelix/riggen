@@ -56,7 +56,7 @@ still made a human necessary.
   `UPDATE_SNAPSHOTS=1`, confirm the JSON goldens are byte-identical, look
   at `startup.diff.png`, and say `snapshots:` in the commit body. Docs:
   01 §Panels and menus, §Testing.
-- [ ] Step 2 — `visual-debug` skill and the scratch env var.
+- [x] Step 2 — `visual-debug` skill and the scratch env var.
   `.agents/skills/visual-debug/SKILL.md`: the two paths (scratch vs.
   scenario), reading the JSON section by section, the helper table
   (`settle`, `pump_rendered`, `click_at`, `fit_view_now`,

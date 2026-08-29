@@ -43,6 +43,9 @@ with M3.
 - Decisions go in `docs/adr/`; `⚠ OPEN:` in a doc marks a deferred one.
 - Every UI change that can be seen gets a snapshot test (ADR-0003). When a
   snapshot changes, show the human the image.
+- The agent looks at the UI itself — `visual-debug` skill (scratch capture,
+  `debug_state()` JSON, Debug menu). Never ask the human to describe the
+  screen.
 - Update this file's "Current state" when a milestone lands; keep it under
   ~15 lines — the roadmap holds the detail.
 - Backlog line → `/idea` (brainstorm, `docs/ideas/`) → `/plan` (todo,

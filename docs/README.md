@@ -31,7 +31,8 @@ Raw ideas go in `BACKLOG.md`, one line each. A line that needs thinking
 becomes an idea; one that is obvious goes straight to a plan; not every idea
 becomes a plan. The pipeline is walked by the shared skills `/idea`, `/plan`,
 `/work`, `/retire-plan` (`.agents/skills/`, symlinked into `.claude/skills/`),
-under the rules in `.agents/rules/`.
+under the rules in `.agents/rules/`. `visual-debug`, beside them, is how the
+agent sees the GUI it is changing (ADR-0003).
 
 `AGENTS.md`'s "Current state" is capped at ~15 lines and speaks at milestone
 granularity only. RoboCAD's grew into a changelog because progress narrative
