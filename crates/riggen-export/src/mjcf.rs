@@ -293,10 +293,41 @@ mod tests {
 
     #[test]
     fn primitive_sizes_are_half_extents() {
-        // The classic mistake: MJCF `size` is half of what URDF says.
-        let b = every_joint_kind();
+        // The classic mistake: MJCF `size` is half of what URDF says — a
+        // box is half-extents, a cylinder / capsule is (radius,
+        // half-length), a sphere is its radius.
+        let mut b = every_joint_kind();
+        let tip = *b
+            .robot
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "tip")
+            .unwrap()
+            .0;
+        let pose = Pose::from_translation(DVec3::Z * 0.01);
+        b.robot.links.get_mut(&tip).unwrap().collision =
+            riggen_core::CollisionPolicy::Primitives(vec![
+                Primitive::Cylinder {
+                    pose,
+                    radius: 0.02,
+                    length: 0.5,
+                },
+                Primitive::Sphere { pose, radius: 0.03 },
+                Primitive::Capsule {
+                    pose,
+                    radius: 0.04,
+                    length: 0.6,
+                },
+            ]);
         let xml = write(&b.resolve().unwrap(), &ExportOptions::default());
-        assert!(xml.contains("type=\"box\" size=\"0.05 0.1 0.15\""), "{xml}");
+        for line in [
+            "<geom class=\"collision\" type=\"box\" size=\"0.05 0.1 0.15\" pos=\"0 0 0.01\"/>",
+            "<geom class=\"collision\" type=\"cylinder\" size=\"0.02 0.25\" pos=\"0 0 0.01\"/>",
+            "<geom class=\"collision\" type=\"sphere\" size=\"0.03\" pos=\"0 0 0.01\"/>",
+            "<geom class=\"collision\" type=\"capsule\" size=\"0.04 0.3\" pos=\"0 0 0.01\"/>",
+        ] {
+            assert!(xml.contains(line), "missing {line}\n{xml}");
+        }
     }
 
     #[test]

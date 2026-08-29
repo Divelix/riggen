@@ -306,6 +306,52 @@ mod tests {
     }
 
     #[test]
+    fn primitives_are_full_extents_and_a_capsule_becomes_a_cylinder() {
+        let mut b = every_joint_kind();
+        let tip = *b
+            .robot
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "tip")
+            .unwrap()
+            .0;
+        let pose = Pose::from_translation(DVec3::Z * 0.01);
+        b.robot.links.get_mut(&tip).unwrap().collision =
+            riggen_core::CollisionPolicy::Primitives(vec![
+                Primitive::Cylinder {
+                    pose,
+                    radius: 0.02,
+                    length: 0.5,
+                },
+                Primitive::Sphere { pose, radius: 0.03 },
+                Primitive::Capsule {
+                    pose,
+                    radius: 0.04,
+                    length: 0.6,
+                },
+            ]);
+        let urdf = write(
+            &b.resolve().unwrap(),
+            &ExportOptions::default(),
+            Path::new("."),
+        );
+        for line in [
+            "<box size=\"0.1 0.2 0.3\"/>",
+            "<cylinder radius=\"0.02\" length=\"0.5\"/>",
+            "<sphere radius=\"0.03\"/>",
+            "<!-- capsule written as a cylinder: URDF has no capsule -->",
+            "<cylinder radius=\"0.04\" length=\"0.6\"/>",
+        ] {
+            assert!(urdf.contains(line), "missing {line}\n{urdf}");
+        }
+        assert!(!urdf.contains("<capsule"));
+        // And urdf-rs reads every one of them.
+        let parsed = urdf_rs::read_from_string(&urdf).unwrap();
+        let tip = parsed.links.iter().find(|l| l.name == "tip").unwrap();
+        assert_eq!(tip.collision.len(), 3);
+    }
+
+    #[test]
     fn every_mesh_path_style() {
         let dir = Path::new("/exports/arm");
         let rel = ExportOptions::default();
