@@ -113,7 +113,7 @@ All present-tense text lands in the design docs at retirement; the deltas:
   `Ray { origin, dir }` + Möller–Trumbore `ray_triangle(ray, tri) ->
   Option<f64>`; `TriMesh::cube(half)` test helper. Tests: unit cube AABB,
   ray hits/misses/parallel/backface, degenerate-index rejection.
-- [ ] Step 4 — STL loader: `load_stl(path) -> Result<TriMesh, MeshError>`
+- [x] Step 4 — STL loader: `load_stl(path) -> Result<TriMesh, MeshError>`
   handling binary and ASCII (sniff: "solid" prefix *and* parseable facets, since
   some binary files start with "solid"), unwelded vertices, normals recomputed
   from winding (file normals are unreliable), `MeshError` grows `Io` / `Parse`
@@ -227,3 +227,8 @@ All present-tense text lands in the design docs at retirement; the deltas:
   vertices anyway (step 7's `PickVertex`). STL is unwelded already; an OBJ
   without normals gets tripled. `ray_triangle` is two-sided: the ID buffer
   chose the triangle, the CPU test only recovers the point on it.
+- Finding (step 4): `stl_io` sniffs on the `solid ` prefix alone and keeps
+  its binary reader private, so `riggen-mesh::stl` parses binary itself
+  (size-checked against the facet count) and uses `stl_io` for ASCII only.
+  The `MAX_TRIANGLES = 2^20 − 1` cap is enforced by every loader
+  (`finish_loaded`); step 7's `upload` check becomes a defensive assert.

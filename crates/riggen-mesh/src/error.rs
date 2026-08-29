@@ -5,6 +5,13 @@ use std::fmt;
 /// status bar and nothing matches on them yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MeshError {
+    /// The file could not be read at all.
+    Io { path: String, message: String },
+    /// The bytes are not a mesh in the format the extension promised.
+    Parse { path: String, message: String },
+    /// More triangles than the pick-id encoding can address
+    /// ([`crate::MAX_TRIANGLES`]); decimation is a backlog item.
+    TooManyTriangles { path: String, count: usize },
     /// `indices.len()` is not a multiple of three.
     IndexCount { len: usize },
     /// An index names a vertex the mesh does not have.
@@ -19,6 +26,13 @@ pub enum MeshError {
 impl fmt::Display for MeshError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Io { path, message } => write!(f, "{path}: {message}"),
+            Self::Parse { path, message } => write!(f, "{path}: {message}"),
+            Self::TooManyTriangles { path, count } => write!(
+                f,
+                "{path}: {count} triangles, more than the {} the viewport can pick",
+                crate::MAX_TRIANGLES
+            ),
             Self::IndexCount { len } => {
                 write!(f, "index count {len} is not a multiple of three")
             }
