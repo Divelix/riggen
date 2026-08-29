@@ -95,7 +95,8 @@
     "selection": null
   },
   "ui": {
-    "renaming": null
+    "renaming": null,
+    "windows": []
   },
   "instances": [],
   "selection": {

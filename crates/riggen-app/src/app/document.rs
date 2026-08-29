@@ -224,6 +224,12 @@ impl RiggenApp {
         self.q.get(joint)
     }
 
+    /// Every joint back to zero ("Reset all").
+    pub fn reset_joint_values(&mut self) {
+        self.q = JointState::default();
+        self.sync_scene();
+    }
+
     /// Where a new link goes: under the selected link, under a selected
     /// joint's child, else under the root.
     pub fn insertion_parent(&self) -> LinkId {

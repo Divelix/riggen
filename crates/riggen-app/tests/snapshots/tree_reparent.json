@@ -126,7 +126,8 @@
     "selection": "link l5"
   },
   "ui": {
-    "renaming": null
+    "renaming": null,
+    "windows": []
   },
   "instances": [
     {
