@@ -41,7 +41,10 @@ committing**; the file is tracked and its default body is on purpose.
 (`startup`, `cube`, `hover_cube`, `select_cube`, `three_parts`, `pendulum`,
 `mm_scale_part`, `tree_pendulum`, `tree_reparent`, `properties_link`,
 `properties_joint`, `pendulum_swing`, `materials`, `dirty_title`,
-`unsaved_confirm`, `debug_menu`).
+`unsaved_confirm`, `debug_menu`; M2 adds `toolbar`, `gizmo_move_link`,
+`gizmo_rotate_joint`, `glyph_revolute`, `glyph_prismatic`, `glyph_hover`,
+`snap_vertex`, `snap_circle`, `place_joint_bore`, `align_concentric` and
+the acceptance, `five_minute_arm`).
 
 ```sh
 cargo test -p riggen-app --test visual
@@ -65,6 +68,14 @@ can be taken of it but it cannot be queried. The JSON is that half.
   bounds, world `position` at the current `q`, colour
 - `selection` — the hovered and selected `{instance, triangle}` the ID
   buffer resolved
+- `ui.tool` — the active tool, by its toolbar label
+- `glyphs` — per joint glyph: pivot, world axis, size, `q`, its **screen**
+  position, `hovered` / `active`
+- `gizmo` — target (`"link l3"` / `"joint j7"`), mode, origin, screen
+  position, `dragging`, `captured`
+- `snap` — what the cursor is pointing at: kind, point, normal, the axis a
+  joint would take, and for a circle its radius / segments / residual in
+  millimetres plus the readout string
 - `status` — the status bar's one-off message; `viewport_rect`
 
 A misplaced glyph or a link that "did not move" is a wrong *number* here:
@@ -90,6 +101,12 @@ points in `crates/riggen-app/src/debug/mod.rs` and the `pub` API of
 | a viewport click that actually selects | `click_at(harness, pos)` |
 | frame the geometry, no animation | `harness.state_mut().fit_view_now()` |
 | a point over the geometry | `harness.state().viewport_center()` |
+| **where a world point lands on screen** | `harness.state().project_world(DVec3)` |
+| a gizmo handle to aim at | `debug_state().gizmo.screen` (its view-plane handle) |
+| a joint glyph to aim at | `joint_glyphs()[i]`, then `project_world` along the axis |
+| a drag (gizmo, or anything) | `synthetic_drag(harness, from, to, steps)` |
+| a widget floating **over** the viewport | `click_widget(harness, label)` |
+| the tool | `harness.state_mut().set_tool(Tool::PlaceJoint)` |
 | load a document or a mesh | `harness.state_mut().open_path(path)` |
 | unit-cube fixtures as meters | `set_import_scale(1.0)` (the harness already does) |
 | edit the document | `harness.state_mut().apply(Command::…)` |
@@ -118,8 +135,20 @@ Things that will otherwise cost you an hour:
    animated frame is not reproducible. `fit_view_now`, never Home;
    `debug_state().camera.animating` is the tell.
 5. **kittest cannot drag a tree row onto another.** Reparent through the
-   command API and draw the result; a synthetic drag (press, `PointerMoved`
-   in steps, release) works for a one-off check only.
+   command API and draw the result; `synthetic_drag` works for a one-off
+   check only.
+6. **`Node::click()` on a widget over the viewport leaves a pick stuck.**
+   It queues press and release together and `step` runs one *unrendered*
+   logic pass per queued event, so the pick the pointer move issues is
+   recorded by a frame nothing renders. Use `click_widget`, which drives
+   the same events `click_at` does. (The viewport abandons such a request
+   after `MAX_PICK_FRAMES` now, so this is slow rather than fatal.)
+7. **Aim a placement click at a point you can see.** `project_world` gives
+   the screen position of any world point; pick one on the *camera-facing*
+   side of a shaft and off the mid-plane if a block is in the way, or the
+   snap ladder answers with the vertex or box corner that happens to be
+   nearer in screen space. `five_minute_arm`'s `aim_at_shaft` is the
+   worked example.
 
 Scenarios are serialised behind a mutex — concurrent lavapipe devices at
 1440×900 segfault. Keep new scenarios going through `harness::scenario`,

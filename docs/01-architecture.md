@@ -64,7 +64,8 @@ riggen/
 │                           # panels/{tree, properties, joints, materials}
 ├── assets/fixtures/        # cube_binary.stl, cube_ascii.stl, cube.obj — the unit cube
 │                           # (TriMesh::cube(0.5)) in every format; pendulum.riggen, the
-│                           # .riggen v1 corpus file (02 §Schema)
+│                           # .riggen v1 corpus file (02 §Schema); arm/*.stl in mm, the
+│                           # M2 acceptance's four parts (an ignored generator test writes them)
 ├── python/                 # v0.2: pyproject.toml, riggen/ package, riggen-py crate
 ├── docs/
 ├── SEED.md
@@ -353,6 +354,12 @@ move and the gesture costs one history entry. The pending first pick is
 drawn in magenta, not remembered silently, and a tool change or another
 selection abandons it.
 
+A box target on the **far** side of the part is dropped before the ladder
+runs: the overlay is not depth-tested and a bounding box floats around the
+geometry rather than lying on it, so a hidden corner would otherwise win a
+snap to something the user cannot see. A vertex of the hit triangle is on
+the surface by construction and is not filtered.
+
 **Place joint** turns a candidate into one `MoveJointFrame` on the selected
 joint: the frame keeps its orientation and moves to the feature, and the
 axis is the feature's, re-expressed in that frame. A circle gives both
@@ -480,7 +487,7 @@ GUI is never entered from inside a Python call.
   `tree_reparent`, `properties_link`, `properties_joint`, `pendulum_swing`,
   `materials`, `toolbar`, `gizmo_move_link`, `gizmo_rotate_joint`,
   `glyph_revolute`, `glyph_prismatic`, `glyph_hover`, `snap_vertex`,
-  `snap_circle`, `place_joint_bore`, `align_concentric`,
+  `snap_circle`, `place_joint_bore`, `align_concentric`, `five_minute_arm`,
   `dirty_title`, `unsaved_confirm`, `debug_menu`, plus
   golden-less app tests including `build_pendulum_numerically`, the M1
   acceptance in executable form.

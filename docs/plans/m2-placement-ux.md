@@ -133,7 +133,7 @@ snapshot scenarios and the scripted `five_minute_arm` acceptance.
   `SetJoint` on the link's parent joint via `origin_for_world`. Test on a
   tube offset from a boss; snapshot `align_concentric`. Backlog line:
   snapping during gizmo drags.
-- [ ] Step 10 — Fixtures and the acceptance: `assets/fixtures/arm/{base,
+- [x] Step 10 — Fixtures and the acceptance: `assets/fixtures/arm/{base,
   shoulder, upper, fore}.stl` in mm, written by an `#[ignore]` generator
   test (base with a Z boss, shoulder with a Y boss, upper bar with a Y
   boss, fore bar with a tube — exported offset by a known vector);
