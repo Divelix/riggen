@@ -6,6 +6,7 @@ mod document;
 mod file_io;
 mod file_menu;
 mod gizmo;
+mod glyphs;
 mod panels;
 mod shortcuts;
 mod status_bar;
@@ -25,6 +26,7 @@ pub use file_menu::PendingAction;
 use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use gizmo::GizmoState;
 pub use gizmo::GizmoTarget;
+pub use glyphs::JointGlyph;
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 pub use tool::{Tool, ZERO_CONFIG_STATUS};
 
@@ -216,6 +218,12 @@ impl eframe::App for RiggenApp {
         // the cursor until it has run, and the viewport runs first.
         self.viewport
             .set_input_suppressed(self.gizmo_state.captured);
+        // Glyphs are derived from the document and the current `q`, so they
+        // are rebuilt every frame and handed to the viewport before it
+        // paints (docs/01-architecture.md §Frame loop).
+        let glyphs = self.joint_glyphs();
+        let overlay = self.glyph_overlay(&glyphs, self.active_joint());
+        self.viewport.set_overlay(overlay);
 
         self.menu_bar(ui);
 
