@@ -243,7 +243,7 @@ fn check_references(robot: &Robot, errors: &mut Vec<ValidationError>) {
     }
     for (&lid, link) in &robot.links {
         let mut seen = BTreeSet::new();
-        for geom in &link.visuals {
+        for geom in link.visuals.iter().chain(link.collision.geoms()) {
             if !seen.insert(geom.id) {
                 errors.push(ValidationError::DuplicateGeomId {
                     link: lid,

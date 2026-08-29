@@ -85,8 +85,10 @@ Python job runs.
 
 **`riggen-export`** stops being a placeholder:
 
-- `resolve(&Robot, &impl MeshLookup) -> Result<ResolvedRobot,
-  Vec<ExportError>>` per 02 §`ResolvedRobot`; `ResolvedGeom` is `Mesh {
+- `resolve(&Robot, &impl MeshLookup, &ExportOptions) ->
+  Result<ResolvedRobot, Vec<ExportError>>` per 02 §`ResolvedRobot` (the
+  options are an input because a floating root is a moving body that
+  needs mass — found in step 3); `ResolvedGeom` is `Mesh {
   name, mesh: Arc<TriMesh>, pose }` or `Primitive(Primitive)`. Hulls are
   computed here, per referenced `MeshId`, once. `ExportError` wraps
   `ValidationError`, `InertialError { link, .. }`, `ZeroMassMovableLink`
@@ -165,7 +167,7 @@ agrees with our FK" — is retired by step 5, before any UI exists.
   `Hybrid` scales mass and tensor together, `Override` passes through, an
   open mesh under `Computed` is `OpenMesh`, a flat plate's tensor fails
   the triangle inequality only after a bad `Override`.
-- [ ] Step 3 — `riggen-export::resolve`: `ResolvedRobot`, `ExportError`,
+- [x] Step 3 — `riggen-export::resolve`: `ResolvedRobot`, `ExportError`,
   topological link order, `None` / `SameAsVisual` / `Primitives` /
   `Meshes` collision resolution (hull deferred to step 7), the zero-mass
   movable link rule. Tests on the pendulum fixture and hand-built robots:

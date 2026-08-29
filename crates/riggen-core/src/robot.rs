@@ -186,10 +186,26 @@ pub enum CollisionPolicy {
     ConvexHull,
     /// Hand-placed primitives in link frame.
     Primitives(Vec<Primitive>),
+    /// Collision meshes that are not the visuals, in link frame — what a
+    /// URDF `<collision><mesh>` imports to, losslessly (M3, OPEN 1). Shown
+    /// read-only in the properties panel; a v1 file without the variant
+    /// still reads.
+    Meshes(Vec<Geom>),
     /// Post-MVP.
     ConvexDecomposition {
         max_hulls: u32,
     },
+}
+
+impl CollisionPolicy {
+    /// The geoms this policy holds itself (`Meshes`), so callers that walk
+    /// every mesh reference in a link do not match on the variant.
+    pub fn geoms(&self) -> &[Geom] {
+        match self {
+            Self::Meshes(geoms) => geoms,
+            _ => &[],
+        }
+    }
 }
 
 /// A collision primitive in link frame (`pose` is the primitive's centre
@@ -313,11 +329,12 @@ impl Robot {
         self.subtree(ancestor).contains(&link)
     }
 
-    /// Mesh ids referenced by at least one geom.
+    /// Mesh ids referenced by at least one geom, visual or collision.
     pub fn referenced_assets(&self) -> std::collections::BTreeSet<MeshId> {
         self.links
             .values()
-            .flat_map(|l| l.visuals.iter().map(|g| g.mesh))
+            .flat_map(|l| l.visuals.iter().chain(l.collision.geoms()))
+            .map(|g| g.mesh)
             .collect()
     }
 }

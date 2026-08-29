@@ -3022,6 +3022,10 @@ dependencies = [
 [[package]]
 name = "riggen-export"
 version = "0.1.0"
+dependencies = [
+ "riggen-core",
+ "riggen-mesh",
+]
 
 [[package]]
 name = "riggen-mesh"

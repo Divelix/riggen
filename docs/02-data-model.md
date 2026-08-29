@@ -311,24 +311,38 @@ check alone justifies the tool.
 
 ## `ResolvedRobot` (`riggen-export`)
 
-The exporters never see `Robot`. `resolve(&Robot, &MeshStore) ->
-Result<ResolvedRobot, Vec<ValidationError>>` produces a pure-numeric,
-convention-fixed intermediate:
+The exporters never see `Robot`. `resolve(&Robot, &impl MeshLookup,
+&ExportOptions) -> Result<ResolvedRobot, Vec<ExportError>>` produces a
+pure-numeric, convention-fixed intermediate:
 
 ```rust
 pub struct ResolvedRobot {
     pub name: String,
     pub links: Vec<ResolvedLink>,     // topological order, root first
-    pub joints: Vec<ResolvedJoint>,   // same order as links[1..], joint i parents link i
+    pub joints: Vec<ResolvedJoint>,   // joints[i] is the parent joint of links[i + 1]
+    pub meshes: BTreeMap<String, Arc<TriMesh>>, // every file to write, by stem, in meters
+    pub floating_base: bool,
 }
 pub struct ResolvedLink {
     pub name: String,
-    pub visuals: Vec<ResolvedGeom>,        // mesh file name + pose in link frame
-    pub collisions: Vec<ResolvedGeom>,     // hull/primitives already computed
-    pub inertial: ResolvedInertial,        // mass, com, tensor about com in link axes
+    pub visuals: Vec<ResolvedGeom>,
+    pub collisions: Vec<ResolvedGeom>,     // SameAsVisual copies visuals; hulls / primitives computed
+    pub inertial: Option<Inertial>,        // None for an empty static body: no <inertial>
 }
+pub enum ResolvedGeom { Mesh { name, mesh: Arc<TriMesh>, pose }, Primitive(Primitive) }
 pub struct ResolvedJoint { name, kind, parent: usize, child: usize, origin: Pose, axis: DVec3, limits, dynamics }
+pub struct ExportOptions { format: Format, mesh_paths: MeshPathStyle, floating_base: bool }
 ```
+
+`resolve` returns **every** problem it finds, so the export dialog lists
+them all at once: `ExportError::{Invalid(ValidationError), Inertial { link,
+error }, ZeroMassMovableLink, UnloadableMesh, Unsupported}`. A link whose
+parent joint is movable — or the root when `floating_base` is set — must
+have mass, because MuJoCo refuses a moving body without it; an empty static
+body is fine and gets no `<inertial>`. Mesh file stems are the assets' own
+stems made into identifiers, `_2`, `_3`, … when two collide. `MeshStore`
+is the headless `MeshLookup` (files read and brought to meters as the
+viewport does); the app implements the trait on its own store.
 
 Each writer is then a dumb serialiser. Adding SDF later is a new writer,
 not a new resolve.
