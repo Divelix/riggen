@@ -8,6 +8,7 @@ mod file_menu;
 mod panels;
 mod shortcuts;
 mod status_bar;
+mod tool;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -22,6 +23,7 @@ pub use document::Selection;
 pub use file_menu::PendingAction;
 use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
+pub use tool::{Tool, ZERO_CONFIG_STATUS};
 
 /// The eframe app: one `Robot` and what is derived from it
 /// (docs/01-architecture.md §The document is the only state).
@@ -39,6 +41,8 @@ pub struct RiggenApp {
     /// Current joint values — slider state, never saved.
     q: JointState,
     selection: Selection,
+    /// What a viewport gesture means (`tool.rs`).
+    tool: Tool,
     /// What the viewport reported selected last frame, to notice a click
     /// resolving without mistaking a programmatic selection for one.
     last_viewport_selected: Option<PickHit>,
@@ -103,6 +107,7 @@ impl RiggenApp {
             instances: BTreeMap::new(),
             q: JointState::default(),
             selection: Selection::None,
+            tool: Tool::default(),
             last_viewport_selected: None,
             import_scale,
             tree: TreeState::default(),
@@ -223,7 +228,9 @@ impl eframe::App for RiggenApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ui, |ui| {
-                self.viewport.ui(ui);
+                let rect = self.viewport.ui(ui).rect;
+                // After the viewport: the later widget wins the pointer.
+                self.tool_bar(ui, rect);
             });
         self.sync_selection_from_viewport();
         // Windows float over everything, so they go last.

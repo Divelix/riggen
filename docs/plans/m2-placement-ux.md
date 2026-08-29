@@ -88,7 +88,7 @@ snapshot scenarios and the scripted `five_minute_arm` acceptance.
   after a frame move (geoms and grandchildren included); a zero axis is
   refused through `validate`; a no-op move adds no history entry;
   `origin_for_world` round-trips through `fk` for a 3-joint chain.
-- [ ] Step 3 — `riggen-app`: `Tool` enum, the floating toolbar (buttons by
+- [x] Step 3 — `riggen-app`: `Tool` enum, the floating toolbar (buttons by
   label: Select / Move / Rotate / Place joint / Align, `Esc` returns to
   Select), the zero-configuration rule (entering an editing tool with
   `q ≠ 0` resets the sliders with a status message, OPEN 1),

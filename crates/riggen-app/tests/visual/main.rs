@@ -16,9 +16,9 @@
 mod harness;
 
 use egui_kittest::kittest::{NodeT, Queryable};
-use harness::{click_at, pump_rendered, scenario, settle, with_app};
+use harness::{click_at, click_widget, pump_rendered, scenario, settle, with_app};
 
-use riggen_app::Selection;
+use riggen_app::{Selection, Tool, ZERO_CONFIG_STATUS};
 use riggen_core::glam::DVec3;
 use riggen_core::{Command, Link, LinkId, Pose};
 
@@ -843,6 +843,70 @@ fn joint_value_clamps_to_edited_limits() {
             app.history().undo_depth(),
             depth,
             "joint values are not edits"
+        );
+    });
+}
+
+/// The tool toolbar over the pendulum: Select active, the other four
+/// waiting. It floats in the viewport's top-left corner, which is why every
+/// other golden moved with this step.
+#[test]
+fn toolbar() {
+    scenario("toolbar", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        settle(harness);
+        assert_eq!(harness.state().debug_state().ui.tool, "Select");
+
+        click_widget(harness, "Rotate");
+        settle(harness);
+        assert_eq!(harness.state().tool(), Tool::Rotate);
+        assert_eq!(harness.state().debug_state().ui.tool, "Rotate");
+    });
+}
+
+/// Clicking through the toolbar, Esc back to Select, and the
+/// zero-configuration rule: an editing tool rewinds the sliders and says so
+/// (plans/m2-placement-ux OPEN 1).
+#[test]
+fn tools_switch_and_reset_the_configuration() {
+    with_app(|harness| {
+        for tool in Tool::ALL {
+            click_widget(harness, tool.label());
+            assert_eq!(harness.state().tool(), tool, "clicking {}", tool.label());
+        }
+
+        // Esc leaves an editing tool; from Select it is nobody's business.
+        harness.key_press(egui::Key::Escape);
+        harness.step();
+        assert_eq!(harness.state().tool(), Tool::Select);
+
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.set_joint_value(hinge, std::f64::consts::FRAC_PI_4);
+        let depth = app.history().undo_depth();
+
+        // Select does not disturb a posed document…
+        app.set_tool(Tool::Select);
+        assert_eq!(app.joint_value(hinge), std::f64::consts::FRAC_PI_4);
+        assert_eq!(app.debug_state().status, None);
+
+        // …an editing tool rewinds it, and says why.
+        app.set_tool(Tool::PlaceJoint);
+        assert_eq!(app.joint_value(hinge), 0.0);
+        assert_eq!(
+            app.debug_state().status.as_deref(),
+            Some(ZERO_CONFIG_STATUS)
+        );
+        assert_eq!(app.debug_state().instances[1].position, [0.0, 0.0, 1.0]);
+        assert_eq!(
+            app.history().undo_depth(),
+            depth,
+            "resetting q is not an edit"
         );
     });
 }

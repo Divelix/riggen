@@ -95,6 +95,7 @@
     "selection": null
   },
   "ui": {
+    "tool": "Select",
     "renaming": null,
     "windows": [],
     "modal": null,

@@ -80,7 +80,7 @@
   "document": {
     "file": "pendulum.riggen",
     "name": "pendulum",
-    "dirty": true,
+    "dirty": false,
     "import_scale": 1.0,
     "links": [
       {
@@ -96,13 +96,6 @@
         "parent_joint": "j6",
         "geoms": 1,
         "material": "PLA"
-      },
-      {
-        "id": "l9",
-        "name": "cube",
-        "parent_joint": "j10",
-        "geoms": 1,
-        "material": null
       }
     ],
     "joints": [
@@ -113,24 +106,16 @@
         "parent": "l0",
         "child": "l5",
         "q": 0.0
-      },
-      {
-        "id": "j10",
-        "name": "cube_joint",
-        "kind": "Fixed",
-        "parent": "l0",
-        "child": "l9",
-        "q": 0.0
       }
     ],
     "selection": null
   },
   "ui": {
-    "tool": "Select",
+    "tool": "Rotate",
     "renaming": null,
     "windows": [],
-    "modal": "unsaved_changes",
-    "title": "pendulum.riggen* — riggen"
+    "modal": null,
+    "title": "pendulum.riggen — riggen"
   },
   "instances": [
     {
@@ -190,36 +175,6 @@
         0.9,
         0.55,
         0.2,
-        1.0
-      ]
-    },
-    {
-      "id": 2,
-      "link": "l9",
-      "geom": "g8",
-      "visible": true,
-      "triangles": 12,
-      "bounds": [
-        [
-          -0.5,
-          -0.5,
-          -0.5
-        ],
-        [
-          0.5,
-          0.5,
-          0.5
-        ]
-      ],
-      "position": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "color": [
-        0.55,
-        0.65,
-        0.78,
         1.0
       ]
     }

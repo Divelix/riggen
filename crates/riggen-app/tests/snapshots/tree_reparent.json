@@ -126,6 +126,7 @@
     "selection": "link l5"
   },
   "ui": {
+    "tool": "Select",
     "renaming": null,
     "windows": [],
     "modal": null,

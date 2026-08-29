@@ -1,6 +1,7 @@
 //! Shared scaffolding for the visual snapshot scenarios (ADR-0003).
 
 use egui_kittest::Harness;
+use egui_kittest::kittest::{NodeT, Queryable};
 use riggen_app::RiggenApp;
 
 /// The window the scenarios render into. Fixed, because the goldens encode
@@ -169,6 +170,32 @@ pub fn click_at(harness: &mut Harness<'_, RiggenApp>, pos: egui::Pos2) {
     // hover highlight of the same instance.
     harness.event(egui::Event::PointerGone);
     pump_rendered(harness, 4);
+}
+
+/// Clicks an egui widget over the viewport by its label, with a real
+/// pointer.
+///
+/// kittest's `Node::click()` queues the press and release together, and
+/// `step()` drains every queued event in one logic pass each — so a pick the
+/// pointer move issues on the way in is recorded by a frame that is never
+/// rendered and stays in flight forever, and the next `settle` waits for a
+/// readback that cannot arrive. For a widget outside the viewport that does
+/// not matter; for the toolbar, which floats *over* it, it does. This drives
+/// the same events [`click_at`] does, rendering between each.
+#[allow(dead_code, reason = "used from the toolbar scenarios on")]
+pub fn click_widget(harness: &mut Harness<'_, RiggenApp>, label: &str) {
+    let bounds = harness
+        .get_by_label(label)
+        .accesskit_node()
+        .bounding_box()
+        .unwrap_or_else(|| panic!("widget {label:?} has no bounds"));
+    click_at(
+        harness,
+        egui::pos2(
+            ((bounds.x0 + bounds.x1) / 2.0) as f32,
+            ((bounds.y0 + bounds.y1) / 2.0) as f32,
+        ),
+    );
 }
 
 /// Runs a throwaway scenario and writes its capture to `target/`, comparing

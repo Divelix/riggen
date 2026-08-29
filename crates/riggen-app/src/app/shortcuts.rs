@@ -41,6 +41,15 @@ impl RiggenApp {
         } else if ctx.input_mut(|i| i.consume_key(cmd, Key::Z)) {
             self.undo();
         }
+        // Esc leaves an editing tool. It is consumed only when a tool is
+        // active, so the rename / modal / field-revert uses of Escape (all
+        // of which read it after this runs) still see it otherwise.
+        if self.tool != crate::app::Tool::Select
+            && self.pending.is_none()
+            && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
+        {
+            self.set_tool(crate::app::Tool::Select);
+        }
         let delete = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete));
         if delete {
             self.remove_selected();
