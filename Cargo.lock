@@ -2772,6 +2772,8 @@ dependencies = [
 name = "riggen-viewport"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
+ "egui-wgpu",
  "riggen-mesh",
  "web-time",
 ]

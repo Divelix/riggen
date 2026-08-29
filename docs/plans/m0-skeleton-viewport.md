@@ -134,7 +134,7 @@ All present-tense text lands in the design docs at retirement; the deltas:
   projections, `OPENGL_TO_WGPU_MATRIX` gone, sketch fields gone. Test: the 19
   camera tests ported verbatim plus one new: `proj_matrix` maps the near plane
   to depth 0 and the far plane to depth 1 in both projections.
-- [ ] Step 7 — `riggen-viewport::{scene, pick_id, gpu_mesh}`: `InstanceId(u32)`
+- [x] Step 7 — `riggen-viewport::{scene, pick_id, gpu_mesh}`: `InstanceId(u32)`
   newtype, `Scene<M: InstancePayload>` keyed by `InstanceId` with
   `set_instance(&TriMesh)`, `remove`, `set_visible`, `set_model(DMat4)`,
   `bounds() -> Option<(DVec3 center, f64 radius)>`; `pick_id::{encode,
@@ -232,3 +232,11 @@ All present-tense text lands in the design docs at retirement; the deltas:
   (size-checked against the facet count) and uses `stl_io` for ASCII only.
   The `MAX_TRIANGLES = 2^20 − 1` cap is enforced by every loader
   (`finish_loaded`); step 7's `upload` check becomes a defensive assert.
+- Finding (step 7): the 12-bit field in the pick id is a **slot** the
+  `Scene` allocates from a free-list (`MAX_INSTANCES = 4096` live at once,
+  `SceneFull` otherwise), not the `InstanceId`: ids are never reused over a
+  session, slots are. `Scene::instance_at_slot` maps a readback to an id and
+  answers `None` for a stale hit. Pick vertices are built per triangle
+  corner (3 per triangle, drawn non-indexed) so a welded OBJ picks
+  correctly; the shaded pass stays indexed. Scene `model` is `DMat4`,
+  narrowed at uniform upload in step 8.

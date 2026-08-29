@@ -8,4 +8,6 @@ license.workspace = true
 # `riggen_mesh::glam` is the math library; nothing here names glam directly
 # (docs/01-architecture.md §Crates).
 riggen-mesh.workspace = true
+egui-wgpu.workspace = true
+bytemuck.workspace = true
 web-time.workspace = true
