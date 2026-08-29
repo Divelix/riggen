@@ -1,0 +1,61 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/riggen-mesh",
+    "crates/riggen-core",
+    "crates/riggen-export",
+    "crates/riggen-viewport",
+    "crates/riggen-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+# `cargo run` is the interactive loop, and an unoptimized wgpu/egui is slow
+# enough to be felt. Deps are built once at full optimization; our own crates
+# stay at `1` so backtraces and stepping still work (docs/01-architecture.md
+# §Cargo workspace, carried from RoboCAD).
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[workspace.dependencies]
+riggen-mesh = { path = "crates/riggen-mesh" }
+riggen-core = { path = "crates/riggen-core" }
+riggen-export = { path = "crates/riggen-export" }
+riggen-viewport = { path = "crates/riggen-viewport" }
+
+# The one math library (ADR-0001): f64 in the document, f32 past the GPU
+# boundary. Re-exported by `riggen-mesh`; nobody else names it directly.
+glam = { version = "0.30", features = ["serde"] }
+
+# Mesh loaders. `stl_io` reads binary and ASCII STL; `tobj` reads OBJ.
+stl_io = "0.11"
+tobj = "4"
+
+# UI stack pinned together: egui/eframe/egui-wgpu 0.36.x from crates.io, wgpu
+# version dictated by egui-wgpu — never depend on a different wgpu (ADR-0001).
+egui = "0.36"
+eframe = "0.36"
+egui-wgpu = "0.36"
+# Headless egui test harness: drives a real `eframe::App`, renders through
+# wgpu (preferring a CPU adapter, so local and CI agree) and diffs the result
+# against a committed PNG. Dev-dependency only — see ADR-0003.
+egui_kittest = { version = "0.36.1", features = ["wgpu", "snapshot", "eframe"] }
+
+bytemuck = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Native file dialogs (File › Open). Not built for wasm.
+rfd = "0.15"
+# `std::time::Instant` panics on wasm32; `web-time` is a drop-in that reads
+# `performance.now()` there and re-exports `std::time` natively.
+web-time = "1"
+# Only to block on `Instance::enumerate_adapters` in the "is there a GPU at
+# all?" probe of the snapshot harness — `egui_kittest` panics rather than
+# reporting that itself.
+pollster = "1"

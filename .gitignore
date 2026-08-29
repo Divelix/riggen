@@ -4,3 +4,10 @@
 /python/build
 __pycache__/
 .venv/
+
+# `egui_kittest` writes these next to the committed snapshot goldens on every
+# failing or updated run (ADR-0003). The `.png` goldens themselves are tracked.
+*.new.png
+*.diff.png
+*.old.png
+*.json.new
