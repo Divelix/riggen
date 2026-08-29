@@ -314,18 +314,31 @@ triangle is a readout only.
 
 `riggen_mesh::ray_triangle` (Möller–Trumbore, two-sided — the ID buffer has
 already chosen the triangle) recovers the exact hit point by intersecting
-the mouse ray with that one triangle on the CPU, so snap targets never need
-a spatial index:
+`Viewport::cursor_ray` with that one triangle, taken into mesh space, so
+snap targets never need a spatial index. `app/snap.rs` builds the
+candidates and picks among them by a fixed ladder — **vertex > box >
+circle > point** — with the winner, its axis and its readout in
+`debug_state().snap`. Only the placement tools snap (`Tool::snaps`);
+markers under the cursor while merely selecting would be noise.
 
-- **point**: the hit point, or the nearest triangle vertex when within a
-  pixel radius;
-- **face normal**: the hit triangle's normal (used for "axis = normal");
-- **circle / cylinder axis**: grow the hit triangle's fan by near-coplanar
-  neighbours around a boundary loop, fit a circle → center + axis. This is
-  the mechanic that makes "click the bore, get the joint axis" work on STL
-  data with no B-Rep, and it is the M2 risk item;
-- **bounding box**: per-instance AABB corners/face centers, from the
-  `Scene` bounds already kept for zoom-to-fit.
+- **vertex**: a corner of the hit triangle within `SNAP_PIXEL_RADIUS`
+  screen points;
+- **box**: a corner or face centre of the instance's AABB, also within the
+  pixel radius, from the `Scene` bounds already kept for zoom-to-fit — a
+  part with no modelled features still has somewhere obvious to grab;
+- **circle**: `feature::fit_circle_with` on the smooth region around the
+  hit triangle (02 §Mesh features) → centre, axis, radius, residual,
+  segments. **No pixel radius**: the centre of a bore is nowhere near the
+  wall the user is pointing at, which is the point. This is the mechanic
+  that makes "click the bore, get the joint axis" work on STL data with no
+  B-Rep, and it was the M2 risk item;
+- **point**: the ray/triangle hit itself, which always exists, with the
+  triangle's normal for "axis = face normal".
+
+The marker is cyan and carries the fit's own confidence —
+`circle r 12.0 mm · 24 seg · res 0.01 mm` — so a bad fit is obvious rather
+than silent. The fit is memoised per `(instance, triangle)` and the welded
+adjacency is cached beside the loaded mesh, so a resting cursor fits once.
 
 Gizmos come from `transform-gizmo-egui` (ADR-0007), behind
 `app/gizmo.rs` — the only file that names the crate — fed the viewport's
@@ -433,7 +446,8 @@ GUI is never entered from inside a Python call.
   `three_parts`, `pendulum`, `mm_scale_part`, `tree_pendulum`,
   `tree_reparent`, `properties_link`, `properties_joint`, `pendulum_swing`,
   `materials`, `toolbar`, `gizmo_move_link`, `gizmo_rotate_joint`,
-  `glyph_revolute`, `glyph_prismatic`, `glyph_hover`,
+  `glyph_revolute`, `glyph_prismatic`, `glyph_hover`, `snap_vertex`,
+  `snap_circle`,
   `dirty_title`, `unsaved_confirm`, `debug_menu`, plus
   golden-less app tests including `build_pendulum_numerically`, the M1
   acceptance in executable form.

@@ -59,6 +59,8 @@ pub struct DebugState {
     pub gizmo: Option<GizmoDebug>,
     /// One entry per joint glyph the overlay drew, in joint id order.
     pub glyphs: Vec<GlyphDebug>,
+    /// What the cursor is pointing at, for the placement tools (`snap.rs`).
+    pub snap: Option<SnapDebug>,
     /// The status bar's one-off message — a load error, a load summary.
     pub status: Option<String>,
     /// `[min_x, min_y, max_x, max_y]` of the viewport in egui logical points.
@@ -187,6 +189,31 @@ pub struct GlyphDebug {
     pub active: bool,
     /// The pointer is on this glyph, or on its row in the tree.
     pub hovered: bool,
+}
+
+/// The snap target under the cursor: which kind won the priority ladder,
+/// where it is, and — for a circle — the fit's own confidence numbers, the
+/// same ones the viewport readout shows.
+#[derive(Debug, Clone, Serialize)]
+pub struct SnapDebug {
+    /// `"vertex"`, `"box corner"`, `"box face"`, `"circle"`, `"point"`.
+    pub kind: &'static str,
+    /// Where a click would place something, in world coordinates.
+    pub point: [f64; 3],
+    /// The hit triangle's normal.
+    pub normal: [f64; 3],
+    /// The axis a joint would take: the circle's, else the normal.
+    pub axis: [f64; 3],
+    /// The exact ray/triangle hit, whatever kind won.
+    pub hit: [f64; 3],
+    pub link: String,
+    /// `None` unless the kind is `circle`. Millimetres, as the readout.
+    pub radius_mm: Option<f64>,
+    pub segments: Option<usize>,
+    pub residual_mm: Option<f64>,
+    /// The readout drawn beside the marker.
+    pub readout: String,
+    pub screen: Option<[f64; 2]>,
 }
 
 /// One viewport instance: identity, visibility, size and where it is.
@@ -326,6 +353,32 @@ impl RiggenApp {
                     })
                     .collect()
             },
+            snap: self.snap().map(|snap| SnapDebug {
+                kind: snap.kind.label(),
+                point: [
+                    round(snap.point.x),
+                    round(snap.point.y),
+                    round(snap.point.z),
+                ],
+                normal: [
+                    round(snap.normal.x),
+                    round(snap.normal.y),
+                    round(snap.normal.z),
+                ],
+                axis: {
+                    let axis = snap.axis();
+                    [round(axis.x), round(axis.y), round(axis.z)]
+                },
+                hit: [round(snap.hit.x), round(snap.hit.y), round(snap.hit.z)],
+                link: snap.link.to_string(),
+                radius_mm: snap.circle.map(|c| round(c.radius * 1000.0)),
+                segments: snap.circle.map(|c| c.segments),
+                residual_mm: snap.circle.map(|c| round(c.residual * 1000.0)),
+                readout: snap.readout(),
+                screen: self
+                    .project_world(snap.point)
+                    .map(|p| [round32(p.x), round32(p.y)]),
+            }),
             gizmo: self.gizmo_target().and_then(|target| {
                 let world = self.gizmo_world(target)?;
                 Some(GizmoDebug {

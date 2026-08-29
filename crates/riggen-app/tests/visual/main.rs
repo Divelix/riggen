@@ -1271,6 +1271,111 @@ fn hover_runs_both_ways_and_a_glyph_click_selects_the_joint() {
     });
 }
 
+/// Writes a cylinder as binary STL and returns its path: a bore to point
+/// at, without committing a fixture the M2 arm folder will supply anyway.
+fn cylinder_stl(name: &str, radius: f64, height: f64, segments: usize) -> std::path::PathBuf {
+    let path = scratch_dir(name).join("boss.stl");
+    let mesh = riggen_mesh::TriMesh::cylinder(radius, height, segments);
+    std::fs::write(&path, riggen_mesh::write_binary(&mesh)).unwrap();
+    path
+}
+
+/// Hovers `at` until the ID buffer has resolved and the snap is computed.
+fn hover_until_snapped(
+    harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+    at: egui::Pos2,
+) {
+    harness.hover_at(at);
+    pump_rendered(harness, 8);
+}
+
+/// Pointing near a cube's corner with Place joint active: the vertex beats
+/// the plain surface hit, and the marker says so.
+#[test]
+fn snap_vertex() {
+    scenario("snap_vertex", |harness| {
+        let app = harness.state_mut();
+        open_link(app, "cube_binary.stl");
+        app.fit_view_now();
+        app.set_tool(Tool::PlaceJoint);
+        settle(harness);
+
+        // The top corner facing the camera, nudged inward so the pick lands
+        // on a triangle rather than on the silhouette.
+        let corner = DVec3::new(0.5, -0.5, 0.5);
+        let at = harness.state().project_world(corner).expect("on screen");
+        let centre = harness.state().viewport_center().unwrap();
+        let at = at + (centre - at).normalized() * 6.0;
+        hover_until_snapped(harness, at);
+
+        let snap = harness.state().debug_state().snap.expect("a snap target");
+        assert_eq!(snap.kind, "vertex");
+        assert_eq!(snap.point, [0.5, -0.5, 0.5]);
+        assert_eq!(snap.readout, "vertex");
+        assert_eq!(snap.radius_mm, None);
+    });
+}
+
+/// Pointing at a bore's wall: the circle fit wins, and the readout carries
+/// its radius, segment count and residual so a bad fit is obvious.
+#[test]
+fn snap_circle() {
+    scenario("snap_circle", |harness| {
+        let path = cylinder_stl("snap_circle", 0.012, 0.05, 24);
+        let app = harness.state_mut();
+        app.open_path(&path).expect("open the boss").unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::PlaceJoint);
+        settle(harness);
+
+        // The middle of the silhouette is the wall, whatever the camera.
+        let at = harness.state().viewport_center().unwrap();
+        hover_until_snapped(harness, at);
+
+        let snap = harness.state().debug_state().snap.expect("a snap target");
+        assert_eq!(snap.kind, "circle");
+        assert_eq!(snap.radius_mm, Some(12.0));
+        assert_eq!(snap.segments, Some(24));
+        assert_eq!(snap.residual_mm, Some(0.0));
+        assert_eq!(snap.readout, "circle r 12.0 mm · 24 seg · res 0.00 mm");
+        // The centre is on the axis, at the region's mean height: the
+        // cylinder's own centre.
+        assert_eq!(snap.point, [0.0, 0.0, 0.0]);
+        assert_eq!(snap.axis, [0.0, 0.0, 1.0]);
+    });
+}
+
+/// Snapping is a placement affordance: no tool, no markers — and the memo
+/// is per `(instance, triangle)`, so a resting cursor keeps the same fit.
+#[test]
+fn snapping_is_off_outside_the_placement_tools() {
+    with_app(|harness| {
+        let path = cylinder_stl("snap_off", 0.012, 0.05, 24);
+        let app = harness.state_mut();
+        app.open_path(&path).expect("open the boss").unwrap();
+        app.fit_view_now();
+        settle(harness);
+
+        let at = harness.state().viewport_center().unwrap();
+        hover_until_snapped(harness, at);
+        assert_eq!(harness.state().snap(), None, "Select does not snap");
+
+        harness.state_mut().set_tool(Tool::Align);
+        hover_until_snapped(harness, at);
+        let first = harness.state().snap().expect("Align snaps");
+        assert_eq!(first.kind, riggen_app::SnapKind::Circle);
+
+        // The cursor has not moved: the same triangle, the same fit.
+        pump_rendered(harness, 4);
+        assert_eq!(harness.state().snap(), Some(first));
+
+        // The pointer leaving takes the marker with it.
+        harness.event(egui::Event::PointerGone);
+        pump_rendered(harness, 6);
+        assert_eq!(harness.state().snap(), None);
+    });
+}
+
 /// The materials table over the pendulum: base_link is aluminium and arm
 /// is PLA, and the viewport tints each cube with its material colour.
 #[test]
