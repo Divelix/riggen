@@ -283,14 +283,31 @@ independent-volume cross-check is replaced by topology: `is_closed` is
 triangles), exact rather than a tolerance — an open STL gives a nonsense
 tensor, and the UI must say so. A negative signed volume means the mesh is
 wound inward; it is folded (`abs`) and flagged, not treated as an error.
-`riggen-core::compose_inertial`
-transforms each geom's result into the link frame (rotate the tensor,
-parallel-axis shift), sums, then applies the `InertialSpec` mode.
+`riggen_core::inertial::compose_inertial(&link, &impl MeshLookup,
+&materials) -> Result<LinkInertial, InertialError>` transforms each geom's
+result into the link frame (rotate the tensor by the geom pose, move the
+CoM), sums them (mass-weighted CoM, parallel-axis shift of every tensor to
+it), then applies the `InertialSpec` mode: `Computed` is the sum at the
+material density (or `density_override`; neither is `NoDensity`),
+`Override` passes the stored values through, `Hybrid` scales the sum's mass
+and tensor together to the weighed mass. `LinkInertial { inertial,
+computed }` — `inertial: Inertial { mass, com, inertia }` is what every
+consumer reads; `computed` is the mesh sum kept beside it for the
+properties panel's comparison readout (`None` under `Override` when the
+meshes cannot be measured). `MeshLookup` is a trait (`fn mesh(&self,
+MeshId) -> Option<&TriMesh>`) the app's mesh store and the export CLI
+implement — core still stores no geometry. `Computed` / `Hybrid` meeting
+an open mesh is `InertialError::OpenMesh { geom }`; a link with no geoms
+is a zero inertial, fine for a static body.
 
-Export-time checks (block export, explain why): mass > 0; tensor symmetric
+Export-time checks (`inertial::check(&Inertial) -> Vec<InertialError>`,
+block export, explain why): mass > 0; every value finite; tensor symmetric
 and positive-definite; principal moments satisfy the triangle inequality
-(`I1 + I2 >= I3` and permutations). MuJoCo refuses the last two silently
-enough that this check alone justifies the tool.
+(`I1 + I2 >= I3` and permutations). The moments come from
+`principal_moments`, a cyclic Jacobi eigen-solve for the symmetric 3×3;
+the axes are not needed because the MJCF writer hands MuJoCo the full
+tensor (ADR-0008). MuJoCo refuses the last two silently enough that this
+check alone justifies the tool.
 
 ## `ResolvedRobot` (`riggen-export`)
 

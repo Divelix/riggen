@@ -158,7 +158,7 @@ agrees with our FK" — is retired by step 5, before any UI exists.
   cube and cylinder against the analytic tensors, a translated cube's CoM
   moves and its tensor about the CoM does not, `TriMesh::cube` minus a face
   reports open. Remove the `is_closed` backlog line.
-- [ ] Step 2 — `riggen-core::inertial`: `MeshLookup`, `compose_inertial`
+- [x] Step 2 — `riggen-core::inertial`: `MeshLookup`, `compose_inertial`
   with the three `InertialSpec` modes, `check` with the Jacobi
   eigen-solve. Tests: two cubes in one link equal one box's tensor via the
   parallel-axis theorem, a rotated geom's tensor is the rotated tensor,
