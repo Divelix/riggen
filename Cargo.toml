@@ -6,6 +6,8 @@ members = [
     "crates/riggen-export",
     "crates/riggen-viewport",
     "crates/riggen-app",
+    # The crates.io name reservation; empty until M4 publishes the app under it.
+    "crates/riggen",
 ]
 
 [workspace.package]

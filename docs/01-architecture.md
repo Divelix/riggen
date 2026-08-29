@@ -60,15 +60,20 @@ riggen/
 │   ├── riggen-core/        # ids, pose, robot, validate, fk, command, history, file
 │   ├── riggen-export/      # placeholder until M3
 │   ├── riggen-viewport/    # camera/, scene, pick_id, gpu_mesh, overlay, viewport/, shaders/
-│   └── riggen-app/         # bin "riggen"; cdylib for the wasm build check; tests/visual
+│   ├── riggen-app/         # bin "riggen"; cdylib for the wasm build check; tests/visual
 │       └── src/app/        # document, file_io, file_menu, shortcuts, status_bar, tool,
 │                           # gizmo, glyphs, snap, align,
 │                           # panels/{tree, properties, joints, materials}
+│   └── riggen/             # the crates.io name reservation: an empty 0.0.1 lib with the
+│                           # README; M4 publishes the app under this name (SEED.md §5)
 ├── assets/fixtures/        # cube_binary.stl, cube_ascii.stl, cube.obj — the unit cube
 │                           # (TriMesh::cube(0.5)) in every format; pendulum.riggen, the
 │                           # .riggen v1 corpus file (02 §Schema); arm/*.stl in mm, the
 │                           # M2 acceptance's four parts (an ignored generator test writes them)
-├── python/                 # v0.2: pyproject.toml, riggen/ package, riggen-py crate
+├── python/                 # the PyPI `riggen` 0.0.1 name reservation (hatchling; a `riggen`
+│                           # script that says the app is coming); M4 swaps the build for
+│                           # maturin `bindings = "bin"` (ADR-0002); v0.2 adds riggen-py
+├── LICENSE-MIT, LICENSE-APACHE   # "MIT OR Apache-2.0"; python/ carries real copies
 ├── docs/
 ├── SEED.md
 └── AGENTS.md, CLAUDE.md

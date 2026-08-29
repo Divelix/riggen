@@ -2983,6 +2983,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "riggen"
+version = "0.0.1"
+
+[[package]]
 name = "riggen-app"
 version = "0.1.0"
 dependencies = [
