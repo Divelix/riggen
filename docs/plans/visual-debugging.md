@@ -43,7 +43,7 @@ still made a human necessary.
 
 ## Steps
 
-- [ ] Step 1 — Debug menu. `crates/riggen-app/src/app/debug_menu.rs`
+- [x] Step 1 — Debug menu. `crates/riggen-app/src/app/debug_menu.rs`
   (sibling of `file_menu.rs`), wired after Window in `menu_bar`. Seven
   `DebugOptions` checkboxes read from the active theme's style and written
   to both themes only when changed (RoboCAD's light/dark lesson); separator;
@@ -90,6 +90,7 @@ In a fresh session with no human:
 
 ## Open questions
 
-- `⚠ OPEN (agent, step 1):` whether a second scenario with
-  `show_widget_hits` on — a picture of the layout skeleton — earns a golden.
-  Decide after seeing the image; the suite stays small.
+- Decided at step 1: no golden for a `show_widget_hits` frame. The image
+  is egui's overlay under the resting cursor, would churn with every egui
+  upgrade and shows nothing about riggen; the toggle is asserted golden-less
+  (`debug_overlay_toggle_sets_both_themes`).
