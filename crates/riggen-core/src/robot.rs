@@ -1,0 +1,371 @@
+//! The `Robot` document and its parts (docs/02-data-model.md §Core types).
+//! Plain data with serde derives; every struct is `deny_unknown_fields` so a
+//! typo in a hand-edited `.riggen` fails loudly (§Schema).
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+use riggen_mesh::glam::{DMat3, DQuat, DVec3};
+use serde::{Deserialize, Serialize};
+
+use crate::ids::{FrameId, GeomId, IdGen, JointId, LinkId, MeshId};
+use crate::pose::Pose;
+
+/// The whole document. `frames` is present for the schema and always empty
+/// until post-MVP; `assets` holds file references, never geometry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Robot {
+    pub name: String,
+    pub links: BTreeMap<LinkId, Link>,
+    pub joints: BTreeMap<JointId, Joint>,
+    pub frames: BTreeMap<FrameId, Frame>,
+    pub assets: BTreeMap<MeshId, MeshAsset>,
+    pub root: LinkId,
+    /// name → density (kg/m³), colour.
+    pub materials: BTreeMap<String, Material>,
+    /// Hands out every id in the document (ADR-0005).
+    pub next_id: IdGen,
+}
+
+/// A mesh file the document references. `path` is absolute in memory and
+/// rebased relative to the `.riggen` file on disk (docs/01-architecture.md
+/// §File format).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MeshAsset {
+    pub path: PathBuf,
+    /// FNV-1a 64 over the file bytes, computed at registration.
+    pub content_hash: u64,
+    /// Unit conversion applied on load (0.001 for a millimetre file).
+    pub scale: f64,
+    /// Y-up → Z-up and the like; applied after `scale`.
+    pub fix_up: Option<DQuat>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Link {
+    pub name: String,
+    pub visuals: Vec<Geom>,
+    pub collision: CollisionPolicy,
+    pub inertial: InertialSpec,
+    /// Key into `Robot::materials`.
+    pub material: Option<String>,
+}
+
+impl Link {
+    /// An empty link with the M1 defaults: no geoms, `SameAsVisual`
+    /// collision, computed inertial at the material density, no material.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            visuals: Vec::new(),
+            collision: CollisionPolicy::SameAsVisual,
+            inertial: InertialSpec::Computed {
+                density_override: None,
+            },
+            material: None,
+        }
+    }
+}
+
+/// A visual geom; `(LinkId, GeomId)` is the viewport's instance key.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Geom {
+    pub id: GeomId,
+    pub mesh: MeshId,
+    /// Geom in link frame.
+    pub pose: Pose,
+    pub color: Option<[f32; 4]>,
+}
+
+/// The edge from `parent` to `child`. `origin` is the child link frame in
+/// the parent link frame; the axis is in the child frame (§Conventions).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Joint {
+    pub name: String,
+    pub kind: JointKind,
+    pub parent: LinkId,
+    pub child: LinkId,
+    pub origin: Pose,
+    /// Unit, in child frame; ignored for `Fixed`.
+    pub axis: DVec3,
+    /// Required for `Revolute` / `Prismatic`, absent for `Continuous`.
+    pub limits: Option<Limits>,
+    pub dynamics: Dynamics,
+}
+
+impl Joint {
+    /// A `Fixed` joint at identity from `parent` to `child`.
+    pub fn fixed(name: impl Into<String>, parent: LinkId, child: LinkId) -> Self {
+        Self {
+            name: name.into(),
+            kind: JointKind::Fixed,
+            parent,
+            child,
+            origin: Pose::IDENTITY,
+            axis: DVec3::Z,
+            limits: None,
+            dynamics: Dynamics::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum JointKind {
+    Fixed,
+    Revolute,
+    Continuous,
+    Prismatic,
+}
+
+impl JointKind {
+    /// Whether the joint has a degree of freedom (a `q` and a slider).
+    pub fn is_movable(self) -> bool {
+        !matches!(self, Self::Fixed)
+    }
+
+    /// Whether `Joint::limits` must be present.
+    pub fn requires_limits(self) -> bool {
+        matches!(self, Self::Revolute | Self::Prismatic)
+    }
+}
+
+/// Radians or meters depending on the joint kind.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Limits {
+    pub lower: f64,
+    pub upper: f64,
+    pub effort: f64,
+    pub velocity: f64,
+}
+
+/// MJCF-side joint parameters; all zero by default.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Dynamics {
+    pub damping: f64,
+    pub friction: f64,
+    pub armature: f64,
+}
+
+/// Density is stored only until M3's mass properties consume it.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Material {
+    /// kg/m³.
+    pub density: f64,
+    /// Linear RGBA.
+    pub color: [f32; 4],
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum InertialSpec {
+    /// From meshes at the material density, or `density_override`.
+    Computed { density_override: Option<f64> },
+    /// Measured values win; the computed ones stay visible for comparison.
+    /// `inertia` is about `com`, in link axes.
+    Override {
+        mass: f64,
+        com: DVec3,
+        inertia: DMat3,
+    },
+    /// Computed tensor and CoM, scaled to a weighed mass.
+    Hybrid { mass: f64 },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum CollisionPolicy {
+    None,
+    SameAsVisual,
+    /// One hull per visual geom.
+    ConvexHull,
+    /// Hand-placed primitives in link frame.
+    Primitives(Vec<Primitive>),
+    /// Post-MVP.
+    ConvexDecomposition {
+        max_hulls: u32,
+    },
+}
+
+/// A collision primitive in link frame (`pose` is the primitive's centre
+/// frame; cylinders and capsules extend along its Z axis).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Primitive {
+    Box {
+        pose: Pose,
+        size: DVec3,
+    },
+    Cylinder {
+        pose: Pose,
+        radius: f64,
+        length: f64,
+    },
+    Sphere {
+        pose: Pose,
+        radius: f64,
+    },
+    Capsule {
+        pose: Pose,
+        radius: f64,
+        length: f64,
+    },
+}
+
+/// A named frame on a link (TCP, sensor); post-MVP.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Frame {
+    pub name: String,
+    pub parent: LinkId,
+    pub pose: Pose,
+}
+
+impl Robot {
+    /// An empty document: one root link `base_link` and the default
+    /// materials.
+    pub fn new(name: impl Into<String>) -> Self {
+        let mut next_id = IdGen::new();
+        let root: LinkId = next_id.alloc();
+        let mut links = BTreeMap::new();
+        links.insert(root, Link::new("base_link"));
+        Self {
+            name: name.into(),
+            links,
+            joints: BTreeMap::new(),
+            frames: BTreeMap::new(),
+            assets: BTreeMap::new(),
+            root,
+            materials: Self::default_materials(),
+            next_id,
+        }
+    }
+
+    /// Seeded into every new document. Densities in kg/m³, colours linear
+    /// RGBA chosen to be told apart in the viewport.
+    pub fn default_materials() -> BTreeMap<String, Material> {
+        fn m(density: f64, color: [f32; 4]) -> Material {
+            Material { density, color }
+        }
+        BTreeMap::from([
+            ("aluminium".to_owned(), m(2700.0, [0.77, 0.78, 0.80, 1.0])),
+            ("steel".to_owned(), m(7850.0, [0.45, 0.47, 0.50, 1.0])),
+            ("PLA".to_owned(), m(1240.0, [0.90, 0.55, 0.20, 1.0])),
+            ("ABS".to_owned(), m(1040.0, [0.20, 0.45, 0.85, 1.0])),
+            ("nylon".to_owned(), m(1150.0, [0.92, 0.92, 0.85, 1.0])),
+            ("rubber".to_owned(), m(1100.0, [0.15, 0.15, 0.15, 1.0])),
+        ])
+    }
+
+    /// Registers a mesh file. Not a command: undoing "drop a mesh" undoes
+    /// the `AddLink` / `AddGeom`, the asset stays for the session (so redo
+    /// does not reload the file) and an unreferenced asset is pruned on save.
+    pub fn add_asset(&mut self, asset: MeshAsset) -> MeshId {
+        let id = self.next_id.alloc();
+        self.assets.insert(id, asset);
+        id
+    }
+
+    /// The joint whose child is `link`; `None` for the root (and for an
+    /// orphan in an invalid document).
+    pub fn parent_joint(&self, link: LinkId) -> Option<JointId> {
+        self.joints
+            .iter()
+            .find(|(_, j)| j.child == link)
+            .map(|(id, _)| *id)
+    }
+
+    /// Joints whose parent is `link`, in id order.
+    pub fn child_joints(&self, link: LinkId) -> impl Iterator<Item = JointId> + '_ {
+        self.joints
+            .iter()
+            .filter(move |(_, j)| j.parent == link)
+            .map(|(id, _)| *id)
+    }
+
+    /// Mesh ids referenced by at least one geom.
+    pub fn referenced_assets(&self) -> std::collections::BTreeSet<MeshId> {
+        self.links
+            .values()
+            .flat_map(|l| l.visuals.iter().map(|g| g.mesh))
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ids::Id;
+
+    #[test]
+    fn new_robot_has_a_root_and_the_default_materials() {
+        let robot = Robot::new("r");
+        assert_eq!(robot.links.len(), 1);
+        assert_eq!(robot.links[&robot.root].name, "base_link");
+        assert!(robot.joints.is_empty());
+        assert_eq!(robot.materials.len(), 6);
+        assert_eq!(robot.materials["aluminium"].density, 2700.0);
+        assert_eq!(robot.parent_joint(robot.root), None);
+        assert_eq!(robot.child_joints(robot.root).count(), 0);
+    }
+
+    #[test]
+    fn add_asset_hands_out_fresh_ids() {
+        let mut robot = Robot::new("r");
+        let asset = MeshAsset {
+            path: PathBuf::from("/tmp/a.stl"),
+            content_hash: 1,
+            scale: 0.001,
+            fix_up: None,
+        };
+        let a = robot.add_asset(asset.clone());
+        let b = robot.add_asset(asset);
+        assert_ne!(a, b);
+        assert_ne!(a.raw(), robot.root.raw(), "one counter across id kinds");
+        assert_eq!(robot.assets.len(), 2);
+        assert!(robot.referenced_assets().is_empty());
+    }
+
+    #[test]
+    fn serde_round_trip_and_unknown_field_rejected() {
+        let mut robot = Robot::new("r");
+        let mesh = robot.add_asset(MeshAsset {
+            path: PathBuf::from("/tmp/a.stl"),
+            content_hash: 7,
+            scale: 1.0,
+            fix_up: Some(DQuat::from_rotation_x(1.0)),
+        });
+        let child: LinkId = robot.next_id.alloc();
+        let geom_id: GeomId = robot.next_id.alloc();
+        let mut link = Link::new("arm");
+        link.visuals.push(Geom {
+            id: geom_id,
+            mesh,
+            pose: Pose::IDENTITY,
+            color: Some([1.0, 0.0, 0.0, 1.0]),
+        });
+        link.material = Some("steel".into());
+        robot.links.insert(child, link);
+        let joint: JointId = robot.next_id.alloc();
+        robot
+            .joints
+            .insert(joint, Joint::fixed("base_to_arm", robot.root, child));
+
+        let json = serde_json::to_string_pretty(&robot).unwrap();
+        assert!(json.contains("\"root\": \"l0\""), "{json}");
+        // root, mesh, child link, geom, joint → five ids handed out.
+        assert!(json.contains("\"next_id\": 5"), "{json}");
+        let back: Robot = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, robot);
+
+        let typo = json.replace("\"materials\"", "\"materialz\"");
+        let err = serde_json::from_str::<Robot>(&typo)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("materialz"), "{err}");
+    }
+}
