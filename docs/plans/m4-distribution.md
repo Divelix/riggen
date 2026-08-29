@@ -163,7 +163,7 @@ targets in CI — is retired first; README and polish come after.
   `RiggenApp::new` (font atlas, pipeline creation, `persistence` load) and
   fix the largest item in this step; the number goes in the roadmap status
   line at retirement.
-- [ ] Step 4 — `ci.yml` `wheel` job (linux x86_64, maturin-action,
+- [x] Step 4 — `ci.yml` `wheel` job (linux x86_64, maturin-action,
   `manylinux: 2_28`, `test_wheel.py` in a fresh venv, `rust-cache`).
   Green on `main`. Note the job's wall time beside the `mujoco` job's.
 - [ ] Step 5 — `release.yml`: the five-target matrix + sdist, the three

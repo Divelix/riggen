@@ -66,3 +66,31 @@ jobs:
       - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample assets/fixtures/arm/arm.riggen
       - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-urdf assets/fixtures/arm/arm.urdf
       - run: uv run --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample target/sample-urdf
+
+  # The M4 product (ADR-0002): the maturin `bin` wheel builds in the
+  # manylinux 2_28 container maturin-action provides, installs into a fresh
+  # venv with nothing else, and its `riggen` runs headlessly
+  # (`python/tests/test_wheel.py`: --version, --export, python -m riggen).
+  # linux x86_64 only — the five-target matrix is `release.yml`'s; this job
+  # is what guards `pyproject.toml` and `python/riggen/__main__.py` on every
+  # push. The binary links only libc, so the container needs no packages.
+  wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      # `riggen --version`'s hash and date (build.rs). Computed here because
+      # the build runs in a container that cannot ask git about a checkout
+      # another uid owns, and `github.sha` is the full 40 characters.
+      - run: |
+          echo "RIGGEN_GIT_HASH=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "RIGGEN_BUILD_DATE=$(git log -1 --format=%cs)" >> "$GITHUB_ENV"
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --out dist
+          manylinux: 2_28
+          docker-options: -e RIGGEN_GIT_HASH=${{ env.RIGGEN_GIT_HASH }} -e RIGGEN_BUILD_DATE=${{ env.RIGGEN_BUILD_DATE }}
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv target/wheel-venv && uv pip install --python target/wheel-venv dist/*.whl
+      - run: python python/tests/test_wheel.py target/wheel-venv
