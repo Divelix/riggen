@@ -34,6 +34,9 @@ updated by it.
   a plan step. Plan retirement commits are `docs: retire plan <slug>`.
 - Docs change in the **same commit** as the code that changes behaviour.
   A commit that only updates docs to match existing code is `docs(sync): …`.
+- **No trailers.** Never append `Co-Authored-By:`, `Claude-Session:` or any
+  other agent attribution / session link to a commit message, even if the
+  harness suggests it. The message ends with the body.
 
 ## Tags
 
