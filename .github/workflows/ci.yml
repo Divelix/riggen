@@ -92,5 +92,7 @@ jobs:
           manylinux: 2_28
           docker-options: -e RIGGEN_GIT_HASH=${{ env.RIGGEN_GIT_HASH }} -e RIGGEN_BUILD_DATE=${{ env.RIGGEN_BUILD_DATE }}
       - uses: astral-sh/setup-uv@v5
-      - run: uv venv target/wheel-venv && uv pip install --python target/wheel-venv dist/*.whl
-      - run: python python/tests/test_wheel.py target/wheel-venv
+      # Outside `target/`: rust-cache restores that directory, and a venv
+      # from the previous run makes `uv venv` refuse to create one.
+      - run: uv venv "$RUNNER_TEMP/wheel-venv" && uv pip install --python "$RUNNER_TEMP/wheel-venv" dist/*.whl
+      - run: python python/tests/test_wheel.py "$RUNNER_TEMP/wheel-venv"
