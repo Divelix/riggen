@@ -9,6 +9,8 @@ pub enum MeshError {
     Io { path: String, message: String },
     /// The bytes are not a mesh in the format the extension promised.
     Parse { path: String, message: String },
+    /// No loader for this extension (`load_mesh` dispatches on it).
+    UnsupportedFormat { path: String, extension: String },
     /// More triangles than the pick-id encoding can address
     /// ([`crate::MAX_TRIANGLES`]); decimation is a backlog item.
     TooManyTriangles { path: String, count: usize },
@@ -28,6 +30,12 @@ impl fmt::Display for MeshError {
         match self {
             Self::Io { path, message } => write!(f, "{path}: {message}"),
             Self::Parse { path, message } => write!(f, "{path}: {message}"),
+            Self::UnsupportedFormat { path, extension } => {
+                write!(
+                    f,
+                    "{path}: unsupported format \".{extension}\" (STL and OBJ are supported)"
+                )
+            }
             Self::TooManyTriangles { path, count } => write!(
                 f,
                 "{path}: {count} triangles, more than the {} the viewport can pick",

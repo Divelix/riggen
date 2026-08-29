@@ -1,0 +1,23 @@
+# Unit cube centred on the origin, quads with per-face normals.
+# Same geometry as cube_binary.stl / cube_ascii.stl (TriMesh::cube(0.5)).
+o cube
+v -0.5 -0.5 -0.5
+v  0.5 -0.5 -0.5
+v  0.5  0.5 -0.5
+v -0.5  0.5 -0.5
+v -0.5 -0.5  0.5
+v  0.5 -0.5  0.5
+v  0.5  0.5  0.5
+v -0.5  0.5  0.5
+vn  1  0  0
+vn -1  0  0
+vn  0  1  0
+vn  0 -1  0
+vn  0  0  1
+vn  0  0 -1
+f 2//1 3//1 7//1 6//1
+f 4//2 1//2 5//2 8//2
+f 3//3 4//3 8//3 7//3
+f 1//4 2//4 6//4 5//4
+f 5//5 6//5 7//5 8//5
+f 4//6 3//6 2//6 1//6

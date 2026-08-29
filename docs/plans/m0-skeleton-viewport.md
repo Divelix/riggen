@@ -122,7 +122,7 @@ All present-tense text lands in the design docs at retirement; the deltas:
   `cube_ascii.stl` (generated once by a test helper, committed, < 2 KB).
   Tests: both fixtures give 12 triangles, identical AABB, `validate()` ok;
   garbage bytes → error.
-- [ ] Step 5 — OBJ loader via `tobj` (`triangulate = true`, `single_index =
+- [x] Step 5 — OBJ loader via `tobj` (`triangulate = true`, `single_index =
   true`), all shapes merged into one `TriMesh`, normals used when present else
   `flat_normals()`, `mtl` ignored. Fixture `assets/fixtures/cube.obj`. Tests:
   12 triangles, same AABB as the STLs; `load_mesh(path)` dispatches on

@@ -7,3 +7,4 @@ license.workspace = true
 [dependencies]
 glam.workspace = true
 stl_io.workspace = true
+tobj.workspace = true
