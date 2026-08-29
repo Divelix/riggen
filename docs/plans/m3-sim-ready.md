@@ -153,7 +153,7 @@ absorbed here; the `SetRoot` line is decided by OPEN 2).
 Ordered so the milestone's risk — "MuJoCo loads it with zero warnings and
 agrees with our FK" — is retired by step 5, before any UI exists.
 
-- [ ] Step 1 — `riggen-mesh::mass`: port `mass.rs` to `TriMesh` / glam,
+- [x] Step 1 — `riggen-mesh::mass`: port `mass.rs` to `TriMesh` / glam,
   `MassProps`, inward-winding fold, closedness from `Adjacency`. Tests:
   cube and cylinder against the analytic tensors, a translated cube's CoM
   moves and its tensor about the CoM does not, `TriMesh::cube` minus a face

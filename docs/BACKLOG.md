@@ -12,7 +12,6 @@ below with the reason, so the same idea is not re-brainstormed.
 - Web demo build
 - Ground grid at z = 0 in the viewport (new; robocad never had one — M0 ships the gradient background only)
 - MSAA for the offscreen colour pass (new; robocad had none)
-- `is_closed` in the STL loader, and a warning when a mesh is not (M3's mass properties need a closed mesh; `feature::adjacency` computes it since M2)
 - Meshes over 2^20 triangles: decimate at load or widen the pick id (loaders reject them today)
 - Async mesh loading via `jobs` (M0 loads synchronously on the UI thread)
 - Per-drop import-units dialog for mixed-unit batches (M1 has one app-wide setting, ADR-0006)
