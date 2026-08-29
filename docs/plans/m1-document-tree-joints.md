@@ -165,7 +165,7 @@ hand-computed poses for a 3-joint chain.
   the joint origin from `fk` so world poses are unchanged (tested against
   `fk` before/after). Undo / redo / `mark_saved` / `is_dirty` tests including
   "edit past the saved mark → dirty until saved again".
-- [ ] Step 4 — `.riggen` v1: `file::save` / `file::load` with path rebasing,
+- [x] Step 4 — `.riggen` v1: `file::save` / `file::load` with path rebasing,
   content hash, warnings, `deny_unknown_fields`. `assets/fixtures/
   pendulum.riggen` (base + arm from the cube fixtures, one revolute joint
   with limits) hand-written as the corpus file. Tests: round-trip equality,
@@ -307,6 +307,17 @@ Executable form, all green under `cargo test --workspace` on the CPU adapter:
     `CannotRemoveRoot`, `CannotReparentRoot`, `MaterialInUse { material,
     link }`, `MovableJointOnRootPath`. `SetJoint` ignores `parent` / `child`
     in the value rather than erroring.
+  - Step 4: `file::load` validates (a hand-edited file that breaks an
+    invariant is `FileError::Invalid`, not a half-open document) and
+    `file::save` refuses an invalid robot before writing; the write goes
+    through `<name>.riggen.tmp` + rename so a crash leaves the old file.
+    Besides `HashMismatch` there is a `Warning::MeshUnreadable` for a mesh
+    file that moved. The corpus fixture was produced by `save` itself and
+    `corpus_pendulum_opens` re-saves it and compares bytes, so a formatting
+    drift in `save` fails there rather than silently rewriting fixtures.
+    Pendulum geometry: unit cubes, `hinge` revolute about Y at (0, 0, 0.5),
+    arm geom at (0, 0, 0.5) in the arm frame → at `q = 0` the arm cube sits
+    on the base cube at world (0, 0, 1); limits ±90°.
   - `validate` also checks material names (`InvalidName { kind:
     "material" }`) and that densities are finite and non-negative, so
     `UpsertMaterial` cannot smuggle an unexportable name into the table.

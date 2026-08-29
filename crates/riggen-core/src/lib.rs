@@ -7,6 +7,7 @@
 //! (ADR-0005).
 
 pub mod command;
+pub mod file;
 pub mod fk;
 pub mod history;
 pub mod ids;
@@ -15,6 +16,7 @@ pub mod robot;
 pub mod validate;
 
 pub use command::{Command, EditError};
+pub use file::{FileError, Warning, content_hash, hash_file, load, save};
 pub use fk::{JointState, fk, motion};
 pub use history::History;
 pub use ids::{FrameId, GeomId, Id, IdGen, JointId, LinkId, MeshId};

@@ -5,8 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-# `glam` (through the re-export) and, from step 4 on, `TriMesh` for the
-# content-hash check in `file::load`. No geometry is stored in the document.
+# Only for `glam` (through the re-export): no geometry is stored in the
+# document, and `file::load`'s content-hash check reads raw bytes.
 riggen-mesh.workspace = true
 serde.workspace = true
 serde_json.workspace = true
