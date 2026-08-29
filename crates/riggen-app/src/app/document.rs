@@ -224,6 +224,21 @@ impl RiggenApp {
         self.q.get(joint)
     }
 
+    /// Tints every instance whose link uses `material` with `color`
+    /// without touching the document — the colour picker's live preview.
+    /// The next `sync_scene` restores the document's colour.
+    pub(crate) fn preview_material_color(&mut self, material: &str, color: [f32; 4]) {
+        for (&(link, geom), &id) in &self.instances {
+            let Some(l) = self.robot.links.get(&link) else {
+                continue;
+            };
+            let own = l.visuals.iter().any(|g| g.id == geom && g.color.is_some());
+            if !own && l.material.as_deref() == Some(material) {
+                self.viewport.set_instance_color(id, color);
+            }
+        }
+    }
+
     /// Every joint back to zero ("Reset all").
     pub fn reset_joint_values(&mut self) {
         self.q = JointState::default();
@@ -428,16 +443,26 @@ impl RiggenApp {
             let Some(link_pose) = world.get(&link) else {
                 continue;
             };
-            let Some(g) = self
-                .robot
-                .links
-                .get(&link)
-                .and_then(|l| l.visuals.iter().find(|g| g.id == geom))
-            else {
+            let Some(l) = self.robot.links.get(&link) else {
+                continue;
+            };
+            let Some(g) = l.visuals.iter().find(|g| g.id == geom) else {
                 continue;
             };
             self.viewport
                 .set_instance_model(id, link_pose.compose(&g.pose).to_mat4());
+            // The geom's own colour wins, then the link's material, then
+            // the viewport default.
+            let color = g
+                .color
+                .or_else(|| {
+                    l.material
+                        .as_ref()
+                        .and_then(|m| self.robot.materials.get(m))
+                        .map(|m| m.color)
+                })
+                .unwrap_or(riggen_viewport::DEFAULT_INSTANCE_COLOR);
+            self.viewport.set_instance_color(id, color);
         }
 
         // The viewport drops a selection whose instance vanished; the

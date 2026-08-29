@@ -16,7 +16,7 @@ use web_time::Instant;
 
 pub(crate) use document::LoadedMesh;
 pub use document::Selection;
-use panels::{JointsWindow, PropertiesState, TreeState};
+use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 
 /// The eframe app: one `Robot` and what is derived from it
 /// (docs/01-architecture.md §The document is the only state).
@@ -46,6 +46,8 @@ pub struct RiggenApp {
     pub(crate) props: PropertiesState,
     /// The joint sliders window: open or not.
     pub(crate) joints_window: JointsWindow,
+    /// The materials table window and its in-progress edits.
+    pub(crate) materials_window: MaterialsWindow,
     pub(crate) viewport: Viewport,
     /// The next [`InstanceId`] to hand out. Never reused within a session.
     next_instance: u32,
@@ -85,6 +87,7 @@ impl RiggenApp {
             tree: TreeState::default(),
             props: PropertiesState::default(),
             joints_window: JointsWindow::default(),
+            materials_window: MaterialsWindow::default(),
             viewport,
             next_instance: 0,
             status: None,
@@ -117,6 +120,7 @@ impl RiggenApp {
                 });
                 ui.menu_button("Window", |ui| {
                     ui.checkbox(&mut self.joints_window.open, "Joints");
+                    ui.checkbox(&mut self.materials_window.open, "Materials");
                 });
             });
         });
@@ -172,5 +176,6 @@ impl eframe::App for RiggenApp {
         self.sync_selection_from_viewport();
         // Windows float over everything, so they go last.
         self.joints_window(ui.ctx());
+        self.materials_window(ui.ctx());
     }
 }

@@ -45,6 +45,10 @@ pub trait InstancePayload: Sized {
     fn upload(ctx: &Self::Context, slot: u32, mesh: &TriMesh) -> Self;
 }
 
+/// The colour an instance draws with until told otherwise: M0's blue-grey.
+/// Linear RGBA, multiplied by the shader's lighting.
+pub const DEFAULT_INSTANCE_COLOR: [f32; 4] = [0.55, 0.65, 0.78, 1.0];
+
 /// One instance: its uploaded payload, where it sits, and whether it draws.
 pub struct InstanceEntry<M> {
     pub key: InstanceId,
@@ -52,6 +56,8 @@ pub struct InstanceEntry<M> {
     pub slot: u32,
     pub mesh: M,
     pub model: DMat4,
+    /// Linear RGBA; the material tint.
+    pub color: [f32; 4],
     pub visible: bool,
     /// Model-space bounds, kept so zoom-to-fit never needs the CPU
     /// positions back.
@@ -109,6 +115,7 @@ impl<M: InstancePayload> Scene<M> {
             slot,
             mesh: M::upload(ctx, slot, mesh),
             model: DMat4::IDENTITY,
+            color: DEFAULT_INSTANCE_COLOR,
             visible: true,
             bounds,
         });
@@ -143,6 +150,17 @@ impl<M> Scene<M> {
         match self.instances.iter_mut().find(|e| e.key == id) {
             Some(entry) => {
                 entry.model = model;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Sets the tint. `false` if `id` is not in the scene.
+    pub fn set_color(&mut self, id: InstanceId, color: [f32; 4]) -> bool {
+        match self.instances.iter_mut().find(|e| e.key == id) {
+            Some(entry) => {
+                entry.color = color;
                 true
             }
             None => false,

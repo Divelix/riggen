@@ -203,7 +203,7 @@ hand-computed poses for a 3-joint chain.
   frame (not a command; repaint while dragging). Reset-all button. Snapshot
   `pendulum_swing` at `q = 45°` asserting the arm's instance position from
   `fk`; app test: `q` is clamped when a limit is edited below it.
-- [ ] Step 9 — Materials table `Window`: rows of name / density / colour,
+- [x] Step 9 — Materials table `Window`: rows of name / density / colour,
   add / remove / edit through `UpsertMaterial` / `RemoveMaterial` (removal
   refused while a link uses it, with the reason in the status bar); the link
   material combo reads the same table; the viewport tints instances with the
@@ -380,6 +380,19 @@ Executable form, all green under `cargo test --workspace` on the CPU adapter:
     is driven with `get_by_label("Window").click()` + `step()` then the
     item; a slider's value is read with `NodeT::accesskit_node()
     .numeric_value()` (import `egui_kittest::kittest::NodeT`).
+  - Step 9: the per-instance uniform grew from the model matrix to matrix
+    + `vec4` colour (`MODEL_UNIFORM_SIZE` 80 bytes, binding visible to
+    the fragment stage; the pick / highlight shaders still declare only
+    the matrix, which is valid against the larger binding). Tint
+    precedence in `sync_scene`: `Geom.color` › the link's material › the
+    viewport default (M0's blue-grey, `DEFAULT_INSTANCE_COLOR`); the
+    colour is in `debug_state().instances[].color`. The colour picker
+    changes every frame, so the table keeps a draft, tints the viewport
+    live (`preview_material_color`) and sends one `UpsertMaterial` when
+    the popup closes (`Context::any_popup_open`). A material's name is
+    its key and is not renamable from the table (links reference it by
+    name); "Add" makes `density 1000, grey`. Windows open from `Window ›
+    Materials` next to `Joints`.
   - `validate` also checks material names (`InvalidName { kind:
     "material" }`) and that densities are finite and non-negative, so
     `UpsertMaterial` cannot smuggle an unexportable name into the table.

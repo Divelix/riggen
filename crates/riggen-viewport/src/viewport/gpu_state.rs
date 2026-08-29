@@ -11,7 +11,11 @@ pub const AXES_GIZMO_SIZE: f32 = 90.0;
 pub const AXES_GIZMO_MARGIN: f32 = 10.0;
 
 /// Bytes of one instance's model matrix (`mat4x4<f32>`), before alignment.
-pub const MODEL_UNIFORM_SIZE: u64 = std::mem::size_of::<[[f32; 4]; 4]>() as u64;
+/// Per-instance uniform: the model matrix (64 bytes) followed by the
+/// instance colour (`vec4<f32>`, 16 bytes). The pick / highlight shaders
+/// declare only the matrix, which is valid against the larger binding.
+pub const MODEL_UNIFORM_SIZE: u64 =
+    (std::mem::size_of::<[[f32; 4]; 4]>() + std::mem::size_of::<[f32; 4]>()) as u64;
 
 /// Packed camera uniforms passed to vertex and fragment shaders (the
 /// background gradient reads the basis vectors).
@@ -76,7 +80,8 @@ impl ModelUniforms {
             label: Some("riggen-viewport model layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                // The vertex stage reads the matrix, the fragment stage the colour.
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: true,

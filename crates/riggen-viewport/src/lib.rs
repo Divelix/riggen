@@ -12,7 +12,10 @@ pub use camera::{
     shortest_angular_delta,
 };
 pub use gpu_mesh::{AxesTriadMesh, ColorVertex, GpuMesh, PickVertex, Vertex};
-pub use scene::{InstanceEntry, InstanceId, InstancePayload, MAX_INSTANCES, Scene, SceneFull};
+pub use scene::{
+    DEFAULT_INSTANCE_COLOR, InstanceEntry, InstanceId, InstancePayload, MAX_INSTANCES, Scene,
+    SceneFull,
+};
 pub use viewport::{InstanceState, Viewport};
 
 /// What the cursor is over: one triangle of one instance
