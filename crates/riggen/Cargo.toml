@@ -1,0 +1,22 @@
+# The crates.io name reservation. Empty on purpose: `cargo install riggen`
+# is the promise (SEED.md §5), and the package that keeps it is `riggen-app`'s
+# `riggen` binary once M4 publishes it under this name. Its own version
+# rather than the workspace's, so 0.1.0 stays free for the real thing.
+#
+# Publish from the workspace root:  cargo publish -p riggen
+
+[package]
+name = "riggen"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+description = "The blazingly fast, lightweight robot assembler for RL researchers — name reservation; the app ships as 0.1.0"
+repository = "https://github.com/Divelix/riggen"
+readme = "README.md"
+keywords = ["robotics", "mujoco", "urdf", "mjcf", "simulation"]
+categories = ["science::robotics", "simulation"]
+# The licence texts sit at the repository root; `include` cannot reach above
+# the package, so they are symlinked in (cargo dereferences them when packaging).
+include = ["src/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
