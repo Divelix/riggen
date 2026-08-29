@@ -1674,6 +1674,321 @@ fn align_starts_on_the_selected_link_and_can_be_abandoned() {
     });
 }
 
+// ── The M2 arm fixtures ──────────────────────────────────────────────────
+//
+// `assets/fixtures/arm/{base,shoulder,upper,fore}.stl`, in **millimetres**
+// (what STL exporters write, and what the app's default import scale reads).
+// Each part is modelled where it belongs in the assembled arm, so dropping
+// the four in order builds the arm with no typing — except `fore`, which is
+// exported offset by a known vector, the way a part exported from its own
+// sketch origin comes out, and which the Align tool puts back.
+//
+// The design line, in millimetres:
+//
+//   J1  base → shoulder   origin (0, 0,  40)   axis Z   (the base's shaft)
+//   J2  shoulder → upper  origin (0, 0,  95)   axis Y   (the shoulder's shaft)
+//   J3  upper → fore      origin (0, 0, 195)   axis Y   (the upper's shaft)
+//
+// A shaft is a plain cylinder standing proud of its block, so the smooth
+// region around any wall triangle is the whole cylinder and the fit's centre
+// is its mid-height — which is where the joint belongs.
+
+/// Where the arm fixtures live.
+fn arm_fixture(name: &str) -> std::path::PathBuf {
+    fixture("arm").join(name)
+}
+
+/// The design values of the three revolute joints, in **metres**: the world
+/// pivot and the world axis each one should end up on.
+const ARM_DESIGN: [([f64; 3], [f64; 3]); 3] = [
+    ([0.0, 0.0, 0.040], [0.0, 0.0, 1.0]),
+    ([0.0, 0.0, 0.095], [0.0, 1.0, 0.0]),
+    ([0.0, 0.0, 0.195], [0.0, 1.0, 0.0]),
+];
+
+/// The vector `fore.stl` is exported away from where it belongs, in mm.
+const FORE_EXPORT_OFFSET: DVec3 = DVec3::new(90.0, 70.0, -60.0);
+
+/// Appends `other` to `mesh`, offsetting its indices. The parts are triangle
+/// soups, not booleans: a shaft simply interpenetrates its block, which is
+/// what an STL of an assembled part looks like anyway.
+fn append(mesh: &mut riggen_mesh::TriMesh, other: riggen_mesh::TriMesh) {
+    let base = mesh.positions.len() as u32;
+    mesh.positions.extend(other.positions);
+    mesh.normals.extend(other.normals);
+    mesh.indices.extend(other.indices.iter().map(|i| i + base));
+}
+
+/// An axis-aligned box of `size` centred on `center`.
+fn boxed(center: DVec3, size: DVec3) -> riggen_mesh::TriMesh {
+    let mut mesh = riggen_mesh::TriMesh::cube(0.5);
+    mesh.transform(
+        &(riggen_core::glam::DMat4::from_translation(center)
+            * riggen_core::glam::DMat4::from_scale(size)),
+    );
+    mesh
+}
+
+/// A cylinder of `radius` and `length` about `axis`, centred on `center`.
+fn shaft(center: DVec3, axis: DVec3, radius: f64, length: f64) -> riggen_mesh::TriMesh {
+    let mut mesh = riggen_mesh::TriMesh::cylinder(radius, length, 24);
+    mesh.transform(&riggen_core::glam::DMat4::from_rotation_translation(
+        riggen_core::glam::DQuat::from_rotation_arc(DVec3::Z, axis.normalize()),
+        center,
+    ));
+    mesh
+}
+
+/// A tube of `outer`/`inner` radius and `length` about `axis`.
+fn sleeve(center: DVec3, axis: DVec3, outer: f64, inner: f64, length: f64) -> riggen_mesh::TriMesh {
+    let mut mesh = riggen_mesh::TriMesh::tube(outer, inner, length, 24);
+    mesh.transform(&riggen_core::glam::DMat4::from_rotation_translation(
+        riggen_core::glam::DQuat::from_rotation_arc(DVec3::Z, axis.normalize()),
+        center,
+    ));
+    mesh
+}
+
+/// Regenerates `assets/fixtures/arm/*.stl`. Ignored: the fixtures are
+/// committed and `five_minute_arm` reads them; run it by hand if the design
+/// changes —
+/// `cargo test -p riggen-app --test visual write_arm_fixtures -- --ignored`.
+#[test]
+#[ignore = "writes the committed fixtures; run on purpose"]
+fn write_arm_fixtures() {
+    let y = DVec3::Y;
+    let z = DVec3::Z;
+
+    // base: a plinth with a Z shaft standing on it.
+    let mut base = boxed(DVec3::new(0.0, 0.0, 10.0), DVec3::new(60.0, 60.0, 20.0));
+    append(&mut base, shaft(DVec3::new(0.0, 0.0, 40.0), z, 8.0, 40.0));
+
+    // shoulder: a block over that shaft, with a Y shaft through it.
+    let mut shoulder = boxed(DVec3::new(0.0, 0.0, 80.0), DVec3::new(20.0, 20.0, 40.0));
+    append(
+        &mut shoulder,
+        shaft(DVec3::new(0.0, 0.0, 95.0), y, 8.0, 70.0),
+    );
+
+    // upper: the long bar, with the next Y shaft at its far end.
+    let mut upper = boxed(DVec3::new(0.0, 0.0, 145.0), DVec3::new(20.0, 20.0, 100.0));
+    append(&mut upper, shaft(DVec3::new(0.0, 0.0, 195.0), y, 8.0, 70.0));
+
+    // fore: a bearing that slips over that shaft, and a bar — exported away
+    // from where it belongs.
+    let mut fore = sleeve(DVec3::new(0.0, 0.0, 195.0), y, 14.0, 8.0, 24.0);
+    append(
+        &mut fore,
+        boxed(DVec3::new(0.0, 0.0, 235.0), DVec3::new(16.0, 16.0, 80.0)),
+    );
+    fore.transform(&riggen_core::glam::DMat4::from_translation(
+        FORE_EXPORT_OFFSET,
+    ));
+
+    std::fs::create_dir_all(fixture("arm")).unwrap();
+    for (name, mesh) in [
+        ("base.stl", base),
+        ("shoulder.stl", shoulder),
+        ("upper.stl", upper),
+        ("fore.stl", fore),
+    ] {
+        std::fs::write(arm_fixture(name), riggen_mesh::write_binary(&mesh)).unwrap();
+    }
+}
+
+/// A screen point on the wall of a shaft, on the side facing the camera.
+///
+/// `along` slides the aim off the shaft's mid-plane, to a stretch that is
+/// not buried in the block it grows out of; the radial direction is taken
+/// **horizontal** (⟂ the axis and ⟂ world Z, flipped toward the eye) so the
+/// point never lands under an overhanging bar.
+fn aim_at_shaft(
+    harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+    center: DVec3,
+    axis: DVec3,
+    radius: f64,
+    along: f64,
+) -> egui::Pos2 {
+    let camera = harness.state().debug_state().camera;
+    let eye = DVec3::new(camera.eye[0], camera.eye[1], camera.eye[2]);
+    let axis = axis.normalize();
+    let horizontal = axis.cross(DVec3::Z);
+    let mut radial = if horizontal.length_squared() > 1e-12 {
+        horizontal.normalize()
+    } else {
+        // A vertical shaft: any radial direction is horizontal already.
+        let toward = eye - center;
+        (toward - axis * toward.dot(axis)).normalize()
+    };
+    if radial.dot(eye - center) < 0.0 {
+        radial = -radial;
+    }
+    harness
+        .state()
+        .project_world(center + axis * along + radial * radius)
+        .expect("the shaft is on screen")
+}
+
+/// Sets a joint's kind through the properties panel's combo, the way a user
+/// does: select its row in the tree, open the combo, pick the kind.
+fn set_kind_through_the_combo(
+    harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+    row: &str,
+    kind: &str,
+) {
+    harness.get_by_label(row).click();
+    harness.step();
+    harness.get_by_role(egui::accesskit::Role::ComboBox).click();
+    harness.step();
+    harness.get_by_label(kind).click();
+    harness.step();
+    harness.step();
+}
+
+/// **The M2 acceptance.** Four STLs from a folder become a three-degree-of-
+/// freedom arm with the mouse alone: drop them in order so the chain builds
+/// itself (ADR-0006), make three joints revolute through the combo, put the
+/// part that was exported out of place back with Align, put each pivot on
+/// its shaft with Place joint, and swing it.
+///
+/// No coordinate is typed. Every joint ends within half a degree and one
+/// millimetre of the design line the fixtures were generated from, and the
+/// history holds exactly one entry per gesture.
+#[test]
+fn five_minute_arm() {
+    scenario("five_minute_arm", |harness| {
+        let app = harness.state_mut();
+        // The fixtures are in millimetres, as STL exporters write them.
+        app.set_import_scale(0.001);
+
+        // Drop with the selection following: each part lands under the last.
+        let base = app.open_path(&arm_fixture("base.stl")).unwrap().unwrap();
+        app.select(Selection::Link(base));
+        let shoulder = app
+            .open_path(&arm_fixture("shoulder.stl"))
+            .unwrap()
+            .unwrap();
+        app.select(Selection::Link(shoulder));
+        let upper = app.open_path(&arm_fixture("upper.stl")).unwrap().unwrap();
+        app.select(Selection::Link(upper));
+        let fore = app.open_path(&arm_fixture("fore.stl")).unwrap().unwrap();
+        app.fit_view_now();
+        settle(harness);
+
+        let joints: Vec<riggen_core::JointId> = [shoulder, upper, fore]
+            .iter()
+            .map(|l| harness.state().robot().parent_joint(*l).unwrap())
+            .collect();
+        assert_eq!(
+            harness.state().robot().links.len(),
+            5,
+            "root plus four parts"
+        );
+
+        // Three kinds, through the combo.
+        for name in ["shoulder_joint", "upper_joint", "fore_joint"] {
+            set_kind_through_the_combo(harness, &format!("{name} · fixed"), "Revolute");
+        }
+        for joint in &joints {
+            assert_eq!(
+                harness.state().robot().joints[joint].kind,
+                riggen_core::JointKind::Revolute
+            );
+        }
+
+        // Align: the forearm was exported 90/70/-60 mm away from where it
+        // belongs. Its bearing onto the upper arm's shaft.
+        harness.state_mut().set_tool(Tool::Align);
+        harness.state_mut().select(Selection::Link(fore));
+        let offset = FORE_EXPORT_OFFSET / 1000.0;
+        let bearing = aim_at_shaft(
+            harness,
+            DVec3::new(0.0, 0.0, 0.195) + offset,
+            DVec3::Y,
+            0.014,
+            0.0,
+        );
+        hover_until_snapped(harness, bearing);
+        click_at(harness, bearing);
+        let elbow = aim_at_shaft(harness, DVec3::new(0.0, 0.0, 0.195), DVec3::Y, 0.008, -0.02);
+        hover_until_snapped(harness, elbow);
+        click_at(harness, elbow);
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        // Place joint: each pivot onto the shaft it turns about.
+        harness.state_mut().set_tool(Tool::PlaceJoint);
+        let shafts = [
+            (DVec3::new(0.0, 0.0, 0.040), DVec3::Z, 0.008, 0.0),
+            (DVec3::new(0.0, 0.0, 0.095), DVec3::Y, 0.008, -0.02),
+            (DVec3::new(0.0, 0.0, 0.195), DVec3::Y, 0.008, -0.02),
+        ];
+        for (joint, (center, axis, radius, along)) in joints.iter().zip(shafts) {
+            harness.state_mut().select(Selection::Joint(*joint));
+            let at = aim_at_shaft(harness, center, axis, radius, along);
+            hover_until_snapped(harness, at);
+            assert_eq!(
+                harness.state().snap().map(|s| s.kind),
+                Some(riggen_app::SnapKind::Circle),
+                "the shaft at {center} fits a circle"
+            );
+            click_at(harness, at);
+        }
+
+        // Every pivot within half a degree and a millimetre of the design.
+        let app = harness.state();
+        let world = riggen_core::fk(app.robot(), &riggen_core::JointState::default());
+        for (joint, (origin, axis)) in joints.iter().zip(ARM_DESIGN) {
+            let j = &app.robot().joints[joint];
+            let parent = world[&j.parent];
+            let pivot = parent.transform_point(j.origin.t);
+            let placed_axis = (parent.r * j.origin.r * j.axis).normalize();
+            let want_axis = DVec3::from_array(axis);
+            let want_origin = DVec3::from_array(origin);
+
+            let angle = placed_axis.dot(want_axis).abs().clamp(0.0, 1.0).acos();
+            assert!(
+                angle < 0.5f64.to_radians(),
+                "{} axis is {}° off",
+                j.name,
+                angle.to_degrees()
+            );
+            // Point to line: a pivot anywhere along the axis is the same joint.
+            let d = pivot - want_origin;
+            let off = (d - want_axis * d.dot(want_axis)).length();
+            assert!(off < 1e-3, "{} pivot is {off} m off its axis", j.name);
+        }
+
+        // Four drops, three kinds, one align, three placements.
+        assert_eq!(app.history().undo_depth(), 11, "one entry per gesture");
+
+        // And it swings: the shoulder turns the whole arm about Z.
+        let tip_at_rest = world[&fore].t;
+        harness
+            .state_mut()
+            .set_joint_value(joints[0], std::f64::consts::FRAC_PI_4);
+        harness.state_mut().set_joint_value(joints[1], -0.6);
+        harness.state_mut().set_joint_value(joints[2], 0.9);
+        settle(harness);
+        let swung = riggen_core::fk(
+            harness.state().robot(),
+            &riggen_core::JointState(
+                joints
+                    .iter()
+                    .zip([std::f64::consts::FRAC_PI_4, -0.6, 0.9])
+                    .map(|(j, q)| (*j, q))
+                    .collect(),
+            ),
+        );
+        assert!(
+            (swung[&fore].t - tip_at_rest).length() > 0.05,
+            "the arm moved: {} → {}",
+            tip_at_rest,
+            swung[&fore].t
+        );
+    });
+}
+
 /// The materials table over the pendulum: base_link is aluminium and arm
 /// is PLA, and the viewport tints each cube with its material colour.
 #[test]

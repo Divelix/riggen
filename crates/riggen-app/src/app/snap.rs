@@ -243,7 +243,8 @@ impl RiggenApp {
             nearest_within(cursor, &projected, SNAP_PIXEL_RADIUS).map(|(_, at)| at)
         };
 
-        // Box: the instance's own bounds, corners and face centres.
+        // Box: the instance's own bounds, corners and face centres — the
+        // ones on this side of the part (see `in_front_of`).
         let boxed = {
             let bounds = self
                 .viewport
@@ -251,9 +252,11 @@ impl RiggenApp {
                 .find(|s| s.id == hit.instance)
                 .and_then(|s| s.bounds)
                 .map(|b| b.transformed(&model));
+            let hit_depth = (hit_point - ray.origin).dot(ray.dir);
             let projected: Vec<_> = bounds
                 .iter()
                 .flat_map(box_targets)
+                .filter(|(world, _)| in_front_of(*world, &ray, hit_depth))
                 .filter_map(|(world, kind)| Some((self.viewport.project(world)?, world, kind)))
                 .collect();
             nearest_within(cursor, &projected, SNAP_PIXEL_RADIUS)
@@ -386,6 +389,20 @@ impl RiggenApp {
     }
 }
 
+/// Whether `at` is on the near side of the surface the cursor hit, measured
+/// along the view ray.
+///
+/// The overlay is not depth-tested and a bounding box floats around the part
+/// rather than lying on it, so a corner on the **far** side projects into the
+/// silhouette and would win a snap to something the user cannot see — the
+/// plinth corner behind a shaft, every time. A vertex of the hit triangle is
+/// on the surface by construction and is not filtered.
+pub(crate) fn in_front_of(at: DVec3, ray: &Ray, hit_depth: f64) -> bool {
+    // A face centre coincident with the hit is "in front"; the tolerance is
+    // there for float noise, not for depth.
+    (at - ray.origin).dot(ray.dir) <= hit_depth * (1.0 + 1e-9) + 1e-9
+}
+
 /// The eight corners and six face centres of `bounds`, tagged with the kind
 /// they snap as.
 fn box_targets(bounds: &riggen_mesh::Aabb) -> Vec<(DVec3, SnapKind)> {
@@ -502,6 +519,29 @@ mod tests {
             Some((SnapKind::BoxCorner, DVec3::X))
         );
         assert_eq!(nearest_within(cursor, &[], SNAP_PIXEL_RADIUS), None);
+    }
+
+    #[test]
+    fn a_box_target_behind_the_surface_is_dropped() {
+        // Looking down −Z at a part whose box spans z ∈ [0, 1]; the surface
+        // hit is its top face.
+        let ray = Ray {
+            origin: DVec3::new(0.0, 0.0, 10.0),
+            dir: DVec3::NEG_Z,
+        };
+        let hit_depth = 9.0; // the top face, at z = 1
+        assert!(
+            in_front_of(DVec3::new(0.4, 0.4, 1.0), &ray, hit_depth),
+            "on it"
+        );
+        assert!(
+            in_front_of(DVec3::new(0.4, 0.4, 2.0), &ray, hit_depth),
+            "in front"
+        );
+        assert!(
+            !in_front_of(DVec3::new(0.4, 0.4, 0.0), &ray, hit_depth),
+            "the far corner is hidden behind the part"
+        );
     }
 
     #[test]
