@@ -1,0 +1,190 @@
+{
+  "camera": {
+    "eye": [
+      0.088796,
+      -0.038796,
+      0.055425
+    ],
+    "target": [
+      0.03,
+      0.02,
+      0.01
+    ],
+    "up": [
+      -0.339005,
+      0.339005,
+      0.877582
+    ],
+    "distance": 0.09475,
+    "yaw_deg": -45.0,
+    "pitch_deg": 28.64789,
+    "fov_y_deg": 45.0,
+    "near": 0.000302,
+    "far": 100.0,
+    "projection": "Perspective",
+    "animating": false,
+    "aspect": 0.960187,
+    "view": [
+      [
+        0.707107,
+        -0.339005,
+        0.620545,
+        0.0
+      ],
+      [
+        0.707107,
+        0.339005,
+        -0.620545,
+        0.0
+      ],
+      [
+        0.0,
+        0.877582,
+        0.479426,
+        0.0
+      ],
+      [
+        -0.035355,
+        -0.005386,
+        -0.105749,
+        1.0
+      ]
+    ],
+    "proj": [
+      [
+        2.514315,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        2.414213,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        -1.000003,
+        -1.0
+      ],
+      [
+        0.0,
+        0.0,
+        -0.000302,
+        0.0
+      ]
+    ]
+  },
+  "document": {
+    "file": null,
+    "name": "robot",
+    "dirty": true,
+    "import_scale": 1.0,
+    "links": [
+      {
+        "id": "l0",
+        "name": "base_link",
+        "parent_joint": null,
+        "geoms": 0,
+        "material": null
+      },
+      {
+        "id": "l3",
+        "name": "boss",
+        "parent_joint": "j4",
+        "geoms": 1,
+        "material": null
+      }
+    ],
+    "joints": [
+      {
+        "id": "j4",
+        "name": "boss_joint",
+        "kind": "Revolute",
+        "parent": "l0",
+        "child": "l3",
+        "q": 0.0
+      }
+    ],
+    "selection": "joint j4"
+  },
+  "ui": {
+    "tool": "Place joint",
+    "renaming": null,
+    "windows": [],
+    "modal": null,
+    "title": "untitled* — riggen"
+  },
+  "instances": [
+    {
+      "id": 0,
+      "link": "l3",
+      "geom": "g2",
+      "visible": true,
+      "triangles": 96,
+      "bounds": [
+        [
+          -0.012,
+          -0.012,
+          -0.025
+        ],
+        [
+          0.012,
+          0.012,
+          0.025
+        ]
+      ],
+      "position": [
+        0.03,
+        0.02,
+        0.01
+      ],
+      "color": [
+        0.55,
+        0.65,
+        0.78,
+        1.0
+      ]
+    }
+  ],
+  "selection": {
+    "hovered": null,
+    "selected": null
+  },
+  "gizmo": null,
+  "glyphs": [
+    {
+      "joint": "j4",
+      "name": "boss_joint",
+      "kind": "Revolute",
+      "origin": [
+        0.03,
+        0.02,
+        0.01
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "size": 0.030216,
+      "q": 0.0,
+      "screen": [
+        649.999939,
+        449.999969
+      ],
+      "active": true,
+      "hovered": false
+    }
+  ],
+  "snap": null,
+  "status": "placed boss_joint on circle r 12.0 mm · 24 seg · res 0.00 mm",
+  "viewport_rect": [
+    240.0,
+    23.0,
+    1060.0,
+    877.0
+  ]
+}

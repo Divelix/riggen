@@ -122,7 +122,7 @@ snapshot scenarios and the scripted `five_minute_arm` acceptance.
   (`circle r 12.0 mm · 24 seg · res 0.01 mm` — a bad fit is obvious);
   `debug_state.snap`. Pure-function tests for the priority ladder and the
   pixel radius; snapshots `snap_vertex`, `snap_circle`.
-- [ ] Step 8 — Place joint tool: joint selected + click a candidate →
+- [x] Step 8 — Place joint tool: joint selected + click a candidate →
   `MoveJointFrame` (circle: origin = center, axis = fit axis; face: axis
   = normal, origin = hit point; vertex / AABB / point: origin only).
   `with_app` test on a generated boss: axis within 0.5°, origin on the

@@ -20,8 +20,8 @@
 //! a GPU, and the circle fit is memoised per `(instance, triangle)`: a
 //! cursor resting on one facet fits once, not once per frame.
 
-use riggen_core::LinkId;
 use riggen_core::glam::{DMat4, DVec3};
+use riggen_core::{JointId, LinkId, Pose};
 use riggen_mesh::feature::CircleFit;
 use riggen_mesh::{Ray, ray_triangle};
 use riggen_viewport::{InstanceId, Overlay, OverlayItem};
@@ -177,8 +177,16 @@ impl RiggenApp {
     }
 
     fn compute_snap(&mut self, ctx: &egui::Context) -> Option<SnapCandidate> {
+        // Nothing behind the toolbar, the gizmo or a modal is being pointed
+        // at, and a click there must not place anything either.
+        if self.gizmo_state.captured || self.pending.is_some() {
+            return None;
+        }
         let hit = self.viewport.hovered()?;
         let cursor = ctx.pointer_hover_pos()?;
+        if self.toolbar_rect.is_some_and(|r| r.contains(cursor)) {
+            return None;
+        }
         let link = self.link_of_instance(hit.instance)?;
         let geom = self.geom_of_instance(hit.instance)?;
         let mesh_id = self
@@ -311,6 +319,61 @@ impl RiggenApp {
             SNAP_COLOR,
             egui::vec2(10.0, -6.0),
         );
+    }
+}
+
+/// What the status bar says after a placement, so a test can assert on the
+/// gesture's outcome rather than on prose.
+pub fn placed_status(joint: &str, snap: &SnapCandidate) -> String {
+    format!("placed {joint} on {}", snap.readout())
+}
+
+impl RiggenApp {
+    /// Puts the selected joint's frame on the snapped feature: one
+    /// `MoveJointFrame`, so nothing in the world moves and only the pivot
+    /// does (plans/m2-placement-ux step 8).
+    ///
+    /// What the feature offers depends on what it is. A **circle** gives
+    /// both an origin (its centre) and an axis (its own); a plain **point**
+    /// on a face gives the hit and the face normal; a **vertex** or a box
+    /// corner gives a position and nothing about direction, so the axis is
+    /// left alone — inventing one from a corner would be a guess the user
+    /// cannot see.
+    pub fn place_joint(&mut self, joint: JointId, snap: &SnapCandidate) {
+        let Some(current) = self.robot.joints.get(&joint).cloned() else {
+            return;
+        };
+        let world = riggen_core::fk(&self.robot, &self.q);
+        let Some(parent) = world.get(&current.parent).copied() else {
+            return;
+        };
+        // The frame keeps its orientation and moves to the feature; the
+        // axis is the feature's, re-expressed in that frame.
+        let origin = Pose::new(
+            parent.inverse().transform_point(snap.point),
+            current.origin.r,
+        );
+        let axis = match snap.kind {
+            SnapKind::Circle | SnapKind::Point => {
+                let world_axis = snap.axis().normalize_or_zero();
+                if world_axis == DVec3::ZERO {
+                    current.axis
+                } else {
+                    (origin.r.inverse() * (parent.r.inverse() * world_axis)).normalize()
+                }
+            }
+            SnapKind::Vertex | SnapKind::BoxCorner | SnapKind::BoxFaceCenter => current.axis,
+        };
+        if self
+            .apply(riggen_core::Command::MoveJointFrame {
+                joint,
+                origin,
+                axis,
+            })
+            .is_ok()
+        {
+            self.status = Some(placed_status(&current.name, snap));
+        }
     }
 }
 

@@ -105,6 +105,11 @@ pub struct Viewport {
     /// World-space primitives drawn over the scene after the paint
     /// callback (`overlay.rs`). Rebuilt by the app every frame.
     overlay: Overlay,
+    /// While `true` a click does not start a *select* pick, but hovering
+    /// still resolves. The placement tools set it: they need the hovered
+    /// triangle to snap against, and their click means "place here", not
+    /// "select the part under the cursor".
+    select_suppressed: bool,
     /// While `true` the viewport ignores the pointer entirely: no camera
     /// input, no picking. The app sets it while the gizmo owns the cursor
     /// (ADR-0007) — the gizmo's own widget is registered after the viewport
@@ -254,6 +259,7 @@ impl Viewport {
             hovered: None,
             selected: None,
             overlay: Overlay::default(),
+            select_suppressed: false,
             input_suppressed: false,
             pending_pick: None,
             last_pick: None,
@@ -443,6 +449,11 @@ impl Viewport {
     /// Whether the pointer is ignored this frame (see `input_suppressed`).
     pub fn set_input_suppressed(&mut self, suppressed: bool) {
         self.input_suppressed = suppressed;
+    }
+
+    /// Whether a click may change the selection (see `select_suppressed`).
+    pub fn set_select_suppressed(&mut self, suppressed: bool) {
+        self.select_suppressed = suppressed;
     }
 
     /// Where `world` lands on screen, in egui logical points, or `None`
@@ -817,7 +828,7 @@ impl Viewport {
         let view_proj = view_proj_matrix.to_cols_array_2d();
         let decision = decide_pick(
             self.pending_pick.is_some() || self.scene.is_empty(),
-            (!self.input_suppressed)
+            (!self.input_suppressed && !self.select_suppressed)
                 .then(|| response.clicked().then(|| response.interact_pointer_pos()))
                 .flatten()
                 .flatten()
