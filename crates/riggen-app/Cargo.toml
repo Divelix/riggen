@@ -12,10 +12,28 @@ crate-type = ["cdylib", "rlib"]
 name = "riggen"
 path = "src/main.rs"
 
+# `cargo test` never runs this one: it is the on-demand "show me the app right
+# now" capture (ADR-0003), asked for by name and compared against nothing.
+[[test]]
+name = "visual_scratch"
+path = "tests/visual_scratch.rs"
+test = false
+
 [dependencies]
 eframe.workspace = true
 egui.workspace = true
 egui-wgpu.workspace = true
+# `debug_state()` serialises what the app thinks it drew; the snapshot suite
+# compares that JSON against a committed golden (ADR-0003).
+serde.workspace = true
+serde_json.workspace = true
+web-time.workspace = true
+
+# The visual-snapshot suite (`tests/visual/`, ADR-0003). Native-only and
+# dev-only: it never reaches the shipped binary or the wasm build.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+egui_kittest.workspace = true
+pollster.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"

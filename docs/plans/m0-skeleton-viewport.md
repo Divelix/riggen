@@ -92,14 +92,15 @@ All present-tense text lands in the design docs at retirement; the deltas:
   `.gitignore` snapshot artefacts. Test: `cargo test --workspace` (zero tests,
   builds), `cargo build --target wasm32-unknown-unknown -p riggen-app`, the
   pre-commit hook now runs for real.
-- [ ] Step 2 — Snapshot harness and `debug_state()` on the empty shell.
+- [x] Step 2 — Snapshot harness and `debug_state()` on the empty shell.
   `RiggenApp::new(cc)` requiring the wgpu render state; status bar (bottom
   panel, one frame of lag by design) + empty `CentralPanel`; `kittest.toml`
   (`threshold = 0.6`, `max_failed_pixels = 64`); `tests/visual/harness.rs`
   with `adapter_available`, `gpu_lock`, `scenario`, `settle`,
   `pump_rendered`, `click_at`, `scratch`, JSON golden compare;
   `tests/visual/main.rs` with `startup`; `tests/visual_scratch.rs`
-  (`test = false`); `DebugState` with `camera` + `viewport_rect` only. Test:
+  (`test = false`); `DebugState` with `viewport_rect` only (`camera` joins in
+  step 8 — there is no camera to report before step 6 lands). Test:
   `cargo test -p riggen-app --test visual` renders `startup.png` +
   `startup.json` on lavapipe; show the human the PNG. Retires the
   "does kittest + eframe 0.36.1 + lavapipe work on this machine" unknown
@@ -150,7 +151,9 @@ All present-tense text lands in the design docs at retirement; the deltas:
   projection toggle; repaint requested only while animating. App wires
   `Viewport` into the `CentralPanel` and gains `open_path(&Path)`. Test:
   snapshot `cube` (`open_path("assets/fixtures/cube_binary.stl")`, fit, settle)
-  + `debug_state().instances` listing one instance with 12 triangles and the
+  + `debug_state().camera` (eye, target, up, distance, yaw/pitch/fov,
+  projection, animating, aspect, view, proj — robocad's `CameraDebug`) and
+  `debug_state().instances` listing one instance with 12 triangles and the
   right bounds. No picking yet.
 - [ ] Step 9 — Picking and restyle: pick pass on its own encoder + `R32Uint`
   target + 5×5 readback + `map_async` into `Arc<Mutex<..>>`; `device.poll`
@@ -213,8 +216,8 @@ All present-tense text lands in the design docs at retirement; the deltas:
   pass, hover-tinting the instance too, with the hit triangle index kept in
   `PickHit` for M2's snapping. **Agent decides at step 9; human may override
   earlier.**
-- ⚠ OPEN: Frame-time HUD location — status bar (roadmap text, this plan) vs.
-  viewport corner (robocad). Plan assumes status bar. **Human, before step 2.**
+- Frame-time HUD location — **decided (human, 2026-08-29): status bar.**
+  Landed in step 2 as the right-aligned readout behind `set_frame_hud_visible`.
 - ⚠ OPEN: Should `TriMesh` positions be `f32` from the start (a 1 M-triangle
   unwelded STL is 72 MB at f64 vs 36 MB)? Plan assumes f64 per 02-data-model
   ("f32 only past the GPU boundary"); mass properties in M3 want f64 anyway.

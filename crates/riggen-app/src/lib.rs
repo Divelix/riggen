@@ -2,6 +2,7 @@
 //! wasm32 (docs/01-architecture.md §Crates).
 
 mod app;
+pub mod debug;
 
 pub use app::RiggenApp;
 

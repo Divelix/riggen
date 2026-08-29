@@ -1,0 +1,22 @@
+# Configuration for `egui_kittest`'s image snapshots (ADR-0003).
+#
+# The reference environment is a CPU rasteriser: `egui_kittest`'s default wgpu
+# setup sorts adapters with `DeviceType::Cpu` first, so a machine with
+# mesa-vulkan-drivers installed renders through lavapipe whether or not it also
+# has a GPU. That is what keeps a developer's snapshots and CI's comparable —
+# without it the same test produces different pixels on every machine.
+#
+# Found by walking up from the test's working directory (the crate root), so
+# it lives once at the workspace root. `output_path` is left at its default
+# (`tests/snapshots`, resolved against the crate root, i.e. `crates/riggen-app/`),
+# since that is the only crate with snapshots.
+
+# Per-pixel weighted-squared-YIQ distance. egui's own repo uses a raised
+# threshold off its reference platform; ours is a small tolerance for driver
+# revisions, not for real differences.
+threshold = 0.6
+
+# A handful of pixels may differ (text antialiasing at glyph edges shifts
+# between mesa releases). Kept deliberately low: a real regression moves far
+# more than this, and raising it is the failure mode ADR-0003 warns about.
+max_failed_pixels = 64
