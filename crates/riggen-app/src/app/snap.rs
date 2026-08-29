@@ -216,7 +216,16 @@ impl RiggenApp {
             let loaded = self.mesh_store.get(&mesh_id)?;
             (triangle < loaded.mesh.triangle_count()).then(|| loaded.mesh.triangle(triangle))?
         };
-        let t = ray_triangle(&local_ray, &corners)?;
+        // The ID buffer samples a 5×5 region around the cursor, so the
+        // triangle it names can be the cursor's *neighbour*: the exact ray
+        // then misses it by a pixel. Its plane is still the right surface.
+        let t = ray_triangle(&local_ray, &corners).or_else(|| {
+            let normal = (corners[1] - corners[0]).cross(corners[2] - corners[0]);
+            let denominator = normal.dot(local_ray.dir);
+            (denominator.abs() > 1e-12)
+                .then(|| normal.dot(corners[0] - local_ray.origin) / denominator)
+                .filter(|t| *t >= 0.0)
+        })?;
         let hit_point = model.transform_point3(local_ray.at(t));
         let normal = model
             .transform_vector3((corners[1] - corners[0]).cross(corners[2] - corners[0]))

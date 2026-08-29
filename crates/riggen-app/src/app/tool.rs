@@ -70,6 +70,8 @@ impl RiggenApp {
     /// Switches tools, resetting `q` first when the new one edits frames
     /// and something is off zero (OPEN 1).
     pub fn set_tool(&mut self, tool: Tool) {
+        // A half-finished align belongs to the gesture, not to the app.
+        self.cancel_align();
         if tool.edits_frames() && self.q.0.values().any(|q| *q != 0.0) {
             self.reset_joint_values();
             self.status = Some(ZERO_CONFIG_STATUS.to_owned());

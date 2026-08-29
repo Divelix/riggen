@@ -1,6 +1,7 @@
 //! The application state and its per-frame `ui`: menu bar on top, status
 //! bar on the bottom, the viewport in the central panel.
 
+mod align;
 mod debug_menu;
 mod document;
 mod file_io;
@@ -20,6 +21,7 @@ use riggen_core::{GeomId, History, JointId, JointState, LinkId, MeshId, Pose, Ro
 use riggen_viewport::{InstanceId, PickHit, Viewport};
 use web_time::Instant;
 
+pub use align::{ALIGN_PROMPT, ALIGN_WRONG_LINK, align_transform, aligned_status};
 pub use debug_menu::COPIED_STATUS;
 pub(crate) use document::LoadedMesh;
 pub use document::Selection;
@@ -68,6 +70,8 @@ pub struct RiggenApp {
     snap_candidate: Option<SnapCandidate>,
     /// The last circle fit, so a resting cursor fits once and not per frame.
     snap_cache: SnapCache,
+    /// The Align tool's first pick, waiting for its second (`align.rs`).
+    align_source: Option<SnapCandidate>,
     /// A link's world pose while a gizmo drag previews it: `sync_scene`
     /// puts the link and its subtree there instead of at the FK pose, and
     /// the document is untouched until the release commits.
@@ -143,6 +147,7 @@ impl RiggenApp {
             toolbar_rect: None,
             snap_candidate: None,
             snap_cache: SnapCache::default(),
+            align_source: None,
             preview_world: None,
             last_viewport_selected: None,
             import_scale,
@@ -306,6 +311,7 @@ impl eframe::App for RiggenApp {
                 self.update_glyph_hover(ui.ctx(), &glyphs);
                 self.update_snap(ui.ctx());
                 let mut overlay = self.glyph_overlay(&glyphs, self.active_joint());
+                self.push_align_overlay(&mut overlay);
                 self.push_snap_overlay(&mut overlay);
                 self.viewport.set_overlay(overlay);
                 // One frame behind for the gizmo, which cannot say whether it
@@ -331,12 +337,16 @@ impl eframe::App for RiggenApp {
                 let clicked = ui.input(|i| i.pointer.primary_clicked());
                 if let Some(joint) = self.glyph_hover.filter(|_| clicked) {
                     self.select(Selection::Joint(joint));
-                } else if clicked
-                    && self.tool == Tool::PlaceJoint
-                    && let Selection::Joint(joint) = self.selection
-                    && let Some(snap) = self.snap_candidate
-                {
-                    self.place_joint(joint, &snap);
+                } else if let Some(snap) = self.snap_candidate.filter(|_| clicked) {
+                    match self.tool {
+                        Tool::PlaceJoint => {
+                            if let Selection::Joint(joint) = self.selection {
+                                self.place_joint(joint, &snap);
+                            }
+                        }
+                        Tool::Align => self.align_click(&snap),
+                        _ => {}
+                    }
                 }
             });
         self.sync_selection_from_viewport();

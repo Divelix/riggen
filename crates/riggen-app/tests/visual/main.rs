@@ -1516,6 +1516,164 @@ fn place_joint_on_a_corner_moves_the_origin_only() {
     });
 }
 
+/// Writes a tube as binary STL: a sleeve to bring onto a boss.
+fn tube_stl(
+    name: &str,
+    outer: f64,
+    inner: f64,
+    height: f64,
+    segments: usize,
+) -> std::path::PathBuf {
+    let path = scratch_dir(name).join("sleeve.stl");
+    let mesh = riggen_mesh::TriMesh::tube(outer, inner, height, segments);
+    std::fs::write(&path, riggen_mesh::write_binary(&mesh)).unwrap();
+    path
+}
+
+/// Align, two clicks: a sleeve exported half a decimetre away and lying on
+/// its side is brought concentric with the boss's end face. One `SetJoint`,
+/// and the axes agree to better than half a degree.
+#[test]
+fn align_concentric() {
+    scenario("align_concentric", |harness| {
+        let boss_path = cylinder_stl("align_boss", 0.012, 0.05, 24);
+        let sleeve_path = tube_stl("align_sleeve", 0.02, 0.012, 0.03, 24);
+        let app = harness.state_mut();
+        app.open_path(&boss_path).expect("open the boss").unwrap();
+        let sleeve = app
+            .open_path(&sleeve_path)
+            .expect("open the sleeve")
+            .unwrap();
+
+        // Exported out of place: offset, and lying on its side.
+        let sleeve_joint = app.robot().parent_joint(sleeve).unwrap();
+        let mut j = app.robot().joints[&sleeve_joint].clone();
+        j.origin = Pose::from_xyz_rpy(
+            DVec3::new(0.1, 0.06, 0.0),
+            DVec3::new(std::f64::consts::FRAC_PI_2, 0.0, 0.0),
+        );
+        app.apply(Command::SetJoint(sleeve_joint, j)).unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::Align);
+        app.select(Selection::Link(sleeve));
+        settle(harness);
+
+        let depth = harness.state().history().undo_depth();
+
+        // First click: the sleeve's outer wall, whose fitted circle is
+        // centred on the sleeve and shares its axis. Aimed at the point of
+        // the wall facing the camera — the projected centre would look
+        // straight down the bore and hit a rim vertex instead.
+        let centre = DVec3::new(0.1, 0.06, 0.0);
+        let sleeve_axis = DVec3::NEG_Y; // local +Z after a 90° roll
+        let at = {
+            let eye = harness.state().debug_state().camera.eye;
+            let toward = DVec3::new(eye[0], eye[1], eye[2]) - centre;
+            let radial = (toward - sleeve_axis * toward.dot(sleeve_axis)).normalize();
+            harness
+                .state()
+                .project_world(centre + radial * 0.02)
+                .expect("the sleeve is on screen")
+        };
+        hover_until_snapped(harness, at);
+        assert_eq!(
+            harness.state().snap().map(|s| s.kind),
+            Some(riggen_app::SnapKind::Circle)
+        );
+        click_at(harness, at);
+        assert!(harness.state().align_source().is_some());
+        assert_eq!(
+            harness.state().debug_state().status.as_deref(),
+            Some(riggen_app::ALIGN_PROMPT)
+        );
+
+        // Second click: the boss's top face, off-centre so neither the
+        // fan's centre vertex nor a rim one wins the snap ladder. Offset
+        // along the screen's own horizontal, which the cap's slant does not
+        // foreshorten.
+        let at = {
+            let camera = harness.state().debug_state().camera;
+            let forward = DVec3::new(
+                camera.target[0] - camera.eye[0],
+                camera.target[1] - camera.eye[1],
+                camera.target[2] - camera.eye[2],
+            );
+            let right = forward.cross(DVec3::Z).normalize();
+            harness
+                .state()
+                .project_world(DVec3::new(0.0, 0.0, 0.025) + right * 0.006)
+                .expect("the boss cap is on screen")
+        };
+        hover_until_snapped(harness, at);
+        assert_eq!(
+            harness.state().snap().map(|s| s.kind),
+            Some(riggen_app::SnapKind::Circle)
+        );
+        click_at(harness, at);
+        settle(harness);
+
+        let app = harness.state();
+        assert_eq!(
+            app.history().undo_depth(),
+            depth + 1,
+            "two clicks, one command"
+        );
+        assert_eq!(app.align_source(), None, "the gesture is finished");
+        let world = riggen_core::fk(app.robot(), &riggen_core::JointState::default());
+        let placed = world[&sleeve];
+        // Concentric: the sleeve's axis is the boss cap's normal…
+        let angle = (placed.r * DVec3::Z).dot(DVec3::Z).clamp(-1.0, 1.0).acos();
+        assert!(
+            angle < 0.5f64.to_radians(),
+            "axis is {}° off",
+            angle.to_degrees()
+        );
+        // …and its centre is on the cap.
+        assert!(
+            (placed.t - DVec3::new(0.0, 0.0, 0.025)).length() < 1e-3,
+            "centre at {}",
+            placed.t
+        );
+    });
+}
+
+/// The first click has to land on the part being moved, and abandoning the
+/// gesture (a tool change, another selection) forgets it.
+#[test]
+fn align_starts_on_the_selected_link_and_can_be_abandoned() {
+    with_app(|harness| {
+        let boss_path = cylinder_stl("align_guard_boss", 0.012, 0.05, 24);
+        let app = harness.state_mut();
+        let boss = app.open_path(&boss_path).expect("open the boss").unwrap();
+        let other = app.add_link(Link::new("other"), app.robot().root).unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::Align);
+        app.select(Selection::Link(other));
+        settle(harness);
+
+        // Pointing at the boss while `other` is selected: refused, with the
+        // reason in the status bar.
+        let at = harness.state().viewport_center().unwrap();
+        hover_until_snapped(harness, at);
+        click_at(harness, at);
+        assert_eq!(harness.state().align_source(), None);
+        assert_eq!(
+            harness.state().debug_state().status.as_deref(),
+            Some(riggen_app::ALIGN_WRONG_LINK)
+        );
+
+        // Selecting the boss and picking on it does start one…
+        harness.state_mut().select(Selection::Link(boss));
+        hover_until_snapped(harness, at);
+        click_at(harness, at);
+        assert!(harness.state().align_source().is_some());
+
+        // …and leaving the tool abandons it.
+        harness.state_mut().set_tool(Tool::Select);
+        assert_eq!(harness.state().align_source(), None);
+    });
+}
+
 /// The materials table over the pendulum: base_link is aluminium and arm
 /// is PLA, and the viewport tints each cube with its material colour.
 #[test]

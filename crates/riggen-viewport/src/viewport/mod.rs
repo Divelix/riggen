@@ -23,6 +23,7 @@ use gpu_state::{
     AXES_GIZMO_MARGIN, AXES_GIZMO_SIZE, CameraUniforms, DEPTH_FORMAT, GpuState, InstanceBuffers,
     ModelUniforms, OffscreenTarget,
 };
+use picking::MAX_PICK_FRAMES;
 use picking::{
     PICK_FORMAT, PICK_READBACK_SIZE, PendingPick, PickDecision, PickInputs, PickKind, PickRegion,
     decide_pick, resolve_pick_region,
@@ -497,7 +498,7 @@ impl Viewport {
     /// applies it to hover or selection. A slot nobody holds any more (the
     /// instance was removed while the pick was in flight) reads as a miss.
     fn resolve_pending_pick(&mut self) {
-        let Some(pending) = self.pending_pick.take() else {
+        let Some(mut pending) = self.pending_pick.take() else {
             return;
         };
         let resolved = pending.result.lock().unwrap().take();
@@ -513,7 +514,18 @@ impl Viewport {
                     PickKind::Select => self.selected = hit,
                 }
             }
-            None => self.pending_pick = Some(pending),
+            None => {
+                pending.age += 1;
+                if pending.age <= MAX_PICK_FRAMES {
+                    self.pending_pick = Some(pending);
+                } else {
+                    // Abandoned: nothing will answer it, and one stuck
+                    // request would otherwise wedge picking forever
+                    // (`MAX_PICK_FRAMES`). Forget the memo too, so the next
+                    // hover over the same pixel asks again.
+                    self.last_pick = None;
+                }
+            }
         }
     }
 
@@ -860,6 +872,7 @@ impl Viewport {
                     kind,
                     region,
                     result: result.clone(),
+                    age: 0,
                 });
                 self.last_pick = Some(PickInputs { pixel, view_proj });
                 pick_pass = Some(PickPassData {
