@@ -4,6 +4,7 @@ use egui_wgpu::wgpu;
 
 use super::gpu_state::{CameraUniforms, InstanceBuffers};
 use super::picking::{PICK_ROW_STRIDE, PickRegion};
+use crate::RenderGroup;
 
 /// A pick request being rendered and copied out this frame; `result` is the
 /// same `Arc` the owning `PendingPick` polls.
@@ -27,6 +28,7 @@ pub struct ViewportCallback {
     pub axes_uniform_buffer: wgpu::Buffer,
     pub axes_uniform_bind_group: wgpu::BindGroup,
     pub scene_pipeline: wgpu::RenderPipeline,
+    pub translucent_pipeline: wgpu::RenderPipeline,
     pub background_pipeline: wgpu::RenderPipeline,
     pub hover_pipeline: wgpu::RenderPipeline,
     pub select_pipeline: wgpu::RenderPipeline,
@@ -103,14 +105,20 @@ impl ViewportCallback {
         pass.draw(0..3, 0..1);
 
         // One draw per instance, each with its own model matrix at its own
-        // dynamic offset — no CPU-side merge.
-        pass.set_pipeline(&self.scene_pipeline);
-        for instance in &self.instances {
-            pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            pass.set_bind_group(1, &self.model_bind_group, &[instance.model_offset]);
-            pass.set_vertex_buffer(0, instance.vertex_buffer.slice(..));
-            pass.set_index_buffer(instance.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..instance.index_count, 0, 0..1);
+        // dynamic offset — no CPU-side merge. Opaque first, then every
+        // translucent instance over the finished depth buffer.
+        for (pipeline, group) in [
+            (&self.scene_pipeline, RenderGroup::Opaque),
+            (&self.translucent_pipeline, RenderGroup::Translucent),
+        ] {
+            pass.set_pipeline(pipeline);
+            for instance in self.instances.iter().filter(|i| i.group == group) {
+                pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                pass.set_bind_group(1, &self.model_bind_group, &[instance.model_offset]);
+                pass.set_vertex_buffer(0, instance.vertex_buffer.slice(..));
+                pass.set_index_buffer(instance.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..instance.index_count, 0, 0..1);
+            }
         }
 
         // Whole-instance restyles for hover and selection, drawn over the
@@ -181,7 +189,12 @@ impl ViewportCallback {
                 multiview_mask: None,
             });
             pass.set_pipeline(&self.pick_pipeline);
-            for instance in &self.instances {
+            // Translucent instances are see-through for the cursor too.
+            for instance in self
+                .instances
+                .iter()
+                .filter(|i| i.group == RenderGroup::Opaque)
+            {
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_bind_group(1, &self.model_bind_group, &[instance.model_offset]);
                 pass.set_vertex_buffer(0, instance.pick_vertex_buffer.slice(..));

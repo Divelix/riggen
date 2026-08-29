@@ -81,6 +81,9 @@ pub struct UiDebug {
     pub modal: Option<&'static str>,
     /// What the OS window title reads.
     pub title: String,
+    /// View › Collision geometry; omitted when off.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub collision_view: bool,
 }
 
 /// The `Robot` and the derived state around it.
@@ -232,6 +235,11 @@ pub struct InstanceDebug {
     pub position: [f64; 3],
     /// Linear RGBA tint: the link's material colour.
     pub color: [f64; 4],
+    /// A translucent collision shape (View › Collision geometry), drawn
+    /// after the opaque instances and skipped by the pick pass. Omitted
+    /// when false, so the M0–M2 goldens are unchanged.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub collision: bool,
 }
 
 impl RiggenApp {
@@ -294,13 +302,17 @@ impl RiggenApp {
                 .collect(),
                 modal: self.pending_action().map(|_| "unsaved_changes"),
                 title: self.window_title(),
+                collision_view: self.show_collision(),
             },
             instances: self
                 .viewport
                 .instance_states()
                 .map(|state| InstanceDebug {
                     id: state.id.0,
-                    link: self.link_of_instance(state.id).map(|l| l.to_string()),
+                    link: self
+                        .link_of_instance(state.id)
+                        .or_else(|| self.collision_link_of_instance(state.id))
+                        .map(|l| l.to_string()),
                     geom: self.geom_of_instance(state.id).map(|g| g.to_string()),
                     visible: state.visible,
                     triangles: state.triangle_count,
@@ -315,6 +327,7 @@ impl RiggenApp {
                         [round(t.x), round(t.y), round(t.z)]
                     },
                     color: state.color.map(round32),
+                    collision: state.group == riggen_viewport::RenderGroup::Translucent,
                 })
                 .collect(),
             selection: SelectionDebug {

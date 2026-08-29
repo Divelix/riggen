@@ -1,0 +1,496 @@
+{
+  "camera": {
+    "eye": [
+      0.282194,
+      -0.282194,
+      0.355519
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.1375
+    ],
+    "up": [
+      -0.339005,
+      0.339005,
+      0.877582
+    ],
+    "distance": 0.454751,
+    "yaw_deg": -45.0,
+    "pitch_deg": 28.64789,
+    "fov_y_deg": 45.0,
+    "near": 0.00145,
+    "far": 145.021545,
+    "projection": "Perspective",
+    "animating": false,
+    "aspect": 0.955504,
+    "view": [
+      [
+        0.707107,
+        -0.339005,
+        0.620545,
+        0.0
+      ],
+      [
+        0.707107,
+        0.339005,
+        -0.620545,
+        0.0
+      ],
+      [
+        0.0,
+        0.877582,
+        0.479426,
+        0.0
+      ],
+      [
+        0.0,
+        -0.120668,
+        -0.520672,
+        1.0
+      ]
+    ],
+    "proj": [
+      [
+        2.52664,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        2.414213,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        -1.00001,
+        -1.0
+      ],
+      [
+        0.0,
+        0.0,
+        -0.00145,
+        0.0
+      ]
+    ]
+  },
+  "document": {
+    "file": "arm.riggen",
+    "name": "arm",
+    "dirty": true,
+    "import_scale": 1.0,
+    "links": [
+      {
+        "id": "l0",
+        "name": "base_link",
+        "parent_joint": null,
+        "geoms": 0,
+        "material": null
+      },
+      {
+        "id": "l3",
+        "name": "base",
+        "parent_joint": "j4",
+        "geoms": 1,
+        "material": "aluminium"
+      },
+      {
+        "id": "l7",
+        "name": "shoulder",
+        "parent_joint": "j8",
+        "geoms": 1,
+        "material": "aluminium"
+      },
+      {
+        "id": "l11",
+        "name": "upper",
+        "parent_joint": "j12",
+        "geoms": 1,
+        "material": "PLA"
+      },
+      {
+        "id": "l15",
+        "name": "fore",
+        "parent_joint": "j16",
+        "geoms": 1,
+        "material": "PLA"
+      }
+    ],
+    "joints": [
+      {
+        "id": "j4",
+        "name": "base_joint",
+        "kind": "Fixed",
+        "parent": "l0",
+        "child": "l3",
+        "q": 0.0
+      },
+      {
+        "id": "j8",
+        "name": "shoulder_joint",
+        "kind": "Revolute",
+        "parent": "l3",
+        "child": "l7",
+        "q": 0.0
+      },
+      {
+        "id": "j12",
+        "name": "upper_joint",
+        "kind": "Revolute",
+        "parent": "l7",
+        "child": "l11",
+        "q": 0.0
+      },
+      {
+        "id": "j16",
+        "name": "fore_joint",
+        "kind": "Revolute",
+        "parent": "l11",
+        "child": "l15",
+        "q": 0.0
+      }
+    ],
+    "selection": null
+  },
+  "ui": {
+    "tool": "Select",
+    "renaming": null,
+    "windows": [],
+    "modal": null,
+    "title": "arm.riggen* — riggen",
+    "collision_view": true
+  },
+  "instances": [
+    {
+      "id": 0,
+      "link": "l3",
+      "geom": "g2",
+      "visible": true,
+      "triangles": 108,
+      "bounds": [
+        [
+          -0.03,
+          -0.03,
+          0.0
+        ],
+        [
+          0.03,
+          0.03,
+          0.06
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.77,
+        0.78,
+        0.8,
+        1.0
+      ]
+    },
+    {
+      "id": 1,
+      "link": "l7",
+      "geom": "g6",
+      "visible": true,
+      "triangles": 108,
+      "bounds": [
+        [
+          -0.01,
+          -0.035,
+          0.06
+        ],
+        [
+          0.01,
+          0.035,
+          0.103
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.77,
+        0.78,
+        0.8,
+        1.0
+      ]
+    },
+    {
+      "id": 2,
+      "link": "l11",
+      "geom": "g10",
+      "visible": true,
+      "triangles": 108,
+      "bounds": [
+        [
+          -0.01,
+          -0.035,
+          0.095
+        ],
+        [
+          0.01,
+          0.035,
+          0.203
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.9,
+        0.55,
+        0.2,
+        1.0
+      ]
+    },
+    {
+      "id": 3,
+      "link": "l15",
+      "geom": "g14",
+      "visible": true,
+      "triangles": 204,
+      "bounds": [
+        [
+          0.076,
+          0.058,
+          0.121
+        ],
+        [
+          0.104,
+          0.082,
+          0.215
+        ]
+      ],
+      "position": [
+        -0.09,
+        -0.07,
+        0.06
+      ],
+      "color": [
+        0.9,
+        0.55,
+        0.2,
+        1.0
+      ]
+    },
+    {
+      "id": 4,
+      "link": "l3",
+      "geom": null,
+      "visible": true,
+      "triangles": 60,
+      "bounds": [
+        [
+          -0.03,
+          -0.03,
+          0.0
+        ],
+        [
+          0.03,
+          0.03,
+          0.06
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.9,
+        0.4,
+        0.1,
+        0.35
+      ],
+      "collision": true
+    },
+    {
+      "id": 5,
+      "link": "l7",
+      "geom": null,
+      "visible": true,
+      "triangles": 108,
+      "bounds": [
+        [
+          -0.01,
+          -0.035,
+          0.06
+        ],
+        [
+          0.01,
+          0.035,
+          0.103
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.9,
+        0.4,
+        0.1,
+        0.35
+      ],
+      "collision": true
+    },
+    {
+      "id": 6,
+      "link": "l11",
+      "geom": null,
+      "visible": true,
+      "triangles": 108,
+      "bounds": [
+        [
+          -0.01,
+          -0.035,
+          0.095
+        ],
+        [
+          0.01,
+          0.035,
+          0.203
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.9,
+        0.4,
+        0.1,
+        0.35
+      ],
+      "collision": true
+    },
+    {
+      "id": 7,
+      "link": "l15",
+      "geom": null,
+      "visible": true,
+      "triangles": 100,
+      "bounds": [
+        [
+          0.076,
+          0.058,
+          0.121
+        ],
+        [
+          0.104,
+          0.082,
+          0.215
+        ]
+      ],
+      "position": [
+        -0.09,
+        -0.07,
+        0.06
+      ],
+      "color": [
+        0.9,
+        0.4,
+        0.1,
+        0.35
+      ],
+      "collision": true
+    }
+  ],
+  "selection": {
+    "hovered": null,
+    "selected": null
+  },
+  "gizmo": null,
+  "glyphs": [
+    {
+      "joint": "j8",
+      "name": "shoulder_joint",
+      "kind": "Revolute",
+      "origin": [
+        0.0,
+        0.0,
+        0.04
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "size": 0.042276,
+      "q": 0.0,
+      "screen": [
+        652.0,
+        625.885071
+      ],
+      "active": false,
+      "hovered": false
+    },
+    {
+      "joint": "j12",
+      "name": "upper_joint",
+      "kind": "Revolute",
+      "origin": [
+        0.0,
+        0.0,
+        0.095
+      ],
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "size": 0.065123,
+      "q": 0.0,
+      "screen": [
+        652.0,
+        530.922729
+      ],
+      "active": false,
+      "hovered": false
+    },
+    {
+      "joint": "j16",
+      "name": "fore_joint",
+      "kind": "Revolute",
+      "origin": [
+        0.0,
+        0.0,
+        0.195
+      ],
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "size": 0.050488,
+      "q": 0.0,
+      "screen": [
+        652.0,
+        328.228943
+      ],
+      "active": false,
+      "hovered": false
+    }
+  ],
+  "snap": null,
+  "status": null,
+  "viewport_rect": [
+    244.0,
+    23.0,
+    1060.0,
+    877.0
+  ]
+}

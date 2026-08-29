@@ -4,18 +4,34 @@
 //! instance table match the document's visual geoms at the FK pose for
 //! the current joint values. Nothing else writes to the viewport's scene.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use riggen_core::glam::{DMat4, DQuat, DVec3};
 use riggen_core::{
-    Command, EditError, GeomId, History, Joint, JointId, JointState, Link, LinkId, MeshAsset,
-    MeshId, Robot, fk,
+    CollisionPolicy, Command, EditError, GeomId, History, Joint, JointId, JointState, Link, LinkId,
+    MeshAsset, MeshId, Pose, Primitive, Robot, fk,
 };
 use riggen_mesh::TriMesh;
 use riggen_mesh::feature::Adjacency;
-use riggen_viewport::InstanceId;
+use riggen_viewport::{InstanceId, RenderGroup};
+
+/// The translucent orange collision geometry draws in — the MJCF
+/// collision class's rgba, a little more opaque so it reads on a light
+/// background.
+pub const COLLISION_COLOR: [f32; 4] = [0.9, 0.4, 0.1, 0.35];
+
+/// What a collision instance's mesh was built from, so `sync_scene`
+/// re-uploads only when that changes (a pose change is a matrix write).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CollisionSource {
+    /// The convex hull of a visual mesh (`CollisionPolicy::ConvexHull`).
+    Hull(MeshId),
+    /// A collision-only mesh (`CollisionPolicy::Meshes`).
+    Mesh(MeshId),
+    Primitive(Primitive),
+}
 
 use super::RiggenApp;
 
@@ -51,6 +67,10 @@ pub(crate) struct LoadedMesh {
     /// Welded topology of `mesh`, built the first time snapping asks for it
     /// and dropped whenever `mesh` is re-derived (`riggen_mesh::feature`).
     adjacency: Option<Adjacency>,
+    /// The convex hull of `mesh`, built the first time the collision view
+    /// asks for it; `Some(None)` remembers that it is degenerate. Dropped
+    /// with `adjacency` when `mesh` is re-derived.
+    hull: Option<Option<Arc<TriMesh>>>,
 }
 
 impl LoadedMesh {
@@ -63,6 +83,7 @@ impl LoadedMesh {
             fix_up: asset.fix_up,
             mesh,
             adjacency: None,
+            hull: None,
         }
     }
 
@@ -89,6 +110,7 @@ impl LoadedMesh {
         self.fix_up = asset.fix_up;
         self.mesh = Self::derive(&self.raw, asset);
         self.adjacency = None;
+        self.hull = None;
         true
     }
 }
@@ -102,6 +124,46 @@ impl LoadedMesh {
             self.adjacency = Some(riggen_mesh::feature::adjacency(&self.mesh));
         }
         self.adjacency.as_ref().expect("just built")
+    }
+
+    /// The convex hull of the drawn mesh, built on first use and cached
+    /// (plans/m3-sim-ready: synchronous, per `MeshId`). `None` for a mesh
+    /// that spans no volume.
+    pub(crate) fn hull(&mut self) -> Option<Arc<TriMesh>> {
+        if self.hull.is_none() {
+            self.hull = Some(
+                riggen_mesh::convex_hull(&self.mesh.positions)
+                    .ok()
+                    .map(|mut h| {
+                        h.flat_normals();
+                        Arc::new(h)
+                    }),
+            );
+        }
+        self.hull.as_ref().expect("just built").clone()
+    }
+}
+
+/// The mesh a primitive draws as, at its size, centred on its own frame.
+pub(crate) fn primitive_mesh(p: &Primitive) -> TriMesh {
+    match p {
+        Primitive::Box { size, .. } => {
+            let mut mesh = TriMesh::cube(0.5);
+            mesh.transform(&DMat4::from_scale(*size));
+            mesh
+        }
+        Primitive::Cylinder { radius, length, .. } => TriMesh::cylinder(*radius, *length, 32),
+        Primitive::Sphere { radius, .. } => TriMesh::sphere(*radius, 24),
+        Primitive::Capsule { radius, length, .. } => TriMesh::capsule(*radius, *length, 24),
+    }
+}
+
+pub(crate) fn primitive_pose(p: &Primitive) -> Pose {
+    match p {
+        Primitive::Box { pose, .. }
+        | Primitive::Cylinder { pose, .. }
+        | Primitive::Sphere { pose, .. }
+        | Primitive::Capsule { pose, .. } => *pose,
     }
 }
 
@@ -217,6 +279,7 @@ impl RiggenApp {
         self.history = History::new();
         self.mesh_store.clear();
         self.instances.clear();
+        self.collision_instances.clear();
         self.viewport.clear_scene();
         self.q = JointState::default();
         self.selection = Selection::None;
@@ -350,6 +413,27 @@ impl RiggenApp {
             .iter()
             .find(|(_, id)| **id == instance)
             .map(|((link, _), _)| *link)
+    }
+
+    /// The link a *collision* instance belongs to (`debug_state()`); the
+    /// pick pass never hits one, so nothing else asks.
+    pub(crate) fn collision_link_of_instance(&self, instance: InstanceId) -> Option<LinkId> {
+        self.collision_instances
+            .iter()
+            .find(|(_, (id, _))| *id == instance)
+            .map(|((link, _), _)| *link)
+    }
+
+    /// View › Collision geometry.
+    pub fn show_collision(&self) -> bool {
+        self.show_collision
+    }
+
+    pub fn set_show_collision(&mut self, show: bool) {
+        if self.show_collision != show {
+            self.show_collision = show;
+            self.sync_scene();
+        }
     }
 
     pub(crate) fn geom_of_instance(&self, instance: InstanceId) -> Option<GeomId> {
@@ -499,6 +583,8 @@ impl RiggenApp {
             self.viewport.set_instance_color(id, color);
         }
 
+        self.sync_collision(&world);
+
         // The viewport drops a selection whose instance vanished; the
         // document side has to notice, and a link selection whose link
         // still exists but lost its instance is still a valid selection.
@@ -506,6 +592,119 @@ impl RiggenApp {
         if hit != self.last_viewport_selected && hit.is_none() {
             self.last_viewport_selected = None;
         }
+    }
+
+    /// The translucent collision instances, from each link's policy at the
+    /// same FK poses as the visuals: nothing for `None` / `SameAsVisual`
+    /// (the visuals already show it), a hull per visual for `ConvexHull`,
+    /// each primitive, each `Meshes` geom. All removed when the view is
+    /// off. Uploads only when a shape's source changed.
+    fn sync_collision(&mut self, world: &BTreeMap<LinkId, Pose>) {
+        // (key, source, mesh to upload if the source is new, pose in link)
+        let mut wanted: Vec<((LinkId, usize), CollisionSource, Pose)> = Vec::new();
+        if self.show_collision {
+            for (&lid, link) in &self.robot.links {
+                let mut shapes: Vec<(CollisionSource, Pose)> = Vec::new();
+                match &link.collision {
+                    CollisionPolicy::None
+                    | CollisionPolicy::SameAsVisual
+                    | CollisionPolicy::ConvexDecomposition { .. } => {}
+                    CollisionPolicy::ConvexHull => {
+                        for g in &link.visuals {
+                            shapes.push((CollisionSource::Hull(g.mesh), g.pose));
+                        }
+                    }
+                    CollisionPolicy::Primitives(ps) => {
+                        for p in ps {
+                            shapes.push((CollisionSource::Primitive(p.clone()), primitive_pose(p)));
+                        }
+                    }
+                    CollisionPolicy::Meshes(geoms) => {
+                        for g in geoms {
+                            shapes.push((CollisionSource::Mesh(g.mesh), g.pose));
+                        }
+                    }
+                }
+                for (i, (source, pose)) in shapes.into_iter().enumerate() {
+                    wanted.push(((lid, i), source, pose));
+                }
+            }
+        }
+
+        let live: BTreeSet<(LinkId, usize)> = wanted.iter().map(|(k, _, _)| *k).collect();
+        let gone: Vec<(LinkId, usize)> = self
+            .collision_instances
+            .keys()
+            .filter(|k| !live.contains(k))
+            .copied()
+            .collect();
+        for key in gone {
+            if let Some((id, _)) = self.collision_instances.remove(&key) {
+                self.viewport.remove_instance(id);
+            }
+        }
+
+        for (key, source, pose) in wanted {
+            let current = self.collision_instances.get(&key).cloned();
+            let needs_upload = current.as_ref().is_none_or(|(_, s)| *s != source);
+            if needs_upload {
+                let mesh: Option<Arc<TriMesh>> = match &source {
+                    CollisionSource::Hull(mesh_id) => {
+                        self.ensure_loaded(*mesh_id).and_then(|l| l.hull())
+                    }
+                    CollisionSource::Mesh(mesh_id) => {
+                        self.ensure_loaded(*mesh_id).map(|l| l.mesh.clone())
+                    }
+                    CollisionSource::Primitive(p) => Some(Arc::new(primitive_mesh(p))),
+                };
+                let Some(mesh) = mesh else {
+                    // Degenerate hull or unloadable mesh: nothing to draw;
+                    // export reports it properly.
+                    if let Some((id, _)) = self.collision_instances.remove(&key) {
+                        self.viewport.remove_instance(id);
+                    }
+                    continue;
+                };
+                let id = match current {
+                    Some((id, _)) => id,
+                    None => {
+                        let id = InstanceId(self.next_instance);
+                        self.next_instance += 1;
+                        id
+                    }
+                };
+                if let Err(err) = self.viewport.set_instance(id, &mesh) {
+                    self.status = Some(err.to_string());
+                    self.collision_instances.remove(&key);
+                    continue;
+                }
+                self.viewport
+                    .set_instance_group(id, RenderGroup::Translucent);
+                self.viewport.set_instance_color(id, COLLISION_COLOR);
+                self.collision_instances.insert(key, (id, source));
+            }
+            let Some((id, _)) = self.collision_instances.get(&key) else {
+                continue;
+            };
+            if let Some(link_pose) = world.get(&key.0) {
+                self.viewport
+                    .set_instance_model(*id, link_pose.compose(&pose).to_mat4());
+            }
+        }
+    }
+
+    /// The store entry for `mesh_id`, loading the file on first use.
+    /// `None` when the asset is missing or the file does not load — the
+    /// visual sync already put that error in the status bar.
+    fn ensure_loaded(&mut self, mesh_id: MeshId) -> Option<&mut LoadedMesh> {
+        let asset = self.robot.assets.get(&mesh_id)?;
+        if let std::collections::hash_map::Entry::Vacant(slot) = self.mesh_store.entry(mesh_id) {
+            let raw = riggen_mesh::load_mesh(&asset.path).ok()?;
+            slot.insert(LoadedMesh::new(raw, asset));
+        }
+        let loaded = self.mesh_store.get_mut(&mesh_id)?;
+        loaded.refresh(asset);
+        Some(loaded)
     }
 }
 
