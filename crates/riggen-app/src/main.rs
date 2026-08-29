@@ -1,5 +1,27 @@
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    // `riggen --export … INPUT` is headless and returns before eframe
+    // starts (ADR-0008): CI's mujoco job has no display.
+    match riggen_app::cli::parse(&args) {
+        Ok(None) => {}
+        Ok(Some(export)) => match riggen_app::cli::run(&export) {
+            Ok(written) => {
+                for path in written {
+                    println!("{}", path.display());
+                }
+                return Ok(());
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        },
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(2);
+        }
+    }
     // A 3D viewport is an input-latency-first workload, so the surface is
     // configured for the shortest path from cursor to pixels. eframe's
     // default is `HIGH_THROUGHPUT`: vsync plus two queued frames, ~33 ms
@@ -19,7 +41,7 @@ fn main() -> eframe::Result<()> {
     };
     // `riggen robot.riggen` opens a document; `riggen a.stl b.obj` drops
     // meshes as links under the root (docs/03-roadmap.md §M1).
-    let files: Vec<std::path::PathBuf> = std::env::args_os().skip(1).map(Into::into).collect();
+    let files: Vec<std::path::PathBuf> = args.into_iter().map(Into::into).collect();
     eframe::run_native(
         "riggen",
         options,

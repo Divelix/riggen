@@ -2,6 +2,8 @@
 //! wasm32 (docs/01-architecture.md §Crates).
 
 mod app;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod cli;
 pub mod debug;
 
 pub use app::{
