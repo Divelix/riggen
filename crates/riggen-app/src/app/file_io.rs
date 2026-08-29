@@ -18,6 +18,15 @@ use super::{LoadedMesh, RiggenApp};
 const MESH_EXTENSIONS: [&str; 2] = ["stl", "obj"];
 /// The document's own extension.
 pub(crate) const DOCUMENT_EXTENSION: &str = "riggen";
+/// A URDF opens as a new document through `riggen_export::urdf_in`.
+pub(crate) const URDF_EXTENSION: &str = "urdf";
+
+/// Whether opening `path` replaces the document (a `.riggen` or a `.urdf`)
+/// rather than adding a link to it.
+pub(crate) fn replaces_document(path: &Path) -> bool {
+    let ext = extension_of(path);
+    ext == DOCUMENT_EXTENSION || ext == URDF_EXTENSION
+}
 
 pub(crate) fn extension_of(path: &Path) -> String {
     path.extension()
@@ -33,8 +42,11 @@ impl RiggenApp {
     /// returned *and* shown in the status bar, since every caller wants
     /// both.
     pub fn open_path(&mut self, path: &Path) -> Result<Option<LinkId>, String> {
-        let result = if extension_of(path) == DOCUMENT_EXTENSION {
+        let ext = extension_of(path);
+        let result = if ext == DOCUMENT_EXTENSION {
             self.open_document_path(path).map(|()| None)
+        } else if ext == URDF_EXTENSION {
+            self.open_urdf_path(path).map(|()| None)
         } else {
             self.open_mesh_path(path).map(Some)
         };
@@ -57,6 +69,27 @@ impl RiggenApp {
                 n => format!("{first} (+{} more warnings)", n - 1),
             });
         }
+        Ok(())
+    }
+
+    /// File › Import URDF… (and a dropped `.urdf`): the file becomes a new,
+    /// untitled document; what the import dropped goes to the status bar.
+    fn open_urdf_path(&mut self, path: &Path) -> Result<(), String> {
+        let (robot, warnings) =
+            riggen_export::urdf_in::load(path, &riggen_export::PackageMap::default())
+                .map_err(|e| e.to_string())?;
+        self.replace_document(robot, None);
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.status = Some(match warnings.as_slice() {
+            [] => format!("imported {name}"),
+            [first] => format!("imported {name}: {first}"),
+            [first, rest @ ..] => {
+                format!("imported {name}: {first} (+{} more warnings)", rest.len())
+            }
+        });
         Ok(())
     }
 
@@ -156,8 +189,8 @@ impl RiggenApp {
             match self.open_path(path) {
                 Ok(_) => {
                     opened += 1;
-                    // A document that opened with warnings, or an open mesh,
-                    // left a warning here.
+                    // A document or URDF that opened with warnings, or an
+                    // open mesh, left a warning here.
                     if let Some(w) = self.status.take() {
                         warning = Some(w);
                     }
@@ -197,9 +230,29 @@ impl RiggenApp {
             if let Some(paths) = rfd::FileDialog::new()
                 .add_filter("Riggen documents", &[DOCUMENT_EXTENSION])
                 .add_filter("Meshes (STL, OBJ)", &MESH_EXTENSIONS)
+                .add_filter("URDF", &[URDF_EXTENSION])
                 .pick_files()
             {
                 self.load_files(&paths);
+            }
+        }
+    }
+
+    /// File › Import URDF…: the dialog, then the dirty check (a URDF
+    /// replaces the document).
+    pub(crate) fn import_urdf_dialog(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.status =
+                Some("no filesystem in the browser; drop the file onto the window".into());
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("URDF", &[URDF_EXTENSION])
+                .pick_file()
+            {
+                self.request_open(vec![path]);
             }
         }
     }

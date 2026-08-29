@@ -381,14 +381,27 @@ writer, since the output is fixed-shape.
 
 ## URDF import (`riggen-export::urdf_in`)
 
-`urdf-rs` → `Robot`: links and joints map directly (it is the native
-convention); `<inertial>` becomes `InertialSpec::Override`; mesh filenames
-resolve `package://` via a user-supplied map or the file's directory; a
-`<collision>` mesh that differs from the visual becomes a
-`CollisionPolicy::SameAsVisual` with a warning (v1 stores one collision
-policy per link, not per-geom collision meshes). ⚠ OPEN: decide at M3 whether
-imported collision meshes should be kept as opaque extra geoms rather than
-downgraded.
+`urdf_in::load(path, &PackageMap) -> Result<(Robot, Vec<ImportWarning>),
+ImportError>` over `urdf-rs`. Links and joints map directly (URDF's
+joint-frame convention is ours, ADR-0004); `<inertial>` becomes
+`InertialSpec::Override` (the tensor rotated from the inertial frame into
+link axes); a `<mesh scale>` becomes `MeshAsset::scale` (uniform only — a
+non-uniform one is a warning and the largest component); `<collision>`
+meshes that repeat the visuals are `SameAsVisual`, any other set is
+`CollisionPolicy::Meshes` kept losslessly (OPEN 1, decided: no
+downgrade), collision primitives are `Primitives`. `package://name/rest`
+resolves through the map, else `rest` beside the file, else `name/rest`
+under an ancestor of the file's directory — `urdf-rs`'s own resolution
+shells out to `rospack`. Nothing is dropped silently: `ImportWarning::{
+MimicDropped, SafetyControllerDropped, NonUniformScale,
+PrimitiveVisualDropped, MixedCollisionDropped, NoInertial,
+PackageUnresolved, MeshNotFound }` reach the status bar (File › Import
+URDF…, a dropped `.urdf`, or `riggen --export … robot.urdf` on stderr).
+`floating` / `planar` / `spherical` joints, a missing link, no or several
+roots and a result that fails `validate` are `ImportError`s. The imported
+document is untitled until saved. `assets/fixtures/arm/arm.urdf` is the
+corpus file: the arm with every one of the above in it, whose FK matches
+`arm.riggen`'s and whose MJCF export the `mujoco` CI job loads too.
 
 ## Schema
 

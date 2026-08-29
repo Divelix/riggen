@@ -230,7 +230,7 @@ agrees with our FK" — is retired by step 5, before any UI exists.
   only, OPEN 3), the `resolve` errors listed with the link they name and
   the Export button disabled while any exist; success in the status bar
   with the path. Snapshots: `export_dialog`, `export_blocked`.
-- [ ] Step 13 — `riggen-export::urdf_in` + File › Import URDF… + `.urdf`
+- [x] Step 13 — `riggen-export::urdf_in` + File › Import URDF… + `.urdf`
   in `load_files` and on the CLI + `assets/fixtures/arm/arm.urdf`, a
   hand-written Menagerie-style URDF of the arm (`package://` paths,
   `<inertial>`, a separate `<collision>` mesh, one `continuous` joint, a

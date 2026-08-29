@@ -62,9 +62,7 @@ impl RiggenApp {
     /// one of them is a document. Meshes alone never ask: they add to
     /// the document rather than replace it.
     pub fn request_open(&mut self, paths: Vec<PathBuf>) {
-        let replaces = paths
-            .iter()
-            .any(|p| super::file_io::extension_of(p) == DOCUMENT_EXTENSION);
+        let replaces = paths.iter().any(|p| super::file_io::replaces_document(p));
         if replaces {
             self.request(PendingAction::Open(Some(paths)));
         } else {
@@ -257,6 +255,10 @@ impl RiggenApp {
             self.save_as_dialog();
         }
         ui.separator();
+        if ui.button("Import URDF…").clicked() {
+            ui.close();
+            self.import_urdf_dialog();
+        }
         if ui.button("Export…").clicked() {
             ui.close();
             self.open_export_dialog();

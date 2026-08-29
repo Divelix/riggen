@@ -64,4 +64,5 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@v5
       - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample assets/fixtures/arm/arm.riggen
-      - run: uv run --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample
+      - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-urdf assets/fixtures/arm/arm.urdf
+      - run: uv run --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample target/sample-urdf
