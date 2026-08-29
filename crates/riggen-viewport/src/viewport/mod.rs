@@ -1,0 +1,549 @@
+//! The embeddable viewport: allocates the egui rect, handles orbit/pan/zoom
+//! input, renders the scene through an `egui_wgpu` paint callback.
+
+pub mod gpu_state;
+pub mod pipelines;
+pub mod render_pass;
+
+use web_time::Instant;
+
+use egui_wgpu::wgpu;
+use riggen_mesh::glam::{DMat4, DVec3, Mat4};
+use riggen_mesh::{Aabb, TriMesh};
+
+use crate::camera::{OrbitCamera, Projection, StandardView};
+use crate::gpu_mesh::{AxesTriadMesh, GpuMesh, Vertex};
+use crate::scene::{InstanceId, Scene, SceneFull};
+
+use gpu_state::{
+    AXES_GIZMO_MARGIN, AXES_GIZMO_SIZE, CameraUniforms, DEPTH_FORMAT, GpuState, InstanceBuffers,
+    ModelUniforms, OffscreenTarget,
+};
+use pipelines::{
+    build_axes_pipeline, build_background_pipeline, build_blit_pipeline, build_render_pipeline,
+};
+use render_pass::ViewportCallback;
+
+/// Instances the per-instance model uniform has room for before it has to
+/// grow. A robot with more links than this is normal; re-allocating once at
+/// each power of two is not a cost worth tuning.
+const INITIAL_INSTANCE_CAPACITY: usize = 16;
+
+/// This frame's vertical wheel input in points, taken straight from the raw
+/// events instead of `egui::InputState::smooth_scroll_delta`.
+///
+/// egui low-pass-filters a discrete wheel notch across ~0.1 s (see
+/// `WheelState::after_events`) — right for scrolling a document, wrong for a
+/// viewport, where the wheel is direct manipulation and the filter reads as
+/// the camera coasting to a stop after the wheel already did. Summing the
+/// events applies the whole notch on the frame it lands, and reusing egui's
+/// own unit conversion keeps a notch worth the same amount of zoom.
+///
+/// Events carrying the zoom or horizontal-scroll modifier are skipped:
+/// ctrl+wheel is egui's UI-scale gesture and shift+wheel its horizontal one,
+/// and `smooth_scroll_delta.y` was empty for both, so neither ever reached
+/// the camera.
+fn raw_wheel_delta_y(input: &egui::InputState, options: &egui::InputOptions) -> f32 {
+    let ignored = options.zoom_modifier | options.horizontal_scroll_modifier;
+    input
+        .raw
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            egui::Event::MouseWheel {
+                unit,
+                delta,
+                modifiers,
+                ..
+            } if !modifiers.matches_any(ignored) => Some(match unit {
+                egui::MouseWheelUnit::Point => delta.y,
+                egui::MouseWheelUnit::Line => options.line_scroll_speed * delta.y,
+                egui::MouseWheelUnit::Page => input.viewport_rect().height() * delta.y,
+            }),
+            _ => None,
+        })
+        .sum()
+}
+
+/// One instance as `debug_state()` reports it. An accessor type rather than
+/// a serialised one, so `serde` stays out of this crate
+/// (docs/01-architecture.md §Crates).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InstanceState {
+    pub id: InstanceId,
+    pub visible: bool,
+    pub triangle_count: u32,
+    /// Model-space bounds, before `model`.
+    pub bounds: Option<Aabb>,
+    pub model: DMat4,
+}
+
+/// Embeddable 3D viewport: owns the renderer, camera and scene. `ui()`
+/// allocates the egui rect, handles orbit/pan/zoom input and enqueues a
+/// paint callback.
+pub struct Viewport {
+    gpu: GpuState,
+    offscreen: Option<OffscreenTarget>,
+    /// One entry per instance, each with its own buffers and model
+    /// transform — the viewport draws them, it never merges them.
+    scene: Scene<GpuMesh>,
+    pub camera: OrbitCamera,
+    /// The rect allocated by the most recent [`Viewport::ui`] call, in egui
+    /// logical points.
+    last_rect: Option<egui::Rect>,
+}
+
+impl Viewport {
+    pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("riggen-viewport uniforms"),
+            size: std::mem::size_of::<CameraUniforms>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("riggen-viewport uniform layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("riggen-viewport uniform bind group"),
+            layout: &uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        // Group 1 of every per-instance pipeline, so its layout has to
+        // exist before they are built.
+        let models = ModelUniforms::new(device, INITIAL_INSTANCE_CAPACITY);
+
+        let background_pipeline = build_background_pipeline(
+            device,
+            "riggen-viewport background pipeline",
+            &[&uniform_bind_group_layout],
+            include_str!("../shaders/background.wgsl"),
+            target_format,
+        );
+        let scene_pipeline = build_render_pipeline(
+            device,
+            "riggen-viewport scene pipeline",
+            &[&uniform_bind_group_layout, &models.layout],
+            include_str!("../shaders/scene.wgsl"),
+            &[Some(Vertex::layout())],
+            wgpu::PrimitiveTopology::TriangleList,
+            target_format,
+            wgpu::CompareFunction::Less,
+            true,
+        );
+
+        let axes_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("riggen-viewport axes uniforms"),
+            size: std::mem::size_of::<[[f32; 4]; 4]>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let axes_uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("riggen-viewport axes uniform bind group"),
+            layout: &uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: axes_uniform_buffer.as_entire_binding(),
+            }],
+        });
+        let axes_pipeline = build_axes_pipeline(
+            device,
+            "riggen-viewport axes pipeline",
+            &[&uniform_bind_group_layout],
+            target_format,
+        );
+        let axes_mesh = AxesTriadMesh::new(device);
+
+        let (blit_bind_group_layout, blit_pipeline) = build_blit_pipeline(device, target_format);
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("riggen-viewport blit sampler"),
+            ..Default::default()
+        });
+
+        Self {
+            gpu: GpuState {
+                device: device.clone(),
+                format: target_format,
+                scene_pipeline,
+                background_pipeline,
+                axes_pipeline,
+                blit_pipeline,
+                uniform_buffer,
+                uniform_bind_group,
+                axes_uniform_buffer,
+                axes_uniform_bind_group,
+                blit_bind_group_layout,
+                sampler,
+                axes_mesh,
+                models,
+            },
+            offscreen: None,
+            scene: Scene::default(),
+            camera: OrbitCamera::default(),
+            last_rect: None,
+        }
+    }
+
+    /// Uploads one instance's geometry, leaving every other instance's
+    /// buffers exactly where they were. Both an instance's first appearance
+    /// and a replacement mesh for an existing one.
+    pub fn set_instance(&mut self, id: InstanceId, mesh: &TriMesh) -> Result<(), SceneFull> {
+        self.scene.set_instance(&self.gpu.device, id, mesh)
+    }
+
+    /// Drops an instance and its buffers.
+    pub fn remove_instance(&mut self, id: InstanceId) -> bool {
+        self.scene.remove(id)
+    }
+
+    /// Shows or hides an instance. Uploads nothing.
+    pub fn set_instance_visible(&mut self, id: InstanceId, visible: bool) -> bool {
+        self.scene.set_visible(id, visible)
+    }
+
+    /// Places an instance. Also uploads nothing — the transform is a
+    /// uniform, which is what makes a joint preview a matrix write.
+    pub fn set_instance_model(&mut self, id: InstanceId, model: DMat4) -> bool {
+        self.scene.set_model(id, model)
+    }
+
+    pub fn has_instance(&self, id: InstanceId) -> bool {
+        self.scene.contains(id)
+    }
+
+    pub fn instance_count(&self) -> usize {
+        self.scene.len()
+    }
+
+    /// Every instance in the scene, visible or not, in draw order — what
+    /// `debug_state()` reports (ADR-0003).
+    pub fn instance_states(&self) -> impl Iterator<Item = InstanceState> + '_ {
+        self.scene.entries().map(|entry| InstanceState {
+            id: entry.key,
+            visible: entry.visible,
+            triangle_count: entry.mesh.triangle_count,
+            bounds: entry.bounds,
+            model: entry.model,
+        })
+    }
+
+    pub fn clear_scene(&mut self) {
+        self.scene.clear();
+    }
+
+    /// Bounding sphere `(center, radius)` of every visible instance.
+    pub fn scene_bounds(&self) -> Option<(DVec3, f64)> {
+        self.scene.bounds()
+    }
+
+    /// Frames every visible instance **without** animating there — one
+    /// frame, reproducible, which is what a snapshot needs. The animated
+    /// form is [`Self::animate_frame_scene`].
+    pub fn frame_scene(&mut self) {
+        let (center, radius) = self.scene_bounds().unwrap_or((DVec3::ZERO, 1.0));
+        self.camera.frame_bounds(center.as_vec3(), radius as f32);
+    }
+
+    /// Animates the camera to frame every visible instance (Home, and
+    /// zoom-to-fit after a load). No-op on an empty scene.
+    pub fn animate_frame_scene(&mut self) {
+        if let Some((center, radius)) = self.scene_bounds() {
+            self.camera
+                .animate_frame_bounds(center.as_vec3(), radius as f32);
+        }
+    }
+
+    /// The rect the last [`Self::ui`] call allocated, in logical points.
+    /// `None` before the first frame.
+    pub fn viewport_rect(&self) -> Option<egui::Rect> {
+        self.last_rect
+    }
+
+    /// Whether the next frame will look the same as this one absent input:
+    /// nothing animating. The snapshot harness pumps frames until this
+    /// holds.
+    pub fn is_settled(&self) -> bool {
+        !self.camera.is_animating()
+    }
+
+    fn ensure_offscreen(&mut self, size: (u32, u32)) {
+        if self.offscreen.as_ref().map(|o| o.size) == Some(size) {
+            return;
+        }
+        let (width, height) = size;
+        let extent = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+
+        let color_texture = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("riggen-viewport color"),
+            size: extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.gpu.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let color_view = color_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let depth_texture = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("riggen-viewport depth"),
+            size: extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let blit_bind_group = self
+            .gpu
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("riggen-viewport blit bind group"),
+                layout: &self.gpu.blit_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&color_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.gpu.sampler),
+                    },
+                ],
+            });
+
+        self.offscreen = Some(OffscreenTarget {
+            size,
+            color_view,
+            depth_view,
+            blit_bind_group,
+        });
+    }
+
+    /// Camera input while the pointer is over the viewport. Returns whether
+    /// the camera changed, so the caller can request a repaint.
+    fn handle_input(&mut self, ui: &egui::Ui, response: &egui::Response, rect: egui::Rect) -> bool {
+        let mut changed = false;
+        let aspect = rect.width().max(1.0) / rect.height().max(1.0);
+
+        if response.dragged_by(egui::PointerButton::Middle) {
+            let delta = response.drag_delta();
+            if ui.input(|i| i.modifiers.shift) {
+                self.camera.pan(delta.x, delta.y);
+            } else {
+                self.camera.orbit(-delta.x * 0.01, delta.y * 0.01);
+            }
+            changed = true;
+        }
+
+        // Unsmoothed, and only while the pointer is over the viewport — like
+        // every other viewport shortcut (see `raw_wheel_delta_y`).
+        let scroll = if response.hovered() {
+            let options = ui.ctx().options(|o| o.input_options);
+            ui.input(|i| raw_wheel_delta_y(i, &options))
+        } else {
+            0.0
+        };
+        if scroll != 0.0 {
+            // Cursor position in NDC (x right, y up, `[-1, 1]`), falling
+            // back to dead-center (target-anchored zoom) when the pointer
+            // position isn't known this frame.
+            let cursor = response.hover_pos().unwrap_or(rect.center());
+            let ndc = (
+                (cursor.x - rect.center().x) / (rect.width().max(1.0) * 0.5),
+                -(cursor.y - rect.center().y) / (rect.height().max(1.0) * 0.5),
+            );
+            self.camera.zoom_to_cursor(scroll, ndc, aspect);
+            changed = true;
+        }
+
+        // Standard views, persp/ortho toggle and zoom-to-fit are viewport
+        // shortcuts, not global ones — only live while the pointer is over
+        // it.
+        if response.hovered() {
+            let mut fit = false;
+            ui.input(|i| {
+                let view_key = |key: egui::Key, plain: StandardView, ctrl: StandardView| {
+                    i.key_pressed(key)
+                        .then_some(if i.modifiers.ctrl { ctrl } else { plain })
+                };
+                let views = [
+                    view_key(egui::Key::Num1, StandardView::Front, StandardView::Back),
+                    view_key(egui::Key::Num3, StandardView::Right, StandardView::Left),
+                    view_key(egui::Key::Num7, StandardView::Top, StandardView::Bottom),
+                    view_key(egui::Key::Num0, StandardView::Iso, StandardView::Iso),
+                ];
+                for view in views.into_iter().flatten() {
+                    self.camera.set_standard_view(view);
+                    changed = true;
+                }
+                if i.key_pressed(egui::Key::Num5) || i.key_pressed(egui::Key::P) {
+                    self.camera.toggle_projection();
+                    changed = true;
+                }
+                fit = i.key_pressed(egui::Key::Home);
+            });
+            if fit {
+                self.animate_frame_scene();
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// Allocates the viewport rect, handles camera input, and enqueues the
+    /// paint callback. Call once per frame inside the central panel.
+    pub fn ui(&mut self, ui: &mut egui::Ui) -> egui::Response {
+        if self.camera.step_animation(Instant::now()) {
+            ui.ctx().request_repaint();
+        }
+
+        let (rect, response) =
+            ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
+        self.last_rect = Some(rect);
+        let aspect = rect.width().max(1.0) / rect.height().max(1.0);
+
+        if self.handle_input(ui, &response, rect) {
+            ui.ctx().request_repaint();
+        }
+
+        let pixels_per_point = ui.ctx().pixels_per_point();
+        let size = (
+            ((rect.width() * pixels_per_point).round() as u32).max(1),
+            ((rect.height() * pixels_per_point).round() as u32).max(1),
+        );
+        self.ensure_offscreen(size);
+        let Some(offscreen) = &self.offscreen else {
+            return response;
+        };
+
+        let view_proj_matrix = self.camera.view_proj(aspect);
+        let inv_view_proj_matrix = if view_proj_matrix.determinant() != 0.0 {
+            view_proj_matrix.inverse()
+        } else {
+            Mat4::IDENTITY
+        };
+        let eye = self.camera.eye();
+        let (forward, right, up) = self.camera.basis();
+        let is_ortho = if self.camera.projection == Projection::Orthographic {
+            1.0
+        } else {
+            0.0
+        };
+        let is_dark_mode = if ui.visuals().dark_mode { 1.0 } else { 0.0 };
+        let camera_uniforms = CameraUniforms {
+            view_proj: view_proj_matrix.to_cols_array_2d(),
+            inv_view_proj: inv_view_proj_matrix.to_cols_array_2d(),
+            eye: [eye.x, eye.y, eye.z, 1.0],
+            up: [up.x, up.y, up.z, 0.0],
+            right: [right.x, right.y, right.z, 0.0],
+            forward: [forward.x, forward.y, forward.z, 0.0],
+            params: [is_ortho, aspect, is_dark_mode, 0.0],
+        };
+
+        // One model matrix per visible instance, packed at the uniform
+        // stride and indexed by visible order.
+        let visible_count = self.scene.visible().count();
+        self.gpu.models.reserve(&self.gpu.device, visible_count);
+        let stride = self.gpu.models.stride as usize;
+        let mut model_data = vec![0u8; stride * visible_count];
+        let mut instances = Vec::with_capacity(visible_count);
+        for (i, entry) in self.scene.visible().enumerate() {
+            // Model space is `f64`; the GPU layout is `f32`, narrowed here
+            // like every other value the viewport uploads.
+            let m = entry.model.as_mat4().to_cols_array_2d();
+            model_data[i * stride..i * stride + std::mem::size_of::<[[f32; 4]; 4]>()]
+                .copy_from_slice(bytemuck::cast_slice(&[m]));
+            instances.push(InstanceBuffers {
+                model_offset: self.gpu.models.offset(i),
+                vertex_buffer: entry.mesh.vertex_buffer.clone(),
+                index_buffer: entry.mesh.index_buffer.clone(),
+                index_count: entry.mesh.index_count,
+            });
+        }
+
+        // Bottom-left corner square, clamped so it never outgrows a tiny
+        // viewport panel.
+        let gizmo_size = AXES_GIZMO_SIZE
+            .min(size.0 as f32 * 0.5)
+            .min(size.1 as f32 * 0.5);
+        let axes_viewport = (
+            AXES_GIZMO_MARGIN,
+            (size.1 as f32 - gizmo_size - AXES_GIZMO_MARGIN).max(0.0),
+            gizmo_size.max(1.0),
+            gizmo_size.max(1.0),
+        );
+
+        let callback = ViewportCallback {
+            camera_uniforms,
+            axes_view_proj: self.camera.axes_gizmo_view_proj().to_cols_array_2d(),
+            axes_viewport,
+            uniform_buffer: self.gpu.uniform_buffer.clone(),
+            uniform_bind_group: self.gpu.uniform_bind_group.clone(),
+            axes_uniform_buffer: self.gpu.axes_uniform_buffer.clone(),
+            axes_uniform_bind_group: self.gpu.axes_uniform_bind_group.clone(),
+            scene_pipeline: self.gpu.scene_pipeline.clone(),
+            background_pipeline: self.gpu.background_pipeline.clone(),
+            axes_pipeline: self.gpu.axes_pipeline.clone(),
+            blit_pipeline: self.gpu.blit_pipeline.clone(),
+            axes_vertex_buffer: self.gpu.axes_mesh.vertex_buffer.clone(),
+            axes_vertex_count: self.gpu.axes_mesh.vertex_count,
+            instances,
+            model_bind_group: self.gpu.models.bind_group.clone(),
+            model_buffer: self.gpu.models.buffer.clone(),
+            model_data,
+            color_view: offscreen.color_view.clone(),
+            depth_view: offscreen.depth_view.clone(),
+            blit_bind_group: offscreen.blit_bind_group.clone(),
+        };
+        ui.painter()
+            .add(egui_wgpu::Callback::new_paint_callback(rect, callback));
+
+        // The projection label is render state a snapshot should show, so
+        // it stays in the viewport corner; the wall-clock frame-time
+        // readout lives in the app's status bar instead.
+        let hud_color = if ui.visuals().dark_mode {
+            egui::Color32::from_white_alpha(200)
+        } else {
+            egui::Color32::from_black_alpha(200)
+        };
+        let projection_label = match self.camera.projection {
+            Projection::Perspective => "persp",
+            Projection::Orthographic => "ortho",
+        };
+        ui.painter().text(
+            rect.right_bottom() + egui::vec2(-8.0, -8.0),
+            egui::Align2::RIGHT_BOTTOM,
+            projection_label,
+            egui::FontId::monospace(12.0),
+            hud_color,
+        );
+
+        response
+    }
+}

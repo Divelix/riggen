@@ -36,7 +36,9 @@ glam = { version = "0.30", features = ["serde"] }
 # Mesh loaders. `stl_io` reads binary and ASCII STL; `tobj` reads OBJ.
 stl_io = "0.11"
 # `use_f64`: OBJ is text, parsing straight to the document's f64 loses nothing.
-tobj = { version = "4", features = ["use_f64"] }
+# No default features: tobj's `ahash` default drags `getrandom` into the wasm
+# build, where it does not compile without a JS shim we have no use for.
+tobj = { version = "4", default-features = false, features = ["use_f64"] }
 
 # UI stack pinned together: egui/eframe/egui-wgpu 0.36.x from crates.io, wgpu
 # version dictated by egui-wgpu — never depend on a different wgpu (ADR-0001).

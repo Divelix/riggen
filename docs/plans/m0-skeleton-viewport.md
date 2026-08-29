@@ -142,7 +142,7 @@ All present-tense text lands in the design docs at retirement; the deltas:
   slot, &TriMesh)` producing `Vertex` + `PickVertex` buffers (f64→f32 at
   upload). Tests: scene tests ported (GPU-free `TestPayload`), pick-id
   round-trip and saturation, `upload` rejects `> 2^20 − 1` triangles.
-- [ ] Step 8 — Render path: `GpuState` (8 pipelines), `OffscreenTarget`,
+- [x] Step 8 — Render path: `GpuState` (8 pipelines), `OffscreenTarget`,
   `ModelUniforms` (dynamic offsets, grows by `next_power_of_two`),
   `ViewportCallback: egui_wgpu::CallbackTrait` with the offscreen colour pass
   (background, instances, axes triad in its own viewport rect) and the blit;
@@ -206,10 +206,9 @@ All present-tense text lands in the design docs at retirement; the deltas:
 - `SEED.md` is frozen; its MSAA claim stays and the roadmap carries the truth.
 
 ## Open questions
-- ⚠ OPEN: Ground grid — robocad has none. Ship M0 with the gradient
-  background only and put the grid in the backlog (recommended: keeps M0 a
-  pure port and the roadmap out-list honest), or add a "Step 11 — ground grid
-  pipeline" to this plan? **Human decides before step 8.**
+- Ground grid — **decided (human, 2026-08-29): gradient background only;
+  the grid goes to the backlog** at retirement (already in the docs-to-update
+  list). M0 stays a pure port.
 - ⚠ OPEN: Selected-face outline pass — robocad outlines the selected B-Rep
   face; on an STL "face" = one triangle, so the outline would trace a single
   triangle. Recommended: drop `outline.wgsl` and the outline pipeline (7
@@ -240,3 +239,12 @@ All present-tense text lands in the design docs at retirement; the deltas:
   corner (3 per triangle, drawn non-indexed) so a welded OBJ picks
   correctly; the shaded pass stays indexed. Scene `model` is `DMat4`,
   narrowed at uniform upload in step 8.
+- Finding (step 8): `GpuState` holds the 4 pipelines that draw this step
+  (background, scene, axes, blit); pick/hover/select join in step 9 when
+  they are used — an unused pipeline field fails `-D warnings`. The
+  projection label (`persp`/`ortho`) stays in the viewport corner as render
+  state a snapshot should show; only the clock readout moved to the status
+  bar. `tobj`'s default `ahash` feature pulled `getrandom` into the wasm
+  build, where it does not compile; `default-features = false` fixed it and
+  the CI wasm job is what would have caught it. Keyboard: numpad 1/3/7/0
+  (+ctrl) views, Num5 *and* `P` toggle projection, Home animates a fit.

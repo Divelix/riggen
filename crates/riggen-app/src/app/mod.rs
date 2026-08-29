@@ -1,13 +1,20 @@
-//! The application state and its per-frame `ui`. Status bar plus an empty
-//! `CentralPanel` until M0 step 8 puts the viewport in it.
+//! The application state and its per-frame `ui`: status bar on the bottom,
+//! the viewport in the central panel.
 
 mod status_bar;
 
+use std::path::Path;
+
+use riggen_viewport::{InstanceId, Viewport};
 use web_time::Instant;
 
 /// The eframe app. Will own the `Robot` document plus derived, never-saved
-/// state (docs/01-architecture.md §The document is the only state).
+/// state (docs/01-architecture.md §The document is the only state); in M0
+/// the viewport's instance table *is* the state.
 pub struct RiggenApp {
+    pub(crate) viewport: Viewport,
+    /// The next [`InstanceId`] to hand out. Never reused within a session.
+    next_instance: u32,
     /// A one-off message for the status bar — a load error, an export
     /// destination. `None` reads as "idle".
     pub(crate) status: Option<String>,
@@ -18,28 +25,43 @@ pub struct RiggenApp {
     last_frame_instant: Option<Instant>,
     /// Seconds between the last two frames, for the frame-time readout.
     last_frame_dt: Option<f32>,
-    /// The rect the central panel was given this frame, in egui logical
-    /// points. Step 8 replaces it with the viewport's own rect; until then it
-    /// is what `debug_state()` and the harness aim at.
-    pub(crate) central_rect: Option<egui::Rect>,
 }
 
 impl RiggenApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // The viewport (step 8) is built from this device; requiring it now
-        // is what makes the snapshot harness prove that `build_eframe`
-        // supplies a real `RenderState` before any port code exists.
-        cc.wgpu_render_state
+        let render_state = cc
+            .wgpu_render_state
             .as_ref()
             .expect("riggen-app requires eframe's wgpu backend");
+        let viewport = Viewport::new(&render_state.device, render_state.target_format);
 
         Self {
+            viewport,
+            next_instance: 0,
             status: None,
             show_frame_hud: true,
             last_frame_instant: None,
             last_frame_dt: None,
-            central_rect: None,
         }
+    }
+
+    /// Loads a mesh file as a new instance at the origin, in file units
+    /// (M1's `MeshAsset` owns scaling). The camera is not moved; callers
+    /// decide whether to fit. Errors are returned *and* shown in the status
+    /// bar, since every caller wants both.
+    pub fn open_path(&mut self, path: &Path) -> Result<InstanceId, String> {
+        let result = riggen_mesh::load_mesh(path)
+            .map_err(|err| err.to_string())
+            .and_then(|mesh| {
+                let id = InstanceId(self.next_instance);
+                self.viewport
+                    .set_instance(id, &mesh)
+                    .map_err(|err| err.to_string())?;
+                self.next_instance += 1;
+                Ok(id)
+            });
+        self.status = result.as_ref().err().cloned();
+        result
     }
 
     fn tick_frame_clock(&mut self) {
@@ -60,12 +82,16 @@ impl eframe::App for RiggenApp {
             &status_bar::StatusView {
                 hovered: None,
                 selected: None,
+                instance_count: self.viewport.instance_count(),
                 message: self.status.as_deref(),
                 frame_dt: self.show_frame_hud.then_some(self.last_frame_dt).flatten(),
             },
         );
 
-        let response = egui::CentralPanel::default().show(ui, |_ui| {});
-        self.central_rect = Some(response.response.rect);
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(ui, |ui| {
+                self.viewport.ui(ui);
+            });
     }
 }

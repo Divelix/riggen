@@ -5,6 +5,7 @@ mod camera;
 mod gpu_mesh;
 pub mod pick_id;
 mod scene;
+mod viewport;
 
 pub use camera::{
     CameraAnimation, CameraSample, OrbitCamera, Projection, StandardView, ViewOrientation,
@@ -12,6 +13,7 @@ pub use camera::{
 };
 pub use gpu_mesh::{AxesTriadMesh, ColorVertex, GpuMesh, PickVertex, Vertex};
 pub use scene::{InstanceEntry, InstanceId, InstancePayload, MAX_INSTANCES, Scene, SceneFull};
+pub use viewport::{InstanceState, Viewport};
 
 /// What the cursor is over: one triangle of one instance
 /// (docs/01-architecture.md §Picking and snapping).

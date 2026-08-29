@@ -20,6 +20,8 @@ path = "tests/visual_scratch.rs"
 test = false
 
 [dependencies]
+riggen-mesh.workspace = true
+riggen-viewport.workspace = true
 eframe.workspace = true
 egui.workspace = true
 egui-wgpu.workspace = true

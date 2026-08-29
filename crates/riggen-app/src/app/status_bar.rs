@@ -12,6 +12,7 @@ pub(crate) struct StatusView<'a> {
     /// `i3/t120`-style readout of the hovered instance and triangle.
     pub hovered: Option<&'a str>,
     pub selected: Option<&'a str>,
+    pub instance_count: usize,
     /// A one-off message — a load error, an export destination.
     pub message: Option<&'a str>,
     /// Seconds between the last two frames; `None` hides the readout (the
@@ -37,6 +38,8 @@ pub(crate) fn status_bar(ui: &mut egui::Ui, view: &StatusView<'_>) {
                 Some(hit) => ui.label(format!("selected: {hit}")),
                 None => ui.weak("selected: —"),
             };
+            ui.separator();
+            ui.label(format!("{} instances", view.instance_count));
             if let Some(message) = view.message {
                 ui.separator();
                 ui.label(message);

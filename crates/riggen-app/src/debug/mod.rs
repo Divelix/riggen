@@ -13,6 +13,10 @@
 //! last digits between runs for reasons that have nothing to do with the code
 //! under test.
 
+mod camera;
+
+pub use camera::CameraDebug;
+
 use serde::Serialize;
 
 use crate::app::RiggenApp;
@@ -39,14 +43,29 @@ pub fn round32(x: f32) -> f64 {
     round(x as f64)
 }
 
-/// A whole frame's worth of app state, as JSON. Grows a section per
-/// milestone: `camera` and `instances` with the viewport (M0 step 8),
-/// `selection` with picking (step 9).
+/// A whole frame's worth of app state, as JSON. `selection` joins with
+/// picking (M0 step 9).
 #[derive(Debug, Clone, Serialize)]
 pub struct DebugState {
+    pub camera: CameraDebug,
+    /// Every instance in draw order, hidden ones included.
+    pub instances: Vec<InstanceDebug>,
     /// `[min_x, min_y, max_x, max_y]` of the viewport in egui logical points.
     /// `None` before the first frame has laid it out.
     pub viewport_rect: Option<[f64; 4]>,
+}
+
+/// One viewport instance: identity, visibility, size and where it is.
+#[derive(Debug, Clone, Serialize)]
+pub struct InstanceDebug {
+    pub id: u32,
+    pub visible: bool,
+    pub triangles: u32,
+    /// Model-space `[min, max]`, before `model`.
+    pub bounds: Option<[[f64; 3]; 2]>,
+    /// Translation column of the model matrix — enough to tell instances
+    /// apart until M1 gives them real poses.
+    pub position: [f64; 3],
 }
 
 impl RiggenApp {
@@ -54,7 +73,27 @@ impl RiggenApp {
     /// frame; the snapshot suite calls it once per scenario.
     pub fn debug_state(&self) -> DebugState {
         DebugState {
-            viewport_rect: self.central_rect.map(|rect| {
+            camera: CameraDebug::capture(self),
+            instances: self
+                .viewport
+                .instance_states()
+                .map(|state| InstanceDebug {
+                    id: state.id.0,
+                    visible: state.visible,
+                    triangles: state.triangle_count,
+                    bounds: state.bounds.map(|b| {
+                        [
+                            [round(b.min.x), round(b.min.y), round(b.min.z)],
+                            [round(b.max.x), round(b.max.y), round(b.max.z)],
+                        ]
+                    }),
+                    position: {
+                        let t = state.model.w_axis;
+                        [round(t.x), round(t.y), round(t.z)]
+                    },
+                })
+                .collect(),
+            viewport_rect: self.viewport.viewport_rect().map(|rect| {
                 [
                     round32(rect.min.x),
                     round32(rect.min.y),
@@ -82,15 +121,24 @@ impl RiggenApp {
 
     /// Whether a snapshot taken now is reproducible: no pick readback in
     /// flight and no camera animation reading the wall clock. The harness
-    /// pumps frames until this has held for a few in a row. Trivially true
-    /// until the viewport lands (step 8).
+    /// pumps frames until this has held for a few in a row.
     pub fn settled(&self) -> bool {
-        true
+        self.viewport.is_settled()
     }
 
-    /// Centre of the viewport rect — where a scenario aims a hover or a
-    /// click. `None` before the first frame has laid it out.
+    /// Frames every visible instance **without** animating there.
+    ///
+    /// `Home` is the user-facing equivalent, but it animates, and the
+    /// animation reads the wall clock — a snapshot taken mid-flight is not
+    /// reproducible. This lands on the same view in one frame.
+    pub fn fit_view_now(&mut self) {
+        self.viewport.frame_scene();
+    }
+
+    /// Centre of the viewport rect, which after [`Self::fit_view_now`] is
+    /// over the geometry — where a scenario aims a hover or a click. `None`
+    /// before the first frame has laid it out.
     pub fn viewport_center(&self) -> Option<egui::Pos2> {
-        self.central_rect.map(|rect| rect.center())
+        self.viewport.viewport_rect().map(|rect| rect.center())
     }
 }
