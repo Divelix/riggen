@@ -40,10 +40,8 @@ scenarios pass on the CPU adapter; wasm target builds.
 
 *Goal: a two-link pendulum you can save, reopen, and swing.*
 
-**Status: done 2026-08-29, tag `m1`.** `Reparent { keep_world_pose }`
-landed here, as a drag in the tree, and stayed there — M2's gizmo moves a
-link within its parent instead. Decisions: ADR-0005 (ids, joints as edges),
-ADR-0006 (drops, removal, import scale).
+**Status: done 2026-08-29, tag `m1`.** Decisions: ADR-0005 (ids, joints as
+edges), ADR-0006 (drops, removal, import scale).
 
 - `riggen-core`: types of 02-data-model, `validate`, `fk`, snapshot
   `History`, `.riggen` v1 serde with relative mesh paths and content hash.
@@ -67,19 +65,11 @@ under five minutes, without typing a coordinate.*
 
 **Status: done 2026-08-29, tag `m2`.** The risk — a circle fit good enough
 to place a joint from one click on STL data with no B-Rep — came out
-cheaper than feared: exact-position welding plus a local dihedral walk plus
-a Kåsa least-squares fit, and the segment count is what tells a bore from a
-cube face. Decisions: ADR-0007 (the gizmo comes from `transform-gizmo-egui`,
-bridged through `mint`). The four open questions were settled by the human
-before the work started: editing tools work in the zero configuration; a
-gizmo on a link moves the link and on a joint moves the pivot; the crate
-before an own gizmo; glyphs for movable joints plus the selection.
-
-The by-hand exit gate was run and came back "generally fine", with nine
-lines then in `docs/BACKLOG.md`. The largest — the gizmo swallowing all
-viewport pointer input while it was near the cursor, which read as a dead
-camera and clicks that did not select — is fixed (ADR-0010, 2026-08-30);
-eight lines remain.
+cheaper than feared; the method is 02-data-model §Mesh features. Decisions:
+ADR-0007 (the gizmo from `transform-gizmo-egui`, bridged through `mint`),
+amended by ADR-0010 (its egui glue is ours, the pointer shared per handle).
+The by-hand exit gate came back "generally fine" with nine backlog lines;
+eight remain.
 
 - `transform-gizmo-egui` on a link (its parent joint's origin; the subtree
   follows) or on a joint (its pivot, the geometry staying put); drag =
@@ -121,21 +111,11 @@ the viewport does.*
 - Round-trip FK test in CI; MuJoCo load test in CI (Python job).
 - Sample robot in `assets/` used by the tests and the README screenshot.
 
-**Status: done 2026-08-29, tag `m3`.** The risk — MuJoCo loading our
-MJCF with zero compiler warnings and agreeing with `fk` — was retired at
-step 5 and held through the URDF import: both `arm.riggen`'s export and
-`arm.urdf`'s re-export load clean with 25 matching body poses, the `mujoco`
-CI job runs both. Decisions (ADR-0008): meshes baked to meters as binary
-STL with no `scale`, `<inertial fullinertia>` so MuJoCo decomposes, the
-headless `riggen --export` on the app binary; `CollisionPolicy::Meshes`
-keeps imported collision meshes losslessly; floating base is an export
-option, not a document field; `SetRoot` across a movable joint stays
-refused. No job thread: hulls are synchronous and cached per `MeshId`.
-The by-hand half was done headlessly (both arms swing 10 s under gravity
-without a NaN; the `mujoco.viewer` look is still the human's); what was
-annoying is under an M3 heading in the backlog — narrow tensor fields,
-overlapping shells counted twice, no `PackageMap` UI, imports without a
-material, soft joint limits.
+**Status: done 2026-08-29, tag `m3`.** The risk — MuJoCo loading our MJCF
+with zero compiler warnings and agreeing with `fk` — was retired at step 5
+and held through the URDF import; the `mujoco` CI job runs both arms.
+Decisions: ADR-0008 (export conventions). The `mujoco.viewer` look is still
+the human's; the exit gate's findings are an M3 heading in the backlog.
 
 **Out:** convex decomposition, actuators, MJCF import.
 
@@ -157,33 +137,24 @@ re-exporting it as MJCF loads too.
 - Startup time budget: window visible in < 500 ms on the dev machine, measured
   and asserted in a test.
 
-**Status: done 2026-08-30, tag `m4`** (plans/m4-distribution). The risk —
-a maturin `bin` wheel from this workspace that installs and runs on a
-clean venv — was retired at step 1 and held through the container
-matrix. Decisions: `pyproject.toml` at the repository root so the README
-is the PyPI page too (OPEN 3); the binary in the wheel's `scripts/`, no
-console script, so `riggen` is the executable with no interpreter in
-front of it; `python -m riggen` execs it; the version lives once, in
-Cargo; native wgpu backends only (eframe's GL enumeration cost 100–150
-ms for an adapter never picked); `--example arm` from `include_bytes!`
-of the tracked fixtures, no new mesh in git (OPEN 4); no screencast until
-the GUI is polished (OPEN 2); crates.io publishing is its own later plan
-(OPEN 1). Wheel sizes from the `v0.1.0` release run: linux x86_64
-9.1 MB (binary 22 MB, stripped + thin LTO; 566 KB of it is the CycloneDX
-SBOM maturin adds), linux aarch64 8.6 MB, macOS x86_64 6.2 MB, macOS
-arm64 5.8 MB, Windows x86_64 7.0 MB, sdist 0.3 MB. Startup on the dev machine (RTX 5090, X11): `RiggenApp::new`
-to the first frame 8 ms; launch to the first frame 380–500 ms, of which
-~200 ms is the NVIDIA Vulkan device creation and the rest the X11 window
-— the budget test pins the part that is ours. Verified headlessly against
-the published indexes: `uvx --index-url https://test.pypi.org/simple/ …
-riggen --version` on the dev machine and `pip install riggen` in
-`python:3.12-slim` (no Rust, no checkout) both print `riggen 0.1.0
-(fbd26be 2026-08-30)`; `release.yml` was green for the TestPyPI dispatch
-and for the `v0.1.0` tag (all five wheels, three smokes, PyPI + GitHub
-Release). PyPI's CDN served the old 0.0.1 for a few minutes after the
-upload — a first `pip install` right after a release can lag. The
-clean-VM window run is still the human's. What was
-annoying is under an M4 heading in the backlog.
+**Status: done 2026-08-30, tag `m4`.** The risk — a wheel from this
+workspace that installs and runs on a clean venv — was retired at step 1
+and held through the container matrix. Decisions: ADR-0002, amended by
+ADR-0009 (one wheel: the abi3 extension plus the binary as data); the
+layout is 01-architecture §Python distribution.
+
+Two measurements this file is the only record of. **Startup** on the dev
+machine (RTX 5090, X11): `RiggenApp::new` to the first frame 8 ms — the
+part the budget test pins — and launch to the first frame 380–500 ms, of
+which ~200 ms is NVIDIA's Vulkan device creation and the rest the X11
+window. **Wheels** at `v0.2.0`: linux x86_64 9.7 MB, linux aarch64 9.2,
+macOS arm64 6.2, macOS x86_64 6.6, Windows 7.4, sdist 0.3; the abi3
+extension is 1.3 MB of that.
+
+PyPI's CDN can serve the previous version for some minutes after an
+upload, so a `pip install` straight after a release may lag. The clean-VM
+window run is still the human's; the exit gate's findings are an M4
+heading in the backlog.
 
 **Accept:** a clean VM installs the wheel and opens the sample arm; the
 release workflow is a tag push.
@@ -192,37 +163,19 @@ release workflow is a tag push.
 
 ## v0.2 — Python SDK and the harder mesh work
 
-- **Done 2026-08-30** — the Python SDK (plans/python-sdk, ADR-0009): one
-  wheel per platform with two halves, `crates/riggen-py` (PyO3 abi3
-  `riggen._riggen`, one method per `Command`, values in the schema's
-  shape) plus the app binary as wheel data; `python/riggen/` the API —
-  `Robot` with `Link` / `Joint` / `Geom` handles, `Pose`, `Fixed` /
-  `Revolute` / `Continuous` / `Prismatic`, the inertial specs, `load`,
-  `load_urdf`, `fk`, `export`, `show()` → `Viewer.wait()`. 37 public
-  names, 53 methods and properties on 18 classes, all documented, pyright
-  clean; 57 pytest tests on the built wheel. Decisions: the data-directory
-  layout and abi3 (ADR-0009), no numpy (tuples and nested lists), no live
-  link (a file and `show()`), the `_riggen` layer speaks the v1 schema.
-  Wheel sizes at 0.2.0.dev0: linux x86_64 9.7 MB (M4: 9.6; 10.1 with the
-  full extension), linux aarch64 9.2, macOS arm64 6.2, macOS x86_64 6.6,
-  Windows 7.4; the extension 1.3 MB. The by-hand notebook run
-  (2026-08-30, the TestPyPI `0.2.0` wheel in a fresh `uv` project with
-  ipykernel): the pendulum from the README, `show()`, a joint placed by
-  hand and saved, `wait()`, MuJoCo — worked; it found one message with
-  no file name in it (fixed before the tag) and that a TestPyPI
-  pre-release needs an explicit index in a `uv` project (README
-  §Developing). The `v0.2.0` tag is the release.
-- **Done 2026-08-30** — the viewport pointer, the M2 exit gate's first
-  line (ADR-0010): the gizmo's egui glue is ours instead of
-  `GizmoExt::interact`, it hit-tests its own handles with
-  `Gizmo::pick_preview` and registers a click-only widget solely on the
-  frames it wants the pointer, and the viewport's one suppression switch
-  became `set_pick_suppressed` (picks off, camera live) beside
-  `set_pointer_blocked` (both off) with camera input on
-  `contains_pointer()`. With Move or Rotate active the viewport now orbits,
-  pans, zooms, tints and selects exactly as with no tool — everywhere but
-  on a handle. `gizmo_shares_the_viewport` is the acceptance run; no golden
-  PNG changed.
+**Status: in progress.** Done so far:
+
+- **2026-08-30, tag `v0.2.0`** — the Python SDK (ADR-0009): `import
+  riggen` beside the app in one wheel, `python/riggen/` the API over the
+  `riggen._riggen` extension. 01-architecture §Python distribution and
+  §Python SDK have the shape; the by-hand notebook run passed.
+- **2026-08-30** — the viewport pointer (ADR-0010): with Move or Rotate
+  active the viewport orbits, pans, zooms, tints and selects as it does
+  with no tool, everywhere but on a gizmo handle. Closed the M2 exit
+  gate's largest line.
+
+Still open:
+
 - Convex decomposition (CoACD port or a bundled binary — decide with an ADR).
 - Named frames / MJCF sites; mimic joints; actuator presets.
 - MJCF import; SDF export.

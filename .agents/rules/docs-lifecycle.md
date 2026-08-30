@@ -17,4 +17,7 @@ Full rules in `docs/README.md` ("Document lifecycle"). The short version:
   one first.
 - An idea never contains implementation steps; a plan never re-argues the
   decision its idea already made — it links the ADR if one was needed.
-- Skills: `/idea`, `/plan`, `/work`, `/retire-plan` walk this pipeline.
+- Skills: `/idea`, `/plan`, `/work`, `/retire-plan` walk this pipeline;
+  `/close-cycle` closes a roadmap cycle once its last plan is retired —
+  drift review, the finished section compressed to its status line, the
+  next section opened. One roadmap file, always; never an `04-roadmap.md`.

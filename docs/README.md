@@ -30,7 +30,8 @@ how long it should stay true.
 Raw ideas go in `BACKLOG.md`, one line each. A line that needs thinking
 becomes an idea; one that is obvious goes straight to a plan; not every idea
 becomes a plan. The pipeline is walked by the shared skills `/idea`, `/plan`,
-`/work`, `/retire-plan` (`.agents/skills/`, symlinked into `.claude/skills/`),
+`/work`, `/retire-plan` and, at a cycle boundary, `/close-cycle`
+(`.agents/skills/`, symlinked into `.claude/skills/`),
 under the rules in `.agents/rules/`. `visual-debug`, beside them, is how the
 agent sees the GUI it is changing (ADR-0003).
 
@@ -41,4 +42,10 @@ plan being executed.
 
 **Drift review** at every milestone boundary: the agent reads each design doc
 against the code and lists discrepancies; the milestone is not done until the
-list is empty. This is the scheduled replacement for finding drift by accident.
+list is empty. This is the scheduled replacement for finding drift by accident,
+and it is step 2 of `/close-cycle`.
+
+A finished cycle **compresses in place**: `03-roadmap.md` keeps one section per
+cycle — goal, status line, in/out/accept — and the next cycle is appended below
+it. There is never a second roadmap file; the numbered docs are topics, not
+versions.

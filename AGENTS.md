@@ -8,7 +8,7 @@ Read in this order: `SEED.md` (charter, competition, stack), `README.md`
 (what the user sees: install, first run, the CLI), `docs/01-architecture.md`, `docs/02-data-model.md`, `docs/03-roadmap.md`,
 `docs/adr/`, then the rules in `.agents/rules/*.md` (git, docs lifecycle) —
 Claude Code loads them automatically via `.claude/rules`; any other agent
-reads them here. Skills for the idea → plan → work → retire pipeline live in
+reads them here. Skills for the idea → plan → work → retire → close-cycle pipeline live in
 `.agents/skills/` (same symlink arrangement).
 
 ## Setup (once per clone)
@@ -51,8 +51,8 @@ lines of `docs/03-roadmap.md` (convex decomposition, frames/sites).
   ~15 lines — the roadmap holds the detail.
 - Backlog line → `/idea` (brainstorm, `docs/ideas/`) → `/plan` (todo,
   `docs/plans/`) → `/work` (one step, one commit) → `/retire-plan` (docs
-  updated, plan deleted). Not every idea becomes a plan. Details:
-  `.agents/rules/docs-lifecycle.md`.
+  updated, plan deleted); `/close-cycle` at a roadmap boundary. Not every
+  idea becomes a plan. Details: `.agents/rules/docs-lifecycle.md`.
 - Trunk-based git, `main` always green, commit per plan step, never push
   unasked: `.agents/rules/git.md`.
 - Crates.io and local checkouts: egui/rerun under `~/Documents/code/rust/`
