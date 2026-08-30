@@ -355,6 +355,15 @@ fn check_names(robot: &Robot, errors: &mut Vec<ValidationError>) {
 }
 
 fn check_joints(robot: &Robot, errors: &mut Vec<ValidationError>) {
+    // A frame's pose reaches the export untouched (ADR-0012), so a NaN in
+    // it would become a NaN `pos` in the MJCF rather than an error here.
+    for (&fid, frame) in &robot.frames {
+        if !frame.pose.t.is_finite() || !frame.pose.r.is_finite() {
+            errors.push(ValidationError::NonFinite {
+                what: format!("pose of frame {fid}"),
+            });
+        }
+    }
     for (name, material) in &robot.materials {
         if !material.density.is_finite() || material.density < 0.0 {
             errors.push(ValidationError::NonFinite {
@@ -643,6 +652,16 @@ mod tests {
             Err(ValidationError::InvalidName {
                 kind: "frame",
                 name: "2 hands".into()
+            })
+        );
+        // …and its pose has to be a real one: it reaches the export as
+        // written, so a NaN would land in the MJCF (ADR-0012).
+        robot.frames.get_mut(&second).unwrap().name = "mount".into();
+        robot.frames.get_mut(&second).unwrap().pose.t.x = f64::NAN;
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: format!("pose of frame {second}")
             })
         );
     }

@@ -80,9 +80,10 @@ riggen/
 │       ├── src/jobs.rs     # the job thread: Jobs, Job, JobKey, JobResult (§Jobs and threads)
 │       ├── src/cli.rs      # the flag table, --help, --version, --example, `riggen
 │       │                   # --export …` headless (ADR-0008)
-│       └── src/app/        # document, file_io, file_menu, export_dialog, shortcuts,
-│                           # status_bar, tool, gizmo, glyphs, snap, align,
-│                           # panels/{tree, properties, joints, materials}
+│       ├── src/app/        # document, file_io, file_menu, export_dialog, debug_menu,
+│       │                   # shortcuts, status_bar, tool, gizmo, glyphs, snap, align,
+│       │                   # panels/{tree, properties, joints, materials}
+│       └── src/debug/      # debug_state(): what the app thinks it drew, as JSON (ADR-0003)
 │   ├── riggen-py/          # cdylib `_riggen`, the PyO3 abi3 extension module `riggen._riggen`
 │   │                       # over core + export; `test = false`, tested from Python (ADR-0009)
 │   └── riggen/             # the crates.io name reservation: an empty 0.0.1 lib with its
@@ -157,10 +158,11 @@ pub struct RiggenApp {
     jobs: Jobs,                                         // the job thread (§Jobs and threads), drained once per frame
     decomp: HashMap<(MeshId, DecompParams), DecompState>, // convex pieces it produced; the document holds the
                                                         // parameters and never the pieces (ADR-0011)
-    q: JointState, selection: Selection,                // Selection = None | Link(LinkId) | Joint(JointId)
+    q: JointState, selection: Selection,                // None | Link(LinkId) | Joint(JointId) | Frame(FrameId)
     tool: Tool, gizmo_state: GizmoState,               // Select | Move | Rotate | PlaceJoint | Align; the gizmo and its drag
     preview_world: Option<(LinkId, Pose)>,             // a link's pose while a gizmo drag previews it
     hovered_joint, glyph_hover, snap_candidate,        // resolved every frame from the pointer
+    hovered_frame, frame_glyph_hover,                  // the same pair for a frame's triad glyph
     snap_cache, align_source, toolbar_rect,            // the memoised fit, the align gesture's first pick
     import_scale: f64, pending: Option<PendingAction>,  // File › Import units; New/Open/Quit awaiting the dirty answer
     export_dialog: ExportDialog,                        // File › Export…: options, directory, the resolve errors
@@ -205,8 +207,8 @@ Selection is document-level and mirrored both ways: a viewport click
 selects the link owning the hit instance (`sync_selection_from_viewport`,
 once per frame after `Viewport::ui`), and selecting in the tree calls
 `Viewport::set_selected` with the link's first instance. A selected joint
-has no instance; a click on empty viewport space therefore leaves a joint
-selection alone (the viewport reports `None → None`).
+or frame has no instance; a click on empty viewport space therefore leaves
+such a selection alone (the viewport reports `None → None`).
 
 A `Tool` is modal: it decides what a viewport click and drag mean. `Select`
 is the M1 behaviour and the resting state, and `Esc` always returns to it
@@ -277,7 +279,8 @@ closes.
   frame is drawn, always — there are a handful and the user placed each on
   purpose, unlike a weld. Sized from its link's glyph size. Hover runs both
   ways as it does for joints — row ↔ glyph, nearest triad arm within
-  `GLYPH_HOVER_RADIUS`, `frame (name)` in the status bar, picking
+  `GLYPH_HOVER_RADIUS`, `tcp (frame)` in the status bar beside a joint's
+  `hinge (joint)`, picking
   suppressed so a click selects the frame — and a frame glyph wins the
   pointer over a joint's, whose long axis line often runs straight through
   it.
@@ -339,11 +342,11 @@ closes.
 ```
 input ──► shortcuts ──► menu bar, status bar, tree, properties
        ──► central panel:
-             joint glyphs from (Robot, q)  ──► glyph hover ──► snap candidate
-             viewport.set_overlay(glyphs + align pick + snap marker)
+             joint + frame glyphs from (Robot, q) ──► glyph hover ──► snap candidate
+             viewport.set_overlay(glyphs + frame triads + align pick + snap marker)
              viewport.set_pick_suppressed / set_pointer_blocked / set_select_suppressed
              viewport.ui ──► gizmo ──► toolbar   (registration order = pointer precedence)
-             a click ──► select a joint / place a joint / align
+             a click ──► select a joint or frame / place a joint or frame / align
        ──► Commands ──► History ──► Robot
 Robot ──► fk(robot, q) ──► world pose per link
        ──► for each visual geom: viewport.set_instance_model(instance, link_pose * geom.pose)
@@ -490,11 +493,12 @@ direction, so the axis is left alone — inventing one from a corner is a
 decision the user cannot see. Nothing in the world moves; only the pivot
 does, and the status bar repeats the fit it placed on.
 
-While a placement tool is active the viewport's *select* click is
-suppressed (`set_select_suppressed`) while its hover keeps running — the
-click means "put it here", and the hover is what the snap is computed from
-— and a glyph never takes the pointer, because the selected joint's own
-glyph sits exactly where the user is aiming.
+Whenever the snap ladder runs — a placement tool, or Move / Rotate with a
+frame selected (`RiggenApp::snapping`) — the viewport's *select* click is
+suppressed (`set_select_suppressed`) while its hover keeps running: the
+click means "put it here", and the hover is what the snap is computed from.
+A glyph never takes the pointer then either, because the selected joint's
+or frame's own glyph sits exactly where the user is aiming.
 
 The marker is cyan and carries the fit's own confidence —
 `circle r 12.0 mm · 24 seg · res 0.01 mm` — so a bad fit is obvious rather
@@ -527,8 +531,8 @@ pointer is busy" has three different meanings:
 
 | Switch | Off | Set by |
 |---|---|---|
-| `set_pick_suppressed` | both picks; the camera stays live | a gizmo handle or a joint glyph under the cursor — something drawn *in front of* the geometry that would answer |
-| `set_select_suppressed` | the select pick; the hover keeps running | a placement tool: the click means "put it here" |
+| `set_pick_suppressed` | both picks; the camera stays live | a gizmo handle, or a joint or frame glyph under the cursor — something drawn *in front of* the geometry that would answer |
+| `set_select_suppressed` | the select pick; the hover keeps running | `snapping()`: a placement tool, or Move / Rotate on a frame — the click means "put it here" |
 | `set_pointer_blocked` | camera **and** picks | the toolbar, which floats in the viewport's own egui layer; a gizmo drag in flight, which is solved against the projection it started in |
 
 The gizmo's two are one frame late — it cannot say whether it owns the
@@ -608,9 +612,12 @@ guards every route that would drop a dirty document (§Panels and menus).
 
 Export writes a directory (ADR-0008): `<name>.xml` and/or `<name>.urdf`
 plus `meshes/<stem>.stl` — every mesh baked to meters as binary STL,
-`scale` and `fix_up` applied, `<stem>_hull.stl` beside it for hulls, no
-`scale` attribute anywhere — each file through a `.tmp` sibling and a
-rename. The URDF's `<mesh filename>` style is a dialog option
+`scale` and `fix_up` applied, `<stem>_hull.stl` beside it for hulls and
+`<stem>_hull_0.stl …` for a convex decomposition (`<stem>_hull2_0 …` for a
+second parameter set on the same mesh), no `scale` attribute anywhere —
+each file through a `.tmp` sibling and a rename. A named frame needs no
+file: it is a `<site>` in the MJCF and a massless link on a `_fixed` joint
+in the URDF (ADR-0012). The URDF's `<mesh filename>` style is a dialog option
 (`MeshPathStyle`: relative, `package://<name>/`, absolute); MJCF has
 `meshdir`. `riggen --export mjcf|urdf|both [--fk-samples] --out DIR
 INPUT` does the same headlessly (`INPUT` is a `.riggen` or a `.urdf`),
@@ -821,8 +828,10 @@ over that table — no logic of its own beyond spelling:
   job, and locally `uv run --with mujoco --with numpy python …`):
   `mujoco.MjModel.from_xml_path` on the exported MJCF must succeed with
   zero compiler warnings (a `set_mju_user_warning` hook fails on any), and
-  `mj_forward` body poses must match the `<name>.fk.json` the export wrote
-  with `--fk-samples` to 1e-6 at five joint configurations — for the
+  `mj_forward` body **and site** poses must match the `<name>.fk.json` the
+  export wrote with `--fk-samples` to 1e-6 at five joint configurations (a
+  site the samples name and the model lacks fails the file, which is what a
+  dropped `<site>` looks like) — for the
   sample's export, the export of its URDF import, and
   `assets/fixtures/bracket.riggen`, the decomposition acceptance
   (ADR-0011). The script also fails any body whose `<stem>_hull_N` pieces
@@ -888,12 +897,13 @@ over that table — no logic of its own beyond spelling:
   drives the real `eframe::App` headlessly through wgpu (CPU adapter via
   lavapipe, so local and CI agree) and diffs PNGs. This is how an agent sees
   the window. A `debug_state()` JSON dump of what the app believes it drew
-  (camera with near/far, the document — file, dirty, links, joints with
-  `q`, selection — the `ui` section — rename in progress, open windows,
-  modal, title — instances with their link/geom key, position and colour,
-  viewport selection, the gizmo, the joint glyphs, the snap candidate, the
-  viewport's pointer policy (`input`, omitted while nothing is suppressed),
-  status, viewport rect) accompanies every snapshot as
+  (camera with near/far, the document — file, name, dirty, import scale,
+  links, joints with `q`, frames, selection — the `ui` section — rename in
+  progress, open windows, modal, title, collision view — instances with
+  their link/geom key, position and colour, viewport selection, the gizmo,
+  the joint glyphs, the frame glyphs, the snap candidate, the viewport's
+  pointer policy (`input`, omitted while nothing is suppressed), status,
+  viewport rect) accompanies every snapshot as
   a golden of its own; every float in it is rounded to six decimals and
   `-0.0` normalised so goldens never churn. At runtime the same JSON is
   under Debug › Copy / Save state (JSON), beside egui's layout overlays.
@@ -907,6 +917,9 @@ over that table — no logic of its own beyond spelling:
   `collision_primitives` (a pick through a translucent box hits the part),
   `properties_inertial`, `properties_inertial_open_mesh`,
   `properties_collision`, `export_dialog`, `export_blocked`, `import_urdf`,
+  v0.2's `collision_decomposition`, `properties_collision_decomposition`,
+  and the frame set — `frames_tree`, `frame_properties`,
+  `add_frame_button`, `gizmo_move_frame`,
   plus golden-less app tests including `build_pendulum_numerically` (the
   M1 acceptance in executable form), `example_arm_opens_from_the_bundle`,
   `startup_first_frame_under_budget`, and the pointer-sharing set behind

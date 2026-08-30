@@ -48,18 +48,21 @@ status bar). Reparent by dragging rows in the tree; **Place joint** puts a
 revolute joint on a bore by clicking its edge; **Align** snaps a part's
 bore concentric with its parent's; Properties computes the inertial from
 the mesh and a material, and fits a hull, convex pieces or primitives for
-collision.
+collision. **+ Frame** puts a named frame on a link — a TCP, a sensor
+mount — which Move and Rotate land on a picked feature the same way.
 
 ## What it does
 
 - **Assembles**: STL and OBJ meshes into a kinematic tree — fixed, revolute
-  and prismatic joints, placed by clicking geometry, with limits.
+  and prismatic joints, placed by clicking geometry, with limits — and
+  named frames (a TCP, a sensor mount) placed the same way.
 - **Computes**: mass, centre of mass and the inertia tensor from the mesh
   and a material density, or from a spec you type; convex hulls, convex
   decomposition (V-HACD, so a C-bracket keeps its notch) and fitted
   boxes / cylinders / spheres for collision.
 - **Exports**: MJCF and URDF from the same document, meshes baked to
-  meters as STL, so MuJoCo loads it with zero warnings and its forward
+  meters as STL — frames as `<site>`s and as the massless dummy links ROS
+  expects — so MuJoCo loads it with zero warnings and its forward
   kinematics agree with riggen's (that is a CI job, not a hope).
 - **Imports**: an existing URDF, `package://` paths resolved beside the
   file, to fix and convert it.
@@ -125,6 +128,7 @@ radians, Z-up; `degrees=True` wherever an angle is typed.
 robot.fk({"arm_joint": 0.3})["arm"]                   # Pose((0.0, 0.0, 0.5), rpy=(0.0, 0.3, 0.0))
 arm.inertial                                          # Inertial(mass=…, com=…, inertia=…) from the mesh
 robot.link("arm").joint.limits = (-1.0, 1.0)          # radians; one edit
+robot.link("arm").add_frame("tcp", (0, 0, 0.3))       # an MJCF <site>; frame.world(q) for its pose
 robot.save("pendulum.riggen")                         # the window opens this file
 ```
 
