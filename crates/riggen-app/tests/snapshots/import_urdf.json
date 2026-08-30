@@ -23,7 +23,7 @@
     "far": 145.021545,
     "projection": "Perspective",
     "animating": false,
-    "aspect": 0.953162,
+    "aspect": 0.896955,
     "view": [
       [
         0.707107,
@@ -52,7 +52,7 @@
     ],
     "proj": [
       [
-        2.532848,
+        2.691564,
         0.0,
         0.0,
         0.0
@@ -93,35 +93,49 @@
       {
         "id": "l2",
         "name": "base",
-        "parent_joint": "j18",
+        "parent_joint": "j20",
         "geoms": 1,
         "material": null
       },
       {
         "id": "l5",
         "name": "shoulder",
-        "parent_joint": "j19",
+        "parent_joint": "j21",
         "geoms": 1,
         "material": null
       },
       {
         "id": "l9",
         "name": "upper",
-        "parent_joint": "j20",
+        "parent_joint": "j22",
         "geoms": 1,
         "material": null
       },
       {
         "id": "l13",
         "name": "fore",
-        "parent_joint": "j21",
+        "parent_joint": "j23",
         "geoms": 1,
+        "material": null
+      },
+      {
+        "id": "l18",
+        "name": "tcp",
+        "parent_joint": "j24",
+        "geoms": 0,
+        "material": null
+      },
+      {
+        "id": "l19",
+        "name": "camera_mount",
+        "parent_joint": "j25",
+        "geoms": 0,
         "material": null
       }
     ],
     "joints": [
       {
-        "id": "j18",
+        "id": "j20",
         "name": "base_joint",
         "kind": "Fixed",
         "parent": "l1",
@@ -129,7 +143,7 @@
         "q": 0.0
       },
       {
-        "id": "j19",
+        "id": "j21",
         "name": "shoulder_joint",
         "kind": "Revolute",
         "parent": "l2",
@@ -137,7 +151,7 @@
         "q": 0.0
       },
       {
-        "id": "j20",
+        "id": "j22",
         "name": "upper_joint",
         "kind": "Revolute",
         "parent": "l5",
@@ -145,11 +159,27 @@
         "q": 0.0
       },
       {
-        "id": "j21",
+        "id": "j23",
         "name": "fore_joint",
         "kind": "Continuous",
         "parent": "l9",
         "child": "l13",
+        "q": 0.0
+      },
+      {
+        "id": "j24",
+        "name": "tcp_fixed",
+        "kind": "Fixed",
+        "parent": "l13",
+        "child": "l18",
+        "q": 0.0
+      },
+      {
+        "id": "j25",
+        "name": "camera_mount_fixed",
+        "kind": "Fixed",
+        "parent": "l2",
+        "child": "l19",
         "q": 0.0
       }
     ],
@@ -354,7 +384,7 @@
   "gizmo": null,
   "glyphs": [
     {
-      "joint": "j19",
+      "joint": "j21",
       "name": "shoulder_joint",
       "kind": "Revolute",
       "origin": [
@@ -370,14 +400,14 @@
       "size": 0.042276,
       "q": 0.0,
       "screen": [
-        653.0,
+        677.0,
         625.885071
       ],
       "active": false,
       "hovered": false
     },
     {
-      "joint": "j20",
+      "joint": "j22",
       "name": "upper_joint",
       "kind": "Revolute",
       "origin": [
@@ -393,14 +423,14 @@
       "size": 0.065123,
       "q": 0.0,
       "screen": [
-        653.0,
+        677.0,
         530.922729
       ],
       "active": false,
       "hovered": false
     },
     {
-      "joint": "j21",
+      "joint": "j23",
       "name": "fore_joint",
       "kind": "Continuous",
       "origin": [
@@ -416,7 +446,7 @@
       "size": 0.050488,
       "q": 0.0,
       "screen": [
-        653.0,
+        677.0,
         328.228943
       ],
       "active": false,
@@ -426,7 +456,7 @@
   "snap": null,
   "status": "imported arm.urdf: joint \"upper_joint\": <safety_controller> dropped (+1 more warnings)",
   "viewport_rect": [
-    246.0,
+    294.0,
     23.0,
     1060.0,
     877.0

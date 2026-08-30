@@ -556,8 +556,12 @@ mod tests {
         let (robot, warnings) = arm();
         validate(&robot).unwrap();
         assert_eq!(robot.name, "arm");
-        assert_eq!(robot.links.len(), 5);
-        assert_eq!(robot.joints.len(), 4);
+        // Five real links and joints, plus the two dummy links the file's
+        // named frames are written as: the import keeps them as links, on
+        // purpose (ADR-0012).
+        assert_eq!(robot.links.len(), 7);
+        assert_eq!(robot.joints.len(), 6);
+        assert!(robot.frames.is_empty(), "no massless link became a frame");
         assert_eq!(robot.links[&robot.root].name, "base_link");
         assert_eq!(
             warnings,
@@ -617,8 +621,10 @@ mod tests {
             kinds,
             [
                 ("base_joint".to_owned(), JointKind::Fixed),
+                ("camera_mount_fixed".to_owned(), JointKind::Fixed),
                 ("fore_joint".to_owned(), JointKind::Continuous),
                 ("shoulder_joint".to_owned(), JointKind::Revolute),
+                ("tcp_fixed".to_owned(), JointKind::Fixed),
                 ("upper_joint".to_owned(), JointKind::Revolute),
             ]
         );
@@ -644,13 +650,21 @@ mod tests {
             let wi = fk(&imported, &qi);
             let ws = fk(&sample, &qs);
             for (id, link) in &imported.links {
-                let other = sample
-                    .links
-                    .iter()
-                    .find(|(_, l)| l.name == link.name)
-                    .unwrap()
-                    .0;
-                let (a, b) = (wi[id], ws[other]);
+                // The sample has the same name either as a link or — for
+                // the two the URDF spells as dummy links — as a frame,
+                // whose world pose is `world(parent) ∘ pose` (ADR-0012).
+                let b = match sample.links.iter().find(|(_, l)| l.name == link.name) {
+                    Some((other, _)) => ws[other],
+                    None => {
+                        let frame = sample
+                            .frames
+                            .values()
+                            .find(|f| f.name == link.name)
+                            .unwrap_or_else(|| panic!("{} is neither link nor frame", link.name));
+                        ws[&frame.parent].compose(&frame.pose)
+                    }
+                };
+                let a = wi[id];
                 assert!(
                     (a.t - b.t).length() < 1e-9,
                     "{} at {q:?}: {a:?} vs {b:?}",

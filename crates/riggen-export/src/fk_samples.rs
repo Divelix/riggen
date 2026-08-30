@@ -1,7 +1,8 @@
-//! `<name>.fk.json`: the poses `riggen_core::fk` gives every link at a few
-//! joint configurations, which `python/tests/test_mjcf_load.py` compares
-//! against MuJoCo's `mj_forward` (ADR-0004 §2). Written beside the export
-//! by `riggen --export --fk-samples`.
+//! `<name>.fk.json`: the poses `riggen_core::fk` gives every link — and
+//! every named frame — at a few joint configurations, which
+//! `python/tests/test_mjcf_load.py` compares against MuJoCo's `mj_forward`
+//! (ADR-0004 §2, ADR-0012). Written beside the export by `riggen --export
+//! --fk-samples`.
 
 use std::collections::BTreeMap;
 
@@ -30,15 +31,28 @@ pub struct Samples {
 #[derive(Debug, Serialize)]
 pub struct Sample {
     pub q: Vec<f64>,
-    /// World pose per link name.
-    pub links: BTreeMap<String, LinkPose>,
+    /// World pose per link name (an MJCF `<body>`).
+    pub links: BTreeMap<String, WorldPose>,
+    /// World pose per frame name (an MJCF `<site>`, ADR-0012). Empty for a
+    /// document with no frames — an imported URDF, say, where the dummy
+    /// links came back as links.
+    pub sites: BTreeMap<String, WorldPose>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct LinkPose {
+pub struct WorldPose {
     pub pos: [f64; 3],
     /// MuJoCo order, `w x y z`.
     pub quat: [f64; 4],
+}
+
+impl WorldPose {
+    fn of(pose: &riggen_core::Pose) -> Self {
+        Self {
+            pos: pose.t.to_array(),
+            quat: quat_wxyz(pose.r),
+        }
+    }
 }
 
 /// Five configurations of `robot`'s movable joints (in `JointId` order)
@@ -69,18 +83,22 @@ pub fn samples(robot: &Robot) -> Samples {
         let links = robot
             .links
             .iter()
-            .filter_map(|(id, link)| {
-                let pose = world.get(id)?;
+            .filter_map(|(id, link)| Some((link.name.clone(), WorldPose::of(world.get(id)?))))
+            .collect();
+        // `world(parent) ∘ frame.pose` — the same composition `fk::frames`
+        // does, over the pass just made.
+        let sites = robot
+            .frames
+            .values()
+            .filter_map(|frame| {
+                let parent = world.get(&frame.parent)?;
                 Some((
-                    link.name.clone(),
-                    LinkPose {
-                        pos: pose.t.to_array(),
-                        quat: quat_wxyz(pose.r),
-                    },
+                    frame.name.clone(),
+                    WorldPose::of(&parent.compose(&frame.pose)),
                 ))
             })
             .collect();
-        out.samples.push(Sample { q, links });
+        out.samples.push(Sample { q, links, sites });
     }
     out
 }
@@ -135,6 +153,22 @@ mod tests {
         .apply(&mut robot)
         .unwrap();
 
+        let wheel = *robot
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "wheel")
+            .unwrap()
+            .0;
+        let frame: riggen_core::FrameId = robot.next_id.alloc();
+        robot.frames.insert(
+            frame,
+            riggen_core::Frame {
+                name: "tcp".into(),
+                parent: wheel,
+                pose: Pose::from_translation(DVec3::Z * 0.25),
+            },
+        );
+
         let s = samples(&robot);
         assert_eq!(s.joints, ["j1", "j2"]);
         assert_eq!(s.samples.len(), 5);
@@ -149,6 +183,21 @@ mod tests {
             assert_eq!(sample.links.len(), 3);
             assert_eq!(sample.links["base_link"].pos, [0.0; 3]);
             assert_eq!(sample.links["base_link"].quat, [1.0, 0.0, 0.0, 0.0]);
+            // The frame rides its link: `world(wheel) ∘ (0, 0, 0.25)`.
+            assert_eq!(sample.sites.len(), 1);
+            let wheel = &sample.links["wheel"];
+            let want = DVec3::from_array(wheel.pos)
+                + DQuat::from_xyzw(wheel.quat[1], wheel.quat[2], wheel.quat[3], wheel.quat[0])
+                    * (DVec3::Z * 0.25);
+            let tcp = DVec3::from_array(sample.sites["tcp"].pos);
+            assert!((tcp - want).length() < 1e-12, "{tcp} != {want}");
+            let dq: f64 = (0..4)
+                .map(|i| (sample.sites["tcp"].quat[i] - wheel.quat[i]).abs())
+                .fold(0.0, f64::max);
+            assert!(
+                dq < 1e-12,
+                "a frame at identity turns with its link: {dq:e}"
+            );
         }
         // Sample 1: j1 at 1.25 rad about Z puts the wheel at x=1 rotated.
         let q1 = s.samples[1].q[0];
