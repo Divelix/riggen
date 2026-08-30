@@ -238,7 +238,7 @@ will want to read before it is final.
   (paths rebased, `next_id` included), one test per error variant
   (cycle, root removal, unknown id, material in use, movable joint on the
   root path), `SetJoint` ignores parent/child as 02 says.
-- [ ] Step 5 — Kinematics, inertials, export, import in `_riggen`:
+- [x] Step 5 — Kinematics, inertials, export, import in `_riggen`:
   `validate`/`check`, `fk`, `origin_for_world`, `inertial` (via
   `MeshStore`), `export` (all `ExportOptions`), `fk_samples_json`,
   `load_urdf`. pytest: `fk(arm)` equals `riggen --export --fk-samples`'s
@@ -382,6 +382,25 @@ Findings from step 4 (2026-08-30):
   into the wheel venv, `<venv>/bin/python -m pytest`, rather than `uv run
   --with` — one interpreter, no overlay to reason about); the acceptance
   block below says the same.
+
+Findings from step 5 (2026-08-30):
+
+- `validate()` / `check()` are always empty on a `_riggen.Robot`: every
+  way to get one (the edit methods, `load`, `from_json`, `load_urdf`)
+  validates. Kept as the deltas said, for the day a document is assembled
+  another way; the tests assert the empty case.
+- The suite compares the SDK against the **bundled `riggen` binary**
+  (`riggen.__main__.binary_path()`, `RIGGEN_BINARY`, or a `target/`
+  build; skipped if none): in the `wheel` job that is the same wheel's
+  binary, so "SDK export is byte-identical to the CLI's" is checked
+  against the CLI a user would run. `test_wheel.py` and the SDK suite
+  share the venv for that reason.
+- `mesh_paths` is one string — `"relative"`, `"absolute"`,
+  `"package://<name>"` — rather than a style plus a package name;
+  `export` returns `pathlib.Path`s (PyO3's `PathBuf`).
+- A floating base on the arm is refused (its root `base_link` has no
+  mass, ADR-0008 OPEN 3) — the test asserts the refusal on the arm and the
+  `<freejoint>` on the pendulum.
 - The `cargo tree` layer check lives in the `clippy` job, which already
   has the toolchain, rather than the container-based `wheel` job.
 - The sdist holds `riggen-py` and its three lower crates only — maturin
