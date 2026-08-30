@@ -94,8 +94,9 @@ riggen/
 │                           # URDF import corpus file (02 §URDF import). arm.riggen and its
 │                           # four STLs are also `include_bytes!`d for `--example arm`
 ├── python/riggen/          # the wheel's Python half: __init__ (the public names,
-│                           # __version__), robot.py (the API), errors.py, __main__
-│                           # (execs the bundled binary), _riggen.pyi + py.typed
+│                           # __version__), robot.py (the API), show.py (the window,
+│                           # binary_path), errors.py, __main__ (execs the bundled
+│                           # binary), _riggen.pyi + py.typed
 ├── examples/               # pendulum.py (the README's ten lines), arm.py (the M2 arm
 │                           # from its STLs) — the SDK's worked examples (§Python SDK)
 ├── python/build_wheel.py   # the one build recipe: cargo build riggen-app → the data
@@ -553,8 +554,9 @@ with **two halves**:
 - **The command is the binary.** There is *no* `[project.scripts]` entry —
   a console script of the same name would shadow it and put a Python
   interpreter in front of the startup budget. `python -m riggen`
-  (`python/riggen/__main__.py`) finds the binary in
-  `sysconfig.get_path("scripts")` (the user-site layout second) and
+  (`python/riggen/__main__.py`) finds the binary through
+  `riggen.show.binary_path` — `RIGGEN_BINARY`, else
+  `sysconfig.get_path("scripts")` (the user-site layout second) — and
   `os.execv`s it; on Windows, which has no exec, `subprocess.call` +
   `sys.exit`. `riggen.__version__` is `importlib.metadata.version
   ("riggen")`; `_riggen.__version__` is `CARGO_PKG_VERSION` mapped to PEP
@@ -572,7 +574,8 @@ with **two halves**:
   not one) and no data directory, so `pip install` from it — any platform
   outside the five, or `pip install .` — builds `import riggen` with a
   Rust toolchain and a `python3` and gets **no binary**; `python -m
-  riggen` and `show()` say so. Targets with wheels: linux x86_64 and
+  riggen` and `show()` say so and how to get one (a wheel, `cargo install
+  --git`, or `RIGGEN_BINARY`; §Python SDK). Targets with wheels: linux x86_64 and
   aarch64 (manylinux 2_28), macOS arm64 and x86_64, Windows x86_64.
 - Free-threaded CPython (3.13t / 3.14t) has no wheel: abi3 does not
   install there (BACKLOG).
@@ -666,7 +669,20 @@ class: `RiggenError` ← `EditError` ← one subclass per `EditError` variant
 `ExportError`, `UrdfImportError`, `InertialError`. The message is the Rust
 `Display`.
 
-`show()` (step 7) extends this table.
+**`show()`** (`python/riggen/show.py`): the GUI is never entered from
+inside a Python call (ADR-0002, ADR-0009). `riggen.show(robot, *,
+block=False)` saves the robot to `tempfile.mkdtemp(prefix="riggen-show-")
+/<name>.riggen` (mesh paths rebased by `save`, resolved again by `load`),
+`subprocess.Popen`s the bundled binary on it and returns a `Viewer`
+(`path`, `process`, `poll()`, `kill()`, `robot`). `Viewer.wait(timeout)`
+blocks until the window exits and returns the document re-read from the
+file if its SHA-256 changed — the GUI saved — else the very robot passed
+in; idempotent. `binary_path()` is the one lookup for `show()` and
+`python -m riggen`: `RIGGEN_BINARY` if set (a `.py` path runs under the
+interpreter — the SDK suite's stub windows), else `sysconfig`'s scripts
+directory (user-site second); when nothing is found the
+`FileNotFoundError` says the install has no binary (a build from the
+sdist) and names the three ways to get one.
 
 **The public layer** (`python/riggen/robot.py`, re-exported from
 `riggen`; pure Python, typed, `pyright` clean) is handles and value types
@@ -733,7 +749,13 @@ byte-identical to `arm.riggen`'s) are the API's worked examples and the
   byte-identical to `arm.riggen`'s export and `examples/pendulum.py` to
   the corpus file's; both examples run from the command line; every name
   in `riggen.__all__` and every public method and property has a
-  docstring. `uvx pyright` (pyproject `[tool.pyright]`: the package, the
+  docstring. `show()` with stub windows (`RIGGEN_BINARY` at a Python
+  script): one that loads the file through `riggen`, adds a link and
+  saves → `wait()` returns the edited document and the caller's robot is
+  untouched; one that exits without saving → the same object back;
+  `kill()`; `RIGGEN_BINARY` pointing nowhere → `FileNotFoundError` and
+  `python -m riggen` exits 1 with the message; `python -m riggen`
+  forwards its arguments. The window itself is the human's half. `uvx pyright` (pyproject `[tool.pyright]`: the package, the
   stubs, the examples) is clean; the `wheel` job runs it, then
   `examples/arm.py` through the wheel and `test_mjcf_load.py` on its
   output. Never against the checkout on `sys.path`, which has no

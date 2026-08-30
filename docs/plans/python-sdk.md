@@ -257,7 +257,7 @@ will want to read before it is final.
   on its output. **The human reads `python/riggen/__init__.py` and the
   examples at the end of this step; naming changes land here, not later
   (OPEN 2).**
-- [ ] Step 7 — `riggen.show()`: `Viewer`, the temp document, `binary_path`
+- [x] Step 7 — `riggen.show()`: `Viewer`, the temp document, `binary_path`
   shared with `__main__.py`, `RIGGEN_BINARY` override (OPEN 4), `wait()`
   read-back on content-hash change, `block=True`. pytest with a stub
   binary (a Python script that loads the file through `riggen`, adds a
@@ -424,6 +424,24 @@ before step 7**:
   wheel venv has. `uvx pyright` is there too.
 - Material colours are `f32` in the document, so `0.8` reads back as
   `0.800000011920929`; the `Material` docstring says so.
+
+Findings from step 7 (2026-08-30):
+
+- OPEN 2: the human ran `/work` again after step 6 without renames; the
+  names of `d6f9040` stand.
+- `binary_path()` lives in `show.py` and `__main__.py` imports it (the
+  deltas said "shared", not where). `RIGGEN_BINARY` may name a `.py`
+  file, which runs under the current interpreter — the suite's stub
+  windows need nothing executable and work on Windows too.
+- `Viewer.wait()` compares a SHA-256 of the file, not
+  `riggen_core::content_hash`, which is not exposed and need not be: any
+  change of bytes is "the GUI saved".
+- The temporary directory is not removed: `viewer.path` is the user's to
+  reopen or keep, and the OS's to clean.
+- By hand on the dev machine: `riggen.show(pendulum)` with
+  `RIGGEN_BINARY=target/release/riggen` opened the window on the file and
+  stayed open until `kill()`; `wait()` returned the original. Save in the
+  GUI → `wait()` returns the edit is still the human's check.
 - The `cargo tree` layer check lives in the `clippy` job, which already
   has the toolchain, rather than the container-based `wheel` job.
 - The sdist holds `riggen-py` and its three lower crates only — maturin

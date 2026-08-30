@@ -16,6 +16,9 @@ script or a notebook.
 ... )
 >>> robot.export("out", format="mjcf")
 
+``riggen.show(robot)`` opens the window on the document; place a joint by
+hand there, save, and ``viewer.wait()`` hands the saved document back.
+
 Every edit is one document command, applied on a copy and kept only on
 success; a refused edit raises a :class:`riggen.EditError` subclass and
 changes nothing. Meters, radians, right-handed, Z-up, with ``degrees=True``
@@ -44,6 +47,7 @@ from .errors import (
     ValidationError,
     WouldCreateCycle,
 )
+from .show import Viewer, show
 from .robot import (
     ComputedInertial,
     Continuous,
@@ -81,6 +85,9 @@ __all__ = [
     "Geom",
     "load",
     "load_urdf",
+    # the window
+    "show",
+    "Viewer",
     # values
     "Pose",
     "Limits",

@@ -67,15 +67,11 @@ def find_cli() -> Path:
     """The `riggen` binary the SDK is compared against: `RIGGEN_BINARY`, the
     one bundled in this interpreter's wheel (the `wheel` CI job), else a
     local cargo build; otherwise the test skips."""
-    import os
-
-    if env := os.environ.get("RIGGEN_BINARY"):
-        return Path(env)
-    from riggen.__main__ import binary_path
+    from riggen.show import binary_path
 
     try:
-        return Path(binary_path())
-    except SystemExit:
+        return binary_path()
+    except FileNotFoundError:
         pass
     for candidate in (ROOT / "target" / "release" / "riggen", ROOT / "target" / "debug" / "riggen"):
         if candidate.is_file():
