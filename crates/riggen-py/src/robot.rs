@@ -56,14 +56,21 @@ fn joint_defaults() -> [(&'static str, serde_json::Value); 2] {
 /// Registers a mesh file the way the app's drop does: the absolute,
 /// normalised path and the FNV-1a hash of the bytes (`MeshAsset`).
 fn register(robot: &mut Robot, path: &Path, scale: f64, fix_up: Option<DQuat>) -> PyResult<MeshId> {
-    let path = riggen_core::absolute(path)?;
-    let content_hash = riggen_core::hash_file(&path)?;
+    let path = riggen_core::absolute(path).map_err(|e| with_path(path, e))?;
+    let content_hash = riggen_core::hash_file(&path).map_err(|e| with_path(&path, e))?;
     Ok(robot.add_asset(MeshAsset {
         path,
         content_hash,
         scale,
         fix_up,
     }))
+}
+
+/// An I/O error that names the file: `std::io::Error` alone says "No such
+/// file or directory (os error 2)", and the exception it becomes
+/// (`FileNotFoundError`, `PermissionError`, …) keeps the kind.
+fn with_path(path: &Path, e: std::io::Error) -> std::io::Error {
+    std::io::Error::new(e.kind(), format!("{}: {e}", path.display()))
 }
 
 fn fix_up_from(obj: Option<&Bound<'_, PyAny>>) -> PyResult<Option<DQuat>> {
@@ -326,8 +333,9 @@ impl PyRobot {
     /// path is absolutised, the hash recomputed.
     fn set_asset(&mut self, py: Python<'_>, mesh: u32, asset: &Bound<'_, PyAny>) -> PyResult<()> {
         let mut asset: MeshAsset = from_doc_with(asset, "asset", &[("content_hash", json!(0))])?;
-        asset.path = riggen_core::absolute(&asset.path)?;
-        asset.content_hash = riggen_core::hash_file(&asset.path)?;
+        asset.path = riggen_core::absolute(&asset.path).map_err(|e| with_path(&asset.path, e))?;
+        asset.content_hash =
+            riggen_core::hash_file(&asset.path).map_err(|e| with_path(&asset.path, e))?;
         self.edit(py, Command::SetAsset(MeshId::from_raw(mesh), asset))?;
         Ok(())
     }

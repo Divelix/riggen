@@ -206,6 +206,17 @@ def test_would_create_cycle(pendulum: Robot):
         pendulum.reparent(5, tip)
 
 
+def test_missing_mesh_file_names_the_file(pendulum: Robot, tmp_path: Path):
+    """The by-hand run's first stumble: a bare "No such file or directory
+    (os error 2)" said nothing about *which* file."""
+    with pytest.raises(FileNotFoundError, match="nowhere.stl"):
+        pendulum.add_asset(tmp_path / "nowhere.stl")
+    with pytest.raises(FileNotFoundError, match="gone.stl"):
+        pendulum.add_link("x", 0, hinge_joint(name="j"), mesh=tmp_path / "gone.stl")
+    with pytest.raises(FileNotFoundError, match="moved.stl"):
+        pendulum.set_asset(3, {"path": str(tmp_path / "moved.stl"), "scale": 1.0, "fix_up": None})
+
+
 def test_malformed_values_are_value_errors(pendulum: Robot):
     with unchanged(pendulum), pytest.raises(ValueError, match="joint: missing field"):
         pendulum.set_joint(6, {"name": "h", "kind": "Revolute"})
