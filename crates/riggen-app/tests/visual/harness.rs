@@ -108,6 +108,20 @@ pub fn settle(harness: &mut Harness<'_, RiggenApp>) {
     const MAX_FRAMES: usize = 600;
     const IDLE_FRAMES: usize = 4;
 
+    // A convex decomposition runs on the job thread (`riggen_app::jobs`)
+    // and takes tens of milliseconds — thousands of these logic-only
+    // frames, so a frame count is the wrong unit for waiting on it. Wait on
+    // the clock instead, then settle normally.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while harness.state().decompositions_pending() {
+        harness.step();
+        assert!(
+            std::time::Instant::now() < deadline,
+            "a decomposition never landed"
+        );
+        std::thread::yield_now();
+    }
+
     let mut idle = 0;
     for _ in 0..MAX_FRAMES {
         harness.step();

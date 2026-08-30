@@ -184,10 +184,13 @@ changed is re-uploaded, every model matrix is written from
 geom's own colour, else the link's material, else the viewport default.
 With View › Collision geometry on, `sync_collision` derives one translucent
 instance per collision shape the link's policy resolves to — a cached hull
-per visual mesh for `ConvexHull`, a generated mesh per primitive, each
-`Meshes` geom; nothing extra for `None` / `SameAsVisual` — at the same FK
-poses, re-uploading only when a shape's source changed; with it off they
-are all removed. `q` is pruned of vanished joints and clamped to freshly edited limits on
+per visual mesh for `ConvexHull`, **every piece** of the cached
+decomposition for `ConvexDecomposition` (nothing until its job lands, and
+`drain_jobs` re-syncs on the frame it does), a generated mesh per
+primitive, each `Meshes` geom; nothing extra for `None` / `SameAsVisual` —
+at the same FK poses, re-uploading only when a shape's source changed
+(`CollisionSource`, whose `Piece(MeshId, DecompParams, usize)` makes an
+edited parameter a different source); with it off they are all removed. `q` is pruned of vanished joints and clamped to freshly edited limits on
 the way, and `preview_world` — a link's pose while a gizmo drag is in
 flight — is applied as a correction to that link and its whole subtree, so
 the parts follow the handle exactly as they will after the commit while the

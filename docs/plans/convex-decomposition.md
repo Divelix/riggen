@@ -136,7 +136,7 @@ job loads a decomposed model with zero warnings.
   wake, the once-per-frame drain, `Jobs::request` deduplicating in-flight
   keys. Test: a harness test requests a decomposition and pumps frames until
   the cache holds it, asserting on the job's own result rather than a sleep.
-- [ ] Step 6 — the properties panel: the policy offered, its three fields,
+- [x] Step 6 — the properties panel: the policy offered, its three fields,
   the piece count and the spinner; `CollisionSource::Piece` and
   `sync_collision` drawing every piece. Snapshots
   `properties_collision_decomposition` (the panel, pieces ready) and
@@ -217,10 +217,20 @@ loading the decomposed model with zero MuJoCo compiler warnings and
   is closed. The caveat: nothing *calls* `decompose` yet, so thin LTO drops
   most of parry from that build; step 8 re-measures once `resolve` and the
   SDK reach it, and it changes nothing unless it is large.
-- `⚠ OPEN 2:` **the default parameters** the combo starts with. V-HACD's own
-  defaults are generous (tens of hulls at a high voxel resolution, seconds
-  per part). *Agent decides* by step 6, measured on `bracket.stl` and
-  `fore.stl`, favouring "a second, not a minute" over piece count.
+- `⚠ OPEN 2:` ~~the default parameters~~ — **measured 2026-08-31 on
+  `bracket.stl`, the arm's `fore.stl` and `base.stl` across
+  resolution × max_hulls × concavity (`riggen-mesh`'s `#[ignore]`d
+  `measure_decomposition_defaults`, release build), closed:
+  `max_hulls: 8, resolution: 64, concavity: 0.01`.** V-HACD's own
+  `resolution` and `concavity` defaults turn out to be the right ones —
+  **54–90 ms** a part, comfortably "a second, not a minute", giving 4
+  pieces on the bracket, 4 on `fore`, 2 on `base`. Only `max_convex_hulls`
+  needed changing, from parry's 1024 to 8: no robot link wants a thousand
+  collision geoms, and with our merge step (see the finding above) the
+  number is now a real ceiling. Resolution 128 is 240–500 ms and buys
+  nothing on these parts; 32 is 12–16 ms and loses a piece on the bracket.
+  The panel caps the two integers at 64 hulls and a 256³ grid so a typo
+  cannot ask for either.
 - `⚠ OPEN 3:` ~~exporting while a job is in flight~~ — **decided by the
   human 2026-08-30: block the export.** `ExportError::DecompositionPending`
   is listed in the export dialog beside every other blocker, the way an

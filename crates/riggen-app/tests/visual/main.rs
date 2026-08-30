@@ -277,6 +277,99 @@ fn decomposition_lands_on_the_job_thread() {
     });
 }
 
+/// The bracket's convex pieces in the viewport: the U-channel keeps its
+/// notch, which one convex hull would fill (ADR-0011). Four translucent
+/// instances over the one part.
+#[test]
+fn collision_decomposition() {
+    scenario("collision_decomposition", |harness| {
+        let link = open_link(harness.state_mut(), "bracket.stl");
+        harness
+            .state_mut()
+            .apply(Command::SetCollision(
+                link,
+                riggen_core::CollisionPolicy::ConvexDecomposition {
+                    max_hulls: 4,
+                    resolution: 48,
+                    concavity: 0.01,
+                },
+            ))
+            .unwrap();
+        harness.state_mut().set_show_collision(true);
+        harness.state_mut().fit_view_now();
+        // `settled()` is false until the job lands, so this waits for it.
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert!(state.ui.collision_view);
+        let pieces: Vec<_> = state.instances.iter().filter(|i| i.collision).collect();
+        assert!(
+            (2..=4).contains(&pieces.len()),
+            "the bracket is concave, and max_hulls caps it: {}",
+            pieces.len()
+        );
+        assert_eq!(state.instances.len(), 1 + pieces.len(), "one visual beside");
+        let part = state.instances.iter().find(|i| !i.collision).unwrap();
+        for piece in &pieces {
+            assert_eq!(piece.link, part.link, "a piece knows its link");
+            assert_eq!(piece.geom, None);
+            assert!(piece.triangles > 0);
+            assert!((piece.color[3] - 0.35).abs() < 1e-6, "translucent");
+            assert_eq!(piece.position, part.position, "at the visual's pose");
+        }
+    });
+}
+
+/// Properties › Collision offering the decomposition: the policy in the
+/// combo, its three parameters, and the piece count the job thread
+/// produced.
+#[test]
+fn properties_collision_decomposition() {
+    scenario("properties_collision_decomposition", |harness| {
+        let link = open_link(harness.state_mut(), "bracket.stl");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        harness.state_mut().select(Selection::Link(link));
+        settle(harness);
+
+        // material, inertial mode, collision policy: the third combo.
+        harness
+            .get_all_by_role(egui::accesskit::Role::ComboBox)
+            .nth(2)
+            .expect("the collision policy combo")
+            .click();
+        harness.step();
+        harness.get_by_label("Convex decomposition").click();
+        harness.step();
+        settle(harness);
+
+        let policy = harness.state().robot().links[&link].collision.clone();
+        let defaults = riggen_mesh::DecompParams::default();
+        assert_eq!(
+            policy,
+            riggen_core::CollisionPolicy::ConvexDecomposition {
+                max_hulls: defaults.max_hulls,
+                resolution: defaults.resolution,
+                concavity: defaults.concavity,
+            },
+            "the combo starts from the algorithm's own defaults"
+        );
+        // The readout is the job's, not a guess: the pieces are in the cache.
+        let mesh = harness.state().robot().links[&link].visuals[0].mesh;
+        let pieces = harness
+            .state()
+            .decomposition(mesh, defaults)
+            .expect("the job landed before the app settled")
+            .expect("the bracket decomposes");
+        assert!(pieces.len() > 1);
+        let readout = format!("pieces: {}", pieces.len());
+        harness.get_by_label(readout.as_str());
+        for label in ["max pieces", "voxel grid", "concavity"] {
+            harness.get_by_label(label);
+        }
+    });
+}
+
 /// A box bigger than the cube and a capsule beside it, as translucent
 /// primitives — and the cursor over the box still hovers the *cube*: the
 /// pick pass skips the translucent group.

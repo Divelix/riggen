@@ -11,7 +11,7 @@ use riggen_core::inertial::{Inertial, InertialError, principal_moments};
 use riggen_core::{
     CollisionPolicy, Command, InertialSpec, JointId, JointKind, Limits, LinkId, Pose, Primitive,
 };
-use riggen_mesh::fit;
+use riggen_mesh::{DecompParams, fit};
 
 use crate::app::{RiggenApp, Selection};
 
@@ -62,8 +62,7 @@ impl InertialMode {
 }
 
 /// The Collision block's policy combo: the policies a user picks by hand.
-/// `Meshes` (a URDF import) and `ConvexDecomposition` (post-MVP) are shown
-/// when present but not offered.
+/// `Meshes` (a URDF import) is shown when present but not offered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CollisionMode {
     None,
@@ -75,10 +74,11 @@ enum CollisionMode {
 }
 
 impl CollisionMode {
-    const OFFERED: [Self; 4] = [
+    const OFFERED: [Self; 5] = [
         Self::None,
         Self::SameAsVisual,
         Self::ConvexHull,
+        Self::Decomposition,
         Self::Primitives,
     ];
 
@@ -103,6 +103,23 @@ impl CollisionMode {
             Self::Decomposition => "Convex decomposition",
         }
     }
+}
+
+/// Ceilings on the two integer parameters, so a typo cannot ask for a
+/// grid of 10^9 voxels or a thousand collision geoms. Both are far above
+/// anything a robot link wants (V-HACD's own `max_convex_hulls` default is
+/// 1024, which is not a useful number here).
+const MAX_DECOMP_HULLS: u32 = 64;
+const MAX_DECOMP_RESOLUTION: u32 = 256;
+
+/// What the Collision block says under a `ConvexDecomposition`'s fields:
+/// the job thread's answer, or that it is still running.
+enum DecompReadout {
+    Pieces(usize),
+    Working,
+    Failed(String),
+    /// No visual mesh, so nothing was ever asked for.
+    NoMesh,
 }
 
 /// The four primitive kinds, for the add buttons and the fit.
@@ -498,6 +515,40 @@ impl RiggenApp {
 
     /// Every vertex of the link's visual meshes, in the link frame: what a
     /// primitive is fitted to.
+    /// What the job thread has to say about `link`'s decomposition: the
+    /// piece count over its visuals, a spinner while any of them is still
+    /// running, or the first reason there are none.
+    fn decomp_readout(&self, link: LinkId, policy: &CollisionPolicy) -> DecompReadout {
+        let CollisionPolicy::ConvexDecomposition {
+            max_hulls,
+            resolution,
+            concavity,
+        } = *policy
+        else {
+            return DecompReadout::NoMesh;
+        };
+        let params = DecompParams {
+            max_hulls,
+            resolution,
+            concavity,
+        };
+        let Some(data) = self.robot.links.get(&link) else {
+            return DecompReadout::NoMesh;
+        };
+        if data.visuals.is_empty() {
+            return DecompReadout::NoMesh;
+        }
+        let mut pieces = 0;
+        for g in &data.visuals {
+            match self.decomposition(g.mesh, params) {
+                Some(Ok(ps)) => pieces += ps.len(),
+                Some(Err(reason)) => return DecompReadout::Failed(reason.to_owned()),
+                None => return DecompReadout::Working,
+            }
+        }
+        DecompReadout::Pieces(pieces)
+    }
+
     fn link_points(&self, link: LinkId) -> Vec<DVec3> {
         let Some(data) = self.robot.links.get(&link) else {
             return Vec::new();
@@ -529,6 +580,7 @@ impl RiggenApp {
         base: egui::Id,
         commands: &mut Vec<Command>,
     ) {
+        let decomposition = self.decomp_readout(link, policy);
         let points = self.link_points(link);
         let assets = &self.robot.assets;
         let state = &mut self.props;
@@ -558,7 +610,18 @@ impl RiggenApp {
                     CollisionMode::Primitives => {
                         CollisionPolicy::Primitives(vec![PrimitiveKind::Box.fitted(&points)])
                     }
-                    CollisionMode::Meshes | CollisionMode::Decomposition => policy.clone(),
+                    // The algorithm's own defaults, measured at 54–90 ms
+                    // a part (plans/convex-decomposition OPEN 2): a
+                    // second, not a minute.
+                    CollisionMode::Decomposition => {
+                        let d = DecompParams::default();
+                        CollisionPolicy::ConvexDecomposition {
+                            max_hulls: d.max_hulls,
+                            resolution: d.resolution,
+                            concavity: d.concavity,
+                        }
+                    }
+                    CollisionMode::Meshes => policy.clone(),
                 };
                 if next != *policy {
                     commands.push(Command::SetCollision(link, next));
@@ -691,10 +754,82 @@ impl RiggenApp {
             CollisionPolicy::ConvexHull => {
                 ui.weak("one convex hull per visual mesh (View › Collision geometry shows them)");
             }
-            CollisionPolicy::ConvexDecomposition { max_hulls, .. } => {
-                ui.weak(format!(
-                    "convex decomposition into {max_hulls} hulls: not supported yet"
-                ));
+            CollisionPolicy::ConvexDecomposition {
+                max_hulls,
+                resolution,
+                concavity,
+            } => {
+                ui.weak("V-HACD: convex pieces that keep the part's concavity");
+                let params = DecompParams {
+                    max_hulls: *max_hulls,
+                    resolution: *resolution,
+                    concavity: *concavity,
+                };
+                let mut edited = params;
+                egui::Grid::new(base.with("decomp"))
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        let id = base.with("decomp");
+                        // Integers through the same draft-buffer field as
+                        // every other number, rounded on commit.
+                        if let Some(v) = number_row(
+                            ui,
+                            state,
+                            id.with("max_hulls"),
+                            "max pieces",
+                            params.max_hulls as f64,
+                        ) && v >= 1.0
+                            && v <= MAX_DECOMP_HULLS as f64
+                        {
+                            edited.max_hulls = v.round() as u32;
+                        }
+                        if let Some(v) = number_row(
+                            ui,
+                            state,
+                            id.with("resolution"),
+                            "voxel grid",
+                            params.resolution as f64,
+                        ) && v >= 1.0
+                            && v <= MAX_DECOMP_RESOLUTION as f64
+                        {
+                            edited.resolution = v.round() as u32;
+                        }
+                        if let Some(v) = number_row(
+                            ui,
+                            state,
+                            id.with("concavity"),
+                            "concavity",
+                            params.concavity,
+                        ) && (0.0..=1.0).contains(&v)
+                        {
+                            edited.concavity = v;
+                        }
+                    });
+                if edited != params {
+                    commands.push(Command::SetCollision(
+                        link,
+                        CollisionPolicy::ConvexDecomposition {
+                            max_hulls: edited.max_hulls,
+                            resolution: edited.resolution,
+                            concavity: edited.concavity,
+                        },
+                    ));
+                }
+                ui.horizontal(|ui| match decomposition {
+                    DecompReadout::Pieces(n) => {
+                        ui.label(format!("pieces: {n}"));
+                    }
+                    DecompReadout::Working => {
+                        ui.spinner();
+                        ui.weak("computing…");
+                    }
+                    DecompReadout::Failed(reason) => {
+                        ui.colored_label(ui.visuals().error_fg_color, reason);
+                    }
+                    DecompReadout::NoMesh => {
+                        ui.weak("nothing to decompose: the link has no visual mesh");
+                    }
+                });
             }
         }
     }
