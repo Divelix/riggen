@@ -457,13 +457,19 @@ adjacency is cached beside the loaded mesh, so a resting cursor fits once.
 Gizmos come from `transform-gizmo-egui` (ADR-0007), behind
 `app/gizmo.rs` — the only file that names the crate — fed the viewport's
 view/projection matrices as `mint` matrices and drawing with egui's painter
-over the viewport, not depth-tested. Both it and the ID buffer want the
-mouse, and the gizmo wins: its interaction widget is registered *after* the
-viewport's rect in the same layer, so egui's hit test gives it the click,
-and `Viewport::set_input_suppressed(bool)` — driven from
-`Gizmo::is_focused()`, one frame late — turns the viewport's camera input
-and picking off wholesale while it owns the cursor. The toolbar is
-registered after the gizmo in turn: viewport < gizmo < toolbar.
+over the viewport, not depth-tested. The egui glue is **ours**, not the
+crate's `GizmoExt::interact` (plans/gizmo-input): that one registers a
+click-and-drag widget at the cursor on every frame, and egui's hit test
+prefers the widget registered last, so any gizmo on screen took the whole
+pointer — hover, click and wheel — from the viewport under it.
+`app/gizmo.rs` hit-tests the handles itself with `Gizmo::pick_preview`,
+which asks the subgizmos directly and needs no widget, and registers one
+only while a handle is under the cursor or a drag it started is in flight.
+Everywhere else the viewport keeps the pointer it always had. While the
+gizmo does own the cursor, `Viewport::set_input_suppressed(bool)` — one
+frame late, the same lag egui's own interaction has — keeps the viewport's
+picking from running under it. The toolbar is registered after the gizmo in
+turn: viewport < gizmo < toolbar.
 
 What the gizmo edits follows the selection (plans/m2-placement-ux OPEN 2): a
 **link** moves through its parent joint's `origin` (one `SetJoint` via

@@ -177,7 +177,8 @@ pub struct GizmoDebug {
     pub screen: Option<[f64; 2]>,
     /// Whether a drag is in flight (the document is not yet edited).
     pub dragging: bool,
-    /// Whether the gizmo owns the cursor, which suppresses viewport input.
+    /// Whether the gizmo owns the cursor: a handle is under it, or a drag
+    /// is in flight. Suppresses the viewport's own input while it holds.
     pub captured: bool,
 }
 

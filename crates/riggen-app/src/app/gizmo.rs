@@ -21,11 +21,18 @@
 //!
 //! The crate speaks `mint`, which is how its glam 0.32 and our glam 0.30
 //! meet without either crate naming the other's types (ADR-0007).
+//!
+//! The egui half — registering an interaction widget, feeding the crate a
+//! `GizmoInteraction`, painting its mesh — is [`interact`] below rather
+//! than the crate's own `GizmoExt::interact`, because that one takes the
+//! pointer away from the viewport on *every* frame a gizmo is on screen
+//! (plans/gizmo-input).
 
 use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{Command, JointId, LinkId, Pose, origin_for_world};
 use transform_gizmo_egui::{
-    Gizmo, GizmoConfig, GizmoExt, GizmoMode, GizmoOrientation, GizmoVisuals, math::Transform,
+    Gizmo, GizmoConfig, GizmoInteraction, GizmoMode, GizmoOrientation, GizmoResult, GizmoVisuals,
+    math::Transform,
 };
 
 use super::{RiggenApp, Selection, Tool};
@@ -57,8 +64,9 @@ pub(crate) struct GizmoState {
     /// The target and the world pose the drag is currently showing. `Some`
     /// exactly while a drag is in flight.
     pub(crate) drag: Option<(GizmoTarget, Pose)>,
-    /// Whether the gizmo owned the cursor at the end of the last frame. Fed
-    /// to `Viewport::set_input_suppressed` *before* the viewport runs, so it
+    /// Whether the gizmo owns the cursor: a handle is under it, or a drag
+    /// it started is still in flight. Fed to
+    /// `Viewport::set_input_suppressed` *before* the viewport runs, so it
     /// is one frame behind — the same lag egui's own interaction has.
     pub(crate) captured: bool,
 }
@@ -96,15 +104,28 @@ impl RiggenApp {
     }
 
     /// Draws and drives the gizmo. Called inside the central panel *after*
-    /// `Viewport::ui`, so its interaction widget is registered later and
-    /// therefore wins the pointer; the toolbar is drawn after it in turn.
-    pub(crate) fn gizmo_ui(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+    /// `Viewport::ui`, so the widget [`interact`] registers comes later in
+    /// the same layer and therefore wins the pointer; the toolbar is drawn
+    /// after it in turn.
+    ///
+    /// `viewport_has_pointer` is the viewport response's
+    /// `contains_pointer()`: the pointer is inside the viewport's rect and
+    /// no *other layer* — a window, a modal — is over it. Same-layer widgets
+    /// drawn on top (the toolbar) do not clear it, so the toolbar's own rect
+    /// is checked here.
+    pub(crate) fn gizmo_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: egui::Rect,
+        viewport_has_pointer: bool,
+    ) {
         let Some(target) = self.gizmo_target() else {
             self.end_gizmo_drag(None);
             self.gizmo_state.captured = false;
             return;
         };
         let Some(world) = self.gizmo_world(target) else {
+            self.gizmo_state.captured = false;
             return;
         };
 
@@ -138,29 +159,53 @@ impl RiggenApp {
 
         let transform =
             Transform::from_scale_rotation_translation(DVec3::ONE, world.r.normalize(), world.t);
-        let result = self.gizmo_state.gizmo.interact(ui, &[transform]);
-        self.gizmo_state.captured = self.gizmo_state.gizmo.is_focused();
+
+        // Our own hit test, not the widget's `hovered()`: `pick_preview`
+        // asks the subgizmos directly, so it answers this frame rather than
+        // the next one, and — the point of the change — it answers *before* a
+        // widget has been registered, which is what lets us not register one
+        // at all. The gizmo's pose inside `config` is a frame old (the crate
+        // refreshes it from the targets inside `update`), so the first frame
+        // after the selection moves the gizmo aims at where it was; every
+        // other frame is exact.
+        let cursor = ui.ctx().pointer_hover_pos();
+        let over_handle = viewport_has_pointer
+            && cursor.is_some_and(|c| {
+                !self.toolbar_rect.is_some_and(|r| r.contains(c))
+                    && self.gizmo_state.gizmo.pick_preview((c.x, c.y))
+            });
+        // A drag that has left its handle still owns the pointer.
+        let active = self.gizmo_state.drag.is_some();
+        let result = interact(
+            &mut self.gizmo_state.gizmo,
+            ui,
+            rect,
+            &[transform],
+            cursor,
+            over_handle,
+            active,
+        );
 
         match result {
             Some((_, transforms)) => {
-                let Some(next) = transforms.first() else {
-                    return;
-                };
-                let pose = Pose::new(
-                    DVec3::from(next.translation),
-                    DQuat::from(next.rotation).normalize(),
-                );
-                self.gizmo_state.drag = Some((target, pose));
-                // Only a link drag moves anything in the world; a pivot
-                // move leaves the geometry exactly where it is.
-                if let GizmoTarget::Link(link) = target {
-                    self.preview_world = Some((link, pose));
+                if let Some(next) = transforms.first() {
+                    let pose = Pose::new(
+                        DVec3::from(next.translation),
+                        DQuat::from(next.rotation).normalize(),
+                    );
+                    self.gizmo_state.drag = Some((target, pose));
+                    // Only a link drag moves anything in the world; a pivot
+                    // move leaves the geometry exactly where it is.
+                    if let GizmoTarget::Link(link) = target {
+                        self.preview_world = Some((link, pose));
+                    }
+                    self.sync_scene();
+                    ui.ctx().request_repaint();
                 }
-                self.sync_scene();
-                ui.ctx().request_repaint();
             }
             None => self.end_gizmo_drag(Some(target)),
         }
+        self.gizmo_state.captured = over_handle || self.gizmo_state.drag.is_some();
     }
 
     /// Ends a drag in flight: drops the preview and commits the one command
@@ -227,4 +272,78 @@ impl RiggenApp {
     pub fn project_world(&self, world: DVec3) -> Option<egui::Pos2> {
         self.viewport.project(world)
     }
+}
+
+/// The egui half of the gizmo: what `GizmoExt::interact` does, minus the
+/// part that broke the viewport (plans/gizmo-input).
+///
+/// The crate's adapter registers a one-point click-and-drag widget at the
+/// cursor on **every** frame. egui's hit test prefers the widget registered
+/// last, and the gizmo is registered after the viewport — so while any gizmo
+/// was on screen the viewport underneath saw no hover, no click and no wheel
+/// event at all, which is the M2 exit gate's dead camera and its clicks that
+/// only flickered the hover tint.
+///
+/// This registers that widget only on the frames the gizmo actually wants
+/// the pointer: `over_handle` (a handle is under the cursor) or `active` (a
+/// drag it started is still in flight, the cursor by then anywhere). Every
+/// other frame the viewport keeps the pointer it has always had.
+///
+/// `hovered` is handed to the crate from our own hit test rather than from
+/// the widget's `Response`, so it is not a frame behind — the crate only
+/// needs to know whether a handle is under the cursor, and we had to answer
+/// that before registering anything.
+fn interact(
+    gizmo: &mut Gizmo,
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    targets: &[Transform],
+    cursor: Option<egui::Pos2>,
+    over_handle: bool,
+    active: bool,
+) -> Option<(GizmoResult, Vec<Transform>)> {
+    let cursor = cursor.unwrap_or_default();
+    if over_handle || active {
+        ui.interact(
+            egui::Rect::from_center_size(cursor, egui::Vec2::splat(1.0)),
+            ui.id().with("riggen-gizmo-pointer"),
+            egui::Sense::click_and_drag(),
+        );
+    }
+
+    let (drag_started, dragging) = ui.input(|i| {
+        (
+            i.pointer.button_pressed(egui::PointerButton::Primary),
+            i.pointer.button_down(egui::PointerButton::Primary),
+        )
+    });
+    let result = gizmo.update(
+        GizmoInteraction {
+            cursor_pos: (cursor.x, cursor.y),
+            hovered: over_handle,
+            drag_started,
+            dragging,
+        },
+        targets,
+    );
+
+    // Drawn with egui's painter over the viewport, in the viewport's own
+    // rect and layer, not depth-tested (ADR-0007).
+    let draw = gizmo.draw();
+    egui::Painter::new(ui.ctx().clone(), ui.layer_id(), rect).add(egui::Mesh {
+        indices: draw.indices,
+        vertices: draw
+            .vertices
+            .into_iter()
+            .zip(draw.colors)
+            .map(|(pos, [r, g, b, a])| egui::epaint::Vertex {
+                pos: pos.into(),
+                uv: egui::Pos2::default(),
+                color: egui::Rgba::from_rgba_premultiplied(r, g, b, a).into(),
+            })
+            .collect(),
+        ..Default::default()
+    });
+
+    result
 }
