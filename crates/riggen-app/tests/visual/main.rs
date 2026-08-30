@@ -17,7 +17,8 @@ mod harness;
 
 use egui_kittest::kittest::{NodeT, Queryable};
 use harness::{
-    click_at, click_widget, pump_rendered, scenario, scroll_at, settle, synthetic_drag, with_app,
+    click_at, click_widget, middle_drag, pump_rendered, scenario, scroll_at, settle,
+    synthetic_drag, with_app,
 };
 
 use riggen_app::{Selection, Tool, ZERO_CONFIG_STATUS};
@@ -1462,6 +1463,72 @@ fn the_toolbar_does_not_zoom_the_camera() {
         assert_eq!(
             state.camera.distance, before,
             "the wheel over the Joints window left the camera alone"
+        );
+    });
+}
+
+/// Orbit and pan start *from a gizmo handle* (plans/gizmo-input step 3): the
+/// gizmo's pointer widget senses clicks only, so egui's hit test hands the
+/// drag to the viewport underneath whichever button started it, and no
+/// command is committed.
+#[test]
+fn orbit_works_from_a_gizmo_handle() {
+    with_app(|harness| {
+        pendulum_with_move_armed(harness);
+        let depth = harness.state().history().undo_depth();
+        let before = harness.state().debug_state().camera;
+
+        let handle = gizmo_handle(harness);
+        middle_drag(
+            harness,
+            handle,
+            handle + egui::vec2(90.0, 45.0),
+            egui::Modifiers::NONE,
+        );
+
+        let camera = harness.state().debug_state().camera;
+        assert!(
+            camera.yaw_deg != before.yaw_deg && camera.pitch_deg != before.pitch_deg,
+            "a middle-drag from the handle orbited: {:?} -> {:?}",
+            (before.yaw_deg, before.pitch_deg),
+            (camera.yaw_deg, camera.pitch_deg)
+        );
+        assert_eq!(
+            camera.target, before.target,
+            "orbit turns around the target, it does not move it"
+        );
+
+        // Shift+middle pans, from the handle's new position after the orbit.
+        let handle = gizmo_handle(harness);
+        let before = harness.state().debug_state().camera;
+        middle_drag(
+            harness,
+            handle,
+            handle + egui::vec2(60.0, 0.0),
+            egui::Modifiers::SHIFT,
+        );
+
+        let camera = harness.state().debug_state().camera;
+        assert!(
+            camera.target != before.target,
+            "shift+middle panned: {:?} -> {:?}",
+            before.target,
+            camera.target
+        );
+        assert_eq!(
+            (camera.yaw_deg, camera.pitch_deg),
+            (before.yaw_deg, before.pitch_deg),
+            "panning does not orbit"
+        );
+
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth,
+            "moving the camera over a gizmo is not an edit"
+        );
+        assert!(
+            !harness.state().gizmo_dragging(),
+            "and the gizmo never took the drag"
         );
     });
 }

@@ -96,14 +96,15 @@ adapter becomes ours, recorded as ADR-0010.
   Scenarios: `camera_works_while_the_gizmo_is_up` (wheel over the gizmo's
   own origin changes `camera.distance`) and
   `the_toolbar_does_not_zoom_the_camera`.
-- [ ] Step 3 — Non-primary buttons pass through. The gizmo declines to
-  register its widget while the middle or secondary button is down (egui
-  `interaction.rs` sets `potential_drag_id` from `hits.drag` for *any*
-  button, so the 1×1 widget would otherwise eat a middle-drag that started
-  on a handle). Harness gets `middle_drag`. Scenario
+- [x] Step 3 — Non-primary buttons pass through. **The mechanism this step
+  proposed does not work; see OPEN 5.** What landed instead: the gizmo's
+  widget is registered with `Sense::click()` rather than
+  `click_and_drag()`, so `hit_test` reports `click: gizmo, drag: viewport`
+  and every button's drag lands on the viewport. Harness gets `middle_drag`
+  (a real modifier through `ModifiersChanged`). Scenario
   `orbit_works_from_a_gizmo_handle`: middle-drag starting on the gizmo
   origin changes `camera.yaw_deg`/`pitch_deg` and commits no command;
-  shift+middle-drag pans.
+  shift+middle-drag pans and does not orbit.
 - [ ] Step 4 — A hovered glyph stops freezing the camera. `glyph_hover`
   feeds `pick_suppressed` only; the §Panels sentence in
   `docs/01-architecture.md` is corrected in the same commit. Extend
@@ -159,6 +160,19 @@ PNG that does change is shown before it is staged (AGENTS.md).
   translate handles 110 px long, is already clear of it (step 1's
   `gizmo_leaves_the_pointer_alone`). `GizmoMode::all_rotate()` /
   `all_translate()` stay as M2 set them.
+
+- ⚠ OPEN 5 (new, agent, step 3 — **resolved in step 3**): "decline to
+  register the widget while a non-primary button is down" cannot work, and
+  the scenario proved it before the fix went in. egui computes the hit test
+  in `begin_pass` against **`prev_pass.widgets`** (`context.rs`, the
+  `interaction::interact` call), so the press frame is hit-tested against
+  the frame *before* it — the frame on which the cursor was resting on the
+  handle and the widget was very much registered. `potential_drag_id` is
+  taken from that, and a widget missing from the current frame is
+  explicitly tolerated ("this could be drag-and-drop … now in the air"), so
+  the drag goes nowhere. The fix has to be in what the widget *senses*, not
+  in whether it exists: `Sense::click()` keeps it out of `hits.drag`
+  entirely. Step 5's ADR records this rather than the version above.
 
 - ⚠ OPEN 4 (new, agent, step 5): step 1 cites `plans/gizmo-input` where
   ADR-0010 will be — `app/gizmo.rs` (module doc, `interact`), `app/mod.rs`,
