@@ -4,7 +4,7 @@
 //! that can block an export is found here, all of it, so the export dialog
 //! lists every problem at once (step 12).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,7 +15,7 @@ use riggen_core::{
     CollisionPolicy, Dynamics, Geom, JointKind, Limits, LinkId, MeshId, Pose, Primitive, Robot,
     ValidationError, validation_errors,
 };
-use riggen_mesh::TriMesh;
+use riggen_mesh::{DecompParams, TriMesh};
 
 /// Which file(s) `export` writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -90,11 +90,20 @@ pub enum ExportError {
         path: PathBuf,
         reason: String,
     },
-    /// A collision policy the writers do not handle yet.
-    Unsupported {
-        link: LinkId,
-        name: String,
-        what: &'static str,
+    /// `ConvexDecomposition` of a mesh V-HACD finds nothing solid in
+    /// (an open surface, a part thinner than one voxel — ADR-0011).
+    DegenerateDecomposition {
+        mesh: MeshId,
+        path: PathBuf,
+        reason: String,
+    },
+    /// The decomposition is still being computed. Only a cache-only
+    /// [`DecompSource`] — the app's, filled by its job thread — reports
+    /// this; the export is blocked and unblocks itself when the job lands
+    /// (plans/convex-decomposition OPEN 3, decided: block, no modal).
+    DecompositionPending {
+        mesh: MeshId,
+        path: PathBuf,
     },
 }
 
@@ -113,9 +122,14 @@ impl fmt::Display for ExportError {
             Self::DegenerateHull { path, reason, .. } => {
                 write!(f, "mesh {}: {reason}", path.display())
             }
-            Self::Unsupported { name, what, .. } => {
-                write!(f, "link \"{name}\": {what} is not supported yet")
+            Self::DegenerateDecomposition { path, reason, .. } => {
+                write!(f, "mesh {}: {reason}", path.display())
             }
+            Self::DecompositionPending { path, .. } => write!(
+                f,
+                "mesh {}: the convex decomposition is still being computed",
+                path.display()
+            ),
         }
     }
 }
@@ -125,6 +139,53 @@ impl std::error::Error for ExportError {}
 impl From<ValidationError> for ExportError {
     fn from(e: ValidationError) -> Self {
         Self::Invalid(e)
+    }
+}
+
+/// Where [`resolve`] gets a mesh's convex pieces from.
+///
+/// A decomposition is seconds of work (ADR-0011), so who pays for it is not
+/// the resolver's business: the CLI, the SDK and the tests run it inline
+/// ([`ComputeNow`]), while the app hands over a cache its job thread fills
+/// and answers [`DecompMiss::Pending`] for an entry that has not landed —
+/// the export dialog then lists `DecompositionPending` beside every other
+/// blocker and the line clears itself.
+pub trait DecompSource {
+    /// The convex pieces of `source` at `params`, in a stable order.
+    /// `mesh` identifies the asset for a cache; `source` is the same mesh
+    /// the [`MeshLookup`] returned, in meters.
+    fn pieces(
+        &self,
+        mesh: MeshId,
+        source: &TriMesh,
+        params: DecompParams,
+    ) -> Result<Vec<Arc<TriMesh>>, DecompMiss>;
+}
+
+/// Why a [`DecompSource`] has no pieces for a mesh.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DecompMiss {
+    /// Not computed yet. Ask again once the job that will compute it lands.
+    Pending,
+    /// There is no decomposition of this mesh at these parameters, ever.
+    Degenerate(String),
+}
+
+/// The [`DecompSource`] that runs V-HACD on the spot: the CLI, the SDK and
+/// the tests, where a blocking second is what the caller asked for.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ComputeNow;
+
+impl DecompSource for ComputeNow {
+    fn pieces(
+        &self,
+        _mesh: MeshId,
+        source: &TriMesh,
+        params: DecompParams,
+    ) -> Result<Vec<Arc<TriMesh>>, DecompMiss> {
+        riggen_mesh::decompose(source, &params)
+            .map(|pieces| pieces.into_iter().map(Arc::new).collect())
+            .map_err(|e| DecompMiss::Degenerate(e.to_string()))
     }
 }
 
@@ -192,10 +253,13 @@ impl ResolvedRobot {
 
 /// Resolves `robot` for export, or every reason it cannot be. Hulls are
 /// computed here, once per referenced mesh however many links share it,
-/// and written as `<stem>_hull.stl` beside the mesh (ADR-0008).
+/// and written as `<stem>_hull.stl` beside the mesh (ADR-0008);
+/// decompositions come from `decomp` (see [`DecompSource`]) once per
+/// `(MeshId, DecompParams)` and are written `<stem>_hull_0.stl …`.
 pub fn resolve(
     robot: &Robot,
     meshes: &impl MeshLookup,
+    decomp: &impl DecompSource,
     options: &ExportOptions,
 ) -> Result<ResolvedRobot, Vec<ExportError>> {
     let mut errors: Vec<ExportError> = validation_errors(robot)
@@ -212,6 +276,13 @@ pub fn resolve(
     let names = mesh_names(robot);
     let mut files = BTreeMap::new();
     let mut hulls: BTreeMap<MeshId, Result<Arc<TriMesh>, ExportError>> = BTreeMap::new();
+    // One decomposition per (mesh, parameters), however many links share
+    // it, and the file-name prefix that decomposition's pieces got.
+    type Pieces = Result<(String, Vec<Arc<TriMesh>>), ExportError>;
+    let mut decompositions: HashMap<(MeshId, DecompParams), Pieces> = HashMap::new();
+    // How many distinct parameter sets a mesh has been decomposed at, so
+    // the second one does not write over the first one's files.
+    let mut decomp_variants: BTreeMap<MeshId, u32> = BTreeMap::new();
     let mut links = Vec::with_capacity(order.len());
     let mut joints = Vec::with_capacity(order.len().saturating_sub(1));
 
@@ -306,13 +377,76 @@ pub fn resolve(
                     }
                 })
                 .collect(),
-            CollisionPolicy::ConvexDecomposition { .. } => {
-                errors.push(ExportError::Unsupported {
-                    link: lid,
-                    name: link.name.clone(),
-                    what: "convex decomposition",
-                });
-                Vec::new()
+            CollisionPolicy::ConvexDecomposition {
+                max_hulls,
+                resolution,
+                concavity,
+            } => {
+                let params = DecompParams {
+                    max_hulls: *max_hulls,
+                    resolution: *resolution,
+                    concavity: *concavity,
+                };
+                let mut geoms = Vec::new();
+                for g in &link.visuals {
+                    let entry = decompositions.entry((g.mesh, params)).or_insert_with(|| {
+                        let path = || robot.assets[&g.mesh].path.clone();
+                        let source =
+                            meshes
+                                .mesh(g.mesh)
+                                .ok_or_else(|| ExportError::UnloadableMesh {
+                                    mesh: g.mesh,
+                                    path: path(),
+                                    reason: "not loaded".into(),
+                                })?;
+                        let pieces =
+                            decomp
+                                .pieces(g.mesh, source, params)
+                                .map_err(|miss| match miss {
+                                    DecompMiss::Pending => ExportError::DecompositionPending {
+                                        mesh: g.mesh,
+                                        path: path(),
+                                    },
+                                    DecompMiss::Degenerate(reason) => {
+                                        ExportError::DegenerateDecomposition {
+                                            mesh: g.mesh,
+                                            path: path(),
+                                            reason,
+                                        }
+                                    }
+                                })?;
+                        // `<stem>_hull_0`, `<stem>_hull_1`, …; a mesh
+                        // decomposed at a second set of parameters gets
+                        // `<stem>_hull2_0`, so the files never collide.
+                        let n = decomp_variants.entry(g.mesh).or_insert(0);
+                        *n += 1;
+                        let prefix = match *n {
+                            1 => format!("{}_hull", names[&g.mesh]),
+                            n => format!("{}_hull{n}", names[&g.mesh]),
+                        };
+                        Ok((prefix, pieces))
+                    });
+                    match entry {
+                        Ok((prefix, pieces)) => {
+                            for (i, piece) in pieces.iter().enumerate() {
+                                let name = format!("{prefix}_{i}");
+                                files.entry(name.clone()).or_insert_with(|| piece.clone());
+                                geoms.push(ResolvedGeom::Mesh {
+                                    name,
+                                    mesh: piece.clone(),
+                                    pose: g.pose,
+                                });
+                            }
+                        }
+                        Err(e) => {
+                            // Reported once per (mesh, parameters).
+                            if !errors.contains(e) {
+                                errors.push(e.clone());
+                            }
+                        }
+                    }
+                }
+                geoms
             }
         };
 
@@ -434,6 +568,17 @@ fn stem_name(stem: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two triangles in the z = 0 plane: no volume, so no hull and no
+    /// decomposition.
+    fn plate() -> TriMesh {
+        TriMesh {
+            positions: vec![DVec3::ZERO, DVec3::X, DVec3::Y, DVec3::ONE - DVec3::Z],
+            normals: vec![],
+            indices: vec![0, 1, 2, 1, 3, 2],
+        }
+    }
+
     use crate::MeshStore;
     use crate::test_util::{Builder, fixtures};
     use riggen_core::glam::DMat3;
@@ -446,7 +591,7 @@ mod tests {
         assert!(warnings.is_empty(), "{warnings:?}");
         let (store, errors) = MeshStore::load(&robot);
         assert!(errors.is_empty(), "{errors:?}");
-        let resolved = resolve(&robot, &store, &ExportOptions::default()).unwrap();
+        let resolved = resolve(&robot, &store, &ComputeNow, &ExportOptions::default()).unwrap();
 
         assert_eq!(resolved.name, "pendulum");
         let names: Vec<&str> = resolved.links.iter().map(|l| l.name.as_str()).collect();
@@ -551,14 +696,14 @@ mod tests {
             floating_base: true,
             ..Default::default()
         };
-        let errors = resolve(&b.robot, &b.store, &options).unwrap_err();
+        let errors = resolve(&b.robot, &b.store, &ComputeNow, &options).unwrap_err();
         assert!(matches!(
             errors[..],
             [ExportError::ZeroMassMovableLink { link, .. }] if link == root
         ));
         let g = b.geom(cube, Pose::IDENTITY);
         Command::AddGeom(root, g).apply(&mut b.robot).unwrap();
-        let resolved = resolve(&b.robot, &b.store, &options).unwrap();
+        let resolved = resolve(&b.robot, &b.store, &ComputeNow, &options).unwrap();
         assert!(resolved.floating_base);
         assert!(resolved.links[0].inertial.is_some());
     }
@@ -581,13 +726,21 @@ mod tests {
             com: DVec3::ZERO,
             inertia: DMat3::from_diagonal(DVec3::new(1.0, 1.0, 3.0)),
         };
-        let decomposed = b.link("decomposed", root, JointKind::Fixed, Some(cube));
-        b.robot.links.get_mut(&decomposed).unwrap().collision =
-            CollisionPolicy::ConvexDecomposition {
-                max_hulls: 4,
-                resolution: 64,
-                concavity: 0.01,
-            };
+        // A plate has no inside, so V-HACD finds nothing to split; the
+        // override keeps this link's inertial out of the list.
+        let plate = b.mesh("plate", plate());
+        let decomposed = b.link("decomposed", root, JointKind::Fixed, Some(plate));
+        let dec = b.robot.links.get_mut(&decomposed).unwrap();
+        dec.collision = CollisionPolicy::ConvexDecomposition {
+            max_hulls: 4,
+            resolution: 64,
+            concavity: 0.01,
+        };
+        dec.inertial = InertialSpec::Override {
+            mass: 1.0,
+            com: DVec3::ZERO,
+            inertia: DMat3::IDENTITY,
+        };
         let lost = b.link("lost", root, JointKind::Fixed, Some(unloaded));
         let empty = b.link("empty", root, JointKind::Prismatic, None);
 
@@ -598,8 +751,11 @@ mod tests {
                 ExportError::Inertial { link, error, .. } => format!("inertial {link} {error:?}"),
                 ExportError::ZeroMassMovableLink { link, .. } => format!("zero {link}"),
                 ExportError::UnloadableMesh { mesh, .. } => format!("unloadable {mesh}"),
-                ExportError::Unsupported { link, what, .. } => format!("unsupported {link} {what}"),
                 ExportError::DegenerateHull { mesh, .. } => format!("degenerate {mesh}"),
+                ExportError::DegenerateDecomposition { mesh, .. } => {
+                    format!("degenerate-decomp {mesh}")
+                }
+                ExportError::DecompositionPending { mesh, .. } => format!("pending {mesh}"),
                 ExportError::Invalid(e) => format!("invalid {e}"),
             })
             .collect();
@@ -609,7 +765,7 @@ mod tests {
             [
                 format!("inertial {a} OpenMesh {{ geom: {open_geom:?} }}"),
                 format!("inertial {bad} TriangleInequality {{ moments: [1.0, 1.0, 3.0] }}"),
-                format!("unsupported {decomposed} convex decomposition"),
+                format!("degenerate-decomp {plate}"),
                 format!("unloadable {unloaded}"),
                 format!(
                     "inertial {lost} MissingMesh {{ geom: {:?}, mesh: {unloaded:?} }}",
@@ -718,14 +874,7 @@ mod tests {
         }
 
         // A flat plate has no hull: one error, however many geoms use it.
-        let plate = b.mesh(
-            "plate",
-            TriMesh {
-                positions: vec![DVec3::ZERO, DVec3::X, DVec3::Y, DVec3::ONE - DVec3::Z],
-                normals: vec![],
-                indices: vec![0, 1, 2, 1, 3, 2],
-            },
-        );
+        let plate = b.mesh("plate", plate());
         let flat = b.link("flat", root, JointKind::Fixed, Some(plate));
         let link = b.robot.links.get_mut(&flat).unwrap();
         link.collision = CollisionPolicy::ConvexHull;
@@ -747,6 +896,153 @@ mod tests {
             "{errors:?}"
         );
         assert!(errors[0].to_string().contains("coplanar"), "{}", errors[0]);
+    }
+
+    /// The whole point of the policy, at the resolver: the bracket becomes
+    /// several collision geoms whose files are `bracket_hull_0.stl …`, the
+    /// export directory holds them, and `urdf-rs` reads the model back
+    /// (ADR-0011).
+    #[test]
+    fn convex_decomposition_resolves_to_several_pieces_and_exports() {
+        let mut b = Builder::new();
+        let bracket = riggen_mesh::load_stl(&fixtures().join("bracket.stl")).unwrap();
+        // The fixture is in millimetres; the document is meters.
+        let mut meters = bracket.clone();
+        meters.transform(&riggen_core::glam::DMat4::from_scale(DVec3::splat(0.001)));
+        let mesh = b.mesh("bracket", meters);
+        let root = b.robot.root;
+        let arm = b.link("arm", root, JointKind::Revolute, Some(mesh));
+        b.robot.links.get_mut(&arm).unwrap().collision = CollisionPolicy::ConvexDecomposition {
+            max_hulls: 4,
+            resolution: 48,
+            concavity: 0.01,
+        };
+
+        let resolved = b.resolve().unwrap();
+        let link = resolved.links.iter().find(|l| l.name == "arm").unwrap();
+        assert!(
+            link.collisions.len() > 1,
+            "a hull would be one geom; got {}",
+            link.collisions.len()
+        );
+        assert_eq!(link.visuals.len(), 1, "one visual, several collisions");
+        let names: Vec<&str> = link
+            .collisions
+            .iter()
+            .map(|g| match g {
+                ResolvedGeom::Mesh { name, pose, .. } => {
+                    assert_eq!(*pose, link_pose(link), "a piece sits where its visual does");
+                    name.as_str()
+                }
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        let want: Vec<String> = (0..link.collisions.len())
+            .map(|i| format!("bracket_hull_{i}"))
+            .collect();
+        assert_eq!(names, want.iter().map(String::as_str).collect::<Vec<_>>());
+        // Every piece is a file to write, beside the visual.
+        for name in &want {
+            assert!(resolved.meshes.contains_key(name), "{name} is not written");
+        }
+        assert_eq!(resolved.meshes.len(), 1 + want.len());
+
+        // The written directory, and the URDF through `urdf-rs`.
+        let dir = std::env::temp_dir().join(format!("riggen-decomp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        crate::export(&resolved, &ExportOptions::default(), &dir).unwrap();
+        for name in &want {
+            let file = dir.join(format!("meshes/{name}.stl"));
+            assert!(file.is_file(), "{}", file.display());
+            riggen_mesh::load_stl(&file).unwrap();
+        }
+        let urdf = std::fs::read_to_string(dir.join("test.urdf")).unwrap();
+        let parsed = urdf_rs::read_from_string(&urdf).unwrap();
+        let arm_link = parsed.links.iter().find(|l| l.name == "arm").unwrap();
+        assert_eq!(arm_link.collision.len(), want.len());
+        assert_eq!(arm_link.visual.len(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The pose of a link's single visual, for the test above.
+    fn link_pose(link: &ResolvedLink) -> Pose {
+        match &link.visuals[0] {
+            ResolvedGeom::Mesh { pose, .. } => *pose,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// One mesh decomposed at two different parameter sets writes two sets
+    /// of files: `<stem>_hull_N` and `<stem>_hull2_N`, never one over the
+    /// other.
+    #[test]
+    fn two_parameter_sets_on_one_mesh_do_not_share_files() {
+        let mut b = Builder::new();
+        let cube = b.mesh("cube", TriMesh::cube(0.05));
+        let root = b.robot.root;
+        let a = b.link("a", root, JointKind::Fixed, Some(cube));
+        let c = b.link("c", root, JointKind::Fixed, Some(cube));
+        let d = b.link("d", root, JointKind::Fixed, Some(cube));
+        for (l, concavity) in [(a, 0.01), (c, 0.02), (d, 0.01)] {
+            b.robot.links.get_mut(&l).unwrap().collision = CollisionPolicy::ConvexDecomposition {
+                max_hulls: 4,
+                resolution: 32,
+                concavity,
+            };
+        }
+        let resolved = b.resolve().unwrap();
+        let stems: Vec<&String> = resolved.meshes.keys().collect();
+        assert_eq!(stems, ["cube", "cube_hull2_0", "cube_hull_0"]);
+        // `a` and `d` share parameters, so they share the decomposition.
+        let of = |name: &str| {
+            let link = resolved.links.iter().find(|l| l.name == name).unwrap();
+            match &link.collisions[0] {
+                ResolvedGeom::Mesh { name, mesh, .. } => (name.clone(), mesh.clone()),
+                other => panic!("{other:?}"),
+            }
+        };
+        let (a_name, a_mesh) = of("a");
+        let (d_name, d_mesh) = of("d");
+        let (c_name, _) = of("c");
+        assert_eq!(a_name, "cube_hull_0");
+        assert_eq!(d_name, "cube_hull_0");
+        assert!(Arc::ptr_eq(&a_mesh, &d_mesh), "computed once, shared");
+        assert_eq!(c_name, "cube_hull2_0");
+    }
+
+    /// A cache-only source blocks the export instead of computing
+    /// (plans/convex-decomposition OPEN 3).
+    #[test]
+    fn a_pending_source_blocks_the_export() {
+        struct NothingYet;
+        impl DecompSource for NothingYet {
+            fn pieces(
+                &self,
+                _mesh: MeshId,
+                _source: &TriMesh,
+                _params: DecompParams,
+            ) -> Result<Vec<Arc<TriMesh>>, DecompMiss> {
+                Err(DecompMiss::Pending)
+            }
+        }
+        let mut b = Builder::new();
+        let cube = b.mesh("cube", TriMesh::cube(0.05));
+        let root = b.robot.root;
+        let arm = b.link("arm", root, JointKind::Fixed, Some(cube));
+        b.robot.links.get_mut(&arm).unwrap().collision = CollisionPolicy::ConvexDecomposition {
+            max_hulls: 4,
+            resolution: 32,
+            concavity: 0.01,
+        };
+        let errors =
+            resolve(&b.robot, &b.store, &NothingYet, &ExportOptions::default()).unwrap_err();
+        assert!(
+            matches!(&errors[..], [ExportError::DecompositionPending { mesh, .. }] if *mesh == cube),
+            "{errors:?}"
+        );
+        assert!(errors[0].to_string().contains("still being computed"));
+        // The same document resolves once the pieces exist.
+        assert!(b.resolve().is_ok());
     }
 
     #[test]

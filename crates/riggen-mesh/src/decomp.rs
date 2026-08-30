@@ -27,7 +27,13 @@ use crate::TriMesh;
 /// Mirrored field-for-field by `riggen_core::CollisionPolicy::
 /// ConvexDecomposition`, which is the document's copy of it (the document
 /// stores the parameters, never the pieces — ADR-0008, ADR-0011).
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// A cache key wherever a decomposition is remembered (`riggen-export`'s
+/// per-resolve map, the app's job cache), which is why `Eq` and `Hash` are
+/// written by hand over `concavity`'s bits rather than derived: two
+/// parameter sets are the same job when they are the same numbers, NaN
+/// included.
+#[derive(Debug, Clone, Copy)]
 pub struct DecompParams {
     /// Ceiling on the number of pieces. V-HACD stops splitting at it.
     pub max_hulls: u32,
@@ -39,6 +45,21 @@ pub struct DecompParams {
     /// V-HACD splits it again, as a fraction of the whole. Smaller means
     /// more pieces and a tighter fit.
     pub concavity: f64,
+}
+
+impl PartialEq for DecompParams {
+    fn eq(&self, other: &Self) -> bool {
+        (self.max_hulls, self.resolution, self.concavity.to_bits())
+            == (other.max_hulls, other.resolution, other.concavity.to_bits())
+    }
+}
+
+impl Eq for DecompParams {}
+
+impl std::hash::Hash for DecompParams {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (self.max_hulls, self.resolution, self.concavity.to_bits()).hash(state);
+    }
 }
 
 impl Default for DecompParams {
@@ -271,16 +292,22 @@ mod tests {
     }
 
     /// The U-channel of `assets/fixtures/bracket.stl`, in millimetres like
-    /// the arm's parts: a 60 × 30 × 10 base slab with two 10 × 30 × 40
+    /// the arm's parts: a 60 × 30 × 10 base slab with two 10 × 26 × 40
     /// prongs standing on its ends. The notch between the prongs —
     /// |x| < 20, 10 < z < 50 — is the concavity the whole plan exists for:
     /// inside the convex hull, outside the part.
+    ///
+    /// The prongs are narrower than the base in y on purpose: at 30 they
+    /// would share four corner vertices with it, welding would pair edges
+    /// across the two shells, and `feature::adjacency` would call the union
+    /// open — which `inertial::computed_inertial` refuses. Three shells
+    /// that only touch are each closed.
     fn bracket() -> TriMesh {
         let mut mesh = boxed(DVec3::new(0.0, 0.0, 5.0), DVec3::new(60.0, 30.0, 10.0));
         for x in [-25.0, 25.0] {
             append(
                 &mut mesh,
-                boxed(DVec3::new(x, 0.0, 30.0), DVec3::new(10.0, 30.0, 40.0)),
+                boxed(DVec3::new(x, 0.0, 30.0), DVec3::new(10.0, 26.0, 40.0)),
             );
         }
         mesh
@@ -304,6 +331,23 @@ mod tests {
         assert_eq!(
             std::fs::read(fixture("bracket.stl")).unwrap(),
             crate::write_binary(&bracket())
+        );
+    }
+
+    /// The fixture is a closed solid, so a link built on it gets a computed
+    /// inertial rather than `InertialError::OpenMesh` — what the export and
+    /// MuJoCo tests need of it.
+    #[test]
+    fn the_bracket_is_a_closed_solid() {
+        let mesh = crate::load_stl(&fixture("bracket.stl")).unwrap();
+        assert!(feature::adjacency(&mesh).is_closed());
+        let props = mass_properties(&mesh, 1.0);
+        assert!(!props.inward_winding);
+        // The three boxes only touch, so nothing is counted twice.
+        assert!(
+            (props.volume - (60.0 * 30.0 * 10.0 + 2.0 * 10.0 * 26.0 * 40.0)).abs() < 1e-6,
+            "{}",
+            props.volume
         );
     }
 

@@ -425,7 +425,13 @@ mod tests {
         let (robot, _) = riggen_core::load(&fixtures().join("arm/arm.riggen")).unwrap();
         let (store, errors) = MeshStore::load(&robot);
         assert!(errors.is_empty(), "{errors:?}");
-        let resolved = crate::resolve(&robot, &store, &ExportOptions::default()).unwrap();
+        let resolved = crate::resolve(
+            &robot,
+            &store,
+            &crate::ComputeNow,
+            &ExportOptions::default(),
+        )
+        .unwrap();
         let urdf = write(&resolved, &ExportOptions::default(), Path::new("."));
         let parsed = urdf_rs::read_from_string(&urdf).unwrap();
 

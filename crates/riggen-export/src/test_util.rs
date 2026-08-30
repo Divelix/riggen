@@ -10,7 +10,7 @@ use riggen_core::{
 use riggen_mesh::TriMesh;
 
 use crate::MeshStore;
-use crate::resolve::{ExportError, ExportOptions, ResolvedRobot, resolve};
+use crate::resolve::{ComputeNow, ExportError, ExportOptions, ResolvedRobot, resolve};
 
 pub(crate) fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fixtures")
@@ -95,7 +95,12 @@ impl Builder {
     }
 
     pub(crate) fn resolve(&self) -> Result<ResolvedRobot, Vec<ExportError>> {
-        resolve(&self.robot, &self.store, &ExportOptions::default())
+        resolve(
+            &self.robot,
+            &self.store,
+            &ComputeNow,
+            &ExportOptions::default(),
+        )
     }
 }
 

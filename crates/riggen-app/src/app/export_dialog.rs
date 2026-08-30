@@ -63,7 +63,16 @@ impl RiggenApp {
         if let MeshPathStyle::Package(name) = &mut options.mesh_paths {
             *name = self.export_dialog.package.clone();
         }
-        match riggen_export::resolve(&self.robot, &AppMeshes(&self.mesh_store), &options) {
+        // `ComputeNow` for one more step: the dialog blocks on a
+        // decomposition exactly as it blocks on a hull today. Step 5's job
+        // thread replaces this with the app's cache-only source, and
+        // `ExportError::DecompositionPending` then joins the list below.
+        match riggen_export::resolve(
+            &self.robot,
+            &AppMeshes(&self.mesh_store),
+            &riggen_export::ComputeNow,
+            &options,
+        ) {
             Ok(resolved) => {
                 self.export_dialog.errors.clear();
                 self.export_dialog.resolved = Some(resolved);

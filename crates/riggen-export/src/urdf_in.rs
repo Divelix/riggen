@@ -670,7 +670,13 @@ mod tests {
         let (robot, _) = arm();
         let (store, errors) = crate::MeshStore::load(&robot);
         assert!(errors.is_empty(), "{errors:?}");
-        let resolved = crate::resolve(&robot, &store, &crate::ExportOptions::default()).unwrap();
+        let resolved = crate::resolve(
+            &robot,
+            &store,
+            &crate::ComputeNow,
+            &crate::ExportOptions::default(),
+        )
+        .unwrap();
         let dir = std::env::temp_dir().join(format!("riggen-urdf-in-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let written = crate::export(&resolved, &crate::ExportOptions::default(), &dir).unwrap();

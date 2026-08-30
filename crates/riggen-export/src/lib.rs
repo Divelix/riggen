@@ -20,7 +20,7 @@ pub mod xml;
 pub use export::{ExportIoError, export};
 pub use mesh_store::MeshStore;
 pub use resolve::{
-    ExportError, ExportOptions, Format, MeshPathStyle, ResolvedGeom, ResolvedJoint, ResolvedLink,
-    ResolvedRobot, resolve,
+    ComputeNow, DecompMiss, DecompSource, ExportError, ExportOptions, Format, MeshPathStyle,
+    ResolvedGeom, ResolvedJoint, ResolvedLink, ResolvedRobot, resolve,
 };
 pub use urdf_in::{ImportError, ImportWarning, PackageMap};
