@@ -26,7 +26,7 @@
 //! `GizmoInteraction`, painting its mesh — is [`interact`] below rather
 //! than the crate's own `GizmoExt::interact`, because that one takes the
 //! pointer away from the viewport on *every* frame a gizmo is on screen
-//! (plans/gizmo-input).
+//! (ADR-0010).
 
 use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{Command, JointId, LinkId, Pose, origin_for_world};
@@ -275,7 +275,7 @@ impl RiggenApp {
 }
 
 /// The egui half of the gizmo: what `GizmoExt::interact` does, minus the
-/// part that broke the viewport (plans/gizmo-input).
+/// part that broke the viewport (ADR-0010).
 ///
 /// The crate's adapter registers a one-point click-and-drag widget at the
 /// cursor on **every** frame. egui's hit test prefers the widget registered

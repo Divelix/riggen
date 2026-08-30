@@ -150,7 +150,7 @@ pub struct SelectionDebug {
     pub selected: Option<HitDebug>,
 }
 
-/// Which of the viewport's pointer switches are on (plans/gizmo-input).
+/// Which of the viewport's pointer switches are on (ADR-0010).
 ///
 /// The bug this exists for was a *policy* bug — the gizmo took the whole
 /// pointer instead of the handle under it — and a policy is asserted here

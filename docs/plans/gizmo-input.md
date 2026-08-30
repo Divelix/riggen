@@ -112,7 +112,7 @@ adapter becomes ours, recorded as ADR-0010.
   extension of `glyph_hover`: zooming moves the camera and `glyph_hover` is
   a golden that pins where everything is drawn. With the glyph hot, the
   wheel still zooms and no part is tinted.
-- [ ] Step 5 — ADR-0010 and the docs sync. Written last, recording what
+- [x] Step 5 — ADR-0010 and the docs sync. Written last, recording what
   step 1 proved rather than what we hoped: the pointer arrangement, why
   `pick_preview` is the hit test, the one-frame lag on the target
   transform (`config.update_for_targets` runs inside `update`, so
@@ -176,10 +176,10 @@ PNG that does change is shown before it is staged (AGENTS.md).
   in whether it exists: `Sense::click()` keeps it out of `hits.drag`
   entirely. Step 5's ADR records this rather than the version above.
 
-- ⚠ OPEN 4 (new, agent, step 5): step 1 cites `plans/gizmo-input` where
-  ADR-0010 will be — `app/gizmo.rs` (module doc, `interact`), `app/mod.rs`,
-  the new scenario, and `docs/01-architecture.md` §Gizmos. Step 5 swaps
-  those four citations when the ADR exists.
+- ~~⚠ OPEN 4~~: **done (step 5).** All fourteen `plans/gizmo-input`
+  citations across `viewport/mod.rs`, `app/mod.rs`, `app/gizmo.rs`,
+  `debug/mod.rs`, `tests/visual/main.rs` and `docs/01-architecture.md` now
+  read ADR-0010, so nothing points at a file that retirement deletes.
 - ~~⚠ OPEN 3~~: **answered (step 2): yes.** A floating window is a layer of
   its own and egui's hit test drops the layers under one that covers the
   search area, so `contains_pointer()` is already false over the Joints

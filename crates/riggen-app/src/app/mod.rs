@@ -396,7 +396,7 @@ impl eframe::App for RiggenApp {
                 // owns the cursor until it has run, and the viewport runs
                 // first. Picking only: a handle or a glyph under the cursor
                 // hides the geometry that would answer for it, but the camera
-                // has no reason to stop (plans/gizmo-input).
+                // has no reason to stop (ADR-0010).
                 self.viewport
                     .set_pick_suppressed(self.gizmo_state.captured || self.glyph_hover.is_some());
                 // The whole pointer, on the other hand, belongs to the
@@ -423,7 +423,7 @@ impl eframe::App for RiggenApp {
                 // takes the pointer from the viewport and the toolbar from
                 // the gizmo — but the gizmo only registers a widget at all
                 // on the frames a handle is under the cursor, which is what
-                // `contains_pointer` is for (plans/gizmo-input).
+                // `contains_pointer` is for (ADR-0010).
                 self.gizmo_ui(ui, rect, response.contains_pointer());
                 self.tool_bar(ui, rect);
                 // The viewport's pick is suppressed while a glyph is

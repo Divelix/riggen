@@ -117,7 +117,7 @@ pub struct Viewport {
     /// input stays live. The pointer is over something drawn *in front of*
     /// the geometry that would answer for it: a gizmo handle, a joint glyph.
     /// Re-picking under those would tint the part behind them, but orbit,
-    /// pan and zoom have no reason to stop (plans/gizmo-input).
+    /// pan and zoom have no reason to stop (ADR-0010).
     pick_suppressed: bool,
     /// While `true` the viewport ignores the pointer entirely: no camera
     /// input, no picking. Two things set it: something drawn over the
@@ -675,7 +675,7 @@ impl Viewport {
     /// Keyed on `contains_pointer()` rather than `hovered()`: `hovered` is
     /// false whenever *any* later widget in the same layer took the hit, and
     /// the gizmo registers one over the cursor whenever it wants the drag
-    /// (plans/gizmo-input). `contains_pointer` is a plain containment test
+    /// (ADR-0010). `contains_pointer` is a plain containment test
     /// over the hit test's `close` set, which filters *layers* covering the
     /// search area but not same-layer widgets — so a floating window still
     /// takes the wheel and a gizmo handle no longer freezes the camera.

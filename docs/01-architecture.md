@@ -251,7 +251,7 @@ closes.
   hovered the viewport's own **picking** is suppressed
   (`set_pick_suppressed`), so the part behind it is not highlighted as well
   and a click selects the *joint* — the camera keeps the pointer, and the
-  wheel still zooms (plans/gizmo-input).
+  wheel still zooms (ADR-0010).
 - **Properties** (right): a link's name, material, and per geom the pose
   (xyz m, RPY °), asset scale and fix-up, "Add mesh to this link…"; then
   **Inertial** — the `InertialSpec` mode combo (Computed / Override /
@@ -460,7 +460,7 @@ Gizmos come from `transform-gizmo-egui` (ADR-0007), behind
 `app/gizmo.rs` — the only file that names the crate — fed the viewport's
 view/projection matrices as `mint` matrices and drawing with egui's painter
 over the viewport, not depth-tested. The egui glue is **ours**, not the
-crate's `GizmoExt::interact` (plans/gizmo-input): that one registers a
+crate's `GizmoExt::interact` (ADR-0010): that one registers a
 click-and-drag widget at the cursor on every frame, and egui's hit test
 prefers the widget registered last, so any gizmo on screen took the whole
 pointer — hover, click and wheel — from the viewport under it.
