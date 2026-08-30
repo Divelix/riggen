@@ -402,12 +402,15 @@ impl eframe::App for RiggenApp {
                 // because it is what the snap is computed from.
                 self.viewport.set_select_suppressed(self.tool.snaps());
 
-                let rect = self.viewport.ui(ui).rect;
+                let response = self.viewport.ui(ui);
+                let rect = response.rect;
                 // After the viewport, in registration order: egui's hit
                 // test prefers the widget registered last, so the gizmo
                 // takes the pointer from the viewport and the toolbar from
-                // the gizmo.
-                self.gizmo_ui(ui, rect);
+                // the gizmo — but the gizmo only registers a widget at all
+                // on the frames a handle is under the cursor, which is what
+                // `contains_pointer` is for (plans/gizmo-input).
+                self.gizmo_ui(ui, rect, response.contains_pointer());
                 self.tool_bar(ui, rect);
                 // The viewport's pick is suppressed while a glyph is
                 // hovered, so these clicks are unambiguous, and a hovered

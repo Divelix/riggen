@@ -1266,6 +1266,71 @@ fn gizmo_rotate_joint() {
     });
 }
 
+/// The gizmo takes the pointer on its handles and **nowhere else**
+/// (plans/gizmo-input): with Move active and a link selected, the part under
+/// the cursor still tints and a click still selects it. The crate's own
+/// `GizmoExt::interact` registered a click-and-drag widget at the cursor on
+/// every frame, and egui's hit test preferred it over the viewport — the M2
+/// exit gate's "clicks that only flicker the hover tint".
+#[test]
+fn gizmo_leaves_the_pointer_alone() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let base = app.robot().root;
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::Move);
+        app.select(Selection::Link(arm));
+        settle(harness);
+
+        // A point on the base cube's +X face, low enough to be clear of both
+        // the gizmo's handles (110 px long) and the hinge glyph, which runs
+        // along Y through the pivot.
+        let at = harness
+            .state()
+            .project_world(DVec3::new(0.5, 0.0, -0.25))
+            .expect("the base's +X face is on screen");
+        let handle = gizmo_handle(harness);
+        assert!(
+            (at - handle).length() > 140.0,
+            "the aim point is clear of the handles: {at:?} vs {handle:?}"
+        );
+
+        harness.hover_at(at);
+        pump_rendered(harness, 8);
+
+        let state = harness.state().debug_state();
+        let gizmo = state.gizmo.expect("the gizmo is still drawn");
+        assert!(!gizmo.captured, "the cursor is not on a handle");
+        assert_eq!(harness.state().hovered_joint(), None, "nor on a glyph");
+        assert_eq!(
+            state.selection.hovered.map(|h| h.instance),
+            Some(0),
+            "the base still takes the hover under a drawn gizmo: {:?}",
+            state.selection
+        );
+
+        click_at(harness, at);
+        assert_eq!(
+            harness.state().selection(),
+            Selection::Link(base),
+            "and the click still selects"
+        );
+        assert!(
+            harness.state().debug_state().gizmo.is_none(),
+            "the root has no parent joint to move, so its gizmo is gone"
+        );
+    });
+}
+
 /// The whole gesture: drag the gizmo's view-plane handle, the part follows
 /// live, the release is **one** command, undo puts it back. The spike that
 /// ADR-0007 rests on.
