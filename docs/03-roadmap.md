@@ -186,9 +186,21 @@ release workflow is a tag push.
   and `max_hulls` is a real ceiling. The `mujoco` job loads a decomposed
   model as its third.
 
+- **2026-08-31** — named frames (ADR-0012). `Robot::frames`, in the schema
+  since M1 and always empty, is live: a frame is created in the tree
+  ("+ Frame"), posed with the same gizmo and snap ladder that place a joint,
+  edited in the properties panel and read and written from the SDK. It
+  exports as an MJCF `<site>` and — URDF having no such element — a massless
+  dummy link on a fixed joint, the ROS convention; the import deliberately
+  does not reverse the second, because nothing tells our dummy from a real
+  unweighed link. Frames and links share one namespace, checked in
+  `validate`, since URDF spells both `<link>`. The `mujoco` job compares
+  every site pose from `mj_forward` against `fk::frames` at five
+  configurations, over both the `.riggen` and the URDF route.
+
 Still open:
 
-- Named frames / MJCF sites; mimic joints; actuator presets.
+- Mimic joints; actuator presets.
 - MJCF import; SDF export.
 - Web demo build if the wasm check has stayed green.
 

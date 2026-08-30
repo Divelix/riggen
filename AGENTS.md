@@ -19,22 +19,24 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**Convex decomposition done (2026-08-31, ADR-0011):** `parry3d-f64`'s
-pure-Rust V-HACD behind `riggen_mesh::decompose`, plus the merge step
-parry omits; `resolve` turns the policy into N geoms and
-`<stem>_hull_N.stl` through a `DecompSource`, computed on
-`riggen-app::jobs`, the first job thread; in the panel and the SDK.
+**Named frames done (2026-08-31, ADR-0012):** `Robot::frames` is live —
+tree row, glyph, properties panel, gizmo and snap ladder, four commands,
+`fk::frames`, the SDK's `Frame` handle; an MJCF `<site>` and a URDF
+massless dummy link on a fixed joint, with frames and links in one
+namespace and MuJoCo checking every site pose in CI.
+**Convex decomposition (2026-08-31, ADR-0011):** `parry3d-f64`'s pure-Rust
+V-HACD behind `riggen_mesh::decompose` plus the merge step parry omits;
+`resolve` turns the policy into N geoms through a `DecompSource`, computed
+on `riggen-app::jobs`, the first job thread.
 **v0.2 SDK (2026-08-30, `v0.2.0`, ADR-0009):** `pip install riggen` gives
 the app *and* `import riggen` — one `cp310-abi3` wheel per platform over
 `crates/riggen-py` with the binary as wheel data, `python/build_wheel.py`
-the one recipe, `python/riggen/` the API; the `wheel` job runs pytest,
-pyright and MuJoCo over it. **M4**: the wheel and `release.yml`.
-**M3**: MJCF + URDF from one `ResolvedRobot`,
-MuJoCo-clean, URDF import, inertials, collision. **M2**: the mouse-only
-arm. **M1**: the document, commands, history, `.riggen` v1. **M0**: mesh,
-viewport, the `egui_kittest` suite (`visual-debug` skill). **Next:** the
-remaining v0.2 lines of `docs/03-roadmap.md` (frames/sites, mimic joints,
-MJCF import).
+the one recipe, `python/riggen/` the API. **M4**: the wheel and
+`release.yml`.
+**M3**: MJCF + URDF from one `ResolvedRobot`, MuJoCo-clean, URDF import,
+inertials, collision. **M2**: the mouse-only arm. **M1**: the document,
+commands, history, `.riggen` v1. **Next:** the remaining v0.2 lines of
+`docs/03-roadmap.md` (mimic joints, actuator presets, MJCF import).
 
 ## Rules that are not derivable from the code
 

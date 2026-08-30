@@ -26,8 +26,10 @@ it knows egui exists.
   (below), so `ResolvedRobot` uses it and the exporters need no re-rooting.
 - **Inertial frames:** the stored tensor is about the link's CoM, in link
   axes. URDF writes it that way; MJCF gets a principal-axes decomposition.
-- **Numbers are f64** in the document and kinematics. f32 exists only past
-  the GPU boundary in `riggen-viewport`.
+- **Numbers are f64** in every quantity that has units — poses, masses,
+  densities, limits — and in the kinematics. The exceptions are colours
+  (`Material::color`, `Geom::color`), which are `[f32; 4]` because they go
+  to the GPU and nothing computes with them.
 
 ## Core types (`riggen-core`)
 
@@ -111,7 +113,7 @@ dropped on save.
 `MeshId`, `FrameId` — handed out by one per-document counter
 (`Robot::next_id`, so an id is unique across kinds too), stored in
 `BTreeMap`s (iteration is id order, which is creation order), serialised as
-`"l3"` / `"j7"` / `"g2"` / `"m1"` strings, and never reused within a
+`"l3"` / `"j7"` / `"g2"` / `"m1"` / `"f0"` strings, and never reused within a
 document's life. A geom id inside a new link comes from the caller
 (`robot.next_id.alloc()`); link and joint ids are allocated by `AddLink`.
 
@@ -121,7 +123,8 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
 - The joint graph is a **tree** rooted at `root`; every non-root link has
   exactly one parent joint and the root has none. A loop is reported by
   `ValidationError::Cycle` with the links in parent order.
-- Every id a joint, geom, frame or link material names exists.
+- Every id a joint, geom, frame or link material names exists, and no two
+  geoms of one link share a `GeomId` (`DuplicateGeomId`).
 - Link, joint, frame and material names are valid XML names / MJCF
   identifiers: `[A-Za-z_][A-Za-z0-9_.-]*`. Link and joint names are unique
   per kind; **frames share the links' namespace** — a frame name is unique
@@ -131,8 +134,10 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
   (`DuplicateFrameName`, `FrameJointNameCollision`).
 - A movable joint's `axis` is finite and non-zero; the properties panel
   normalises it on commit.
-- A `Revolute`/`Prismatic` joint has `limits` with `lower <= upper`; every
-  pose, limit and density is finite; densities are non-negative.
+- A `Revolute`/`Prismatic` joint has `limits` with `lower <= upper`. Joint
+  origins, joint limits, frame poses and material densities are finite, and
+  densities are non-negative. Geom poses and an `Override` inertial's
+  numbers are **not** checked — a backlog line, not a rule.
 
 ## Commands and history
 
@@ -166,10 +171,11 @@ single most common assembly operation and the reason FK lives in core.
 `MoveJointFrame` is the other half of that pair, and the one the placement
 tools commit: it writes a new `origin` (the child link frame in the parent
 frame) and `axis` (in the **new** child frame — the joint frame *is* the
-child link frame) and re-expresses the child's geom poses, its own child
-joints' origins, its frames and an `Override` inertial through
+child link frame) and re-expresses the child's **visual** geom poses, its
+own child joints' origins, its frames and an `Override` inertial through
 `origin_new⁻¹ ∘ origin_old`, so no world pose at `q = 0` changes and only
-the pivot moves. `Reparent` moves a link between parents; `MoveJointFrame`
+the pivot moves. `CollisionPolicy::Meshes` and `Primitives` poses are not
+re-expressed and do move — a backlog line. `Reparent` moves a link between parents; `MoveJointFrame`
 moves where a link's joint turns. Both work in the zero configuration
 (plans/m2-placement-ux OPEN 1); the app resets `q` before entering an
 editing tool. `RemoveMaterial` is refused while a link uses the material
@@ -200,9 +206,12 @@ mutates and then validates, so on `Err` the robot may be half-edited;
 pub struct History { undo: Vec<Robot>, redo: Vec<Robot>, saved_depth: Option<usize> }
 
 impl History {
+    pub fn new() -> Self;                                // a document that counts as saved
     pub fn apply(&mut self, robot: &mut Robot, cmd: Command) -> Result<Option<Created>, EditError>;
     pub fn undo(&mut self, robot: &mut Robot) -> bool;   // false when there is nothing to undo
     pub fn redo(&mut self, robot: &mut Robot) -> bool;
+    pub fn can_undo(&self) -> bool;  pub fn can_redo(&self) -> bool;
+    pub fn undo_depth(&self) -> usize;                   // edits past the initial state
     pub fn mark_saved(&mut self);                        // the current depth is what is on disk
     pub fn is_dirty(&self) -> bool;                      // by history position, not by content
 }
@@ -269,6 +278,8 @@ yields the welded index per vertex, the neighbour across each triangle edge
 pub fn adjacency(mesh: &TriMesh) -> Adjacency;
 /// Triangles reachable from `seed` without turning more than `max_dihedral` in one step.
 pub fn grow_region(mesh: &TriMesh, adjacency: &Adjacency, seed: usize, max_dihedral: f64) -> Vec<usize>;
+pub fn fit_circle(mesh: &TriMesh, triangle: usize) -> Option<CircleFit>;
+/// The same, over an `Adjacency` the caller already has (the app memoises one per mesh).
 pub fn fit_circle_with(mesh: &TriMesh, adjacency: &Adjacency, triangle: usize) -> Option<CircleFit>;
 
 pub struct CircleFit { center: DVec3, axis: DVec3, radius: f64, residual: f64, segments: usize }
@@ -374,8 +385,10 @@ pub struct ExportOptions { format: Format, mesh_paths: MeshPathStyle, floating_b
 
 `resolve` returns **every** problem it finds, so the export dialog lists
 them all at once: `ExportError::{Invalid(ValidationError), Inertial { link,
-error }, ZeroMassMovableLink, UnloadableMesh, DegenerateHull,
-DegenerateDecomposition, DecompositionPending}`. A link whose
+name, error }, ZeroMassMovableLink { link, name }, UnloadableMesh { mesh,
+path, reason }, DegenerateHull { … }, DegenerateDecomposition { … },
+DecompositionPending { mesh, path }}` — each carrying what the dialog needs
+to name the thing that failed. A link whose
 parent joint is movable — or the root when `floating_base` is set — must
 have mass, because MuJoCo refuses a moving body without it; an empty static
 body is fine and gets no `<inertial>`. Mesh file stems are the assets' own
@@ -417,7 +430,7 @@ not a new resolve.
 |---|---|---|
 | Link | `<link name>` | `<body name>` nested under its parent body |
 | Joint origin (child frame in parent frame) | `<joint><origin xyz rpy/>` | `<body pos quat>` of the child body |
-| Joint axis (child frame) | `<joint><axis xyz/>` | `<joint axis>` inside the child body, `pos="0 0 0"` |
+| Joint axis (child frame) | `<joint><axis xyz/>` | `<joint axis>` inside the child body; no `pos` is written, and MuJoCo's default is the body origin, which is the joint frame |
 | Fixed | `type="fixed"` | no `<joint>` element |
 | Revolute | `type="revolute"` + `<limit lower upper effort velocity/>` | `type="hinge" range="lo hi" limited="true"` |
 | Continuous | `type="continuous"` | `type="hinge"` without `range` |
@@ -426,7 +439,7 @@ not a new resolve.
 | Collision geom (one per resolved collision — N of them for a decomposition) | `<collision>…` | `<geom class="collision" type="mesh" mesh=… />` (mesh → MuJoCo takes the convex hull itself; primitives map directly), `<default class="collision">` = `group="3"`, translucent rgba |
 | Primitive | `<box size>` (full extents), `<cylinder radius length>`, `<sphere radius>`; a capsule becomes a cylinder plus a warning | `type="box|cylinder|sphere|capsule" size pos quat` — **`size` is half-extents / (radius, half-length)**, pinned by a test |
 | Inertial | `<inertial><origin xyz(com) rpy="0 0 0"/><mass/><inertia ixx ixy ixz iyy iyz izz/></inertial>` | `<inertial pos(com) mass fullinertia="Ixx Iyy Izz Ixy Ixz Iyz"/>` — MuJoCo does the principal-axes decomposition itself (ADR-0008) |
-| Mesh assets | `meshes/<stem>.stl`, path style per `MeshPathStyle` | `<asset><mesh name file/></asset>`, one per `MeshId`; **meshes are written in meters as binary STL, no `scale`** (ADR-0008) |
+| Mesh assets | `meshes/<stem>.stl`, path style per `MeshPathStyle` | `<asset><mesh name file/></asset>`, one per written **file** — a referenced mesh, plus each hull and decomposition piece; **meshes are written in meters as binary STL, no `scale`** (ADR-0008) |
 | Root | first `<link>` | `<worldbody>` child; `floating_base` in `ExportOptions` adds `<freejoint name="root"/>` |
 | Frame (`Frame`, a `ResolvedSite`) | a massless `<link name="tcp"/>` — no visual, collision or inertial — plus `<joint name="tcp_fixed" type="fixed">` with the frame pose as its `<origin xyz rpy/>`; the dummy links after every real link and the fixed joints after every real joint, so the file still reads root-first (ADR-0012) | `<site name pos quat/>` inside its body after the geoms, bare: no `size`, `group` or `rgba`, so MuJoCo's default 0.005 m sphere marks it (ADR-0012) |
 | Effort / velocity | `<limit effort velocity/>` | `<actuator>` `forcerange`/`ctrlrange` — post-MVP, not silently dropped: a comment after the `<joint>` names the values |
@@ -463,7 +476,8 @@ distinguishes our exported dummy from a real unweighed link, and guessing
 would silently delete links, so the asymmetry with the URDF writer is
 deliberate and round-tripping our own file gains one link per frame
 (ADR-0012). `floating` / `planar` / `spherical` joints, a missing link, no
-or several roots and a result that fails `validate` are `ImportError`s. The imported
+or several roots and a result that fails `validate` are `ImportError`s,
+beside `Io` and `Parse` for a file that cannot be read or understood. The imported
 document is untitled until saved. `assets/fixtures/arm/arm.urdf` is the
 corpus file: the arm with every one of the above in it, whose FK matches
 `arm.riggen`'s and whose MJCF export the `mujoco` CI job loads too.
