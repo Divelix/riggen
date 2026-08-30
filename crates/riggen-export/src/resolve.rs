@@ -583,7 +583,11 @@ mod tests {
         };
         let decomposed = b.link("decomposed", root, JointKind::Fixed, Some(cube));
         b.robot.links.get_mut(&decomposed).unwrap().collision =
-            CollisionPolicy::ConvexDecomposition { max_hulls: 4 };
+            CollisionPolicy::ConvexDecomposition {
+                max_hulls: 4,
+                resolution: 64,
+                concavity: 0.01,
+            };
         let lost = b.link("lost", root, JointKind::Fixed, Some(unloaded));
         let empty = b.link("empty", root, JointKind::Prismatic, None);
 

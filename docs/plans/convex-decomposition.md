@@ -120,7 +120,7 @@ job loads a decomposed model with zero warnings.
 - [x] Step 2 — **ADR-0011**, written knowing step 1's answer; 01 §Layer map
   and §Cargo workspace note the dependency and the third glam; a backlog
   line for the idea's option E (manual split planes).
-- [ ] Step 3 — the parameters in `riggen-core`: `max_hulls`, `resolution`,
+- [x] Step 3 — the parameters in `riggen-core`: `max_hulls`, `resolution`,
   `concavity` with serde defaults, mirroring `riggen_mesh::DecompParams`
   (core does not re-export it — the document type stays plain serde data).
   Test: `assets/fixtures/pendulum.riggen` and a hand-written v1 file

@@ -302,7 +302,7 @@ mod tests {
     use super::*;
     use crate::command::Command;
     use crate::pose::Pose;
-    use crate::robot::{Geom, Joint, JointKind, Limits, Link, MeshAsset};
+    use crate::robot::{CollisionPolicy, Geom, Joint, JointKind, Limits, Link, MeshAsset};
     use riggen_mesh::glam::DVec3;
     use std::f64::consts::FRAC_PI_2;
 
@@ -606,6 +606,85 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&again).unwrap(),
             std::fs::read_to_string(&file).unwrap()
+        );
+    }
+
+    /// A `.riggen` written before `ConvexDecomposition` grew `resolution`
+    /// and `concavity` still opens, with the algorithm's defaults filled in
+    /// — the `#[serde(default)]` promise that keeps this a v1 file and not
+    /// a schema bump (§Schema, ADR-0011). Built from the committed corpus
+    /// file so it is a whole real document, not a fragment.
+    #[test]
+    fn a_v1_file_with_only_max_hulls_reads_with_the_defaults() {
+        let dir = scratch("decomp-v1");
+        for mesh in ["cube_binary.stl", "cube_ascii.stl"] {
+            std::fs::copy(fixtures().join(mesh), dir.join(mesh)).unwrap();
+        }
+        let text = std::fs::read_to_string(fixtures().join("pendulum.riggen")).unwrap();
+        let old = text.replacen(
+            "\"collision\": \"SameAsVisual\"",
+            "\"collision\": { \"ConvexDecomposition\": { \"max_hulls\": 4 } }",
+            1,
+        );
+        assert_ne!(old, text, "the corpus file must have a collision field");
+        let file = dir.join("pendulum.riggen");
+        std::fs::write(&file, &old).unwrap();
+
+        let (robot, warnings) = load(&file).unwrap();
+        assert_eq!(warnings, vec![]);
+        let defaults = riggen_mesh::DecompParams::default();
+        let base = &robot.links[&robot.root].collision;
+        assert_eq!(
+            *base,
+            CollisionPolicy::ConvexDecomposition {
+                max_hulls: 4,
+                resolution: defaults.resolution,
+                concavity: defaults.concavity,
+            },
+            "the two new fields come from riggen_mesh::DecompParams"
+        );
+
+        // And the filled-in document round-trips through save/load.
+        let again = dir.join("again.riggen");
+        save(&robot, &again).unwrap();
+        assert_eq!(load(&again).unwrap().0, robot);
+    }
+
+    /// Every collision policy survives the document's JSON, the widened
+    /// variant included.
+    #[test]
+    fn collision_policies_round_trip_through_json() {
+        let defaults = riggen_mesh::DecompParams::default();
+        for policy in [
+            CollisionPolicy::None,
+            CollisionPolicy::SameAsVisual,
+            CollisionPolicy::ConvexHull,
+            CollisionPolicy::ConvexDecomposition {
+                max_hulls: defaults.max_hulls,
+                resolution: defaults.resolution,
+                concavity: defaults.concavity,
+            },
+            CollisionPolicy::ConvexDecomposition {
+                max_hulls: 3,
+                resolution: 96,
+                concavity: 0.004,
+            },
+        ] {
+            let json = serde_json::to_string(&policy).unwrap();
+            assert_eq!(
+                serde_json::from_str::<CollisionPolicy>(&json).unwrap(),
+                policy,
+                "{json}"
+            );
+        }
+        assert_eq!(
+            serde_json::to_string(&CollisionPolicy::ConvexDecomposition {
+                max_hulls: 3,
+                resolution: 96,
+                concavity: 0.004,
+            })
+            .unwrap(),
+            r#"{"ConvexDecomposition":{"max_hulls":3,"resolution":96,"concavity":0.004}}"#
         );
     }
 

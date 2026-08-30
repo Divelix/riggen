@@ -691,7 +691,7 @@ impl RiggenApp {
             CollisionPolicy::ConvexHull => {
                 ui.weak("one convex hull per visual mesh (View › Collision geometry shows them)");
             }
-            CollisionPolicy::ConvexDecomposition { max_hulls } => {
+            CollisionPolicy::ConvexDecomposition { max_hulls, .. } => {
                 ui.weak(format!(
                     "convex decomposition into {max_hulls} hulls: not supported yet"
                 ));
