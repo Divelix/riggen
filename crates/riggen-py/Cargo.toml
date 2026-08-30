@@ -29,3 +29,8 @@ riggen-mesh.workspace = true
 riggen-core.workspace = true
 riggen-export.workspace = true
 pyo3.workspace = true
+# Values cross the boundary in the document's own serde shape (the v1
+# schema, docs/02-data-model.md §Schema): Python dicts ↔ `serde_json::Value`
+# ↔ the core types, so the mapping is the schema and nothing else.
+serde.workspace = true
+serde_json.workspace = true

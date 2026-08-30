@@ -169,6 +169,9 @@ the swapped child frame). That stays so: a URDF always has a root, and a
 reversed-pivot convention is a design question nothing needed
 (plans/m3-sim-ready OPEN 2, rejected).
 
+The Python SDK's edit methods are these commands, one call each, applied
+the same way but with no history (`riggen._riggen.Robot`, 01 §Python SDK).
+
 `Command::apply(self, &mut Robot) -> Result<Option<LinkId>, EditError>`
 mutates and then validates, so on `Err` the robot may be half-edited;
 `History::apply` therefore runs it on a clone:

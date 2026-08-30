@@ -3165,6 +3165,8 @@ dependencies = [
  "riggen-core",
  "riggen-export",
  "riggen-mesh",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

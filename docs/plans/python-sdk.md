@@ -225,7 +225,7 @@ will want to read before it is final.
   (OPEN 3), the closing of ADR-0002's open question; ADR-0002 gets the
   "Amended by ADR-0009" line; 01 §Python distribution rewritten in the
   present tense. Docs only.
-- [ ] Step 4 — The document in `_riggen`: `Robot` (new/load/save/json),
+- [x] Step 4 — The document in `_riggen`: `Robot` (new/load/save/json),
   ids, read access, `Pose` conversion, every edit method with `EditError`
   → exception subclasses; `riggen.RiggenError` hierarchy in
   `python/riggen/errors.py`; stubs updated. pytest: the pendulum built
@@ -280,7 +280,7 @@ will want to read before it is final.
 python python/build_wheel.py                                     # cargo build riggen-app → riggen._riggen.data/scripts → maturin build
 uv venv target/wheel-venv && uv pip install --python target/wheel-venv dist/riggen-*.whl
 python python/tests/test_wheel.py target/wheel-venv               # M4's checks + import riggen._riggen + the tag
-uv run --python target/wheel-venv --with pytest pytest python/tests/sdk
+uv pip install --python target/wheel-venv pytest && target/wheel-venv/bin/python -m pytest python/tests/sdk
 target/wheel-venv/bin/python examples/arm.py --out target/sdk-arm  # the arm from its STLs, through the SDK
 uv run --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sdk-arm   # M3's bar, over SDK output
 cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings
@@ -357,6 +357,26 @@ Findings from step 2 (2026-08-30):
   pre-release is asked for by name. Not verified until the human pushes
   and dispatches `release.yml` (workflow_dispatch → TestPyPI); the box is
   ticked after that run's smoke matrix is green and the command works.
+
+Findings from step 4 (2026-08-30):
+
+- **`_riggen` speaks the v1 schema, not a Python-side `Pose` tuple.** The
+  deltas said `Pose` crosses as `((x, y, z), (w, x, y, z))`; instead every
+  value crosses as the dict the `.riggen` file spells (02 §Schema),
+  through `serde_json::Value`, with ids as ints by key (01 §Python SDK).
+  One 40-line converter replaces a hand-written mapping per struct that
+  would drift from the schema; the friendly spellings (`Pose(xyz, rpy)`,
+  `Revolute(axis="z", …)`, `degrees=`) are step 6's pure-Python job,
+  where they belong. Step 5's `fk` returns poses in the same shape.
+- Beyond the listed methods: `add_asset` (a second geom on a link needs a
+  registered mesh; the app's drop does the same), `copy`, `next_id`, and
+  `name` as a settable property (no `RenameRobot` command exists).
+- `errors.py` already holds `ExportError`, `UrdfImportError`,
+  `InertialError` for step 5, so the hierarchy is written once.
+- The suite runs on the installed wheel in `ci.yml` (pytest installed
+  into the wheel venv, `<venv>/bin/python -m pytest`, rather than `uv run
+  --with` — one interpreter, no overlay to reason about); the acceptance
+  block below says the same.
 - The `cargo tree` layer check lives in the `clippy` job, which already
   has the toolchain, rather than the container-based `wheel` job.
 - The sdist holds `riggen-py` and its three lower crates only — maturin

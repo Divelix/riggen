@@ -3,9 +3,18 @@
 //! `riggen-core` and `riggen-export`: one method per `Command`, no sugar —
 //! the public API lives in `python/riggen/`. Never depends on egui or wgpu.
 //!
+//! Values cross the boundary in the document's own serde shape — the v1
+//! schema of docs/02-data-model.md §Schema, with ids as ints ([`doc`]) —
+//! so the mapping table is the schema. Errors are the exception classes of
+//! `python/riggen/errors.py`, raised by name ([`errors`]).
+//!
 //! The wheel carries this module beside the `riggen` binary
 //! (`pyproject.toml`, `python/build_wheel.py`); stubs in
 //! `python/riggen/_riggen.pyi` mirror everything exposed here.
+
+mod doc;
+mod errors;
+mod robot;
 
 use pyo3::prelude::*;
 
@@ -15,6 +24,7 @@ use pyo3::prelude::*;
 #[pymodule]
 fn _riggen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", pep440(env!("CARGO_PKG_VERSION")))?;
+    m.add_class::<robot::PyRobot>()?;
     Ok(())
 }
 
