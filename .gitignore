@@ -6,6 +6,11 @@
 # copies the built `riggen` binary into its `scripts/` for the wheel.
 /riggen._riggen.data
 /python/build
+# `uv` resolving the root `pyproject.toml` as a project writes this. It locks
+# nothing — riggen declares no Python dependencies — and no tool reads it: the
+# `mujoco` CI job passes `--no-project` precisely to skip that path.
+/uv.lock
+
 # Personal notebooks on the dev build (README §Developing).
 /scratch
 __pycache__/
