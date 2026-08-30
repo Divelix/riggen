@@ -126,15 +126,18 @@ adapter becomes ours, recorded as ADR-0010.
 `cargo test -p riggen-app --test visual` green with the goldens unchanged,
 plus one new scenario that is the complaint end to end:
 
-`gizmo_shares_the_viewport` — arm loaded, a link selected, Move active; in
+`gizmo_shares_the_viewport` (written, green) — arm loaded, a link selected, Move active; in
 one run orbit (yaw changes), zoom-to-cursor (distance changes), click a
 *different* part (the selection and therefore the gizmo target change),
 then drag a handle (one command, the link moved). Every assertion in one
 scenario, because the bug was that these stopped working *together*.
 
 A `visual-debug` capture of the Move tool with the cursor on a part,
-showing the hover tint under a drawn gizmo, goes to the human. Any golden
-PNG that does change is shown before it is staged (AGENTS.md).
+showing the hover tint under a drawn gizmo, goes to the human — **taken and
+shown, 2026-08-30**: pendulum, `arm` selected and drawn with its gizmo, the
+cursor on the base, status bar `hover: base_link (i0/t0)` beside
+`selected: arm (i1/t0)`. **No golden PNG changed** at any step; six JSON
+goldens gained the `input` object, which is additive.
 
 ## Docs to update on completion
 

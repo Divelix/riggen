@@ -1533,6 +1533,154 @@ fn orbit_works_from_a_gizmo_handle() {
     });
 }
 
+/// The acceptance run for the whole pointer arrangement (ADR-0010): the
+/// example arm, a link selected, Move active — orbit, zoom to the cursor,
+/// click a *different* part, then drag a handle, in one uninterrupted
+/// session.
+///
+/// One scenario rather than four, because the complaint was that these
+/// stopped working *together*: every one of them went through the same
+/// swallowed pointer, and any of them passing alone would have proved
+/// nothing about the others.
+#[test]
+fn gizmo_shares_the_viewport() {
+    with_app(|harness| {
+        let temp = std::env::temp_dir().join(format!("riggen-share-{}", std::process::id()));
+        let document = riggen_app::cli::Example::Arm.extract_into(&temp).unwrap();
+        harness.state_mut().open_path(&document).unwrap();
+        harness.state_mut().fit_view_now();
+        harness.state_mut().set_tool(Tool::Move);
+        // The deepest link: it has a parent joint, so it has a gizmo.
+        let tip = *harness
+            .state()
+            .robot()
+            .links
+            .keys()
+            .next_back()
+            .expect("the arm has links");
+        harness.state_mut().select(Selection::Link(tip));
+        settle(harness);
+
+        let depth = harness.state().history().undo_depth();
+        let start = harness.state().debug_state();
+        assert_eq!(
+            start.gizmo.as_ref().map(|g| g.target.as_str()),
+            Some(format!("link {tip}").as_str()),
+            "the gizmo is on the selected link to begin with"
+        );
+
+        // 1. Orbit, from the gizmo's own handle — the worst case.
+        let handle = gizmo_handle(harness);
+        middle_drag(
+            harness,
+            handle,
+            handle + egui::vec2(70.0, 30.0),
+            egui::Modifiers::NONE,
+        );
+        let after_orbit = harness.state().debug_state();
+        assert!(
+            after_orbit.camera.yaw_deg != start.camera.yaw_deg,
+            "orbit: {} -> {}",
+            start.camera.yaw_deg,
+            after_orbit.camera.yaw_deg
+        );
+
+        // 2. Zoom to the cursor, over a part.
+        let over_a_part = harness
+            .state()
+            .project_world(DVec3::from(after_orbit.instances[0].position))
+            .expect("a part is on screen");
+        scroll_at(harness, over_a_part, -3.0);
+        let after_zoom = harness.state().debug_state();
+        assert!(
+            after_zoom.camera.distance != after_orbit.camera.distance,
+            "zoom: {} -> {}",
+            after_orbit.camera.distance,
+            after_zoom.camera.distance
+        );
+
+        // 3. Click a *different* part: the selection, and with it the gizmo's
+        //    target, follow the pointer under a drawn gizmo. Which screen
+        //    point lands on which part depends on the camera the two gestures
+        //    above just moved, so the candidates are tried in turn and the
+        //    first one that actually tints is the one clicked — the point
+        //    being that *something* under the cursor still tints at all.
+        let root = harness.state().robot().root.to_string();
+        let tip_id = tip.to_string();
+        // The middle of each instance's own bounds, not its model origin: the
+        // arm's geometry is offset inside its meshes, so every link frame
+        // projects to nearly the same point.
+        let candidates: Vec<egui::Pos2> = after_zoom
+            .instances
+            .iter()
+            .filter(|i| {
+                i.link.as_deref() != Some(root.as_str()) && i.link.as_deref() != Some(&tip_id)
+            })
+            .filter_map(|i| {
+                let [min, max] = i.bounds?;
+                let centre = (DVec3::from(min) + DVec3::from(max)) * 0.5;
+                harness
+                    .state()
+                    .project_world(DVec3::from(i.position) + centre)
+            })
+            // The arm's joints stack along one screen line and their glyphs
+            // own the pointer there — by design, a glyph click selects the
+            // joint — so each part is also tried a little to either side.
+            .flat_map(|at| {
+                [0.0, -28.0, 28.0, -45.0, 45.0]
+                    .into_iter()
+                    .map(move |dx| at + egui::vec2(dx, 0.0))
+            })
+            .collect();
+        assert!(!candidates.is_empty(), "another part is on screen");
+        let mut on_a_part = None;
+        for at in candidates {
+            harness.hover_at(at);
+            pump_rendered(harness, 8);
+            if harness.state().debug_state().selection.hovered.is_some() {
+                on_a_part = Some(at);
+                break;
+            }
+        }
+        let on_a_part =
+            on_a_part.expect("a part under the cursor tints, with a gizmo drawn over it");
+        click_at(harness, on_a_part);
+
+        let after_click = harness.state().debug_state();
+        assert_ne!(
+            after_click.document.selection, start.document.selection,
+            "the click selected something else"
+        );
+        assert_eq!(
+            after_click.gizmo.as_ref().map(|g| g.target.clone()),
+            after_click.document.selection.clone(),
+            "and the gizmo moved to it"
+        );
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth,
+            "none of that was an edit"
+        );
+
+        // 4. And the gizmo still does its own job: one drag, one command,
+        //    the part moved.
+        let before: Vec<_> = after_click.instances.iter().map(|i| i.position).collect();
+        let from = gizmo_handle(harness);
+        synthetic_drag(harness, from, from + egui::vec2(90.0, 0.0), 6);
+
+        let end = harness.state().debug_state();
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth + 1,
+            "one gesture, one command"
+        );
+        let now: Vec<_> = end.instances.iter().map(|i| i.position).collect();
+        assert_ne!(now, before, "and the link it points at moved");
+
+        std::fs::remove_dir_all(&temp).unwrap();
+    });
+}
+
 /// The whole gesture: drag the gizmo's view-plane handle, the part follows
 /// live, the release is **one** command, undo puts it back. The spike that
 /// ADR-0007 rests on.
