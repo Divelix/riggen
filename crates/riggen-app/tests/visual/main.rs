@@ -1768,6 +1768,55 @@ fn glyph_hover() {
     });
 }
 
+/// A hovered glyph suppresses the *picks* and nothing else
+/// (plans/gizmo-input step 4). It hides the part behind it, so tinting that
+/// part would be a lie — but the wheel has no reason to stop, and under the
+/// old all-or-nothing switch it did.
+///
+/// Its own scenario rather than an extension of `glyph_hover`: zooming
+/// moves the camera, and `glyph_hover` is a golden that pins where
+/// everything is drawn.
+#[test]
+fn a_hovered_glyph_leaves_the_camera_alone() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        settle(harness);
+
+        let at = glyph_axis_point(harness, 0.8);
+        harness.hover_at(at);
+        pump_rendered(harness, 6);
+
+        let state = harness.state().debug_state();
+        assert!(state.glyphs[0].hovered, "the glyph is hot");
+        assert!(
+            state.input.pick_suppressed && !state.input.pointer_blocked,
+            "the glyph takes the picks, not the pointer: {:?}",
+            state.input
+        );
+        assert_eq!(
+            state.selection.hovered, None,
+            "and no part is tinted behind it"
+        );
+        let before = state.camera.distance;
+
+        scroll_at(harness, at, -3.0);
+
+        let state = harness.state().debug_state();
+        assert!(
+            state.camera.distance != before,
+            "the wheel still zoomed: {before} -> {}",
+            state.camera.distance
+        );
+        assert_eq!(
+            state.selection.hovered, None,
+            "and still nothing is tinted under the glyph"
+        );
+    });
+}
+
 /// A point on the hinge glyph's axis segment, `t` of the way out from the
 /// pivot: what a hover has to land on.
 fn glyph_axis_point(
