@@ -1,8 +1,8 @@
 //! Mesh geometry: [`TriMesh`], STL/OBJ loaders, [`Aabb`], ray/triangle,
 //! the [`feature`] module (welded adjacency, circle fits),
 //! [`mass_properties`] (docs/02-data-model.md §Inertials), [`convex_hull`]
-//! (quickhull) and [`fit`] (box / sphere / cylinder / capsule) for
-//! collision. No egui, no wgpu
+//! (quickhull), [`decompose`] (V-HACD, the [`decomp`] module) and [`fit`]
+//! (box / sphere / cylinder / capsule) for collision. No egui, no wgpu
 //! (docs/01-architecture.md §Crates).
 //!
 //! `f64` throughout — the document is f64 and mass properties want it; the
@@ -12,6 +12,7 @@
 pub use glam;
 
 mod aabb;
+pub mod decomp;
 mod error;
 pub mod feature;
 pub mod fit;
@@ -23,6 +24,7 @@ mod stl;
 mod tri_mesh;
 
 pub use aabb::Aabb;
+pub use decomp::{DecompError, DecompParams, decompose};
 pub use error::MeshError;
 pub use hull::convex_hull;
 pub use mass::{MassProps, mass_properties};
