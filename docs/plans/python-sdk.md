@@ -57,13 +57,14 @@ clean, FK matches) runs over an arm the SDK built from its STLs.
   `rerun` CLI is built separately and copied into the package as a data
   file). So: `pyproject.toml` switches to `bindings = "pyo3"`,
   `manifest-path = "crates/riggen-py/Cargo.toml"`, `module-name =
-  "riggen._riggen"`, `features = ["extension-module"]`, and **`data =
-  "python/data"`** — maturin's wheel data directory, whose `scripts/`
+  "riggen._riggen"`, `features = ["extension-module"]`, and **maturin's default wheel data
+  directory `riggen._riggen.data/`** beside `pyproject.toml` (not an
+  explicit `data = …`, see the step 1 finding), whose `scripts/`
   subdirectory lands in `riggen-<ver>.data/scripts/`, which is exactly
-  where M4's `bindings = "bin"` put the binary. `python/data/` is
+  where M4's `bindings = "bin"` put the binary. `riggen._riggen.data/` is
   gitignored and filled by the build: `cargo build --release -p riggen-app
   [--target T]` then a copy of `target/[T/]release/riggen[.exe]` into
-  `python/data/scripts/`. `python/build_wheel.py` does both halves and
+  `riggen._riggen.data/scripts/`. `python/build_wheel.py` does both halves and
   then `maturin build` (`--binary-only` for CI's container, which runs
   maturin itself); it is the one place the recipe lives, for the human,
   `ci.yml` and `release.yml`. `__main__.py` is unchanged: the binary is
@@ -189,7 +190,7 @@ before any binding is written; the bindings are existing, tested Rust
 behind a thin layer, and the Python API on top is the part the human
 will want to read before it is final.
 
-- [ ] Step 1 — The wheel builds locally with both halves: `crates/
+- [x] Step 1 — The wheel builds locally with both halves: `crates/
   riggen-py` (cdylib `_riggen`, PyO3 0.28 abi3-py310, `extension-module`
   feature, `test = false`, exposing only `__version__`), `pyproject.toml`
   switched (`bindings = "pyo3"`, `module-name`, `features`, `data =
@@ -294,7 +295,7 @@ the five targets. The `v0.2.0` tag is the release.
 - `docs/01-architecture.md` §Layer map — `riggen-py` present, not
   "(v0.2)"; §Cargo workspace — the tree: `crates/riggen-py`,
   `python/riggen/{__init__, _riggen.pyi, errors, robot, show}.py`,
-  `python/data/` (ignored, the build fills it), `python/build_wheel.py`,
+  `riggen._riggen.data/` (ignored, the build fills it), `python/build_wheel.py`,
   `python/tests/sdk/`, `examples/`; `pyproject.toml`'s comment line;
   §Python distribution — the two halves of the wheel, the data
   directory, `cp310-abi3` tags, the sdist consequence, the build recipe;
@@ -318,6 +319,34 @@ the five targets. The `v0.2.0` tag is the release.
 - Delete `docs/ideas/python-sdk.md` — done with this plan's creation.
 
 ## Open questions
+
+Findings from step 1 (2026-08-30), each a deviation from the design deltas
+above:
+
+- **The data directory is `riggen._riggen.data/` at the repository root,
+  not `python/data`.** An explicit `data = …` in `pyproject.toml` must
+  exist or maturin fails (`No such data directory`), the directory cannot
+  be tracked (maturin rejects any entry at its root that is not one of
+  `data scripts headers purelib platlib`, so no README/.gitkeep), and the
+  sdist has no binary to put there — so a source build would have failed.
+  maturin's *default* location, `<module-name>.data/` beside
+  `pyproject.toml`, is skipped when absent: the tree build carries the
+  binary, the sdist build gets the extension only, exactly OPEN 3. The
+  name is maturin's to choose (`<module-name>.data`). The deltas and the
+  docs list above say the new path.
+- PyO3 is 0.29 (current on crates.io), not 0.28.
+- The `cargo tree` layer check lives in the `clippy` job, which already
+  has the toolchain, rather than the container-based `wheel` job.
+- The sdist holds `riggen-py` and its three lower crates only — maturin
+  packages the workspace's path dependencies, and `riggen-app` is not one
+  — so the M4 `include` of `assets/fixtures/arm` and the snapshot
+  `exclude` went with `bindings = "bin"`. An sdist can never build the
+  binary (OPEN 3, as accepted).
+- Sizes, linux x86_64: wheel 9.7 MB (M4: 9.6), the binary 21.9 MB, the
+  extension 357 KB with only `__version__`; the 566 KB `riggen-app` SBOM
+  of M4 is gone (the binary is data now), a 48 KB `riggen-py` one remains.
+  Local wheels tag `manylinux_2_34` (auditwheel on the `.so`); CI's
+  container gives `manylinux_2_28`.
 
 All five decided by the human on 2026-08-30 ("I agree with recommended"):
 

@@ -99,7 +99,7 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 cargo run                             # the app
 cargo test --workspace                # incl. the visual snapshot suite (needs a Vulkan driver;
                                       # lavapipe / mesa-vulkan-drivers is the reference)
-RIGGEN_GIT_HASH=$(git rev-parse --short HEAD) uv build   # the wheel and the sdist
+python python/build_wheel.py                             # the wheel: the app binary + the extension module
 ```
 
 The Rust route to the binary is `cargo install --git

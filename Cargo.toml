@@ -6,6 +6,9 @@ members = [
     "crates/riggen-export",
     "crates/riggen-viewport",
     "crates/riggen-app",
+    # The extension module `riggen._riggen` (ADR-0009): PyO3 over core + export,
+    # shipped in the wheel beside riggen-app's binary. Never egui or wgpu.
+    "crates/riggen-py",
     # The crates.io name reservation; empty until M4 publishes the app under it.
     "crates/riggen",
 ]
@@ -80,6 +83,13 @@ web-time = "1"
 # URDF parser: the round-trip FK test reads our own URDF back through it
 # (dev, step 6), and File › Import URDF… is built on it (step 13).
 urdf-rs = "0.9"
+
+# The Python SDK's binding layer (ADR-0009). `abi3-py310`: one extension
+# module for every CPython ≥ 3.10 (`requires-python`), so the wheel matrix
+# stays one wheel per platform. `extension-module` is *not* here — it is a
+# feature of `riggen-py` that only maturin enables, so the workspace build
+# still links libpython and `cargo clippy --workspace` sees the crate.
+pyo3 = { version = "0.29", features = ["abi3-py310"] }
 
 # Only to block on `Instance::enumerate_adapters` in the "is there a GPU at
 # all?" probe of the snapshot harness — `egui_kittest` panics rather than

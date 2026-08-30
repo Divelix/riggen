@@ -27,6 +27,13 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The layer rule for the crate most tempted to break it (ADR-0009,
+      # docs/01-architecture.md §Layer map): the extension module links
+      # core + export and never egui or wgpu.
+      - run: |
+          if cargo tree -p riggen-py -e normal | grep -E '\b(egui|eframe|wgpu)\b'; then
+            echo "riggen-py must not depend on egui or wgpu" >&2; exit 1
+          fi
 
   test:
     runs-on: ubuntu-latest
@@ -67,13 +74,16 @@ jobs:
       - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-urdf assets/fixtures/arm/arm.urdf
       - run: uv run --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample target/sample-urdf
 
-  # The M4 product (ADR-0002): the maturin `bin` wheel builds in the
-  # manylinux 2_28 container maturin-action provides, installs into a fresh
-  # venv with nothing else, and its `riggen` runs headlessly
-  # (`python/tests/test_wheel.py`: --version, --export, python -m riggen).
+  # The product (ADR-0002, ADR-0009): the wheel builds in the manylinux 2_28
+  # container maturin-action provides — `build_wheel.py --binary-only`
+  # first, for the `riggen` binary into the wheel data directory, then
+  # maturin for the abi3 extension module — installs into a fresh venv with
+  # nothing else, and `test_wheel.py` runs it headlessly (--version,
+  # --export, python -m riggen, import riggen._riggen, the abi3 tag).
   # linux x86_64 only — the five-target matrix is `release.yml`'s; this job
-  # is what guards `pyproject.toml` and `python/riggen/__main__.py` on every
-  # push. The binary links only libc, so the container needs no packages.
+  # is what guards `pyproject.toml`, `build_wheel.py` and
+  # `python/riggen/__main__.py` on every push. The binary links only libc
+  # and the container has a `python3`, so it needs no packages.
   wheel:
     runs-on: ubuntu-latest
     steps:
@@ -91,6 +101,7 @@ jobs:
           args: --release --out dist
           manylinux: 2_28
           docker-options: -e RIGGEN_GIT_HASH=${{ env.RIGGEN_GIT_HASH }} -e RIGGEN_BUILD_DATE=${{ env.RIGGEN_BUILD_DATE }}
+          before-script-linux: python3 python/build_wheel.py --binary-only
       - uses: astral-sh/setup-uv@v5
       # Outside `target/`: rust-cache restores that directory, and a venv
       # from the previous run makes `uv venv` refuse to create one.

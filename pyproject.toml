@@ -1,17 +1,24 @@
-# The `riggen` wheel (ADR-0002): maturin `bindings = "bin"` packages the
-# native `riggen` executable — built from `crates/riggen-app` — into a
-# `py3-none-<platform>` wheel, together with the `python/riggen` package
-# that `python -m riggen` needs. No PyO3, no extension module: the process
-# is the app, exactly as if installed with `cargo install`.
+# The `riggen` wheel (ADR-0002, ADR-0009): one wheel per platform carrying
+# both halves of the product — the native `riggen` executable built from
+# `crates/riggen-app`, and the PyO3 extension module `riggen._riggen` built
+# from `crates/riggen-py` for `import riggen`. maturin builds the extension
+# (`bindings = "pyo3"`, abi3, so one wheel covers every CPython ≥ 3.10) and
+# takes the binary from the wheel data directory `riggen._riggen.data/scripts/`,
+# which `python/build_wheel.py` fills with a `cargo build` of the app first.
+# maturin cannot build a `[[bin]]` and an extension from one crate into one
+# wheel, hence the two crates and the data directory (the layout rerun uses).
 #
 # Lives at the repository root so that `README.md` is both the GitHub page
 # and the PyPI page (plans/m4-distribution OPEN 3): one file, no copy.
 #
-# Build locally:  RIGGEN_GIT_HASH=$(git rev-parse --short HEAD) uv build
-#                 # dist/riggen-<ver>-py3-none-<platform>.whl + sdist; the wheel is
-#                 # built from the sdist, which has no .git, hence the variable
+# Build locally:  python python/build_wheel.py     # cargo build the app → the data dir → maturin build
+#                 # dist/riggen-<ver>-cp310-abi3-<platform>.whl
 # Smoke-test it:  uv venv target/wheel-venv && uv pip install --python target/wheel-venv dist/*.whl
 #                 python python/tests/test_wheel.py target/wheel-venv
+#
+# A plain `uv build` / `pip install .` from the sdist builds the extension
+# module only — the data directory is absent there, so the wheel has no
+# binary and `python -m riggen` says how to get one (plans/python-sdk OPEN 3).
 
 [project]
 name = "riggen"
@@ -28,6 +35,8 @@ classifiers = [
     "Topic :: Scientific/Engineering",
     "Programming Language :: Rust",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Typing :: Typed",
     "Operating System :: OS Independent",
 ]
 # The version is read from the workspace `Cargo.toml` (`version.workspace =
@@ -49,11 +58,16 @@ requires = ["maturin>=1.8,<2"]
 build-backend = "maturin"
 
 [tool.maturin]
-bindings = "bin"
-manifest-path = "crates/riggen-app/Cargo.toml"
+bindings = "pyo3"
+manifest-path = "crates/riggen-py/Cargo.toml"
+module-name = "riggen._riggen"
+# Stops PyO3 from linking libpython (crates/riggen-py/Cargo.toml).
+features = ["extension-module"]
 python-source = "python"
-# `--example arm` bakes `assets/fixtures/arm/` into the binary at compile
-# time, so a source build from the sdist needs the fixtures too.
-include = [{ path = "assets/fixtures/arm/*", format = "sdist" }]
-# The snapshot goldens are a few megabytes of PNG that no source build reads.
-exclude = [{ path = "crates/riggen-app/tests/snapshots/**", format = "sdist" }]
+# The wheel data directory is maturin's default, `<module-name>.data/` beside
+# this file — `riggen._riggen.data/` — and deliberately not a `data = …`
+# setting: an explicit path must exist or maturin fails, the default is
+# skipped when absent, and the sdist has no binary to put there. The build
+# fills `riggen._riggen.data/scripts/riggen[.exe]` (`python/build_wheel.py`),
+# maturin packages it as `riggen-<ver>.data/scripts/`, which installs to the
+# environment's `bin/` — exactly where M4's `bindings = "bin"` put it.
