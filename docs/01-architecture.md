@@ -581,7 +581,7 @@ with **two halves**:
   install there (BACKLOG).
 - `[profile.release]`: `strip = true`, `lto = "thin"`, `codegen-units =
   1`. linux x86_64: the binary is 21.9 MB, the extension 357 KB with only
-  `__version__` in it (step 1 of plans/python-sdk), the wheel 9.7 MB.
+  `__version__` in it; with the whole SDK, 1.3 MB and the wheel 10.1 MB.
 - `riggen --version` prints `riggen <cargo version> (<hash> <date>)`;
   `build.rs` takes the hash and date from `RIGGEN_GIT_HASH` /
   `RIGGEN_BUILD_DATE` when set, else from git (`-dirty` when the tree
@@ -603,7 +603,7 @@ with **two halves**:
   `v*` tag push, both through PyPI trusted publishing (environments
   `testpypi` / `pypi`, no token in the repository).
 
-`riggen.show(robot)` (plans/python-sdk step 7) serialises to a temp
+`riggen.show(robot)` (§Python SDK) serialises to a temp
 `.riggen` and spawns the bundled binary on it — the `rr.spawn()` model.
 The GUI is never entered from inside a Python call (ADR-0002).
 
@@ -612,7 +612,7 @@ The GUI is never entered from inside a Python call (ADR-0002).
 Two layers. `riggen._riggen` (`crates/riggen-py`) is the extension module:
 a thin, typed layer over `riggen-core` and `riggen-export`, one method per
 `Command`, no sugar. `riggen` (`python/riggen/`) is the public API over it
-(plans/python-sdk step 6). This section is the extension module.
+(`python/riggen/robot.py`). This section is the extension module.
 
 **Values cross in the schema's shape.** A joint, a pose, an inertial spec
 is the same dict the `.riggen` file spells (02 §Schema) — `{"t": [x, y, z],

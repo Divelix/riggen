@@ -37,7 +37,7 @@ skill). **Next: v0.2** — the Python SDK (`riggen-py`, PyO3).
 ## Rules that are not derivable from the code
 
 - Lower crates never name upper crates' types; `riggen-core` and
-  `riggen-export` never depend on egui or wgpu (the v0.2 SDK links them).
+  `riggen-export` never depend on egui or wgpu (`riggen-py` links them).
 - One gesture = one command. Drags preview; release commits.
 - Meters, radians, right-handed, Z-up, f64 in the document. Joint frame is
   the child link frame.

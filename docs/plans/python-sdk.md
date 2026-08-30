@@ -272,7 +272,8 @@ will want to read before it is final.
   __init__.py` docstring rewritten (it says "nothing else until the v0.2
   SDK" today), `examples/` linked, `uvx twine check` on the sdist. The
   wheel size delta from step 1 goes into the roadmap line at retirement.
-- [ ] Step 9 — Acceptance and drift: the Acceptance block below green
+- [ ] Step 9 — **Landed 2026-08-30; the box waits for the human's notebook
+  half (see the step 9 finding).** Acceptance and drift: the Acceptance block below green
   (the notebook half by the human), 01/02 read against the code with the
   discrepancy list emptied, the by-hand findings under a v0.2-SDK heading
   in `docs/BACKLOG.md`, the roadmap's v0.2 SDK line marked done with the
@@ -287,7 +288,7 @@ uv venv target/wheel-venv && uv pip install --python target/wheel-venv dist/rigg
 python python/tests/test_wheel.py target/wheel-venv               # M4's checks + import riggen._riggen + the tag
 uv pip install --python target/wheel-venv pytest && target/wheel-venv/bin/python -m pytest python/tests/sdk
 target/wheel-venv/bin/python examples/arm.py --out target/sdk-arm  # the arm from its STLs, through the SDK
-uv run --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sdk-arm   # M3's bar, over SDK output
+uv run --no-project --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sdk-arm   # M3's bar, over SDK output
 cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings
 ```
 
@@ -452,6 +453,27 @@ Findings from step 8 (2026-08-30):
   checked it against the README's §Python. The free-threaded backlog line
   is under a "v0.2 SDK" heading in `docs/BACKLOG.md`, where step 9's
   by-hand findings go.
+
+Findings from step 9 (2026-08-30):
+
+- The agent's half of the Acceptance block is green on the `0.2.0` build
+  (the version bump, OPEN 5): wheel, smoke, 57 SDK tests, `examples/
+  arm.py` → MuJoCo, `cargo test` + clippy. Drift: 01 and AGENTS.md no
+  longer name plan steps or "v0.2"; the roadmap's v0.2 SDK line is
+  marked done with the numbers and a `⚠ OPEN:` for the notebook half.
+- **The human's half needs a new TestPyPI upload**: TestPyPI's
+  `0.2.0.dev0` is the step-3 build (an extension with only
+  `__version__`), and `skip-existing` makes a re-dispatch at that
+  version a silent no-op — which is why the version is `0.2.0` now.
+  Push, dispatch, then `uvx --refresh --index-url https://test.pypi.org/
+  simple/ --index-strategy unsafe-best-match --from "riggen==0.2.0"
+  python -c "import riggen; print(riggen.Robot('x'))"`, and the notebook:
+  a two-link pendulum in ten lines (the README's), `riggen.show(robot)`,
+  a joint placed by hand and saved, `wait()`, `export("mjcf")` in
+  `mujoco.viewer`. If that run finds a bug, `0.2.0` on TestPyPI is
+  spent (`skip-existing`), so the fix re-checks as `0.2.1-dev` and ships
+  as `0.2.1`; PyPI is untouched until the tag.
+- Then `/retire-plan`; the `v0.2.0` tag and its push are the human's.
 - The `cargo tree` layer check lives in the `clippy` job, which already
   has the toolchain, rather than the container-based `wheel` job.
 - The sdist holds `riggen-py` and its three lower crates only — maturin
