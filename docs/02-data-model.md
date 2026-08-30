@@ -317,9 +317,8 @@ check alone justifies the tool.
 
 ## `ResolvedRobot` (`riggen-export`)
 
-The exporters never see `Robot`. `resolve(&Robot, &impl MeshLookup,
-&ExportOptions) -> Result<ResolvedRobot, Vec<ExportError>>` produces a
-pure-numeric, convention-fixed intermediate:
+The exporters never see `Robot`. `resolve` produces a pure-numeric,
+convention-fixed intermediate:
 
 ```rust
 pub fn resolve(&Robot, &impl MeshLookup, &impl DecompSource, &ExportOptions)
@@ -335,7 +334,8 @@ pub struct ResolvedRobot {
 pub struct ResolvedLink {
     pub name: String,
     pub visuals: Vec<ResolvedGeom>,
-    pub collisions: Vec<ResolvedGeom>,     // SameAsVisual copies visuals; hulls / primitives computed
+    pub collisions: Vec<ResolvedGeom>,     // SameAsVisual copies visuals; hulls, decomposition
+                                           // pieces and primitives computed
     pub inertial: Option<Inertial>,        // None for an empty static body: no <inertial>
 }
 pub enum ResolvedGeom { Mesh { name, mesh: Arc<TriMesh>, pose }, Primitive(Primitive) }

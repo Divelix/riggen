@@ -9,11 +9,12 @@ below with the reason, so the same idea is not re-brainstormed.
 - MJCF import; SDF export
 - Live joint-state link from a running Python script to the GUI (file or socket)
 - Web demo build
+- Convex decomposition freezes a wasm build: `Jobs` has no thread there and runs the job inline, so a browser tab would stall for the seconds V-HACD takes. Needs a web worker (RoboCAD's `InlineEval` has the same gap) — only matters if the web demo happens
 - Ground grid at z = 0 in the viewport (new; robocad never had one — M0 ships the gradient background only)
 - MSAA for the offscreen colour pass (new; robocad had none)
 - Meshes over 2^20 triangles: decimate at load or widen the pick id (loaders reject them today)
 - Manual split planes for collision geometry: cut a part by hand where V-HACD's automatic split is wrong (the convex-decomposition idea's option E, not taken — ADR-0011 chose the algorithm; this is the escape hatch for the parts it gets wrong)
-- Async mesh loading via `jobs` (M0 loads synchronously on the UI thread)
+- Async mesh loading via `jobs` (M0 loads synchronously on the UI thread; the thread itself exists since ADR-0011)
 - Per-drop import-units dialog for mixed-unit batches (M1 has one app-wide setting, ADR-0006)
 - Open the Joints window automatically when a document has a movable joint (M1 hides it under Window › Joints; the by-hand run missed it)
 - Drag feedback in the link tree: a ghost of the row at the cursor and a grab cursor while reparenting (only the drop target highlights today)
@@ -49,7 +50,7 @@ FK, and swing under gravity for 10 s without a NaN; the interactive
 - `CollisionPolicy::Meshes` is read-only in the panel: per-geom collision editing (pose, remove, add a file)
 - No `PackageMap` UI: `package://` on import is resolved beside the file or up the tree; a "packages" table in Import URDF… for the cases that heuristic misses
 - An imported link without `<inertial>` has no material and `Computed` cannot run until one is assigned — a default material for imports, or a one-click "assign PLA to every link"
-- The export dialog re-resolves (hulls included) on every option change; fine for the arm, `riggen-app::jobs` for the first big mesh (plans/m3-sim-ready non-goals: hulls synchronous and cached per `MeshId`)
+- The export dialog re-resolves (hulls included) on every option change; fine for the arm, and `riggen-app::jobs` now exists to move it off the UI thread for the first big mesh (decomposition already goes through it; hulls stay synchronous and cached per `MeshId`)
 - Oriented (PCA) primitive fits; today every fit starts from the AABB in the link frame and the user rotates it
 - MuJoCo's joint limits are soft: a freely swinging arm overshoots `range` by a few degrees with default `solref` — not an export bug, but a "joint limits are soft in MuJoCo" note in the export dialog would pre-empt the question
 - The `#[ignore]`d fixture generators (`write_arm_fixtures`, `write_arm_sample`) live in the visual test binary and need lavapipe to build; a `cargo xtask fixtures` would be lighter
