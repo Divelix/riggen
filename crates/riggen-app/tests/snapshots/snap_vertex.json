@@ -156,6 +156,11 @@
     },
     "selected": null
   },
+  "input": {
+    "pick_suppressed": false,
+    "select_suppressed": true,
+    "pointer_blocked": false
+  },
   "gizmo": null,
   "glyphs": [],
   "snap": {

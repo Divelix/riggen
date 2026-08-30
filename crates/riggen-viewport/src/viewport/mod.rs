@@ -113,12 +113,19 @@ pub struct Viewport {
     /// triangle to snap against, and their click means "place here", not
     /// "select the part under the cursor".
     select_suppressed: bool,
+    /// While `true` neither pick runs — no hover, no select — but camera
+    /// input stays live. The pointer is over something drawn *in front of*
+    /// the geometry that would answer for it: a gizmo handle, a joint glyph.
+    /// Re-picking under those would tint the part behind them, but orbit,
+    /// pan and zoom have no reason to stop (plans/gizmo-input).
+    pick_suppressed: bool,
     /// While `true` the viewport ignores the pointer entirely: no camera
-    /// input, no picking. The app sets it while the gizmo owns the cursor
-    /// (ADR-0007) — the gizmo's own widget is registered after the viewport
-    /// and so wins the *click*, but the viewport would otherwise still see
-    /// a hover and keep re-picking under it.
-    input_suppressed: bool,
+    /// input, no picking. Two things set it: something drawn over the
+    /// viewport in the *same* egui layer, which `contains_pointer` cannot
+    /// see through (the toolbar), and a gesture that must not be disturbed
+    /// (a gizmo drag is solved against the projection it started in, so a
+    /// wheel event mid-drag would make the part jump).
+    pointer_blocked: bool,
     pending_pick: Option<PendingPick>,
     last_pick: Option<PickInputs>,
     /// The rect allocated by the most recent [`Viewport::ui`] call, in egui
@@ -274,7 +281,8 @@ impl Viewport {
             selected: None,
             overlay: Overlay::default(),
             select_suppressed: false,
-            input_suppressed: false,
+            pick_suppressed: false,
+            pointer_blocked: false,
             pending_pick: None,
             last_pick: None,
             last_rect: None,
@@ -471,14 +479,33 @@ impl Viewport {
         (dir != DVec3::ZERO).then_some(Ray { origin: near, dir })
     }
 
-    /// Whether the pointer is ignored this frame (see `input_suppressed`).
-    pub fn set_input_suppressed(&mut self, suppressed: bool) {
-        self.input_suppressed = suppressed;
+    /// Whether picking is off this frame while the camera stays live (see
+    /// `pick_suppressed`).
+    pub fn set_pick_suppressed(&mut self, suppressed: bool) {
+        self.pick_suppressed = suppressed;
+    }
+
+    /// Whether the pointer is ignored this frame entirely (see
+    /// `pointer_blocked`).
+    pub fn set_pointer_blocked(&mut self, blocked: bool) {
+        self.pointer_blocked = blocked;
     }
 
     /// Whether a click may change the selection (see `select_suppressed`).
     pub fn set_select_suppressed(&mut self, suppressed: bool) {
         self.select_suppressed = suppressed;
+    }
+
+    /// The three pointer switches as they stand this frame, for
+    /// `debug_state`: `(pick_suppressed, select_suppressed,
+    /// pointer_blocked)`. A scenario can then assert the *policy* and not
+    /// only the tint it happens to produce.
+    pub fn pointer_policy(&self) -> (bool, bool, bool) {
+        (
+            self.pick_suppressed,
+            self.select_suppressed,
+            self.pointer_blocked,
+        )
     }
 
     /// Where `world` lands on screen, in egui logical points, or `None`
@@ -644,6 +671,14 @@ impl Viewport {
 
     /// Camera input while the pointer is over the viewport. Returns whether
     /// the camera changed, so the caller can request a repaint.
+    ///
+    /// Keyed on `contains_pointer()` rather than `hovered()`: `hovered` is
+    /// false whenever *any* later widget in the same layer took the hit, and
+    /// the gizmo registers one over the cursor whenever it wants the drag
+    /// (plans/gizmo-input). `contains_pointer` is a plain containment test
+    /// over the hit test's `close` set, which filters *layers* covering the
+    /// search area but not same-layer widgets — so a floating window still
+    /// takes the wheel and a gizmo handle no longer freezes the camera.
     fn handle_input(&mut self, ui: &egui::Ui, response: &egui::Response, rect: egui::Rect) -> bool {
         let mut changed = false;
         let aspect = rect.width().max(1.0) / rect.height().max(1.0);
@@ -660,7 +695,7 @@ impl Viewport {
 
         // Unsmoothed, and only while the pointer is over the viewport — like
         // every other viewport shortcut (see `raw_wheel_delta_y`).
-        let scroll = if response.hovered() {
+        let scroll = if response.contains_pointer() {
             let options = ui.ctx().options(|o| o.input_options);
             ui.input(|i| raw_wheel_delta_y(i, &options))
         } else {
@@ -670,7 +705,10 @@ impl Viewport {
             // Cursor position in NDC (x right, y up, `[-1, 1]`), falling
             // back to dead-center (target-anchored zoom) when the pointer
             // position isn't known this frame.
-            let cursor = response.hover_pos().unwrap_or(rect.center());
+            // Not `response.hover_pos()`: that is gated on `hovered()`, and
+            // a widget drawn over the cursor would zoom to the rect's centre
+            // instead of to the cursor.
+            let cursor = ui.ctx().pointer_hover_pos().unwrap_or(rect.center());
             let ndc = (
                 (cursor.x - rect.center().x) / (rect.width().max(1.0) * 0.5),
                 -(cursor.y - rect.center().y) / (rect.height().max(1.0) * 0.5),
@@ -682,7 +720,7 @@ impl Viewport {
         // Standard views, persp/ortho toggle and zoom-to-fit are viewport
         // shortcuts, not global ones — only live while the pointer is over
         // it.
-        if response.hovered() {
+        if response.contains_pointer() {
             let mut fit = false;
             ui.input(|i| {
                 let view_key = |key: egui::Key, plain: StandardView, ctrl: StandardView| {
@@ -813,7 +851,7 @@ impl Viewport {
         self.last_rect = Some(rect);
         let aspect = rect.width().max(1.0) / rect.height().max(1.0);
 
-        if !self.input_suppressed && self.handle_input(ui, &response, rect) {
+        if !self.pointer_blocked && self.handle_input(ui, &response, rect) {
             ui.ctx().request_repaint();
         }
 
@@ -864,12 +902,12 @@ impl Viewport {
         let view_proj = view_proj_matrix.to_cols_array_2d();
         let decision = decide_pick(
             self.pending_pick.is_some() || self.scene.is_empty(),
-            (!self.input_suppressed && !self.select_suppressed)
+            (!self.pointer_blocked && !self.pick_suppressed && !self.select_suppressed)
                 .then(|| response.clicked().then(|| response.interact_pointer_pos()))
                 .flatten()
                 .flatten()
                 .map(to_pixel),
-            (!self.input_suppressed)
+            (!self.pointer_blocked && !self.pick_suppressed)
                 .then(|| response.hover_pos())
                 .flatten()
                 .map(to_pixel),

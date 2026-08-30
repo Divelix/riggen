@@ -16,7 +16,9 @@
 mod harness;
 
 use egui_kittest::kittest::{NodeT, Queryable};
-use harness::{click_at, click_widget, pump_rendered, scenario, settle, synthetic_drag, with_app};
+use harness::{
+    click_at, click_widget, pump_rendered, scenario, scroll_at, settle, synthetic_drag, with_app,
+};
 
 use riggen_app::{Selection, Tool, ZERO_CONFIG_STATUS};
 use riggen_core::glam::DVec3;
@@ -1327,6 +1329,139 @@ fn gizmo_leaves_the_pointer_alone() {
         assert!(
             harness.state().debug_state().gizmo.is_none(),
             "the root has no parent joint to move, so its gizmo is gone"
+        );
+    });
+}
+
+/// The centre of the widget labelled `label`, for aiming the pointer at
+/// something that floats over the viewport — the accesskit tree knows where
+/// egui put it, so no scenario has to restate a layout constant.
+fn label_center(
+    harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+    label: &str,
+) -> egui::Pos2 {
+    let bounds = harness
+        .get_by_label(label)
+        .accesskit_node()
+        .bounding_box()
+        .unwrap_or_else(|| panic!("widget {label:?} has no bounds"));
+    egui::pos2(
+        ((bounds.x0 + bounds.x1) / 2.0) as f32,
+        ((bounds.y0 + bounds.y1) / 2.0) as f32,
+    )
+}
+
+/// Loads the pendulum, frames it, and arms Move on the `arm` link — the
+/// state every gizmo-pointer scenario starts from.
+fn pendulum_with_move_armed(harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>) {
+    let app = harness.state_mut();
+    app.open_path(&fixture("pendulum.riggen"))
+        .expect("open the corpus file");
+    let arm = *app
+        .robot()
+        .links
+        .iter()
+        .find(|(_, l)| l.name == "arm")
+        .map(|(id, _)| id)
+        .unwrap();
+    app.fit_view_now();
+    app.set_tool(Tool::Move);
+    app.select(Selection::Link(arm));
+    settle(harness);
+}
+
+/// The wheel still zooms with a gizmo handle under the cursor
+/// (plans/gizmo-input step 2): a handle suppresses *picking*, because it
+/// hides the geometry that would answer for the cursor, but the camera has
+/// no reason to stop. This is the M2 exit gate's "dead camera" reported
+/// directly.
+#[test]
+fn camera_works_while_the_gizmo_is_up() {
+    with_app(|harness| {
+        pendulum_with_move_armed(harness);
+        let handle = gizmo_handle(harness);
+        let before = harness.state().debug_state().camera.distance;
+        let depth = harness.state().history().undo_depth();
+
+        scroll_at(harness, handle, -3.0);
+
+        let state = harness.state().debug_state();
+        assert!(
+            state.gizmo.expect("the gizmo is still drawn").captured,
+            "the cursor is on the view-plane handle"
+        );
+        assert!(
+            state.input.pick_suppressed && !state.input.pointer_blocked,
+            "a handle takes the picks, not the camera: {:?}",
+            state.input
+        );
+        assert!(
+            state.camera.distance != before,
+            "the wheel zoomed under the gizmo: {before} -> {}",
+            state.camera.distance
+        );
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth,
+            "zooming is not an edit"
+        );
+    });
+}
+
+/// The two things that *do* take the whole pointer, and the reason they need
+/// different mechanisms (plans/gizmo-input step 2, OPEN 3).
+///
+/// The toolbar floats over the viewport in the viewport's **own** egui layer,
+/// which `contains_pointer()` cannot see through — so the app blocks the
+/// pointer from the remembered `toolbar_rect`. A floating window is its own
+/// layer, and egui's hit test filters layers covering the search area, so
+/// `contains_pointer()` is already false there and nothing extra is needed.
+/// Both are asserted, because only one of them is our code.
+#[test]
+fn the_toolbar_does_not_zoom_the_camera() {
+    with_app(|harness| {
+        pendulum_with_move_armed(harness);
+
+        // The toolbar sits at the viewport's top-left corner; its label is
+        // the surest thing to aim at.
+        let on_toolbar = label_center(harness, Tool::Move.label());
+        let before = harness.state().debug_state().camera.distance;
+        scroll_at(harness, on_toolbar, -3.0);
+        let state = harness.state().debug_state();
+        assert!(
+            state.input.pointer_blocked,
+            "the toolbar owns the pointer: {:?}",
+            state.input
+        );
+        assert_eq!(
+            state.camera.distance, before,
+            "the wheel over the toolbar left the camera alone"
+        );
+
+        // OPEN 3: a floating window is a layer of its own.
+        harness.state_mut().set_joints_window_open(true);
+        settle(harness);
+        let on_window = label_center(harness, "Joints");
+        assert!(
+            harness
+                .state()
+                .debug_state()
+                .viewport_rect
+                .is_some_and(|r| (r[0]..r[2]).contains(&(on_window.x as f64))
+                    && (r[1]..r[3]).contains(&(on_window.y as f64))),
+            "the window floats over the viewport, or this proves nothing: {on_window:?}"
+        );
+        let before = harness.state().debug_state().camera.distance;
+        scroll_at(harness, on_window, -3.0);
+        let state = harness.state().debug_state();
+        assert!(
+            !state.input.pointer_blocked,
+            "nothing blocks it: egui's layer filter already did, {:?}",
+            state.input
+        );
+        assert_eq!(
+            state.camera.distance, before,
+            "the wheel over the Joints window left the camera alone"
         );
     });
 }

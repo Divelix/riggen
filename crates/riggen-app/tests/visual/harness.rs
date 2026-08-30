@@ -178,6 +178,26 @@ pub fn synthetic_drag(
     pump_rendered(harness, 4);
 }
 
+/// Hovers at `pos` and turns the wheel `lines` notches there.
+///
+/// The viewport reads the wheel off `InputState::raw.events`
+/// (`raw_wheel_delta_y`), which holds one frame's worth — so the event has
+/// to arrive on a frame of its own, after the hover has settled and the hit
+/// test has had a frame to record what the pointer is over. A negative
+/// `lines` scrolls the way a wheel pulled towards the user does.
+#[allow(dead_code, reason = "used from the camera scenarios on")]
+pub fn scroll_at(harness: &mut Harness<'_, RiggenApp>, pos: egui::Pos2, lines: f32) {
+    harness.hover_at(pos);
+    pump_rendered(harness, 4);
+    harness.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: egui::vec2(0.0, lines),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    pump_rendered(harness, 4);
+}
+
 /// Hovers, presses and releases at `pos`, rendering between each step.
 ///
 /// `Harness::drag_at`/`drop_at` cannot be used for this. `step` drains *every*
