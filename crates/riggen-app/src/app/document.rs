@@ -14,8 +14,9 @@ use riggen_core::{
     CollisionPolicy, Command, EditError, GeomId, History, Joint, JointId, JointState, Link, LinkId,
     MeshAsset, MeshId, Pose, Primitive, Robot, fk,
 };
-use riggen_mesh::TriMesh;
+use riggen_export::{DecompMiss, DecompSource};
 use riggen_mesh::feature::Adjacency;
+use riggen_mesh::{DecompParams, TriMesh};
 use riggen_viewport::{InstanceId, RenderGroup};
 
 /// The translucent orange collision geometry draws in — the MJCF
@@ -32,6 +33,41 @@ pub(crate) enum CollisionSource {
     /// A collision-only mesh (`CollisionPolicy::Meshes`).
     Mesh(MeshId),
     Primitive(Primitive),
+}
+
+/// A decomposition in the app's cache: requested, back, or hopeless. The
+/// document holds the *parameters* and never this (ADR-0011), so the map is
+/// derived state like `mesh_store` and is thrown away with the app.
+#[derive(Debug, Clone)]
+pub(crate) enum DecompState {
+    /// A job is in flight; ask again next frame.
+    Pending,
+    Ready(Vec<Arc<TriMesh>>),
+    /// V-HACD found nothing at these parameters; the message is the
+    /// panel's and the export's.
+    Failed(String),
+}
+
+/// The app's [`DecompSource`]: the cache and nothing else. `resolve` must
+/// not start a decomposition — the frame that asks has already requested
+/// it (`request_decompositions`), and an entry that has not landed blocks
+/// the export with `DecompositionPending` (plans/convex-decomposition
+/// OPEN 3, decided by the human: no modal, the line clears itself).
+pub(crate) struct AppDecomp<'a>(pub(crate) &'a HashMap<(MeshId, DecompParams), DecompState>);
+
+impl DecompSource for AppDecomp<'_> {
+    fn pieces(
+        &self,
+        mesh: MeshId,
+        _source: &TriMesh,
+        params: DecompParams,
+    ) -> Result<Vec<Arc<TriMesh>>, DecompMiss> {
+        match self.0.get(&(mesh, params)) {
+            Some(DecompState::Ready(pieces)) => Ok(pieces.clone()),
+            Some(DecompState::Failed(reason)) => Err(DecompMiss::Degenerate(reason.clone())),
+            Some(DecompState::Pending) | None => Err(DecompMiss::Pending),
+        }
+    }
 }
 
 use super::RiggenApp;
@@ -719,6 +755,74 @@ impl RiggenApp {
     /// The store entry for `mesh_id`, loading the file on first use.
     /// `None` when the asset is missing or the file does not load — the
     /// visual sync already put that error in the status bar.
+    /// The decomposition parameters every link asks for, as
+    /// `(mesh, params)` pairs — one per visual of every link whose policy
+    /// is `ConvexDecomposition`.
+    pub(crate) fn wanted_decompositions(&self) -> Vec<(MeshId, DecompParams)> {
+        let mut wanted = Vec::new();
+        for link in self.robot.links.values() {
+            let CollisionPolicy::ConvexDecomposition {
+                max_hulls,
+                resolution,
+                concavity,
+            } = link.collision
+            else {
+                continue;
+            };
+            let params = DecompParams {
+                max_hulls,
+                resolution,
+                concavity,
+            };
+            for g in &link.visuals {
+                if !wanted.contains(&(g.mesh, params)) {
+                    wanted.push((g.mesh, params));
+                }
+            }
+        }
+        wanted
+    }
+
+    /// Asks the job thread for every decomposition the document wants and
+    /// does not have. Idempotent: `Jobs::request` drops a key already in
+    /// flight, and a cached entry is never asked for again. Called once per
+    /// frame and before an export resolves.
+    pub(crate) fn request_decompositions(&mut self) {
+        for (mesh, params) in self.wanted_decompositions() {
+            if self.decomp.contains_key(&(mesh, params)) {
+                continue;
+            }
+            let Some(source) = self.ensure_loaded(mesh).map(|l| l.mesh.clone()) else {
+                continue; // Unloadable; `resolve` reports it properly.
+            };
+            if self.jobs.request(crate::jobs::Job::Decompose {
+                mesh,
+                params,
+                source,
+            }) {
+                self.decomp.insert((mesh, params), DecompState::Pending);
+            }
+        }
+    }
+
+    /// Moves everything the job thread finished into the cache. Once per
+    /// frame, before the scene is synced, so a decomposition that landed is
+    /// drawn on the frame the wake-up caused.
+    pub(crate) fn drain_jobs(&mut self) {
+        for result in self.jobs.drain() {
+            let crate::jobs::JobResult::Decomposed {
+                mesh,
+                params,
+                pieces,
+            } = result;
+            let state = match pieces {
+                Ok(pieces) => DecompState::Ready(pieces),
+                Err(reason) => DecompState::Failed(reason),
+            };
+            self.decomp.insert((mesh, params), state);
+        }
+    }
+
     pub(crate) fn ensure_loaded(&mut self, mesh_id: MeshId) -> Option<&mut LoadedMesh> {
         let asset = self.robot.assets.get(&mesh_id)?;
         if let std::collections::hash_map::Entry::Vacant(slot) = self.mesh_store.entry(mesh_id) {

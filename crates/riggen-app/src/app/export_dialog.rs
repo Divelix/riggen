@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use riggen_export::{ExportOptions, Format, MeshPathStyle, ResolvedRobot};
 
 use super::RiggenApp;
-use super::document::AppMeshes;
+use super::document::{AppDecomp, AppMeshes};
 
 /// The modal's state. `resolved` is `Some` exactly when `errors` is empty.
 #[derive(Default)]
@@ -59,18 +59,21 @@ impl RiggenApp {
         for mesh in self.robot.referenced_assets() {
             self.ensure_loaded(mesh);
         }
+        // The dialog may be the first thing to want a decomposition (a
+        // link whose collision view was never on), so ask before resolving.
+        self.request_decompositions();
         let mut options = self.export_dialog.options.clone();
         if let MeshPathStyle::Package(name) = &mut options.mesh_paths {
             *name = self.export_dialog.package.clone();
         }
-        // `ComputeNow` for one more step: the dialog blocks on a
-        // decomposition exactly as it blocks on a hull today. Step 5's job
-        // thread replaces this with the app's cache-only source, and
-        // `ExportError::DecompositionPending` then joins the list below.
+        // The cache, never a computation: a decomposition the job thread
+        // has not delivered is `ExportError::DecompositionPending` in the
+        // list below, and the line clears itself when the job lands and
+        // the user presses the button again (plans OPEN 3).
         match riggen_export::resolve(
             &self.robot,
             &AppMeshes(&self.mesh_store),
-            &riggen_export::ComputeNow,
+            &AppDecomp(&self.decomp),
             &options,
         ) {
             Ok(resolved) => {

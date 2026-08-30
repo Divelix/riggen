@@ -151,6 +151,9 @@ pub struct RiggenApp {
     instances: BTreeMap<(LinkId, GeomId), InstanceId>,  // the only map between document and scene
     collision_instances: BTreeMap<(LinkId, usize), (InstanceId, CollisionSource)>, // translucent shapes,
     show_collision: bool,                               // per link and shape index, while View › Collision geometry is on
+    jobs: Jobs,                                         // the job thread (§Jobs and threads), drained once per frame
+    decomp: HashMap<(MeshId, DecompParams), DecompState>, // convex pieces it produced; the document holds the
+                                                        // parameters and never the pieces (ADR-0011)
     q: JointState, selection: Selection,                // Selection = None | Link(LinkId) | Joint(JointId)
     tool: Tool, gizmo_state: GizmoState,               // Select | Move | Rotate | PlaceJoint | Align; the gizmo and its drag
     preview_world: Option<(LinkId, Pose)>,             // a link's pose while a gizmo drag previews it
@@ -515,20 +518,33 @@ disagree with the wgpu pass about where a point is: both start from
 
 ## Jobs and threads
 
-There is no evaluator and, as of M3, no job thread either. The only work
-that is not a frame's worth is mesh loading, convex hulls and export, and
-all of it runs synchronously on the UI thread: every route in — CLI
-arguments, drag-and-drop, File › Open, Import URDF — ends in
-`RiggenApp::load_files` (through the dirty check when a document is among
-the files) and fits the view afterwards; `sync_scene` loads a document's
-assets from their paths; a hull is computed the first time the collision
-view or a fit asks for it and cached beside the loaded mesh
-(`LoadedMesh::hull`); the export resolves in the dialog and writes on the
-button. The meshes M3 is built against make none of this noticeable.
-`riggen-app::jobs` — RoboCAD's `EvalExecutor` shape, a `std::thread` with
-an `mpsc` channel and a `wake` bound to `ctx.request_repaint()`, results
-drained once per frame, inline on wasm — is on the backlog for the first
-mesh that makes it hurt (plans/m3-sim-ready non-goals).
+There is no evaluator, and one job thread. `riggen-app::jobs` is RoboCAD's
+`EvalExecutor` shape: a `std::thread`, an `mpsc` request/result pair, a
+`wake` callback the app binds to `ctx.request_repaint()` so an idle window
+does not sit on an undrained result, and `Jobs::drain` called once per
+frame at the top of `ui` — before anything reads what it filled. A request
+carries a `JobKey`, and `Jobs::request` drops a key already in flight, so
+the frame may ask every frame. On wasm there is no thread: `request` runs
+the job inline and queues the result, and app code does not branch.
+
+**What runs on it: convex decomposition, and nothing else yet.** V-HACD is
+seconds of work on a real part (ADR-0011), which is the first thing here a
+frame could not absorb. `RiggenApp::request_decompositions` asks for every
+`(MeshId, DecompParams)` the document's `ConvexDecomposition` links want
+and do not have; `drain_jobs` moves results into `RiggenApp::decomp`;
+`decompositions_pending()` is part of `settled()`, so a snapshot is never
+taken over a half-computed collision view.
+
+**What still runs on the UI thread:** mesh loading, convex hulls and
+export. Every route in — CLI arguments, drag-and-drop, File › Open, Import
+URDF — ends in `RiggenApp::load_files` (through the dirty check when a
+document is among the files) and fits the view afterwards; `sync_scene`
+loads a document's assets from their paths; a hull is computed the first
+time the collision view or a fit asks for it and cached beside the loaded
+mesh (`LoadedMesh::hull`); the export resolves in the dialog and writes on
+the button. The meshes riggen is built against make none of this
+noticeable, and "async mesh loading via `jobs`" and "the export dialog
+re-resolves on every option change" stay backlog lines.
 
 ## File format
 

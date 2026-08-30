@@ -19,7 +19,7 @@ pub use camera::CameraDebug;
 
 use serde::Serialize;
 
-use crate::app::{RiggenApp, Selection};
+use crate::app::{DecompState, RiggenApp, Selection};
 
 /// Decimal places every serialised float is rounded to.
 ///
@@ -499,7 +499,38 @@ impl RiggenApp {
     /// flight and no camera animation reading the wall clock. The harness
     /// pumps frames until this has held for a few in a row.
     pub fn settled(&self) -> bool {
-        self.viewport.is_settled()
+        // A decomposition still on the job thread would change what the
+        // collision view draws, so a snapshot taken now is not the one the
+        // scenario asked for.
+        self.viewport.is_settled() && !self.decompositions_pending()
+    }
+
+    /// Whether any decomposition the document wants is still on the job
+    /// thread (`crate::jobs`). Frames keep coming while this is true: the
+    /// worker's `wake` is `ctx.request_repaint()`.
+    pub fn decompositions_pending(&self) -> bool {
+        self.wanted_decompositions().iter().any(|key| {
+            !matches!(
+                self.decomp.get(key),
+                Some(DecompState::Ready(_) | DecompState::Failed(_))
+            )
+        })
+    }
+
+    /// The convex pieces the job thread produced for `(mesh, params)`:
+    /// `None` while it is pending or nothing has asked, `Some(Err(reason))`
+    /// when there are none at these parameters. What the properties panel,
+    /// the collision view and the snapshot suite read.
+    pub fn decomposition(
+        &self,
+        mesh: riggen_core::MeshId,
+        params: riggen_mesh::DecompParams,
+    ) -> Option<Result<&[std::sync::Arc<riggen_mesh::TriMesh>], &str>> {
+        match self.decomp.get(&(mesh, params))? {
+            DecompState::Pending => None,
+            DecompState::Ready(pieces) => Some(Ok(&pieces[..])),
+            DecompState::Failed(reason) => Some(Err(reason.as_str())),
+        }
     }
 
     /// Frames every visible instance **without** animating there.

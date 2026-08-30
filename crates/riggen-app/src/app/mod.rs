@@ -19,6 +19,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use riggen_core::{GeomId, History, JointId, JointState, LinkId, MeshId, Pose, Robot};
+use riggen_mesh::DecompParams;
+
+use crate::jobs::Jobs;
 use riggen_viewport::{InstanceId, PickHit, Viewport};
 
 /// eframe storage key for View › Collision geometry.
@@ -28,7 +31,7 @@ use web_time::Instant;
 pub use align::{ALIGN_PROMPT, ALIGN_WRONG_LINK, align_transform, aligned_status};
 pub use debug_menu::COPIED_STATUS;
 pub use document::Selection;
-pub(crate) use document::{CollisionSource, LoadedMesh};
+pub(crate) use document::{CollisionSource, DecompState, LoadedMesh};
 pub use export_dialog::ExportDialog;
 pub use file_menu::PendingAction;
 use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
@@ -60,6 +63,14 @@ pub struct RiggenApp {
     /// View › Collision geometry. Off by default, remembered through eframe
     /// storage.
     show_collision: bool,
+    /// The job thread (`crate::jobs`, docs/01-architecture.md §Jobs and
+    /// threads). Drained once per frame.
+    jobs: Jobs,
+    /// Convex decompositions by `(mesh, parameters)`: derived state, never
+    /// saved — the document holds the parameters and never the pieces
+    /// (ADR-0011). Filled by the job thread, read by the properties panel,
+    /// the collision view and the export.
+    pub(crate) decomp: HashMap<(MeshId, DecompParams), DecompState>,
     /// Current joint values — slider state, never saved.
     q: JointState,
     selection: Selection,
@@ -175,6 +186,11 @@ impl RiggenApp {
             instances: BTreeMap::new(),
             collision_instances: BTreeMap::new(),
             show_collision,
+            jobs: Jobs::new({
+                let ctx = cc.egui_ctx.clone();
+                move || ctx.request_repaint()
+            }),
+            decomp: HashMap::new(),
             q: JointState::default(),
             selection: Selection::None,
             tool: Tool::default(),
@@ -342,6 +358,10 @@ impl eframe::App for RiggenApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.tick_frame_clock();
+        // Once per frame, before anything reads the cache: what the thread
+        // finished, then what the document has started wanting.
+        self.drain_jobs();
+        self.request_decompositions();
         self.handle_close_request(ui.ctx());
         self.handle_file_drops(ui.ctx());
         self.handle_shortcuts(ui.ctx());
