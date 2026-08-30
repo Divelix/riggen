@@ -820,7 +820,9 @@ byte-identical to `arm.riggen`'s) are the API's worked examples and the
   (camera with near/far, the document — file, dirty, links, joints with
   `q`, selection — the `ui` section — rename in progress, open windows,
   modal, title — instances with their link/geom key, position and colour,
-  viewport selection, status, viewport rect) accompanies every snapshot as
+  viewport selection, the gizmo, the joint glyphs, the snap candidate, the
+  viewport's pointer policy (`input`, omitted while nothing is suppressed),
+  status, viewport rect) accompanies every snapshot as
   a golden of its own; every float in it is rounded to six decimals and
   `-0.0` normalised so goldens never churn. At runtime the same JSON is
   under Debug › Copy / Save state (JSON), beside egui's layout overlays.
@@ -835,8 +837,14 @@ byte-identical to `arm.riggen`'s) are the API's worked examples and the
   `properties_inertial`, `properties_inertial_open_mesh`,
   `properties_collision`, `export_dialog`, `export_blocked`, `import_urdf`,
   plus golden-less app tests including `build_pendulum_numerically` (the
-  M1 acceptance in executable form), `example_arm_opens_from_the_bundle`
-  and `startup_first_frame_under_budget`. `debug_state().timing`
+  M1 acceptance in executable form), `example_arm_opens_from_the_bundle`,
+  `startup_first_frame_under_budget`, and the pointer-sharing set behind
+  ADR-0010 — `gizmo_leaves_the_pointer_alone`,
+  `camera_works_while_the_gizmo_is_up`, `orbit_works_from_a_gizmo_handle`,
+  `the_toolbar_does_not_zoom_the_camera`,
+  `a_hovered_glyph_leaves_the_camera_alone` and the acceptance run
+  `gizmo_shares_the_viewport`, which orbits, zooms, re-selects and drags a
+  handle in one session because those stopped working together. `debug_state().timing`
   (`first_frame_ms`, `frame_dt`) is present only while the frame HUD is
   on, which the harness turns off, so no golden holds a wall-clock number.
   The harness sets the import scale to `1.0` (the fixtures are unit cubes
@@ -865,6 +873,13 @@ byte-identical to `arm.riggen`'s) are the API's worked examples and the
     in one unrendered logic pass, and the press, the moves and the release
     would never be seen apart. `RiggenApp::project_world` aims it — for the
     gizmo, `debug_state().gizmo.screen` is its view-plane handle.
+  - `scroll_at(harness, pos, lines)` and
+    `middle_drag(harness, from, to, modifiers)` drive the camera. The wheel
+    is read off `InputState::raw.events`, which holds one frame's worth, so
+    the event needs a frame of its own after the hover has settled; and a
+    modifier is carried by `Event::ModifiersChanged`, because egui keeps the
+    previous pass's modifiers until an event changes them — one at each end
+    holds shift down across every frame of a pan.
   - kittest cannot drag a tree row onto another: `tree_reparent` reparents
     through the command API and only draws the result. A synthetic drag
     (press, `PointerMoved` in steps, release) does work for a one-off check.
