@@ -738,6 +738,7 @@ the id counter included. No `History`: a script has no undo.
 | `remove_link`, `rename_link`, `rename_joint` | `RemoveLink`, `RenameLink`, `RenameJoint` |
 | `add_geom(link, mesh, *, pose, color)`, `remove_geom`, `set_geom_pose` | `AddGeom` (the geom id allocated here), `RemoveGeom`, `SetGeomPose` |
 | `set_joint(joint, doc)` | `SetJoint`; `parent` / `child` in the dict ignored |
+| `add_frame(name, link, *, pose)`, `remove_frame`, `rename_frame`, `set_frame(frame, doc)`, `frame(name)` | `AddFrame` (the id allocated there and returned), `RemoveFrame`, `RenameFrame`, `SetFrame`, a name lookup (ADR-0012) |
 | `move_joint_frame(joint, origin, axis)` | `MoveJointFrame` |
 | `reparent(link, new_parent, *, keep_world_pose)` | `Reparent` |
 | `set_root(link)` | `SetRoot` |
@@ -746,6 +747,7 @@ the id counter included. No `History`: a script has no undo.
 | `set_inertial(link, doc)`, `set_collision(link, doc)` | `SetInertial`, `SetCollision` |
 | `validate() -> list[str]`, `check()` | `validation_errors`; `check` raises `ValidationError`. Empty for any document the edit methods, `load` or `from_json` let through — they validate |
 | `fk({joint: q}) -> {link: pose}` | `fk` with a `JointState`; a missing joint is at zero, an unknown one `UnknownId` |
+| `fk_frames({joint: q}) -> {frame: pose}` | `fk::frames`; `fk` itself stays links only |
 | `origin_for_world(link, world) -> pose \| None` | `origin_for_world` |
 | `inertial(link) -> (mass, com, inertia rows)` | `MeshStore::load` + `compose_inertial`; `InertialError` (mesh load errors appended) |
 | `export(dir, *, format, mesh_paths, floating_base, fk_samples) -> [Path]` | `MeshStore::load` + `resolve` + `export` (+ `fk_samples::to_json`), exactly `cli::run`: every resolve error joined one per line as `cannot export: …` into `ExportError`; `format` is `"mjcf" \| "urdf" \| "both"`, `mesh_paths` `"relative" \| "absolute" \| "package://<name>"` |
@@ -791,15 +793,18 @@ over that table — no logic of its own beyond spelling:
 | `link.remove()`, `.reparent(parent, keep_world_pose=True)`, `.place(world)`, `.make_root()` | `remove_link`, `reparent`, `origin_for_world` + `set_joint`, `set_root` |
 | `link.inertial` → `Inertial(mass, com, inertia)` | `inertial` |
 | `joint.name`, `.kind`, `.parent`, `.child`; `.origin`, `.axis`, `.limits`, `.dynamics`, `.spec` (get/set); `.move_frame(origin, axis)` | `set_joint` with the one field changed; `move_joint_frame` |
+| `link.add_frame(name, pose)` → `Frame`; `link.frames`, `robot.frames`, `robot.frame(name)` (`KeyError`) | `add_frame`, `frames()`, `frame(name)` |
+| `frame.name`, `.parent`, `.pose` (get/set), `.world(q)`, `.remove()` | `rename_frame`, `set_frame`, `fk_frames`, `remove_frame`; setting `.parent` keeps the *stored* pose, so the frame moves — the app's panel is the one that keeps the world pose (ADR-0012) |
 | `Pose(xyz, rpy= \| quat=, degrees=)`, `.rpy`, `.rpy_degrees`, `.to_doc()` | `rpy_to_quat` / `quat_to_rpy` (the core's convention, never re-derived); `quat` is `(w, x, y, z)` |
 | `Fixed(origin)`, `Revolute(axis, *, origin, limits, dynamics, degrees)`, `Continuous`, `Prismatic` → `JointSpec` | the joint dict; `axis` is `"x" \| "-y" \| (x, y, z)`; `limits` a `Limits` or `(lower, upper)`; the app's defaults (`±π`, `±1`, effort and velocity 0) |
 | `ComputedInertial(density)`, `OverrideInertial(mass, com, rows)`, `HybridInertial(mass)` | the `InertialSpec` dict (the tensor column-major in the file, rows here) |
 | `ConvexDecomposition(max_hulls, resolution, concavity)` | the `{"ConvexDecomposition": {…}}` `set_collision` already takes — no new `Command` method; `link.collision` reads it back as the dataclass, the three simple policies as their names, anything else as the document value (ADR-0011) |
-| `robot.fk({name \| joint: q})` → `{name: Pose}`, `.validate()`, `.save()`, `.export(dir, *, format, mesh_paths, floating_base, fk_samples)`, `.to_json()` / `from_json`, `.copy()` | the same names, ids ↔ names |
+| `robot.fk({name \| joint: q})` → `{name: Pose}`, `.frame_poses({…})` → `{name: Pose}`, `.validate()`, `.save()`, `.export(dir, *, format, mesh_paths, floating_base, fk_samples)`, `.to_json()` / `from_json`, `.copy()` | the same names, ids ↔ names |
 
 `examples/pendulum.py` (the README's ten lines; the corpus pendulum) and
-`examples/arm.py` (the M2 arm from its STLs, joints typed; its export is
-byte-identical to `arm.riggen`'s) are the API's worked examples and the
+`examples/arm.py` (the M2 arm from its STLs, joints typed, a `tcp` and a
+`camera_mount` frame on top; its export is byte-identical to
+`arm.riggen`'s) are the API's worked examples and the
 `wheel` job's MuJoCo input.
 
 ## Testing

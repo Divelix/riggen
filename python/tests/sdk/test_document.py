@@ -6,6 +6,7 @@ document untouched."""
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -159,6 +160,29 @@ def test_every_edit_is_one_command(pendulum: Robot, cubes: Path):
     assert pendulum.root == 5 and pendulum.joints()[6]["parent"] == 5
 
 
+def test_frame_commands_are_one_edit_each(pendulum: Robot):
+    tcp = pendulum.add_frame("tcp", 5, pose={"t": [0.0, 0.0, 0.3], "r": [0.0, 0.0, 0.0, 1.0]})
+    assert pendulum.frame("tcp") == tcp
+    assert pendulum.frames()[tcp] == {
+        "name": "tcp",
+        "parent": 5,
+        "pose": {"t": [0.0, 0.0, 0.3], "r": [0.0, 0.0, 0.0, 1.0]},
+    }
+    # The arm sits 0.5 m up, so the frame is at 0.8 m; at 90° about Y it
+    # swings out along +X. `fk` itself still returns links only.
+    assert pendulum.fk_frames({})[tcp]["t"] == [0.0, 0.0, 0.8]
+    assert tcp not in pendulum.fk({})
+    swung = pendulum.fk_frames({6: math.pi / 2})[tcp]["t"]
+    assert swung == pytest.approx([0.3, 0.0, 0.5], abs=1e-12)
+
+    pendulum.rename_frame(tcp, "tool0")
+    assert pendulum.frames()[tcp]["name"] == "tool0"
+    pendulum.set_frame(tcp, {"name": "tool0", "parent": 0, "pose": IDENTITY})
+    assert pendulum.frames()[tcp]["parent"] == 0
+    pendulum.remove_frame(tcp)
+    assert pendulum.frames() == {}
+
+
 def unchanged(robot: Robot):
     """A context that asserts the document (and its id counter) survived."""
     before = robot.to_json()
@@ -190,6 +214,11 @@ def unchanged(robot: Robot):
         (errors.InvalidDocument, lambda r: r.add_link("x", 0, hinge_joint(limits=None))),
         (errors.InvalidDocument, lambda r: r.add_geom(0, 99)),
         (errors.InvalidDocument, lambda r: r.set_link_material(5, "unobtainium")),
+        (errors.UnknownId, lambda r: r.remove_frame(99)),
+        (errors.UnknownId, lambda r: r.rename_frame(99, "x")),
+        (errors.UnknownId, lambda r: r.add_frame("tcp", 99)),
+        # One namespace: a frame may not take a link's name (ADR-0012).
+        (errors.InvalidDocument, lambda r: r.add_frame("arm", 5)),
     ],
 )
 def test_refused_edits_raise_and_change_nothing(pendulum: Robot, exc, edit):

@@ -177,6 +177,50 @@ def test_every_setter_is_one_edit(pendulum_api: riggen.Robot):
         arm.collision = "bouncy"
 
 
+def test_frame_handles_read_edit_and_export(pendulum_api: riggen.Robot, tmp_path: Path):
+    robot = pendulum_api
+    arm, base = robot.link("arm"), robot.root
+    tcp = arm.add_frame("tcp", (0, 0, 0.3))
+    assert robot.frames == [tcp] and arm.frames == [tcp] and base.frames == []
+    assert robot.frame("tcp") == tcp
+    assert (tcp.name, tcp.parent, tcp.pose) == ("tcp", arm, Pose((0, 0, 0.3)))
+    assert repr(tcp) == "Frame('tcp' on 'arm')"
+
+    # The world pose rides its link: 0.5 m up plus 0.3 m, and out along +X
+    # once the hinge has swung 90°.
+    assert tcp.world() == Pose((0, 0, 0.8))
+    assert close(tcp.world({"hinge": math.pi / 2}).xyz, (0.3, 0.0, 0.5))
+    assert robot.frame_poses()["tcp"] == Pose((0, 0, 0.8))
+    assert "tcp" not in robot.fk(), "fk stays links only"
+
+    tcp.pose = (0, 0, 0.4)
+    assert tcp.world() == Pose((0, 0, 0.9))
+    tcp.name = "tool0"
+    assert robot.frame("tool0") == tcp
+    tcp.name = "tcp"
+    # Moving it to another link keeps the *stored* pose, so it moves.
+    tcp.parent = base
+    assert tcp.parent == base and tcp.world() == Pose((0, 0, 0.4))
+    tcp.parent = arm
+
+    # It reaches MJCF as a <site> and URDF as a dummy link on a fixed joint.
+    robot.export(tmp_path, format="both")
+    mjcf = (tmp_path / "pendulum.xml").read_text()
+    assert '<site name="tcp" pos="0 0 0.4"/>' in mjcf
+    urdf = (tmp_path / "pendulum.urdf").read_text()
+    assert '<link name="tcp"/>' in urdf
+    assert '<joint name="tcp_fixed" type="fixed">' in urdf
+
+    with pytest.raises(KeyError):
+        robot.frame("nobody")
+    with pytest.raises(riggen.InvalidDocument):
+        arm.add_frame("base_link")  # one namespace with the links
+    tcp.remove()
+    assert robot.frames == []
+    with pytest.raises(riggen.UnknownId):
+        tcp.name
+
+
 def test_fk_by_name_and_handle(pendulum_api: riggen.Robot):
     robot = pendulum_api
     hinge = robot.joint("hinge")
@@ -218,7 +262,10 @@ def test_load_warns_instead_of_failing(cubes: Path, pendulum_api: riggen.Robot):
 def test_load_urdf_warns_and_builds(tmp_path: Path):
     with pytest.warns(riggen.RiggenWarning):
         robot = riggen.load_urdf(FIXTURES / "arm" / "arm.urdf")
-    assert [l.name for l in robot.links] == ["base_link", "base", "shoulder", "upper", "fore"]
+    # The file's two named frames come back as the massless links they are
+    # written as; the import does not guess them back (ADR-0012).
+    assert [l.name for l in robot.links] == ["base_link", "base", "shoulder", "upper", "fore", "tcp", "camera_mount"]
+    assert robot.frames == []
     assert robot.joint("shoulder_joint").kind == "revolute"
 
 

@@ -117,7 +117,7 @@ to 1e-6.
   vertex, AABB corner, face normal — works under them, so a TCP lands on
   a picked feature without a coordinate typed. Snapshot
   `gizmo_move_frame`.
-- [ ] **Step 8 — the SDK.** `_riggen` gains `add_frame` / `remove_frame` /
+- [x] **Step 8 — the SDK.** `_riggen` gains `add_frame` / `remove_frame` /
   `set_frame`; `python/riggen/robot.py` gains the `Frame` handle and the
   `Link` / `Robot` accessors above; `_riggen.pyi` updated; pytest cases in
   `test_document.py` and `test_api.py` (add, move, remove, export and read
