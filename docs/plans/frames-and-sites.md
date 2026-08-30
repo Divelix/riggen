@@ -92,7 +92,7 @@ to 1e-6.
   and a `camera_mount` on the base, so `assets/fixtures/arm/arm.urdf` gains
   the dummy links too and the existing `mujoco` job covers both routes.
   **This step retires the risk**: MuJoCo agreeing with our site poses.
-- [ ] **Step 4 — core commands.** `AddFrame`, `RemoveFrame`, `SetFrame`,
+- [x] **Step 4 — core commands.** `AddFrame`, `RemoveFrame`, `SetFrame`,
   `RenameFrame` in `command.rs`; `fk::frames`; tests for each, plus the
   three that pin existing behaviour (`RemoveLink` takes the subtree's
   frames — already there —, `MoveJointFrame` re-expresses them, `Reparent`

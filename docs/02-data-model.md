@@ -148,7 +148,12 @@ pub enum Command {
     SetLinkMaterial(LinkId, Option<String>), UpsertMaterial(String, Material), RemoveMaterial(String),
     SetAsset(MeshId, MeshAsset),                               // scale / fix-up edits
     SetInertial(LinkId, InertialSpec), SetCollision(LinkId, CollisionPolicy), SetRoot(LinkId),
+    AddFrame(Frame),                                           // allocates the FrameId, returns it
+    RemoveFrame(FrameId), SetFrame(FrameId, Frame), RenameFrame(FrameId, String),
 }
+
+/// What a command created, for the caller that selects it afterwards.
+pub enum Created { Link(LinkId), Frame(FrameId) }
 ```
 
 Joints are the edges of the tree (ADR-0005): a link arrives with its parent
@@ -174,10 +179,20 @@ the swapped child frame). That stays so: a URDF always has a root, and a
 reversed-pivot convention is a design question nothing needed
 (plans/m3-sim-ready OPEN 2, rejected).
 
+The four frame commands mirror the link ones: `AddFrame` allocates the
+`FrameId` and hands it back as `Created::Frame`, `RenameFrame` is the tree's
+inline rename, and `SetFrame` replaces name, parent link and pose in one
+value — the properties panel's single commit. `SetFrame` may move a frame to
+another link; like `SetJoint` it writes what it is given, so a caller that
+wants the world pose kept computes the new pose through `fk` first. A frame
+needs no removal command of its own for `RemoveLink`, which already takes
+the frames of the subtree it removes, and `MoveJointFrame` re-expresses the
+frames of the link whose joint frame moved.
+
 The Python SDK's edit methods are these commands, one call each, applied
 the same way but with no history (`riggen._riggen.Robot`, 01 §Python SDK).
 
-`Command::apply(self, &mut Robot) -> Result<Option<LinkId>, EditError>`
+`Command::apply(self, &mut Robot) -> Result<Option<Created>, EditError>`
 mutates and then validates, so on `Err` the robot may be half-edited;
 `History::apply` therefore runs it on a clone:
 
@@ -185,7 +200,7 @@ mutates and then validates, so on `Err` the robot may be half-edited;
 pub struct History { undo: Vec<Robot>, redo: Vec<Robot>, saved_depth: Option<usize> }
 
 impl History {
-    pub fn apply(&mut self, robot: &mut Robot, cmd: Command) -> Result<Option<LinkId>, EditError>;
+    pub fn apply(&mut self, robot: &mut Robot, cmd: Command) -> Result<Option<Created>, EditError>;
     pub fn undo(&mut self, robot: &mut Robot) -> bool;   // false when there is nothing to undo
     pub fn redo(&mut self, robot: &mut Robot) -> bool;
     pub fn mark_saved(&mut self);                        // the current depth is what is on disk
@@ -211,6 +226,8 @@ pub struct JointState(pub BTreeMap<JointId, f64>);   // q per movable joint; der
 
 /// World pose of every link reachable from the root for the given joint values.
 pub fn fk(robot: &Robot, q: &JointState) -> BTreeMap<LinkId, Pose>;
+/// World pose of every named frame: `world(frame.parent) ∘ frame.pose`.
+pub fn frames(robot: &Robot, q: &JointState) -> BTreeMap<FrameId, Pose>;
 /// The child frame's displacement for one joint value.
 pub fn motion(kind: JointKind, axis: DVec3, q: f64) -> Pose;
 /// The joint origin that puts `link` at `world` at q = 0; None for the root.
@@ -225,6 +242,11 @@ depth-first pass from the root; the tree invariant makes the order trivial
 and independent of id order. This function is the oracle the export
 round-trip test compares against and what `Reparent { keep_world_pose }`
 reads.
+
+`fk` keeps returning **links only**: its `BTreeMap<LinkId, Pose>` is the
+export oracle and the round-trip tests' contract, and a frame is not a body.
+`frames` is the separate one pass over the same result, and it is what
+`--fk-samples` writes as `sites` and the SDK's `frame.world(q)` returns.
 
 `origin_for_world` is the inverse of one step of it: `world(link) =
 world(parent) ∘ origin` at `q = 0`, so the origin wanted is

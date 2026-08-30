@@ -11,8 +11,8 @@ use std::sync::Arc;
 use riggen_core::glam::{DMat4, DQuat, DVec3};
 use riggen_core::inertial::{InertialError, LinkInertial, MeshLookup, compose_inertial};
 use riggen_core::{
-    CollisionPolicy, Command, EditError, GeomId, History, Joint, JointId, JointState, Link, LinkId,
-    MeshAsset, MeshId, Pose, Primitive, Robot, fk,
+    CollisionPolicy, Command, Created, EditError, GeomId, History, Joint, JointId, JointState,
+    Link, LinkId, MeshAsset, MeshId, Pose, Primitive, Robot, fk,
 };
 use riggen_export::{DecompMiss, DecompSource};
 use riggen_mesh::feature::Adjacency;
@@ -293,8 +293,8 @@ impl RiggenApp {
 
     /// Runs a command through the history and re-syncs the scene. A
     /// refused command changes nothing and puts its reason in the status
-    /// bar. Returns the link `AddLink` created.
-    pub fn apply(&mut self, command: Command) -> Result<Option<LinkId>, EditError> {
+    /// bar. Returns what `AddLink` / `AddFrame` created.
+    pub fn apply(&mut self, command: Command) -> Result<Option<Created>, EditError> {
         let result = self.history.apply(&mut self.robot, command);
         match &result {
             Ok(_) => self.after_document_change(),
@@ -408,7 +408,9 @@ impl RiggenApp {
             parent,
             joint,
         })?;
-        Ok(created.expect("AddLink returns the new link"))
+        Ok(created
+            .and_then(Created::link)
+            .expect("AddLink returns the new link"))
     }
 
     /// Removes the selected link with its subtree; for a selected joint,

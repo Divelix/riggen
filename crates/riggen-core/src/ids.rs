@@ -131,7 +131,7 @@ id_type!(
     MeshId, 'm', "mesh"
 );
 id_type!(
-    /// A named frame attached to a link (post-MVP).
+    /// A named frame attached to a link: a TCP, a sensor mount (ADR-0012).
     FrameId, 'f', "frame"
 );
 

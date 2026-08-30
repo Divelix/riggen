@@ -8,11 +8,13 @@
 use std::fmt;
 
 use crate::fk::{JointState, fk};
-use crate::ids::{GeomId, Id, JointId, LinkId, MeshId};
+use crate::ids::{FrameId, GeomId, Id, JointId, LinkId, MeshId};
 use crate::pose::Pose;
 use riggen_mesh::glam::{DMat3, DVec3};
 
-use crate::robot::{CollisionPolicy, Geom, InertialSpec, Joint, Link, Material, MeshAsset, Robot};
+use crate::robot::{
+    CollisionPolicy, Frame, Geom, InertialSpec, Joint, Link, Material, MeshAsset, Robot,
+};
 use crate::validate::{ValidationError, validate};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -83,6 +85,46 @@ pub enum Command {
     /// `Fixed` joints; a movable joint on the path is refused, because its
     /// pivot cannot be expressed in the swapped child frame. No UI in M1.
     SetRoot(LinkId),
+    /// Adds a named frame on `frame.parent`. The command allocates the
+    /// `FrameId` and returns it as [`Created::Frame`], the way `AddLink`
+    /// returns its link.
+    AddFrame(Frame),
+    RemoveFrame(FrameId),
+    /// Replaces a frame whole — name, parent link and pose in one value,
+    /// which is what the properties panel commits after an edit. Changing
+    /// `parent` moves the frame to another link; the *caller* decides
+    /// whether the world pose is kept (the panel does, through `fk`), so
+    /// the command writes what it is given, like [`SetJoint`].
+    ///
+    /// [`SetJoint`]: Command::SetJoint
+    SetFrame(FrameId, Frame),
+    /// The tree's inline rename, beside `RenameLink` / `RenameJoint`.
+    RenameFrame(FrameId, String),
+}
+
+/// What a command created, for the caller that selects it afterwards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Created {
+    Link(LinkId),
+    Frame(FrameId),
+}
+
+impl Created {
+    /// The link, if that is what was created.
+    pub fn link(self) -> Option<LinkId> {
+        match self {
+            Self::Link(l) => Some(l),
+            Self::Frame(_) => None,
+        }
+    }
+
+    /// The frame, if that is what was created.
+    pub fn frame(self) -> Option<FrameId> {
+        match self {
+            Self::Frame(f) => Some(f),
+            Self::Link(_) => None,
+        }
+    }
 }
 
 /// Why a command was refused. The document is untouched in every case.
@@ -186,16 +228,16 @@ impl Command {
     /// Applies the command to `robot` and validates the result. On `Err`
     /// the document may be half-edited (a validation failure is found after
     /// the mutation) — [`History::apply`] works on a clone for that reason.
-    /// Returns the link `AddLink` created.
+    /// Returns what `AddLink` / `AddFrame` created.
     ///
     /// [`History::apply`]: crate::history::History::apply
-    pub fn apply(self, robot: &mut Robot) -> Result<Option<LinkId>, EditError> {
+    pub fn apply(self, robot: &mut Robot) -> Result<Option<Created>, EditError> {
         let created = self.mutate(robot)?;
         validate(robot)?;
         Ok(created)
     }
 
-    fn mutate(self, robot: &mut Robot) -> Result<Option<LinkId>, EditError> {
+    fn mutate(self, robot: &mut Robot) -> Result<Option<Created>, EditError> {
         match self {
             Command::AddLink {
                 link,
@@ -209,7 +251,7 @@ impl Command {
                 joint.child = link_id;
                 robot.links.insert(link_id, *link);
                 robot.joints.insert(joint_id, joint);
-                return Ok(Some(link_id));
+                return Ok(Some(Created::Link(link_id)));
             }
             Command::RemoveLink(link) => {
                 require_link(robot, link)?;
@@ -360,6 +402,23 @@ impl Command {
                 }
                 robot.root = new_root;
             }
+            Command::AddFrame(frame) => {
+                require_link(robot, frame.parent)?;
+                let id: FrameId = robot.next_id.alloc();
+                robot.frames.insert(id, frame);
+                return Ok(Some(Created::Frame(id)));
+            }
+            Command::RemoveFrame(id) => {
+                robot.frames.remove(&id).ok_or_else(|| unknown(id))?;
+            }
+            Command::SetFrame(id, frame) => {
+                require_link(robot, frame.parent)?;
+                let slot = robot.frames.get_mut(&id).ok_or_else(|| unknown(id))?;
+                *slot = frame;
+            }
+            Command::RenameFrame(id, name) => {
+                robot.frames.get_mut(&id).ok_or_else(|| unknown(id))?.name = name;
+            }
         }
         Ok(None)
     }
@@ -368,7 +427,7 @@ impl Command {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fk::{JointState, fk};
+    use crate::fk::{JointState, fk, frames};
     use crate::ids::FrameId;
     use crate::robot::{Frame, JointKind, Limits};
     use riggen_mesh::glam::{DQuat, DVec3};
@@ -388,7 +447,7 @@ mod tests {
 
     /// Atomic like `History::apply`: a refused command leaves `robot` as it
     /// was, so one test can chain several refusals.
-    fn apply(robot: &mut Robot, command: Command) -> Result<Option<LinkId>, EditError> {
+    fn apply(robot: &mut Robot, command: Command) -> Result<Option<Created>, EditError> {
         let mut next = robot.clone();
         let created = command.apply(&mut next)?;
         *robot = next;
@@ -405,6 +464,7 @@ mod tests {
             },
         )
         .unwrap()
+        .and_then(Created::link)
         .unwrap()
     }
 
@@ -728,6 +788,165 @@ mod tests {
         assert!(robot.links.contains_key(&tail));
         assert_eq!(robot.joints.len(), 1, "only tail_joint is left");
         assert!(robot.frames.is_empty());
+        assert_eq!(validate(&robot), Ok(()));
+    }
+
+    #[test]
+    fn frame_commands_add_set_rename_remove() {
+        let (mut robot, [arm, _hand, tip, _tail]) = arm();
+        let pose = Pose::new(DVec3::new(0.0, 0.0, 0.05), DQuat::from_rotation_x(0.3));
+        let tcp = apply(
+            &mut robot,
+            Command::AddFrame(Frame {
+                name: "tcp".into(),
+                parent: tip,
+                pose,
+            }),
+        )
+        .unwrap()
+        .and_then(Created::frame)
+        .expect("AddFrame returns the frame it created");
+        assert_eq!(robot.frames[&tcp].parent, tip);
+        assert_pose_eq(&robot.frames[&tcp].pose, &pose);
+
+        // A frame on a link that is not there, and a name that is a link's,
+        // are both refused and leave nothing behind.
+        assert_eq!(
+            apply(
+                &mut robot,
+                Command::AddFrame(Frame {
+                    name: "grip".into(),
+                    parent: LinkId::from_raw(999),
+                    pose: Pose::IDENTITY,
+                })
+            ),
+            Err(unknown(LinkId::from_raw(999)))
+        );
+        assert_eq!(
+            apply(
+                &mut robot,
+                Command::AddFrame(Frame {
+                    name: "hand".into(),
+                    parent: tip,
+                    pose: Pose::IDENTITY,
+                })
+            ),
+            Err(EditError::Invalid(ValidationError::DuplicateFrameName(
+                "hand".into()
+            )))
+        );
+        assert_eq!(robot.frames.len(), 1, "both refusals changed nothing");
+
+        // `SetFrame` writes name, parent and pose in one go.
+        let moved = Pose::from_translation(DVec3::Y * 0.2);
+        apply(
+            &mut robot,
+            Command::SetFrame(
+                tcp,
+                Frame {
+                    name: "grip".into(),
+                    parent: arm,
+                    pose: moved,
+                },
+            ),
+        )
+        .unwrap();
+        assert_eq!(robot.frames[&tcp].name, "grip");
+        assert_eq!(robot.frames[&tcp].parent, arm);
+        assert_pose_eq(&robot.frames[&tcp].pose, &moved);
+
+        apply(&mut robot, Command::RenameFrame(tcp, "tool0".into())).unwrap();
+        assert_eq!(robot.frames[&tcp].name, "tool0");
+        assert_eq!(robot.frames[&tcp].parent, arm, "a rename moves nothing");
+
+        // Unknown ids are refused by every one of them.
+        let ghost = FrameId::from_raw(999);
+        for command in [
+            Command::RemoveFrame(ghost),
+            Command::RenameFrame(ghost, "x".into()),
+            Command::SetFrame(
+                ghost,
+                Frame {
+                    name: "x".into(),
+                    parent: arm,
+                    pose: Pose::IDENTITY,
+                },
+            ),
+        ] {
+            assert_eq!(apply(&mut robot, command), Err(unknown(ghost)));
+        }
+
+        apply(&mut robot, Command::RemoveFrame(tcp)).unwrap();
+        assert!(robot.frames.is_empty());
+        assert_eq!(validate(&robot), Ok(()));
+    }
+
+    #[test]
+    fn moving_a_joint_frame_leaves_its_links_frames_in_the_world() {
+        let (mut robot, [_arm, hand, _tip, _tail]) = arm_with_geoms();
+        let joint = robot.parent_joint(hand).unwrap();
+        let tcp = apply(
+            &mut robot,
+            Command::AddFrame(Frame {
+                name: "tcp".into(),
+                parent: hand,
+                pose: Pose::new(DVec3::new(0.1, 0.0, 0.0), DQuat::from_rotation_z(0.4)),
+            }),
+        )
+        .unwrap()
+        .and_then(Created::frame)
+        .unwrap();
+        let before = frames(&robot, &JointState::default())[&tcp];
+
+        apply(
+            &mut robot,
+            Command::MoveJointFrame {
+                joint,
+                origin: Pose::new(
+                    DVec3::new(0.5, 0.25, 0.0),
+                    DQuat::from_rotation_x(FRAC_PI_2),
+                ),
+                axis: DVec3::Y,
+            },
+        )
+        .unwrap();
+        // The joint frame moved under it, so the stored pose changed…
+        assert!(
+            (robot.frames[&tcp].pose.t - DVec3::new(0.1, 0.0, 0.0)).length() > EPS,
+            "the frame is expressed in the new link frame"
+        );
+        // …and the world pose did not.
+        assert_pose_eq(&frames(&robot, &JointState::default())[&tcp], &before);
+    }
+
+    #[test]
+    fn reparent_leaves_a_frame_on_its_link() {
+        let (mut robot, [arm, hand, _tip, tail]) = arm();
+        let pose = Pose::from_translation(DVec3::Z * 0.3);
+        let tcp = apply(
+            &mut robot,
+            Command::AddFrame(Frame {
+                name: "tcp".into(),
+                parent: hand,
+                pose,
+            }),
+        )
+        .unwrap()
+        .and_then(Created::frame)
+        .unwrap();
+        apply(
+            &mut robot,
+            Command::Reparent {
+                link: arm,
+                new_parent: tail,
+                keep_world_pose: true,
+            },
+        )
+        .unwrap();
+        // The frame stays on `hand` with the pose it had: `Reparent` moves
+        // a subtree, and a frame is part of the link it hangs on.
+        assert_eq!(robot.frames[&tcp].parent, hand);
+        assert_pose_eq(&robot.frames[&tcp].pose, &pose);
         assert_eq!(validate(&robot), Ok(()));
     }
 
