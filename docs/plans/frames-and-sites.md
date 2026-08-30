@@ -105,7 +105,7 @@ to 1e-6.
   frame glyph in `glyphs.rs`: a small triad in the triad colours plus the
   name as a label, drawn for every frame, brightened when selected or
   hovered. Snapshot `frames_tree`.
-- [ ] **Step 6 — the properties panel edits a frame.** Name, parent link
+- [x] **Step 6 — the properties panel edits a frame.** Name, parent link
   (a combo — changing it keeps the world pose, decision 2), xyz + RPY in
   degrees through the same draft-buffer fields the link pose uses, all
   committed as one `SetFrame`; "+ Frame" in the tree header adds one at

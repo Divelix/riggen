@@ -102,6 +102,15 @@ impl RiggenApp {
                             self.remove_selected();
                         }
                         if ui
+                            .button("+ Frame")
+                            .on_hover_text("Add a named frame at the selected link's origin")
+                            .clicked()
+                            && let Some(frame) = self.add_frame(self.insertion_parent())
+                        {
+                            self.select(Selection::Frame(frame));
+                            self.start_rename_target(RenameTarget::Frame(frame));
+                        }
+                        if ui
                             .button("+ Link")
                             .on_hover_text("Add an empty link under the selection")
                             .clicked()

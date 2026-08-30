@@ -420,6 +420,28 @@ impl RiggenApp {
             .expect("AddLink returns the new link"))
     }
 
+    /// Adds a named frame at `link`'s origin, its name made unique across
+    /// the one namespace frames and links share (`frame`, `frame_2` —
+    /// ADR-0012). `None` when the command was refused.
+    pub fn add_frame(&mut self, link: LinkId) -> Option<FrameId> {
+        let taken: BTreeSet<&str> = self
+            .robot
+            .links
+            .values()
+            .map(|l| l.name.as_str())
+            .chain(self.robot.frames.values().map(|f| f.name.as_str()))
+            .collect();
+        let frame = riggen_core::Frame {
+            name: unique_name("frame", &taken),
+            parent: link,
+            pose: Pose::IDENTITY,
+        };
+        self.apply(Command::AddFrame(frame))
+            .ok()
+            .flatten()
+            .and_then(Created::frame)
+    }
+
     /// Removes what is selected: a link with its subtree; for a joint, the
     /// link it leads to (the joint is the edge); for a frame, the frame
     /// alone. The root is refused with the reason in the status bar.

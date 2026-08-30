@@ -1153,6 +1153,115 @@ fn frames_tree() {
     });
 }
 
+/// The properties panel for a frame: name, the link combo, xyz and RPY,
+/// all committed as one `SetFrame`; and "+ Frame", which adds one at the
+/// selected link's origin and starts its rename.
+#[test]
+fn frame_properties() {
+    scenario("frame_properties", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("open the sample arm");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        harness.get_by_label("⌖ camera_mount").click();
+        pump_rendered(harness, 4);
+
+        // The pose fields show the document's numbers: 30 mm out along +X
+        // of the base, turned 90° about Y.
+        assert_eq!(harness.get_by_label("x").value().as_deref(), Some("0.03"));
+        assert_eq!(harness.get_by_label("z").value().as_deref(), Some("0.015"));
+        assert_eq!(harness.get_by_label("pitch").value().as_deref(), Some("90"));
+        assert_eq!(
+            harness.get_by_label("name").value().as_deref(),
+            Some("camera_mount")
+        );
+
+        // Typing a new x commits one SetFrame and moves the glyph with it.
+        let before = harness.state().history().undo_depth();
+        let world_before = harness
+            .state()
+            .debug_state()
+            .frame_glyphs
+            .iter()
+            .find(|g| g.name == "camera_mount")
+            .unwrap()
+            .origin;
+        type_into(harness, "x", 0, "0.05");
+        pump_rendered(harness, 4);
+        let state = harness.state().debug_state();
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            before + 1,
+            "one command per gesture"
+        );
+        let frame = state
+            .document
+            .frames
+            .iter()
+            .find(|f| f.name == "camera_mount")
+            .unwrap();
+        assert_eq!(frame.pos, [0.05, 0.0, 0.015]);
+        let after = state
+            .frame_glyphs
+            .iter()
+            .find(|g| g.name == "camera_mount")
+            .unwrap()
+            .origin;
+        assert!(
+            (after[0] - world_before[0] - 0.02).abs() < 1e-9,
+            "{after:?}"
+        );
+    });
+}
+
+/// "+ Frame" puts a frame on the selected link's origin and starts its
+/// inline rename, the way "+ Link" does for a link.
+#[test]
+fn add_frame_button() {
+    scenario("add_frame_button", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        harness.get_by_label("arm").click();
+        harness.step();
+        harness.get_by_label("+ Frame").click();
+        pump_rendered(harness, 4);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.document.frames.len(), 1);
+        let frame = &state.document.frames[0];
+        assert_eq!(frame.name, "frame", "the first one needs no suffix");
+        assert_eq!(frame.pos, [0.0; 3], "at the link's origin");
+        assert_eq!(
+            state.document.selection.as_deref(),
+            Some(format!("frame {}", frame.id).as_str())
+        );
+        assert_eq!(
+            state.ui.renaming,
+            Some((frame.id.clone(), "frame".to_owned())),
+            "the rename field is open on it"
+        );
+        // A second one counts up, across the namespace links share.
+        let root = harness.state().robot().root;
+        harness.state_mut().add_frame(root);
+        pump_rendered(harness, 2);
+        let names: Vec<String> = harness
+            .state()
+            .debug_state()
+            .document
+            .frames
+            .iter()
+            .map(|f| f.name.clone())
+            .collect();
+        assert_eq!(names, ["frame", "frame_2"]);
+    });
+}
+
 /// The properties panel for a joint: kind, origin, axis, limits in
 /// degrees, dynamics.
 #[test]
