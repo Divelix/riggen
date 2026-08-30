@@ -1,6 +1,8 @@
 # ADR-0002: ship the binary in the wheel; PyO3 only for the headless SDK
 
-- Status: Accepted
+- Status: Accepted; amended by ADR-0009 (2026-08-30) — the v0.2 layout (one
+  wheel: abi3 extension + the binary as wheel data), and the open question
+  below closes as "no"
 - Date: 2026-08-29
 
 ## Context
