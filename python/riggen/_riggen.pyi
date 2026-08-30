@@ -70,7 +70,8 @@ class GeomDoc(TypedDict):
     color: list[float] | None
 
 # ``"None" | "SameAsVisual" | "ConvexHull"`` or ``{"Primitives": [...]}`` /
-# ``{"Meshes": [GeomDoc, ...]}`` / ``{"ConvexDecomposition": {"max_hulls": n}}``.
+# ``{"Meshes": [GeomDoc, ...]}`` /
+# ``{"ConvexDecomposition": {"max_hulls", "resolution", "concavity"}}``.
 CollisionDoc = str | dict[str, Any]
 # ``{"Computed": {"density_override": float | None}}`` /
 # ``{"Override": {"mass", "com", "inertia"}}`` / ``{"Hybrid": {"mass"}}``.

@@ -143,7 +143,7 @@ job loads a decomposed model with zero warnings.
   `collision_decomposition` (the bracket's pieces in the viewport). Defaults
   for the three parameters are chosen here from measurements on the bracket
   and the arm's `fore.stl` (OPEN 2).
-- [ ] Step 7 — the SDK: `riggen.ConvexDecomposition` dataclass, `__init__`
+- [x] Step 7 — the SDK: `riggen.ConvexDecomposition` dataclass, `__init__`
   export, `_riggen.pyi`, `robot.py`'s `collision` getter/setter round-trip;
   a pytest in `python/tests/sdk/` asserting the policy survives
   `to_json`/`load` and that `export` writes N mesh files.

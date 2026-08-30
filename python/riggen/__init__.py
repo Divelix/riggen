@@ -51,6 +51,7 @@ from .show import Viewer, show
 from .robot import (
     ComputedInertial,
     Continuous,
+    ConvexDecomposition,
     Dynamics,
     Fixed,
     Geom,
@@ -104,6 +105,8 @@ __all__ = [
     "ComputedInertial",
     "OverrideInertial",
     "HybridInertial",
+    # collision
+    "ConvexDecomposition",
     # errors
     "RiggenError",
     "RiggenWarning",

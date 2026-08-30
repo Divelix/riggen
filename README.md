@@ -47,14 +47,16 @@ link under the root (meters or millimetres — the import units are in the
 status bar). Reparent by dragging rows in the tree; **Place joint** puts a
 revolute joint on a bore by clicking its edge; **Align** snaps a part's
 bore concentric with its parent's; Properties computes the inertial from
-the mesh and a material, and fits a hull or primitives for collision.
+the mesh and a material, and fits a hull, convex pieces or primitives for
+collision.
 
 ## What it does
 
 - **Assembles**: STL and OBJ meshes into a kinematic tree — fixed, revolute
   and prismatic joints, placed by clicking geometry, with limits.
 - **Computes**: mass, centre of mass and the inertia tensor from the mesh
-  and a material density, or from a spec you type; convex hulls and fitted
+  and a material density, or from a spec you type; convex hulls, convex
+  decomposition (V-HACD, so a C-bracket keeps its notch) and fitted
   boxes / cylinders / spheres for collision.
 - **Exports**: MJCF and URDF from the same document, meshes baked to
   meters as STL, so MuJoCo loads it with zero warnings and its forward

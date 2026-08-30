@@ -40,6 +40,7 @@ __all__ = [
     "Link",
     "Joint",
     "Robot",
+    "ConvexDecomposition",
     "load",
     "load_urdf",
 ]
@@ -56,8 +57,11 @@ PoseLike = Union["Pose", Vec3]
 """A :class:`Pose`, or a bare ``(x, y, z)`` for a translation."""
 LimitsLike = Union["Limits", tuple[float, float]]
 """A :class:`Limits`, or ``(lower, upper)`` with zero effort and velocity."""
-CollisionPolicy = Union[Literal["none", "same_as_visual", "convex_hull"], dict[str, Any]]
-"""One of the three simple policies by name, or a raw document value
+CollisionPolicy = Union[
+    Literal["none", "same_as_visual", "convex_hull"], "ConvexDecomposition", dict[str, Any]
+]
+"""One of the three simple policies by name, a
+:class:`ConvexDecomposition`, or a raw document value
 (``{"Primitives": [...]}``, ``{"Meshes": [...]}``) as the file spells it."""
 
 
@@ -416,6 +420,56 @@ _COLLISION_DOCS = {v: k for k, v in _COLLISION_NAMES.items()}
 
 
 @dataclass(frozen=True)
+class ConvexDecomposition:
+    """Collision geometry as several convex pieces that keep the part's
+    concavity, where one convex hull would fill it — a gripper finger, a
+    C-bracket, a U-channel. V-HACD; the export writes one mesh file and one
+    collision geom per piece (ADR-0011).
+
+    >>> link.collision = riggen.ConvexDecomposition(max_hulls=4)
+
+    The document stores these three numbers and never the pieces, so the
+    decomposition is recomputed at export from the mesh as it is then. It
+    costs tens of milliseconds to a second per part, on the export, not on
+    the assignment.
+
+    ``max_hulls`` is a real ceiling on the piece count. ``resolution`` is
+    the side of the voxel grid the part is rasterised into — cost is
+    O(n³), and detail thinner than one voxel is invisible to the
+    algorithm. ``concavity`` is how much of the part's volume a piece may
+    fail to fill, as a fraction of the whole, before it is split again:
+    smaller means more pieces and a tighter fit. The defaults are the
+    window's.
+    """
+
+    max_hulls: int = 8
+    resolution: int = 64
+    concavity: float = 0.01
+
+    def _to_doc(self) -> dict[str, Any]:
+        for name, value in (("max_hulls", self.max_hulls), ("resolution", self.resolution)):
+            if int(value) != value or value < 1:
+                raise ValueError(f"{name} must be a positive whole number, not {value!r}")
+        if not 0.0 <= self.concavity <= 1.0:
+            raise ValueError(f"concavity must be between 0 and 1, not {self.concavity!r}")
+        return {
+            "ConvexDecomposition": {
+                "max_hulls": int(self.max_hulls),
+                "resolution": int(self.resolution),
+                "concavity": float(self.concavity),
+            }
+        }
+
+    @staticmethod
+    def _from_doc(body: dict[str, Any]) -> "ConvexDecomposition":
+        return ConvexDecomposition(
+            max_hulls=body["max_hulls"],
+            resolution=body["resolution"],
+            concavity=body["concavity"],
+        )
+
+
+@dataclass(frozen=True)
 class Material:
     """A density (kg/m³) for computed inertials and a linear RGBA colour for
     the viewport (stored as 32-bit floats, so ``0.8`` reads back as
@@ -613,16 +667,26 @@ class Link(_Handle):
     @property
     def collision(self) -> CollisionPolicy:
         """``"none"``, ``"same_as_visual"`` (the default) or
-        ``"convex_hull"``; other policies come back as the document's value."""
+        ``"convex_hull"``, or a :class:`ConvexDecomposition`; other policies
+        come back as the document's value."""
         doc = self._doc["collision"]
-        return _COLLISION_DOCS.get(doc, doc) if isinstance(doc, str) else doc  # type: ignore[return-value]
+        if isinstance(doc, str):
+            return _COLLISION_DOCS.get(doc, doc)  # type: ignore[return-value]
+        if set(doc) == {"ConvexDecomposition"}:
+            return ConvexDecomposition._from_doc(doc["ConvexDecomposition"])
+        return doc
 
     @collision.setter
     def collision(self, value: CollisionPolicy) -> None:
         if isinstance(value, str):
             if value not in _COLLISION_NAMES:
-                raise ValueError(f"collision must be one of {sorted(_COLLISION_NAMES)}, not {value!r}")
+                raise ValueError(
+                    f"collision must be one of {sorted(_COLLISION_NAMES)}, "
+                    f"a ConvexDecomposition, or a document value, not {value!r}"
+                )
             self.robot._inner.set_collision(self.id, _COLLISION_NAMES[value])
+        elif isinstance(value, ConvexDecomposition):
+            self.robot._inner.set_collision(self.id, value._to_doc())
         else:
             self.robot._inner.set_collision(self.id, value)
 

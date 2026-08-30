@@ -759,6 +759,7 @@ over that table — no logic of its own beyond spelling:
 | `Pose(xyz, rpy= \| quat=, degrees=)`, `.rpy`, `.rpy_degrees`, `.to_doc()` | `rpy_to_quat` / `quat_to_rpy` (the core's convention, never re-derived); `quat` is `(w, x, y, z)` |
 | `Fixed(origin)`, `Revolute(axis, *, origin, limits, dynamics, degrees)`, `Continuous`, `Prismatic` → `JointSpec` | the joint dict; `axis` is `"x" \| "-y" \| (x, y, z)`; `limits` a `Limits` or `(lower, upper)`; the app's defaults (`±π`, `±1`, effort and velocity 0) |
 | `ComputedInertial(density)`, `OverrideInertial(mass, com, rows)`, `HybridInertial(mass)` | the `InertialSpec` dict (the tensor column-major in the file, rows here) |
+| `ConvexDecomposition(max_hulls, resolution, concavity)` | the `{"ConvexDecomposition": {…}}` `set_collision` already takes — no new `Command` method; `link.collision` reads it back as the dataclass, the three simple policies as their names, anything else as the document value (ADR-0011) |
 | `robot.fk({name \| joint: q})` → `{name: Pose}`, `.validate()`, `.save()`, `.export(dir, *, format, mesh_paths, floating_base, fk_samples)`, `.to_json()` / `from_json`, `.copy()` | the same names, ids ↔ names |
 
 `examples/pendulum.py` (the README's ten lines; the corpus pendulum) and
