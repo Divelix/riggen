@@ -521,6 +521,19 @@ mod tests {
         assert_eq!(robot.name, "arm");
         assert_eq!(robot.links.len(), 5, "root plus four parts");
         assert_eq!(robot.joints.len(), 4);
+        // Two named frames, saved and read back with the rest (ADR-0012);
+        // `frames` is a v1 field that finally holds something, so the
+        // schema does not move.
+        assert_eq!(SCHEMA_VERSION, 1, "frames need no schema bump");
+        assert_eq!(robot.frames.len(), 2);
+        let frame = |n: &str| robot.frames.values().find(|f| f.name == n).unwrap();
+        assert_eq!(frame("tcp").pose.t, DVec3::new(0.0, 0.0, 0.08));
+        assert_eq!(
+            robot.links[&frame("tcp").parent].name,
+            "fore",
+            "the TCP is on the last link"
+        );
+        assert_eq!(robot.links[&frame("camera_mount").parent].name, "base");
         let revolute = robot
             .joints
             .values()
@@ -553,6 +566,15 @@ mod tests {
             .unwrap()
             .0;
         assert!((world[&fore].t - DVec3::new(0.0, 0.0, 0.195)).length() < 1e-12);
+        // …and the TCP rides it, 80 mm further out.
+        let tcp = *robot
+            .frames
+            .iter()
+            .find(|(_, f)| f.name == "tcp")
+            .unwrap()
+            .0;
+        let world_frames = crate::frames(&robot, &crate::JointState::default());
+        assert!((world_frames[&tcp].t - DVec3::new(0.0, 0.0, 0.275)).length() < 1e-12);
 
         let dir = scratch("corpus-arm");
         for mesh in ["base.stl", "shoulder.stl", "upper.stl", "fore.stl"] {

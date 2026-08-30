@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use pyo3::exceptions::{PyOSError, PyValueError};
 use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{
-    CollisionPolicy, Command, EditError, Geom, GeomId, Id, InertialSpec, Joint, JointId,
+    CollisionPolicy, Command, Created, EditError, Geom, GeomId, Id, InertialSpec, Joint, JointId,
     JointState, Link, LinkId, Material, MeshAsset, MeshId, Pose, Robot, compose_inertial,
     validation_errors,
 };
@@ -91,7 +91,7 @@ impl PyRobot {
     }
 
     /// One command, on a clone, as its own edit.
-    fn edit(&mut self, py: Python<'_>, command: Command) -> PyResult<Option<LinkId>> {
+    fn edit(&mut self, py: Python<'_>, command: Command) -> PyResult<Option<Created>> {
         self.commit(|robot| apply(py, robot, command))
     }
 
@@ -123,7 +123,7 @@ impl PyRobot {
     }
 }
 
-fn apply(py: Python<'_>, robot: &mut Robot, command: Command) -> PyResult<Option<LinkId>> {
+fn apply(py: Python<'_>, robot: &mut Robot, command: Command) -> PyResult<Option<Created>> {
     command.apply(robot).map_err(|e| edit_error(py, e))
 }
 
@@ -380,7 +380,10 @@ impl PyRobot {
                 joint,
             };
             let created = apply(py, robot, command)?;
-            Ok(created.expect("AddLink returns the link it created").raw())
+            Ok(created
+                .and_then(Created::link)
+                .expect("AddLink returns the link it created")
+                .raw())
         })
     }
 

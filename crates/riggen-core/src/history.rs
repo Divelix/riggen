@@ -2,8 +2,7 @@
 //! document is small, so a [`History`] entry is a whole `Robot` clone: undo
 //! is a swap, nothing has an inverse, and a refused command costs nothing.
 
-use crate::command::{Command, EditError};
-use crate::ids::LinkId;
+use crate::command::{Command, Created, EditError};
 use crate::robot::Robot;
 
 /// Pre-states for undo, popped states for redo, and where the saved
@@ -33,12 +32,12 @@ impl History {
     /// commits. A refused command leaves `robot` and the history untouched.
     /// A command that changes nothing (the properties panel re-committing
     /// what the document already holds) is dropped without an entry.
-    /// Returns the link `AddLink` created.
+    /// Returns what `AddLink` / `AddFrame` created.
     pub fn apply(
         &mut self,
         robot: &mut Robot,
         command: Command,
-    ) -> Result<Option<LinkId>, EditError> {
+    ) -> Result<Option<Created>, EditError> {
         let mut next = robot.clone();
         let created = command.apply(&mut next)?;
         if next == *robot {
@@ -121,6 +120,7 @@ mod tests {
                 },
             )
             .unwrap()
+            .and_then(Created::link)
             .unwrap()
     }
 

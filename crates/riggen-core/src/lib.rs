@@ -16,9 +16,9 @@ pub mod pose;
 pub mod robot;
 pub mod validate;
 
-pub use command::{Command, EditError};
+pub use command::{Command, Created, EditError};
 pub use file::{FileError, Warning, absolute, content_hash, hash_file, load, save};
-pub use fk::{JointState, fk, motion, origin_for_world};
+pub use fk::{JointState, fk, frames, motion, origin_for_world};
 pub use history::History;
 pub use ids::{FrameId, GeomId, Id, IdGen, JointId, LinkId, MeshId};
 pub use inertial::{Inertial, InertialError, LinkInertial, MeshLookup, compose_inertial};

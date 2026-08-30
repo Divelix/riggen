@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use riggen_mesh::glam::{DQuat, DVec3};
 
-use crate::ids::{JointId, LinkId};
+use crate::ids::{FrameId, JointId, LinkId};
 use crate::pose::Pose;
 use crate::robot::{JointKind, Robot};
 
@@ -76,6 +76,22 @@ pub fn fk(robot: &Robot, q: &JointState) -> BTreeMap<LinkId, Pose> {
         }
     }
     world
+}
+
+/// World pose of every named frame: `world(frame.parent) ∘ frame.pose`
+/// over one [`fk`] pass (ADR-0012). [`fk`] itself keeps returning links
+/// only — its `BTreeMap<LinkId, Pose>` is the export oracle and the
+/// round-trip tests' contract, and a frame is not a body.
+///
+/// A frame on a link the tree does not reach (only possible in a document
+/// `validate` rejects) is absent from the result.
+pub fn frames(robot: &Robot, q: &JointState) -> BTreeMap<FrameId, Pose> {
+    let world = fk(robot, q);
+    robot
+        .frames
+        .iter()
+        .filter_map(|(&id, frame)| Some((id, world.get(&frame.parent)?.compose(&frame.pose))))
+        .collect()
 }
 
 /// The joint origin that puts `link` at `world` in the **zero
@@ -334,5 +350,59 @@ mod tests {
         assert_eq!(world.len(), 1);
         assert!(world.contains_key(&robot.root));
         let _ = LinkId::from_raw(0);
+    }
+
+    #[test]
+    fn frames_ride_their_link_and_fk_still_returns_links_only() {
+        let mut robot = Robot::new("r");
+        let root = robot.root;
+        let arm: LinkId = robot.next_id.alloc();
+        robot.links.insert(arm, Link::new("arm"));
+        let hinge: JointId = robot.next_id.alloc();
+        robot.joints.insert(
+            hinge,
+            Joint {
+                kind: JointKind::Revolute,
+                axis: DVec3::Z,
+                origin: Pose::from_translation(DVec3::X),
+                limits: limits(),
+                ..Joint::fixed("hinge", root, arm)
+            },
+        );
+        let tcp: crate::ids::FrameId = robot.next_id.alloc();
+        robot.frames.insert(
+            tcp,
+            crate::robot::Frame {
+                name: "tcp".into(),
+                parent: arm,
+                pose: Pose::from_translation(DVec3::X * 0.5),
+            },
+        );
+        // A frame on the root, to pin the identity case too.
+        let base: crate::ids::FrameId = robot.next_id.alloc();
+        robot.frames.insert(
+            base,
+            crate::robot::Frame {
+                name: "base_mark".into(),
+                parent: root,
+                pose: Pose::from_translation(DVec3::Z * 0.1),
+            },
+        );
+
+        let mut q = JointState::new();
+        q.set(hinge, FRAC_PI_2);
+        let world = fk(&robot, &q);
+        assert_eq!(world.len(), 2, "fk returns links only");
+        let f = frames(&robot, &q);
+        assert_eq!(f.len(), 2);
+        // The arm sits at +X turned 90° about Z, so its +X half-metre
+        // points along +Y from there.
+        assert_pose_eq(
+            &f[&tcp],
+            &world[&arm].compose(&Pose::from_translation(DVec3::X * 0.5)),
+        );
+        assert_vec_eq(f[&tcp].t, DVec3::new(1.0, 0.5, 0.0));
+        assert_vec_eq(f[&base].t, DVec3::Z * 0.1);
+        assert_rot_eq(f[&base].r, DQuat::IDENTITY);
     }
 }
