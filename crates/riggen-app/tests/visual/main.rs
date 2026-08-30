@@ -2911,6 +2911,42 @@ fn write_arm_sample() {
         parent = *robot.links.iter().find(|(_, l)| l.name == name).unwrap().0;
         parent_world = world;
     }
+    // Two named frames (ADR-0012), so the export and the MuJoCo acceptance
+    // cover `<site>`: the tool point at the far end of the forearm, and a
+    // camera bracket looking down the plinth's +X face. `parent` is the
+    // last part added, `fore`; both poses are in their link's frame.
+    let base = *robot
+        .links
+        .iter()
+        .find(|(_, l)| l.name == "base")
+        .unwrap()
+        .0;
+    for (name, link, pose) in [
+        (
+            "tcp",
+            parent,
+            Pose::from_translation(DVec3::new(0.0, 0.0, 0.080)),
+        ),
+        (
+            "camera_mount",
+            base,
+            Pose::new(
+                DVec3::new(0.030, 0.0, 0.015),
+                riggen_core::glam::DQuat::from_rotation_y(std::f64::consts::FRAC_PI_2),
+            ),
+        ),
+    ] {
+        let id: riggen_core::FrameId = robot.next_id.alloc();
+        robot.frames.insert(
+            id,
+            riggen_core::Frame {
+                name: name.to_owned(),
+                parent: link,
+                pose,
+            },
+        );
+    }
+    riggen_core::validate(&robot).unwrap();
     riggen_core::save(&robot, &arm_fixture("arm.riggen")).unwrap();
 }
 
@@ -3331,8 +3367,11 @@ fn import_urdf() {
 
         let state = harness.state().debug_state();
         assert_eq!(state.document.name, "arm");
-        assert_eq!(state.document.links.len(), 5);
-        assert_eq!(state.document.joints.len(), 4);
+        // Five real links and joints, plus the two dummy links the file's
+        // named frames are written as — kept as links, deliberately, since
+        // nothing tells them from an unweighed real one (ADR-0012).
+        assert_eq!(state.document.links.len(), 7);
+        assert_eq!(state.document.joints.len(), 6);
         assert_eq!(state.document.file, None, "not a .riggen until saved");
         let status = state.status.as_deref().unwrap_or_default();
         assert!(
@@ -3345,6 +3384,7 @@ fn import_urdf() {
         // fore's hull mesh: two translucent shapes.
         assert_eq!(state.instances.iter().filter(|i| i.collision).count(), 2);
         let app = harness.state();
+        assert!(app.robot().frames.is_empty(), "no frame came back");
         let fore = app
             .robot()
             .links

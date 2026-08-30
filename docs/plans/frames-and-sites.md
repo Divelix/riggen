@@ -84,7 +84,7 @@ to 1e-6.
   `mjcf.rs` and `urdf.rs` extended with a two-frame fixture; the
   name-collision rule from decision 5 enforced in `validate` with its own test.
   ADR-0012 in the same commit.
-- [ ] **Step 3 — the CI acceptance.** `fk_samples` writes `sites: {name:
+- [x] **Step 3 — the CI acceptance.** `fk_samples` writes `sites: {name:
   {pos, quat}}` beside `links` per sample; `test_mjcf_load.py` sets each
   configuration and compares `data.site(name)` to 1e-6, and fails a file
   whose `fk.json` has sites the model does not; the arm fixture generator

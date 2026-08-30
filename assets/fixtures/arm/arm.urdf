@@ -8,7 +8,9 @@
   meshes with a scale, <inertial> on every part (the values riggen computed
   for arm.riggen), a box collision, collisions that repeat the visual, a
   collision mesh that does not (fore_hull.stl), one continuous joint, a
-  <safety_controller> and a <mimic> to warn on.
+  <safety_controller> and a <mimic> to warn on, and the two massless dummy
+  links riggen writes for arm.riggen's named frames (ADR-0012) — which the
+  import deliberately keeps as links, not frames.
 -->
 <robot name="arm">
   <link name="base_link"/>
@@ -93,6 +95,10 @@
     </collision>
   </link>
 
+  <!-- Named frames: one massless link on a fixed joint each (ADR-0012). -->
+  <link name="tcp"/>
+  <link name="camera_mount"/>
+
   <joint name="base_joint" type="fixed">
     <origin xyz="0 0 0" rpy="0 0 0"/>
     <parent link="base_link"/>
@@ -125,5 +131,17 @@
     <axis xyz="0 1 0"/>
     <dynamics damping="0.05" friction="0"/>
     <mimic joint="upper_joint" multiplier="1" offset="0"/>
+  </joint>
+
+  <joint name="tcp_fixed" type="fixed">
+    <origin xyz="0 0 0.08" rpy="0 0 0"/>
+    <parent link="fore"/>
+    <child link="tcp"/>
+  </joint>
+
+  <joint name="camera_mount_fixed" type="fixed">
+    <origin xyz="0.03 0 0.015" rpy="0 1.570796326795 0"/>
+    <parent link="base"/>
+    <child link="camera_mount"/>
   </joint>
 </robot>
