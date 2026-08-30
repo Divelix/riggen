@@ -132,7 +132,7 @@ job loads a decomposed model with zero warnings.
   deleted. Test: a robot whose link is `ConvexDecomposition` resolves to
   N>1 `ResolvedGeom::Mesh`, the written directory holds
   `bracket_hull_0.stl…`, and the URDF round-trips through `urdf-rs`.
-- [ ] Step 5 — `riggen-app::jobs`: the thread, the channel, the repaint
+- [x] Step 5 — `riggen-app::jobs`: the thread, the channel, the repaint
   wake, the once-per-frame drain, `Jobs::request` deduplicating in-flight
   keys. Test: a harness test requests a decomposition and pumps frames until
   the cache holds it, asserting on the job's own result rather than a sleep.

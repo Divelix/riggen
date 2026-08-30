@@ -171,6 +171,112 @@ fn collision_hull() {
     });
 }
 
+/// The job thread, end to end through the app (`riggen_app::jobs`,
+/// docs/01-architecture.md §Jobs and threads): setting a link's collision
+/// to `ConvexDecomposition` makes the frame ask for the decomposition, the
+/// thread computes it, `drain_jobs` puts it in the cache, and the app is
+/// not settled until it lands. No sleep and no frame count — the loop ends
+/// on the job's own result.
+#[test]
+fn decomposition_lands_on_the_job_thread() {
+    with_app(|harness| {
+        let link = open_link(harness.state_mut(), "bracket.stl");
+        let mesh = harness.state().robot().links[&link].visuals[0].mesh;
+        let params = riggen_mesh::DecompParams {
+            max_hulls: 4,
+            resolution: 32,
+            concavity: 0.01,
+        };
+        harness
+            .state_mut()
+            .apply(Command::SetCollision(
+                link,
+                riggen_core::CollisionPolicy::ConvexDecomposition {
+                    max_hulls: params.max_hulls,
+                    resolution: params.resolution,
+                    concavity: params.concavity,
+                },
+            ))
+            .unwrap();
+        // Nothing has run a frame yet, so nothing has been asked for.
+        assert!(harness.state().decomposition(mesh, params).is_none());
+
+        // Pump frames until the cache holds it. `settled()` is false while
+        // a job is in flight, so this is also what `settle` would wait for.
+        let mut frames = 0;
+        while harness.state().decomposition(mesh, params).is_none() {
+            assert!(
+                harness.state().decompositions_pending() || frames == 0,
+                "the app stopped waiting without a result"
+            );
+            harness.step();
+            frames += 1;
+            assert!(frames < 10_000, "the job never landed");
+        }
+        assert!(frames > 0);
+        assert!(!harness.state().decompositions_pending());
+
+        let pieces = harness
+            .state()
+            .decomposition(mesh, params)
+            .unwrap()
+            .expect("the bracket decomposes");
+        assert!(
+            (2..=params.max_hulls as usize).contains(&pieces.len()),
+            "the bracket is concave, and max_hulls caps it: {}",
+            pieces.len()
+        );
+        for piece in pieces {
+            assert!(piece.triangle_count() > 0);
+        }
+
+        // The same document asks for nothing more: the cache answers.
+        let before = harness
+            .state()
+            .decomposition(mesh, params)
+            .unwrap()
+            .unwrap()[0]
+            .clone();
+        settle(harness);
+        let after = harness
+            .state()
+            .decomposition(mesh, params)
+            .unwrap()
+            .unwrap()[0]
+            .clone();
+        assert!(
+            std::sync::Arc::ptr_eq(&before, &after),
+            "the decomposition was recomputed"
+        );
+
+        // A different parameter set is a different job, and the old one
+        // stays cached beside it.
+        let coarser = riggen_mesh::DecompParams {
+            max_hulls: 2,
+            ..params
+        };
+        harness
+            .state_mut()
+            .apply(Command::SetCollision(
+                link,
+                riggen_core::CollisionPolicy::ConvexDecomposition {
+                    max_hulls: coarser.max_hulls,
+                    resolution: coarser.resolution,
+                    concavity: coarser.concavity,
+                },
+            ))
+            .unwrap();
+        settle(harness);
+        let coarse = harness
+            .state()
+            .decomposition(mesh, coarser)
+            .unwrap()
+            .expect("the coarser decomposition");
+        assert!(coarse.len() <= 2);
+        assert!(harness.state().decomposition(mesh, params).is_some());
+    });
+}
+
 /// A box bigger than the cube and a capsule beside it, as translucent
 /// primitives — and the cursor over the box still hovers the *cube*: the
 /// pick pass skips the translucent group.

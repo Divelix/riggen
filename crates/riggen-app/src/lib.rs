@@ -5,6 +5,7 @@ mod app;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod cli;
 pub mod debug;
+pub mod jobs;
 
 pub use app::{
     ALIGN_PROMPT, ALIGN_WRONG_LINK, COPIED_STATUS, ExportDialog, GLYPH_HOVER_RADIUS, GizmoTarget,
