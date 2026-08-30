@@ -416,6 +416,49 @@ mod tests {
         }
     }
 
+    /// OPEN 2's measurement, kept so the defaults can be re-argued: piece
+    /// count and wall time per parameter set, on the bracket and on the
+    /// arm's forearm (a bearing sleeve plus a bar — a real part with a
+    /// through-hole).
+    /// `cargo test --release -p riggen-mesh measure_decomposition_defaults
+    /// -- --ignored --nocapture`
+    #[test]
+    #[ignore = "a measurement, not an assertion"]
+    fn measure_decomposition_defaults() {
+        let arm = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fixtures/arm");
+        let parts = [
+            ("bracket", crate::load_stl(&fixture("bracket.stl")).unwrap()),
+            ("fore", crate::load_stl(&arm.join("fore.stl")).unwrap()),
+            ("base", crate::load_stl(&arm.join("base.stl")).unwrap()),
+        ];
+        println!(
+            "{:>8} {:>5} {:>5} {:>7} {:>7} {:>9}",
+            "part", "hulls", "res", "conc", "pieces", "ms"
+        );
+        for (name, mesh) in &parts {
+            for resolution in [32, 48, 64, 96, 128] {
+                for max_hulls in [4u32, 8, 16] {
+                    for concavity in [0.002, 0.01, 0.03] {
+                        let params = DecompParams {
+                            max_hulls,
+                            resolution,
+                            concavity,
+                        };
+                        let t = std::time::Instant::now();
+                        let pieces = decompose(mesh, &params);
+                        let ms = t.elapsed().as_secs_f64() * 1000.0;
+                        println!(
+                            "{name:>8} {max_hulls:>5} {resolution:>5} {concavity:>7} {:>7} {ms:>9.0}",
+                            pieces
+                                .map(|p| p.len().to_string())
+                                .unwrap_or_else(|e| e.to_string()),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn max_hulls_caps_the_pieces() {
         let mesh = crate::load_stl(&fixture("bracket.stl")).unwrap();

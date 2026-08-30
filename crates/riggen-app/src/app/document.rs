@@ -32,6 +32,10 @@ pub(crate) enum CollisionSource {
     Hull(MeshId),
     /// A collision-only mesh (`CollisionPolicy::Meshes`).
     Mesh(MeshId),
+    /// One piece of a `CollisionPolicy::ConvexDecomposition` of a visual
+    /// mesh: the mesh, the parameters that produced the pieces, and which
+    /// piece. All three are the key, so re-editing a parameter re-uploads.
+    Piece(MeshId, DecompParams, usize),
     Primitive(Primitive),
 }
 
@@ -665,12 +669,33 @@ impl RiggenApp {
             for (&lid, link) in &self.robot.links {
                 let mut shapes: Vec<(CollisionSource, Pose)> = Vec::new();
                 match &link.collision {
-                    CollisionPolicy::None
-                    | CollisionPolicy::SameAsVisual
-                    | CollisionPolicy::ConvexDecomposition { .. } => {}
+                    CollisionPolicy::None | CollisionPolicy::SameAsVisual => {}
                     CollisionPolicy::ConvexHull => {
                         for g in &link.visuals {
                             shapes.push((CollisionSource::Hull(g.mesh), g.pose));
+                        }
+                    }
+                    CollisionPolicy::ConvexDecomposition {
+                        max_hulls,
+                        resolution,
+                        concavity,
+                    } => {
+                        let params = DecompParams {
+                            max_hulls: *max_hulls,
+                            resolution: *resolution,
+                            concavity: *concavity,
+                        };
+                        for g in &link.visuals {
+                            // Nothing until the job lands; the frame it
+                            // does, `wake` has already asked for a repaint.
+                            let Some(DecompState::Ready(pieces)) =
+                                self.decomp.get(&(g.mesh, params))
+                            else {
+                                continue;
+                            };
+                            for i in 0..pieces.len() {
+                                shapes.push((CollisionSource::Piece(g.mesh, params, i), g.pose));
+                            }
                         }
                     }
                     CollisionPolicy::Primitives(ps) => {
@@ -713,6 +738,12 @@ impl RiggenApp {
                     }
                     CollisionSource::Mesh(mesh_id) => {
                         self.ensure_loaded(*mesh_id).map(|l| l.mesh.clone())
+                    }
+                    CollisionSource::Piece(mesh_id, params, i) => {
+                        match self.decomp.get(&(*mesh_id, *params)) {
+                            Some(DecompState::Ready(pieces)) => pieces.get(*i).cloned(),
+                            _ => None,
+                        }
                     }
                     CollisionSource::Primitive(p) => Some(Arc::new(primitive_mesh(p))),
                 };
@@ -805,10 +836,13 @@ impl RiggenApp {
         }
     }
 
-    /// Moves everything the job thread finished into the cache. Once per
-    /// frame, before the scene is synced, so a decomposition that landed is
-    /// drawn on the frame the wake-up caused.
+    /// Moves everything the job thread finished into the cache, and
+    /// re-syncs the scene if anything landed — a decomposition changes what
+    /// the collision view draws, and the document did not change, so
+    /// nothing else would. Called once per frame at the top of `ui`, on the
+    /// frame the worker's `wake` asked for.
     pub(crate) fn drain_jobs(&mut self) {
+        let mut landed = false;
         for result in self.jobs.drain() {
             let crate::jobs::JobResult::Decomposed {
                 mesh,
@@ -820,6 +854,10 @@ impl RiggenApp {
                 Err(reason) => DecompState::Failed(reason),
             };
             self.decomp.insert((mesh, params), state);
+            landed = true;
+        }
+        if landed {
+            self.sync_scene();
         }
     }
 
