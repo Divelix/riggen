@@ -1656,6 +1656,85 @@ fn gizmo_move_link() {
     });
 }
 
+/// The Move gizmo on a selected frame (ADR-0012): it sits on the frame's
+/// world pose, and with Move active the snap ladder runs under it — a
+/// click on a picked vertex lands the frame there in one `SetFrame`, no
+/// coordinate typed. Nothing else in the scene moves with it.
+#[test]
+fn gizmo_move_frame() {
+    scenario("gizmo_move_frame", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        let frame = app.add_frame(arm).expect("a frame on the arm");
+        app.fit_view_now();
+        app.set_tool(Tool::Move);
+        app.select(Selection::Frame(frame));
+        settle(harness);
+
+        let gizmo = harness.state().debug_state().gizmo.expect("a gizmo");
+        assert_eq!(gizmo.target, format!("frame {frame}"));
+        assert_eq!(gizmo.mode, "translate");
+        // The frame is at the arm's origin, half a metre up.
+        assert_eq!(gizmo.origin, [0.0, 0.0, 0.5]);
+
+        // Snapping is live: Move on a frame is a placement gesture too.
+        assert!(harness.state().placing_frame() == Some(frame));
+        let before: Vec<_> = harness
+            .state()
+            .debug_state()
+            .instances
+            .iter()
+            .map(|i| i.position)
+            .collect();
+        let depth = harness.state().history().undo_depth();
+
+        // A corner of the arm's cube: the ladder gives a vertex there.
+        let at = harness
+            .state()
+            .project_world(DVec3::new(0.25, 0.25, 1.25))
+            .expect("the cube's top corner is on screen");
+        hover_until_snapped(harness, at);
+        let snapped = harness.state().snap().expect("a snap under the cursor");
+        click_at(harness, at);
+        settle(harness);
+
+        let app = harness.state();
+        assert_eq!(
+            app.history().undo_depth(),
+            depth + 1,
+            "one click, one command"
+        );
+        // The frame landed on the snapped point, in the world.
+        let world = riggen_core::frames(app.robot(), &Default::default())[&frame];
+        assert!(
+            (world.t - snapped.point).length() < 1e-9,
+            "{:?} vs {:?}",
+            world.t,
+            snapped.point
+        );
+        // …and it is stored on the arm, in the arm's frame.
+        let stored = &app.robot().frames[&frame];
+        assert_eq!(stored.parent, arm);
+        assert!((stored.pose.t - (snapped.point - DVec3::Z * 0.5)).length() < 1e-9);
+        // Nothing else moved: nothing hangs off a frame.
+        let after: Vec<_> = app
+            .debug_state()
+            .instances
+            .iter()
+            .map(|i| i.position)
+            .collect();
+        assert_eq!(before, after);
+    });
+}
+
 /// The rotate gizmo on a selected joint: it sits on the joint frame, which
 /// is the child link frame, and moving it moves the pivot alone (OPEN 2).
 #[test]

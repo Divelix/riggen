@@ -111,7 +111,7 @@ to 1e-6.
   committed as one `SetFrame`; "+ Frame" in the tree header adds one at
   the selected link's origin and starts the inline rename. Snapshot
   `frame_properties`.
-- [ ] **Step 7 — place a frame with the mouse.** The Move and Rotate
+- [x] **Step 7 — place a frame with the mouse.** The Move and Rotate
   gizmos take `Selection::Frame` (`GizmoTarget::Frame`, drag previews,
   release commits one `SetFrame`), and the snap ladder — pick point,
   vertex, AABB corner, face normal — works under them, so a TCP lands on

@@ -162,7 +162,9 @@ impl RiggenApp {
                 Some(FrameGlyph {
                     frame: id,
                     name: frame.name.clone(),
-                    pose: *world.get(&id)?,
+                    // A gizmo drag previews on the glyph: nothing else in
+                    // the scene moves with a frame.
+                    pose: self.dragged_frame(id).or_else(|| world.get(&id).copied())?,
                     size: self.glyph_size(frame.parent) * FRAME_TRIAD_LENGTH,
                 })
             })
