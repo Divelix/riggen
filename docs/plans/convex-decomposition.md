@@ -117,7 +117,7 @@ job loads a decomposed model with zero warnings.
   plan exists for. Also: `cargo build -p riggen-app --target
   wasm32-unknown-unknown` still green, and the built wheel's size before and
   after recorded (the one number OPEN 1 leaves open).
-- [ ] Step 2 — **ADR-0011**, written knowing step 1's answer; 01 §Layer map
+- [x] Step 2 — **ADR-0011**, written knowing step 1's answer; 01 §Layer map
   and §Cargo workspace note the dependency and the third glam; a backlog
   line for the idea's option E (manual split planes).
 - [ ] Step 3 — the parameters in `riggen-core`: `max_hulls`, `resolution`,

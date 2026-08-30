@@ -12,6 +12,7 @@ below with the reason, so the same idea is not re-brainstormed.
 - Ground grid at z = 0 in the viewport (new; robocad never had one — M0 ships the gradient background only)
 - MSAA for the offscreen colour pass (new; robocad had none)
 - Meshes over 2^20 triangles: decimate at load or widen the pick id (loaders reject them today)
+- Manual split planes for collision geometry: cut a part by hand where V-HACD's automatic split is wrong (the convex-decomposition idea's option E, not taken — ADR-0011 chose the algorithm; this is the escape hatch for the parts it gets wrong)
 - Async mesh loading via `jobs` (M0 loads synchronously on the UI thread)
 - Per-drop import-units dialog for mixed-unit batches (M1 has one app-wide setting, ADR-0006)
 - Open the Joints window automatically when a document has a movable joint (M1 hides it under Window › Joints; the by-hand run missed it)

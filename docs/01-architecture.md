@@ -29,7 +29,9 @@ matter live.
 │                   undo history, serde, schema versioning       │
 ├────────────────────────────────────────────────────────────────┤
 │  riggen-mesh      TriMesh, STL/OBJ loaders, mass properties,   │
-│                   convex hull, primitive fits, ray/triangle    │
+│                   convex hull, convex decomposition (decomp:   │
+│                   parry3d-f64's V-HACD), primitive fits,       │
+│                   ray/triangle                                 │
 └────────────────────────────────────────────────────────────────┘
       egui / eframe / wgpu appear ONLY in riggen-viewport and riggen-app
       glam is the one math library, re-exported by riggen-mesh
@@ -68,7 +70,7 @@ riggen/
 ├── .github/workflows/      # ci.yml (§Testing) and release.yml (§Python distribution)
 ├── crates/
 │   ├── riggen-mesh/        # TriMesh, Aabb, Ray, load_stl / load_obj / load_mesh, feature/,
-│   │                       # mass, hull (quickhull), fit
+│   │                       # mass, hull (quickhull), decomp (V-HACD, ADR-0011), fit
 │   ├── riggen-core/        # ids, pose, robot, validate, fk, command, history, file, inertial
 │   ├── riggen-export/      # resolve, mesh_store, mjcf, urdf, urdf_in, export, fk_samples, xml
 │   ├── riggen-viewport/    # camera/, scene, pick_id, gpu_mesh, overlay, viewport/, shaders/
@@ -115,9 +117,13 @@ Dependency policy (ADR-0001): egui/eframe/egui-wgpu 0.36.x from crates.io,
 wgpu version dictated by egui-wgpu — never depend on a different wgpu.
 `glam` 0.30 with the `serde` and `mint` features, re-exported as
 `riggen_mesh::glam`; no other crate lists it. `transform-gizmo` pins its own
-`glam ^0.32`, so two versions are in the lock file — they never meet, `mint`
-is the boundary and nothing of ours names 0.32 (ADR-0007). Every version lives once in
-`[workspace.dependencies]`; crates say `.workspace = true`. Local checkouts
+`glam ^0.32` and `parry3d-f64` — the V-HACD convex decomposition, at its
+default features, `riggen-mesh`'s dependency alone (ADR-0011) — pins
+`glam 0.33` through its `glamx` bridge, so **three** versions are in the
+lock file. They never meet: `mint` is the gizmo's boundary and
+`riggen_mesh::decomp` is parry's, converting component-wise through `f64`,
+and nothing of ours names 0.32 or 0.33 (ADR-0007, ADR-0011). Every version
+lives once in `[workspace.dependencies]`; crates say `.workspace = true`. Local checkouts
 of egui and rerun under `~/Documents/code/rust/` are reference reading only;
 no `path =` or `[patch]` unless an unreleased fix is needed, and then with a
 comment saying which one. Profile settings carried from RoboCAD:
