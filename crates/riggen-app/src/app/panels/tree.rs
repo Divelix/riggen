@@ -1,36 +1,65 @@
 //! The link tree (left panel): one row per link with its parent joint's
-//! name and kind, click to select, double-click or F2 to rename inline,
-//! drag a row onto another to reparent it (`keep_world_pose: true`, so the
-//! part stays where it is). The panel draws from the document and pushes
-//! every edit through a command *after* drawing, so nothing mutates the
-//! tree while it is being walked.
+//! name and kind, a row per named frame under the link it hangs on, click
+//! to select, double-click or F2 to rename inline, drag a row onto another
+//! to reparent it (`keep_world_pose: true`, so the part stays where it is).
+//! The panel draws from the document and pushes every edit through a
+//! command *after* drawing, so nothing mutates the tree while it is being
+//! walked.
 
-use riggen_core::{Command, JointId, Link, LinkId};
+use std::fmt;
+
+use riggen_core::{Command, FrameId, JointId, Link, LinkId};
 
 use crate::app::{RiggenApp, Selection};
 
-/// Inline-rename state: the link being renamed and the text so far.
+/// What a tree row can rename inline: a link or one of its frames. Joints
+/// are renamed in the properties panel, not here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RenameTarget {
+    Link(LinkId),
+    Frame(FrameId),
+}
+
+impl fmt::Display for RenameTarget {
+    /// `"l3"` / `"f7"` — what `debug_state().ui.renaming` reports.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Link(l) => write!(f, "{l}"),
+            Self::Frame(id) => write!(f, "{id}"),
+        }
+    }
+}
+
+/// Inline-rename state: what is being renamed and the text so far.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TreeState {
-    pub(crate) renaming: Option<(LinkId, String)>,
+    pub(crate) renaming: Option<(RenameTarget, String)>,
     /// The joint whose row the pointer was over while this frame was drawn:
     /// its glyph is highlighted in the viewport (`glyphs.rs`). Consumed once
     /// per frame by `update_glyph_hover`.
     pub(crate) hovered_joint: Option<JointId>,
+    /// The same for a frame row and its triad glyph.
+    pub(crate) hovered_frame: Option<FrameId>,
     /// Set when a rename starts so the text field grabs focus on its first
     /// frame, then cleared.
     focus_rename: bool,
 }
 
+/// The frame row's marker: a crosshair, since a frame *is* a pose. Kept
+/// out of the name so a rename never has to strip it.
+const FRAME_MARK: &str = "⌖";
+
 /// What a row asked for. Collected while drawing, applied after.
 enum TreeAction {
     Select(Selection),
-    StartRename(LinkId),
+    StartRename(RenameTarget),
     /// The pointer is over this joint's row.
     HoverJoint(JointId),
+    /// The pointer is over this frame's row.
+    HoverFrame(FrameId),
     /// A keystroke in the rename field: the buffer lives on `self`.
-    TypeRename(LinkId, String),
-    CommitRename(LinkId, String),
+    TypeRename(RenameTarget, String),
+    CommitRename(RenameTarget, String),
     CancelRename,
     Reparent {
         link: LinkId,
@@ -39,12 +68,21 @@ enum TreeAction {
 }
 
 impl RiggenApp {
-    /// Starts renaming `link` inline (F2, double-click).
-    pub fn start_rename(&mut self, link: LinkId) {
-        if let Some(l) = self.robot.links.get(&link) {
-            self.tree.renaming = Some((link, l.name.clone()));
+    /// Starts renaming a link or a frame inline (F2, double-click).
+    pub(crate) fn start_rename_target(&mut self, target: RenameTarget) {
+        let name = match target {
+            RenameTarget::Link(l) => self.robot.links.get(&l).map(|l| l.name.clone()),
+            RenameTarget::Frame(f) => self.robot.frames.get(&f).map(|f| f.name.clone()),
+        };
+        if let Some(name) = name {
+            self.tree.renaming = Some((target, name));
             self.tree.focus_rename = true;
         }
+    }
+
+    /// Starts renaming `link` inline (F2, double-click).
+    pub fn start_rename(&mut self, link: LinkId) {
+        self.start_rename_target(RenameTarget::Link(link));
     }
 
     pub(crate) fn tree_panel(&mut self, ui: &mut egui::Ui) {
@@ -58,7 +96,7 @@ impl RiggenApp {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .button("− Remove")
-                            .on_hover_text("Remove the selected link and its subtree (Delete)")
+                            .on_hover_text("Remove the selection: a link with its subtree, or a frame (Delete)")
                             .clicked()
                         {
                             self.remove_selected();
@@ -91,13 +129,17 @@ impl RiggenApp {
         for action in actions {
             match action {
                 TreeAction::Select(selection) => self.select(selection),
-                TreeAction::StartRename(link) => self.start_rename(link),
+                TreeAction::StartRename(target) => self.start_rename_target(target),
                 TreeAction::HoverJoint(joint) => self.tree.hovered_joint = Some(joint),
-                TreeAction::TypeRename(link, text) => self.tree.renaming = Some((link, text)),
-                TreeAction::CommitRename(link, name) => {
+                TreeAction::HoverFrame(frame) => self.tree.hovered_frame = Some(frame),
+                TreeAction::TypeRename(target, text) => self.tree.renaming = Some((target, text)),
+                TreeAction::CommitRename(target, name) => {
                     self.tree.renaming = None;
                     // Same name → no-op command, dropped by History.
-                    let _ = self.apply(Command::RenameLink(link, name));
+                    let _ = self.apply(match target {
+                        RenameTarget::Link(l) => Command::RenameLink(l, name),
+                        RenameTarget::Frame(f) => Command::RenameFrame(f, name),
+                    });
                 }
                 TreeAction::CancelRename => self.tree.renaming = None,
                 TreeAction::Reparent { link, new_parent } => {
@@ -111,16 +153,24 @@ impl RiggenApp {
         }
     }
 
-    /// One link and, indented under it, its children (via the joints whose
-    /// parent it is, in id order).
+    /// One link and, indented under it, its frames and then its children
+    /// (via the joints whose parent it is, in id order). Frames first: they
+    /// belong to *this* link, the children are their own subtrees.
     fn tree_row(&self, ui: &mut egui::Ui, link: LinkId, actions: &mut Vec<TreeAction>) {
         let children: Vec<LinkId> = self
             .robot
             .child_joints(link)
             .map(|j| self.robot.joints[&j].child)
             .collect();
+        let frames: Vec<FrameId> = self
+            .robot
+            .frames
+            .iter()
+            .filter(|(_, f)| f.parent == link)
+            .map(|(&id, _)| id)
+            .collect();
         let id = ui.make_persistent_id(("tree_row", link));
-        if children.is_empty() {
+        if children.is_empty() && frames.is_empty() {
             ui.horizontal(|ui| {
                 // Same indent the collapsing toggle would have taken.
                 ui.add_space(ui.spacing().indent);
@@ -131,10 +181,48 @@ impl RiggenApp {
         egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
             .show_header(ui, |ui| self.row_contents(ui, link, id, actions))
             .body(|ui| {
+                for frame in frames {
+                    self.frame_row(ui, frame, actions);
+                }
                 for child in children {
                     self.tree_row(ui, child, actions);
                 }
             });
+    }
+
+    /// A named frame under its link: the frame marker, the name (click to
+    /// select, double-click to rename), and a weak `frame` label so a row
+    /// is never mistaken for a link.
+    fn frame_row(&self, ui: &mut egui::Ui, frame: FrameId, actions: &mut Vec<TreeAction>) {
+        let Some(f) = self.robot.frames.get(&frame) else {
+            return;
+        };
+        ui.horizontal(|ui| {
+            ui.add_space(ui.spacing().indent);
+            let selected = self.selection == Selection::Frame(frame);
+            let hovered = self.hovered_frame() == Some(frame);
+            if self.rename_field(ui, RenameTarget::Frame(frame), actions) {
+                return;
+            }
+            let mut name = egui::RichText::new(format!("{FRAME_MARK} {}", f.name));
+            // Hovered but not selected reads as "this one", not as a second
+            // selection — the same rule the joint label follows.
+            if hovered && !selected {
+                name = name.color(egui::Color32::from_rgb(255, 236, 179));
+            }
+            let response = ui.add(egui::Button::selectable(selected, name));
+            let label = ui.add(egui::Label::new(
+                egui::RichText::new("frame").small().weak(),
+            ));
+            if response.hovered() || label.hovered() {
+                actions.push(TreeAction::HoverFrame(frame));
+            }
+            if response.double_clicked() {
+                actions.push(TreeAction::StartRename(RenameTarget::Frame(frame)));
+            } else if response.clicked() {
+                actions.push(TreeAction::Select(Selection::Frame(frame)));
+            }
+        });
     }
 
     /// The row itself: a drop zone (reparent onto this link) around the
@@ -167,34 +255,49 @@ impl RiggenApp {
         }
     }
 
+    /// The inline-rename text field, when `target` is the thing being
+    /// renamed; `true` when it drew, so the caller skips its own row.
+    fn rename_field(
+        &self,
+        ui: &mut egui::Ui,
+        target: RenameTarget,
+        actions: &mut Vec<TreeAction>,
+    ) -> bool {
+        let Some((renaming, text)) = &self.tree.renaming else {
+            return false;
+        };
+        if *renaming != target {
+            return false;
+        }
+        let mut text = text.clone();
+        let edit = ui.add(
+            egui::TextEdit::singleline(&mut text)
+                .id_salt(("rename", target.to_string()))
+                .desired_width(120.0),
+        );
+        if self.tree.focus_rename {
+            edit.request_focus();
+        }
+        // Escape surrenders focus too, so it is checked first.
+        let escaped = ui.input(|i| i.key_pressed(egui::Key::Escape));
+        let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if escaped {
+            actions.push(TreeAction::CancelRename);
+        } else if entered || edit.lost_focus() {
+            actions.push(TreeAction::CommitRename(target, text));
+        } else if edit.changed() {
+            // Keep typing: the buffer lives on `self`, updated after the
+            // draw like every other action.
+            actions.push(TreeAction::TypeRename(target, text));
+        }
+        true
+    }
+
     fn row_name(&self, ui: &mut egui::Ui, link: LinkId, actions: &mut Vec<TreeAction>) {
-        let name = &self.robot.links[&link].name;
-        if let Some((renaming, text)) = &self.tree.renaming
-            && *renaming == link
-        {
-            let mut text = text.clone();
-            let edit = ui.add(
-                egui::TextEdit::singleline(&mut text)
-                    .id_salt(("rename", link))
-                    .desired_width(120.0),
-            );
-            if self.tree.focus_rename {
-                edit.request_focus();
-            }
-            // Escape surrenders focus too, so it is checked first.
-            let escaped = ui.input(|i| i.key_pressed(egui::Key::Escape));
-            let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if escaped {
-                actions.push(TreeAction::CancelRename);
-            } else if entered || edit.lost_focus() {
-                actions.push(TreeAction::CommitRename(link, text));
-            } else if edit.changed() {
-                // Keep typing: the buffer lives on `self`, updated after
-                // the draw like every other action.
-                actions.push(TreeAction::TypeRename(link, text));
-            }
+        if self.rename_field(ui, RenameTarget::Link(link), actions) {
             return;
         }
+        let name = &self.robot.links[&link].name;
         let selected = self.selection == Selection::Link(link);
         let response =
             ui.add(egui::Button::selectable(selected, name).sense(egui::Sense::click_and_drag()));
@@ -207,7 +310,7 @@ impl RiggenApp {
             actions.push(TreeAction::HoverJoint(joint));
         }
         if response.double_clicked() {
-            actions.push(TreeAction::StartRename(link));
+            actions.push(TreeAction::StartRename(RenameTarget::Link(link)));
         } else if response.clicked() {
             actions.push(TreeAction::Select(Selection::Link(link)));
         }

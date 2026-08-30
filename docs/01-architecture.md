@@ -231,10 +231,12 @@ closes.
 ### Panels and menus
 
 - **Links** (left): one row per link with its parent joint's name and kind
-  (`hinge · revolute`); click selects the link, click the joint label
-  selects the joint, double-click or F2 renames inline, "+ Link" adds an
-  empty link under the selection, Delete / "− Remove" removes the subtree
-  (root refused, reason in the status bar), dragging a row onto another
+  (`hinge · revolute`), and under it — before its child links — a row per
+  named frame (`⌖ tcp   frame`, ADR-0012); click selects the link, the
+  joint or the frame, double-click or F2 renames a link or a frame inline,
+  "+ Link" adds an empty link under the selection, Delete / "− Remove"
+  removes the subtree (root refused, reason in the status bar) or, for a
+  selected frame, that frame alone, dragging a row onto another
   reparents with `keep_world_pose`. Every row is a `dnd_drop_zone` around a
   `Button::selectable(..).sense(click_and_drag())` that sets its own
   payload with `dnd_set_drag_payload` — egui's `dnd_drag_source` lays a
@@ -267,6 +269,16 @@ closes.
   (`set_pick_suppressed`), so the part behind it is not highlighted as well
   and a click selects the *joint* — the camera keeps the pointer, and the
   wheel still zooms (ADR-0010).
+- **Frame glyphs** (in the viewport): a frame has no geometry either, so
+  each is drawn as a triad in the axes triad's colours at its world pose
+  (`world(parent) ∘ frame.pose`) with its name as a label beside it. Every
+  frame is drawn, always — there are a handful and the user placed each on
+  purpose, unlike a weld. Sized from its link's glyph size. Hover runs both
+  ways as it does for joints — row ↔ glyph, nearest triad arm within
+  `GLYPH_HOVER_RADIUS`, `frame (name)` in the status bar, picking
+  suppressed so a click selects the frame — and a frame glyph wins the
+  pointer over a joint's, whose long axis line often runs straight through
+  it.
 - **Properties** (right): a link's name, material, and per geom the pose
   (xyz m, RPY °), asset scale and fix-up, "Add mesh to this link…"; then
   **Inertial** — the `InertialSpec` mode combo (Computed / Override /

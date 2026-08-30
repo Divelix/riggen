@@ -37,7 +37,7 @@ pub use file_menu::PendingAction;
 use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use gizmo::GizmoState;
 pub use gizmo::GizmoTarget;
-pub use glyphs::{GLYPH_HOVER_RADIUS, JointGlyph};
+pub use glyphs::{FrameGlyph, GLYPH_HOVER_RADIUS, JointGlyph};
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 use snap::SnapCache;
 pub use snap::{SNAP_PIXEL_RADIUS, SnapCandidate, SnapKind, placed_status};
@@ -82,6 +82,10 @@ pub struct RiggenApp {
     /// The joint under the pointer: hovered in the tree, or its glyph
     /// hovered in the viewport. Highlights both, both ways (`glyphs.rs`).
     hovered_joint: Option<JointId>,
+    /// The frame under the pointer, from its row or its glyph, and whether
+    /// that hover came from the glyph — the same pair as for joints.
+    hovered_frame: Option<riggen_core::FrameId>,
+    frame_glyph_hover: Option<riggen_core::FrameId>,
     /// Set when that hover came from the *glyph* rather than the tree: a
     /// click then selects the joint, and the viewport's own pick is
     /// suppressed so it does not select the part behind it instead.
@@ -197,6 +201,8 @@ impl RiggenApp {
             gizmo_state: GizmoState::default(),
             hovered_joint: None,
             glyph_hover: None,
+            hovered_frame: None,
+            frame_glyph_hover: None,
             toolbar_rect: None,
             snap_candidate: None,
             snap_cache: SnapCache::default(),
@@ -317,13 +323,21 @@ impl RiggenApp {
     /// The toolbar and the gizmo are cut out first — both float *over* the
     /// viewport, and a glyph behind them is not something the user is
     /// pointing at.
-    fn update_glyph_hover(&mut self, ctx: &egui::Context, glyphs: &[JointGlyph]) {
-        let from_tree = self.tree.hovered_joint.take();
+    fn update_glyph_hover(
+        &mut self,
+        ctx: &egui::Context,
+        glyphs: &[JointGlyph],
+        frames: &[FrameGlyph],
+    ) {
+        let joint_from_tree = self.tree.hovered_joint.take();
+        let frame_from_tree = self.tree.hovered_frame.take();
         self.glyph_hover = None;
+        self.frame_glyph_hover = None;
         // A placement tool never lets a glyph take the pointer: the whole
         // gesture is "point at that feature", and the selected joint's own
         // glyph sits exactly where the user is aiming.
-        if from_tree.is_none()
+        if joint_from_tree.is_none()
+            && frame_from_tree.is_none()
             && !self.tool.snaps()
             && self.pending.is_none()
             && !self.gizmo_state.captured
@@ -334,9 +348,16 @@ impl RiggenApp {
                 .is_some_and(|r| r.contains(pos))
             && !self.toolbar_rect.is_some_and(|r| r.contains(pos))
         {
-            self.glyph_hover = self.glyph_at(glyphs, pos);
+            // A frame glyph is a small triad the user placed on purpose; a
+            // joint glyph is a long axis line that often runs through it.
+            // The frame wins the pointer where both are in reach.
+            self.frame_glyph_hover = self.frame_glyph_at(frames, pos);
+            if self.frame_glyph_hover.is_none() {
+                self.glyph_hover = self.glyph_at(glyphs, pos);
+            }
         }
-        self.hovered_joint = from_tree.or(self.glyph_hover);
+        self.hovered_joint = joint_from_tree.or(self.glyph_hover);
+        self.hovered_frame = frame_from_tree.or(self.frame_glyph_hover);
     }
 
     /// `arm (i1/t120)`: the link and the instance/triangle the ID buffer
@@ -371,9 +392,12 @@ impl eframe::App for RiggenApp {
 
         // A hovered glyph names its joint; otherwise the ID buffer's hit.
         // Both are last frame's — this panel is drawn before the viewport.
-        let hovered = match self.hovered_joint.and_then(|j| self.robot.joints.get(&j)) {
-            Some(joint) => Some(format!("{} (joint)", joint.name)),
-            None => self.viewport.hovered().map(|h| self.describe_hit(h)),
+        let hovered = match self.hovered_frame.and_then(|f| self.robot.frames.get(&f)) {
+            Some(frame) => Some(format!("{} (frame)", frame.name)),
+            None => match self.hovered_joint.and_then(|j| self.robot.joints.get(&j)) {
+                Some(joint) => Some(format!("{} (joint)", joint.name)),
+                None => self.viewport.hovered().map(|h| self.describe_hit(h)),
+            },
         };
         let selected = self.viewport.selected().map(|h| self.describe_hit(h));
         let document = format!(
@@ -406,9 +430,11 @@ impl eframe::App for RiggenApp {
                 // The hover has to be resolved first: it decides both what is
                 // drawn hot and whether the viewport gets the pointer at all.
                 let glyphs = self.joint_glyphs();
-                self.update_glyph_hover(ui.ctx(), &glyphs);
+                let frame_glyphs = self.frame_glyphs();
+                self.update_glyph_hover(ui.ctx(), &glyphs, &frame_glyphs);
                 self.update_snap(ui.ctx());
                 let mut overlay = self.glyph_overlay(&glyphs, self.active_joint());
+                self.push_frame_overlay(&mut overlay, &frame_glyphs, self.active_frame());
                 self.push_align_overlay(&mut overlay);
                 self.push_snap_overlay(&mut overlay);
                 self.viewport.set_overlay(overlay);
@@ -417,8 +443,11 @@ impl eframe::App for RiggenApp {
                 // first. Picking only: a handle or a glyph under the cursor
                 // hides the geometry that would answer for it, but the camera
                 // has no reason to stop (ADR-0010).
-                self.viewport
-                    .set_pick_suppressed(self.gizmo_state.captured || self.glyph_hover.is_some());
+                self.viewport.set_pick_suppressed(
+                    self.gizmo_state.captured
+                        || self.glyph_hover.is_some()
+                        || self.frame_glyph_hover.is_some(),
+                );
                 // The whole pointer, on the other hand, belongs to the
                 // toolbar while the cursor is on it — it is drawn in the
                 // viewport's own layer, which `contains_pointer` cannot see
@@ -450,7 +479,9 @@ impl eframe::App for RiggenApp {
                 // hovered, so these clicks are unambiguous, and a hovered
                 // glyph and a snap are mutually exclusive.
                 let clicked = ui.input(|i| i.pointer.primary_clicked());
-                if let Some(joint) = self.glyph_hover.filter(|_| clicked) {
+                if let Some(frame) = self.frame_glyph_hover.filter(|_| clicked) {
+                    self.select(Selection::Frame(frame));
+                } else if let Some(joint) = self.glyph_hover.filter(|_| clicked) {
                     self.select(Selection::Joint(joint));
                 } else if let Some(snap) = self.snap_candidate.filter(|_| clicked) {
                     match self.tool {

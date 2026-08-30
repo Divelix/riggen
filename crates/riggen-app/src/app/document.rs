@@ -11,8 +11,8 @@ use std::sync::Arc;
 use riggen_core::glam::{DMat4, DQuat, DVec3};
 use riggen_core::inertial::{InertialError, LinkInertial, MeshLookup, compose_inertial};
 use riggen_core::{
-    CollisionPolicy, Command, Created, EditError, GeomId, History, Joint, JointId, JointState,
-    Link, LinkId, MeshAsset, MeshId, Pose, Primitive, Robot, fk,
+    CollisionPolicy, Command, Created, EditError, FrameId, GeomId, History, Joint, JointId,
+    JointState, Link, LinkId, MeshAsset, MeshId, Pose, Primitive, Robot, fk,
 };
 use riggen_export::{DecompMiss, DecompSource};
 use riggen_mesh::feature::Adjacency;
@@ -84,15 +84,20 @@ pub enum Selection {
     None,
     Link(LinkId),
     Joint(JointId),
+    /// A named frame on a link (ADR-0012). Has no instance in the viewport
+    /// — its glyph is drawn by the overlay.
+    Frame(FrameId),
 }
 
 impl Selection {
-    /// `"link l3"` / `"joint j7"` for the status bar and `debug_state()`.
+    /// `"link l3"` / `"joint j7"` / `"frame f2"` for the status bar and
+    /// `debug_state()`.
     pub fn describe(self) -> Option<String> {
         match self {
             Self::None => None,
             Self::Link(l) => Some(format!("link {l}")),
             Self::Joint(j) => Some(format!("joint {j}")),
+            Self::Frame(f) => Some(format!("frame {f}")),
         }
     }
 }
@@ -383,6 +388,8 @@ impl RiggenApp {
         match self.selection {
             Selection::Link(l) => l,
             Selection::Joint(j) => self.robot.joints[&j].child,
+            // A frame's own link: "add here" means beside the thing shown.
+            Selection::Frame(f) => self.robot.frames[&f].parent,
             Selection::None => self.robot.root,
         }
     }
@@ -413,20 +420,25 @@ impl RiggenApp {
             .expect("AddLink returns the new link"))
     }
 
-    /// Removes the selected link with its subtree; for a selected joint,
-    /// the link it leads to (the joint is the edge). The root is refused
-    /// with the reason in the status bar. Nothing selected: nothing.
+    /// Removes what is selected: a link with its subtree; for a joint, the
+    /// link it leads to (the joint is the edge); for a frame, the frame
+    /// alone. The root is refused with the reason in the status bar.
+    /// Nothing selected: nothing.
     pub fn remove_selected(&mut self) {
         let link = match self.selection {
             Selection::Link(l) => l,
             Selection::Joint(j) => self.robot.joints[&j].child,
+            Selection::Frame(f) => {
+                let _ = self.apply(Command::RemoveFrame(f));
+                return;
+            }
             Selection::None => return,
         };
         let _ = self.apply(Command::RemoveLink(link));
     }
 
     /// Selects in document terms and mirrors it into the viewport (a link's
-    /// first visual instance; joints have no instance).
+    /// first visual instance; joints and frames have none).
     pub fn select(&mut self, selection: Selection) {
         if selection != self.selection {
             self.props.clear();
@@ -535,6 +547,11 @@ impl RiggenApp {
         }
         if let Selection::Joint(j) = self.selection
             && !self.robot.joints.contains_key(&j)
+        {
+            self.selection = Selection::None;
+        }
+        if let Selection::Frame(f) = self.selection
+            && !self.robot.frames.contains_key(&f)
         {
             self.selection = Selection::None;
         }

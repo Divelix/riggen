@@ -153,6 +153,40 @@
         "q": 0.0
       }
     ],
+    "frames": [
+      {
+        "id": "f17",
+        "name": "tcp",
+        "parent": "l15",
+        "pos": [
+          0.0,
+          0.0,
+          0.08
+        ],
+        "quat": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "id": "f18",
+        "name": "camera_mount",
+        "parent": "l3",
+        "pos": [
+          0.03,
+          0.0,
+          0.015
+        ],
+        "quat": [
+          0.707107,
+          0.0,
+          0.707107,
+          0.0
+        ]
+      }
+    ],
     "selection": null
   },
   "ui": {
@@ -355,6 +389,40 @@
       "screen": [
         652.0,
         328.228943
+      ],
+      "active": false,
+      "hovered": false
+    }
+  ],
+  "frame_glyphs": [
+    {
+      "frame": "f17",
+      "name": "tcp",
+      "origin": [
+        0.0,
+        0.0,
+        0.275
+      ],
+      "size": 0.027768,
+      "screen": [
+        652.0,
+        130.085419
+      ],
+      "active": false,
+      "hovered": false
+    },
+    {
+      "frame": "f18",
+      "name": "camera_mount",
+      "origin": [
+        0.03,
+        0.0,
+        0.015
+      ],
+      "size": 0.028579,
+      "screen": [
+        696.189941,
+        695.130554
       ],
       "active": false,
       "hovered": false

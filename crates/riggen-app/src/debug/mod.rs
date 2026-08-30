@@ -64,6 +64,10 @@ pub struct DebugState {
     pub gizmo: Option<GizmoDebug>,
     /// One entry per joint glyph the overlay drew, in joint id order.
     pub glyphs: Vec<GlyphDebug>,
+    /// One entry per frame glyph, in `FrameId` order. Omitted for a
+    /// document with no frames, which is most goldens.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub frame_glyphs: Vec<FrameGlyphDebug>,
     /// What the cursor is pointing at, for the placement tools (`snap.rs`).
     pub snap: Option<SnapDebug>,
     /// The status bar's one-off message — a load error, a load summary.
@@ -118,8 +122,42 @@ pub struct DocumentDebug {
     /// In id order, which is creation order.
     pub links: Vec<LinkDebug>,
     pub joints: Vec<JointDebug>,
-    /// `"link l3"` / `"joint j7"`, or `None`.
+    /// In `FrameId` order. Omitted when the document has no frames, so a
+    /// golden written before frames existed is unchanged.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub frames: Vec<FrameDebug>,
+    /// `"link l3"` / `"joint j7"` / `"frame f2"`, or `None`.
     pub selection: Option<String>,
+}
+
+/// A named frame as the document holds it (ADR-0012).
+#[derive(Debug, Clone, Serialize)]
+pub struct FrameDebug {
+    pub id: String,
+    pub name: String,
+    /// The link it hangs on.
+    pub parent: String,
+    /// Its pose in that link's frame.
+    pub pos: [f64; 3],
+    /// `w x y z`, MuJoCo order, as the export writes it.
+    pub quat: [f64; 4],
+}
+
+/// A frame glyph: the triad the overlay drew and where it landed.
+#[derive(Debug, Clone, Serialize)]
+pub struct FrameGlyphDebug {
+    pub frame: String,
+    pub name: String,
+    /// The frame's **world** pose origin: `world(parent) ∘ pose`.
+    pub origin: [f64; 3],
+    /// Length of a triad arm.
+    pub size: f64,
+    /// Where the origin lands in the viewport, in egui points.
+    pub screen: Option<[f64; 2]>,
+    /// Drawn brighter: the hovered frame, else the selected one.
+    pub active: bool,
+    /// The pointer is on this glyph, or on its row in the tree.
+    pub hovered: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -320,6 +358,24 @@ impl RiggenApp {
                     q: round(self.joint_value(*id)),
                 })
                 .collect(),
+            frames: robot
+                .frames
+                .iter()
+                .map(|(id, frame)| {
+                    let [w, x, y, z] = riggen_export::xml::quat_wxyz(frame.pose.r);
+                    FrameDebug {
+                        id: id.to_string(),
+                        name: frame.name.clone(),
+                        parent: frame.parent.to_string(),
+                        pos: [
+                            round(frame.pose.t.x),
+                            round(frame.pose.t.y),
+                            round(frame.pose.t.z),
+                        ],
+                        quat: [round(w), round(x), round(y), round(z)],
+                    }
+                })
+                .collect(),
             selection: match self.selection() {
                 Selection::None => None,
                 other => other.describe(),
@@ -418,6 +474,27 @@ impl RiggenApp {
                             .map(|p| [round32(p.x), round32(p.y)]),
                         active: active == Some(glyph.joint),
                         hovered: self.hovered_joint() == Some(glyph.joint),
+                    })
+                    .collect()
+            },
+            frame_glyphs: {
+                let active = self.active_frame();
+                self.frame_glyphs()
+                    .into_iter()
+                    .map(|glyph| FrameGlyphDebug {
+                        frame: glyph.frame.to_string(),
+                        name: glyph.name,
+                        origin: [
+                            round(glyph.pose.t.x),
+                            round(glyph.pose.t.y),
+                            round(glyph.pose.t.z),
+                        ],
+                        size: round(glyph.size),
+                        screen: self
+                            .project_world(glyph.pose.t)
+                            .map(|p| [round32(p.x), round32(p.y)]),
+                        active: active == Some(glyph.frame),
+                        hovered: self.hovered_frame() == Some(glyph.frame),
                     })
                     .collect()
             },
