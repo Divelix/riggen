@@ -78,8 +78,9 @@ jobs:
   # container maturin-action provides — `build_wheel.py --binary-only`
   # first, for the `riggen` binary into the wheel data directory, then
   # maturin for the abi3 extension module — installs into a fresh venv with
-  # nothing else, and `test_wheel.py` runs it headlessly (--version,
-  # --export, python -m riggen, import riggen._riggen, the abi3 tag).
+  # nothing else, `test_wheel.py` runs it headlessly (--version, --export,
+  # python -m riggen, import riggen._riggen, the abi3 tag), and the SDK's
+  # pytest suite runs against it.
   # linux x86_64 only — the five-target matrix is `release.yml`'s; this job
   # is what guards `pyproject.toml`, `build_wheel.py` and
   # `python/riggen/__main__.py` on every push. The binary links only libc
@@ -107,3 +108,8 @@ jobs:
       # from the previous run makes `uv venv` refuse to create one.
       - run: uv venv "$RUNNER_TEMP/wheel-venv" && uv pip install --python "$RUNNER_TEMP/wheel-venv" dist/*.whl
       - run: python python/tests/test_wheel.py "$RUNNER_TEMP/wheel-venv"
+      # The SDK suite on the installed wheel (docs/01 §Testing): pytest goes
+      # into the same venv so `import riggen` is the wheel's, not the tree's.
+      - run: |
+          uv pip install --python "$RUNNER_TEMP/wheel-venv" pytest
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pytest python/tests/sdk

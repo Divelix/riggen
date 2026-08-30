@@ -602,6 +602,64 @@ with **two halves**:
 `.riggen` and spawns the bundled binary on it — the `rr.spawn()` model.
 The GUI is never entered from inside a Python call (ADR-0002).
 
+## Python SDK (ADR-0009)
+
+Two layers. `riggen._riggen` (`crates/riggen-py`) is the extension module:
+a thin, typed layer over `riggen-core` and `riggen-export`, one method per
+`Command`, no sugar. `riggen` (`python/riggen/`) is the public API over it
+(plans/python-sdk step 6). This section is the extension module.
+
+**Values cross in the schema's shape.** A joint, a pose, an inertial spec
+is the same dict the `.riggen` file spells (02 §Schema) — `{"t": [x, y, z],
+"r": [x, y, z, w]}` for a `Pose`, `"Revolute"` for a kind, `{"Computed":
+{"density_override": None}}` for an inertial — produced and consumed
+through `serde_json::Value` (`doc.rs`), with one difference: **ids are
+ints**. The file writes `"l5"`, Python sees `5`; the keys that hold an id
+are fixed by the schema (`id` a geom, `mesh` a mesh, `parent` / `child` a
+link), so the rule is by key and a link *named* `"l5"` is untouched. A
+malformed value is a `ValueError` naming the field (`joint: missing field
+\`axis\``); a wrong Python type is a `TypeError`.
+
+**Every edit runs on a clone** and replaces the document only on success —
+`Command::apply` can leave a half-edited robot behind a validation
+failure (02 §Commands) — so a refused edit raises and changes nothing,
+the id counter included. No `History`: a script has no undo.
+
+| Python (`riggen._riggen.Robot`) | Rust |
+|---|---|
+| `Robot(name)` | `Robot::new` |
+| `Robot.load(path) -> (robot, warnings)` | `file::load`; `Warning`s as strings |
+| `robot.save(path)` | `file::save` (paths rebased, unreferenced assets dropped) |
+| `robot.to_json()` / `Robot.from_json(text)` | the v1 envelope, paths as held (absolute); `from_json` validates |
+| `robot.copy()` | `Robot::clone` |
+| `robot.name`, `.root`, `.next_id` | the fields; `next_id` is `IdGen::peek` |
+| `robot.links()`, `.joints()`, `.frames()`, `.assets()`, `.materials()` | `{id: doc}` dicts, materials by name |
+| `robot.link(name)`, `.joint(name)` | a name lookup, `None` when absent |
+| `robot.parent_joint(l)`, `.child_joints(l)`, `.subtree(l)` | `Robot::{parent_joint, child_joints, subtree}`; an unknown link is `UnknownId` |
+| `robot.add_asset(path, *, scale, fix_up)` | `absolute` + `hash_file` + `Robot::add_asset` (not a command) |
+| `robot.add_link(name, parent, joint, *, mesh, scale, fix_up, material)` | `Command::AddLink`; with `mesh`, `add_asset` and one geom at identity first — the app's drop |
+| `remove_link`, `rename_link`, `rename_joint` | `RemoveLink`, `RenameLink`, `RenameJoint` |
+| `add_geom(link, mesh, *, pose, color)`, `remove_geom`, `set_geom_pose` | `AddGeom` (the geom id allocated here), `RemoveGeom`, `SetGeomPose` |
+| `set_joint(joint, doc)` | `SetJoint`; `parent` / `child` in the dict ignored |
+| `move_joint_frame(joint, origin, axis)` | `MoveJointFrame` |
+| `reparent(link, new_parent, *, keep_world_pose)` | `Reparent` |
+| `set_root(link)` | `SetRoot` |
+| `set_link_material`, `upsert_material`, `remove_material` | `SetLinkMaterial`, `UpsertMaterial`, `RemoveMaterial` |
+| `set_asset(mesh, doc)` | `SetAsset`; the path absolutised, the hash recomputed |
+| `set_inertial(link, doc)`, `set_collision(link, doc)` | `SetInertial`, `SetCollision` |
+
+**Exceptions** live in Python (`python/riggen/errors.py`) and Rust raises
+them by name (`errors.rs`), so `except riggen.EditError` is a plain Python
+class: `RiggenError` ← `EditError` ← one subclass per `EditError` variant
+(`InvalidDocument`, `UnknownId`, `UnknownMaterial`, `WouldCreateCycle`,
+`CannotRemoveRoot`, `CannotReparentRoot`, `MaterialInUse`,
+`MovableJointOnRootPath`), and beside it `ValidationError`, `FileError`,
+`ExportError`, `UrdfImportError`, `InertialError`. The message is the Rust
+`Display`.
+
+Kinematics, inertials, export and import (step 5) and `show()` (step 7)
+extend this table.
+
 ## Testing
 
 - `riggen-mesh`, `riggen-core`, `riggen-export`: plain unit tests; no GPU,
@@ -619,6 +677,17 @@ The GUI is never entered from inside a Python call (ADR-0002).
   `mj_forward` body poses must match the `<name>.fk.json` the export wrote
   with `--fk-samples` to 1e-6 at five joint configurations — for both the
   sample's export and the export of its URDF import.
+- **SDK suite** (`python/tests/sdk/`, pytest; the `wheel` CI job after the
+  smoke, and locally `uv venv target/sdk-venv && VIRTUAL_ENV=$PWD/target/
+  sdk-venv uvx maturin develop --uv`, `uv pip install --python target/
+  sdk-venv pytest`, `target/sdk-venv/bin/python -m pytest python/tests/
+  sdk`): the pendulum built through `_riggen` saves byte-identical to
+  `assets/fixtures/pendulum.riggen` (ids, order, hashes, `next_id`);
+  `load` of it has no warnings and a changed mesh has one; every edit
+  method runs once; every `EditError` variant is raised as its class and
+  leaves `to_json()` unchanged; `set_joint` ignores `parent` / `child`;
+  malformed values are `ValueError` / `TypeError`. Never against the
+  checkout on `sys.path`, which has no extension module.
 - **Wheel smoke** (`python/tests/test_wheel.py`; the `wheel` CI job and
   `release.yml`'s `smoke` jobs): given a venv the wheel is installed into,
   `riggen --version` matches `riggen \d+.\d+.\d+ (… …)`, `python -m
