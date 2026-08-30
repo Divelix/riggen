@@ -9,10 +9,30 @@
 
 use pyo3::prelude::*;
 
-/// The module. `__version__` is `CARGO_PKG_VERSION` — the workspace
-/// version, the same number `importlib.metadata.version("riggen")` reports.
+/// The module. `__version__` is `CARGO_PKG_VERSION` in PEP 440 spelling —
+/// the workspace version, the same string `importlib.metadata.version
+/// ("riggen")` reports (`test_wheel.py` checks the two agree).
 #[pymodule]
 fn _riggen(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    m.add("__version__", pep440(env!("CARGO_PKG_VERSION")))?;
     Ok(())
+}
+
+/// Cargo's pre-release spelling to PEP 440's, the way maturin writes the
+/// wheel's version: `0.2.0-dev` → `0.2.0.dev0`, `-alpha.1` → `a1`,
+/// `-beta.2` → `b2`, `-rc.1` → `rc1`. A release version passes through; an
+/// unknown tag is left as Cargo spelled it.
+fn pep440(cargo: &str) -> String {
+    let Some((base, pre)) = cargo.split_once('-') else {
+        return cargo.to_string();
+    };
+    let (tag, n) = pre.split_once('.').unwrap_or((pre, "0"));
+    let tag = match tag {
+        "dev" => ".dev",
+        "alpha" | "a" => "a",
+        "beta" | "b" => "b",
+        "rc" | "pre" => "rc",
+        _ => return cargo.to_string(),
+    };
+    format!("{base}{tag}{n}")
 }

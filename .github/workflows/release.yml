@@ -1,7 +1,10 @@
-# The release (plans/m4-distribution, ADR-0002): wheels for five targets
-# plus the sdist, each wheel smoke-tested on a clean venv of its OS, then
-# published — to TestPyPI on a manual dispatch, to PyPI and a GitHub Release
-# on a `v*` tag push. Publishing uses PyPI trusted publishing, so there is
+# The release (plans/m4-distribution, plans/python-sdk; ADR-0002,
+# ADR-0009): wheels for five targets plus the sdist, each wheel smoke-tested
+# on a clean venv of its OS, then published — to TestPyPI on a manual
+# dispatch, to PyPI and a GitHub Release on a `v*` tag push. Every wheel
+# has two halves (`python/build_wheel.py`): the `riggen` binary, built by
+# cargo for the target and copied into maturin's wheel data directory, and
+# the abi3 extension module `riggen._riggen`, built by maturin. Publishing uses PyPI trusted publishing, so there is
 # no token in the repository's secrets: each index trusts this workflow
 # file, in this repository, running in the named environment.
 #
@@ -29,17 +32,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Full triples: the same string reaches maturin-action's `target`
+        # and `build_wheel.py --target`, so both cargo runs agree on
+        # `target/<triple>/release/`.
         include:
           - os: ubuntu-latest
-            target: x86_64
+            target: x86_64-unknown-linux-gnu
           - os: ubuntu-latest
-            target: aarch64
+            target: aarch64-unknown-linux-gnu
           - os: macos-latest
             target: aarch64-apple-darwin
           - os: macos-latest
             target: x86_64-apple-darwin
           - os: windows-latest
-            target: x86_64
+            target: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
       # `riggen --version`'s hash and date (build.rs). Computed here because
@@ -49,9 +55,12 @@ jobs:
         run: |
           echo "RIGGEN_GIT_HASH=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
           echo "RIGGEN_BUILD_DATE=$(git log -1 --format=%cs)" >> "$GITHUB_ENV"
-      # Linux: the manylinux 2_28 container (x86_64) or maturin-action's
-      # cross container (aarch64). The binary links only libc, so neither
-      # needs a package installed first.
+      # Linux: both halves inside the manylinux 2_28 container (x86_64) or
+      # maturin-action's cross container (aarch64) — the binary half in
+      # `before-script-linux`, which runs after the action installed Rust
+      # and the target and put `/opt/python/*/bin` on PATH; the containers
+      # have a `python3`. The binary links only libc, so neither needs a
+      # package installed first.
       - if: runner.os == 'Linux'
         uses: PyO3/maturin-action@v1
         with:
@@ -60,8 +69,22 @@ jobs:
           args: --release --out dist
           manylinux: 2_28
           docker-options: -e RIGGEN_GIT_HASH=${{ env.RIGGEN_GIT_HASH }} -e RIGGEN_BUILD_DATE=${{ env.RIGGEN_BUILD_DATE }}
-      # macOS builds both architectures on the arm64 runner (the Intel
-      # runners are retired); Windows builds natively.
+          before-script-linux: python3 python/build_wheel.py --binary-only --target ${{ matrix.target }}
+      # macOS and Windows: the binary half on the runner first (macOS builds
+      # both architectures on the arm64 runner — the Intel runners are
+      # retired; Windows builds natively), then maturin-action for the
+      # extension. setup-python so `python` is the same spelling on both.
+      - if: runner.os != 'Linux'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - if: runner.os != 'Linux'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: runner.os != 'Linux'
+        shell: bash
+        run: python python/build_wheel.py --binary-only --target ${{ matrix.target }}
       - if: runner.os != 'Linux'
         uses: PyO3/maturin-action@v1
         with:
@@ -90,7 +113,9 @@ jobs:
 
   # The wheel on a machine that never saw Rust: a fresh venv, the wheel from
   # the artefact, and `test_wheel.py` (--version, --export of the sample
-  # arm, python -m riggen). Headless: no runner has a display.
+  # arm, python -m riggen, import riggen._riggen, the abi3 tag). Headless:
+  # no runner has a display. A `-dev` workspace version is a pre-release
+  # (`0.2.0.dev0`); `uv` accepts it because it is the only version in `dist`.
   smoke:
     name: smoke ${{ matrix.os }}
     needs: build

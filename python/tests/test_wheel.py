@@ -25,7 +25,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ARM = ROOT / "assets" / "fixtures" / "arm" / "arm.riggen"
-VERSION_LINE = re.compile(r"^riggen \d+\.\d+\.\d+ \(\S+ \S+\)$")
+VERSION_LINE = re.compile(r"^riggen \d+\.\d+\.\d+(-[0-9A-Za-z.]+)? \(\S+ \S+\)$")
 
 
 def scripts_dir(venv: Path) -> Path:
