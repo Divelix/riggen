@@ -4,7 +4,10 @@ For every directory given on the command line: load its `*.xml` with
 `mujoco.MjModel.from_xml_path`, failing on any compiler warning, and — when
 a `<name>.fk.json` sits beside it — set each sampled joint configuration,
 `mj_forward`, and compare every body's world pose with what `riggen_core::fk`
-wrote, to 1e-6.
+wrote, to 1e-6. A body carrying convex-decomposition pieces
+(`<stem>_hull_0`, `_1`, … — ADR-0011) must carry more than one of them:
+MuJoCo hulls a collision mesh itself, so a single piece would mean the
+part collides as a solid block and the policy bought nothing.
 
     uv run --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample
 
@@ -13,6 +16,7 @@ Acceptance block and nothing else.
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -63,6 +67,38 @@ def check_fk(model: mujoco.MjModel, samples: dict) -> int:
     return checked
 
 
+PIECE = re.compile(r"^(?P<stem>.+)_hull_(?P<index>\d+)$")
+
+
+def check_decomposition(model: mujoco.MjModel) -> int:
+    """Every convex decomposition in the model is several geoms on one body.
+
+    `riggen-export` writes `<stem>_hull_0 … _<N-1>` and one collision geom
+    per piece, so the pieces are recognisable from the model alone — no
+    fixture knowledge here. One piece would mean the export collapsed the
+    policy to a hull, which MuJoCo would have taken anyway.
+    """
+    found: dict[tuple[int, str], set[int]] = {}
+    for g in range(model.ngeom):
+        mesh_id = model.geom_dataid[g]
+        if mesh_id < 0:
+            continue
+        match = PIECE.match(model.mesh(mesh_id).name or "")
+        if match:
+            key = (int(model.geom_bodyid[g]), match["stem"])
+            found.setdefault(key, set()).add(int(match["index"]))
+    for (body, stem), indices in sorted(found.items()):
+        name = model.body(body).name
+        if len(indices) < 2:
+            raise AssertionError(
+                f"body {name!r} has {len(indices)} piece of {stem!r}: "
+                "a decomposition of one piece is a convex hull"
+            )
+        if sorted(indices) != list(range(len(indices))):
+            raise AssertionError(f"body {name!r}: {stem!r} pieces are {sorted(indices)}, not 0..N")
+    return sum(len(i) for i in found.values())
+
+
 def main(argv: list[str]) -> int:
     dirs = [Path(a) for a in argv] or [Path("target/sample")]
     failures = 0
@@ -80,6 +116,14 @@ def main(argv: list[str]) -> int:
                 failures += 1
                 continue
             summary = f"{model.nbody} bodies, {model.njnt} joints, {model.nmesh} meshes"
+            try:
+                pieces = check_decomposition(model)
+            except AssertionError as e:
+                print(f"FAIL {xml}: {e}")
+                failures += 1
+                continue
+            if pieces:
+                summary += f", {pieces} convex-decomposition geoms"
             fk = xml.with_suffix(".fk.json")
             if fk.exists():
                 try:

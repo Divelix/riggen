@@ -147,7 +147,7 @@ job loads a decomposed model with zero warnings.
   export, `_riggen.pyi`, `robot.py`'s `collision` getter/setter round-trip;
   a pytest in `python/tests/sdk/` asserting the policy survives
   `to_json`/`load` and that `export` writes N mesh files.
-- [ ] Step 8 — the acceptance: a decomposed model in the `mujoco` CI job —
+- [x] Step 8 — the acceptance: a decomposed model in the `mujoco` CI job —
   the bracket as a link of a two-link robot, exported headlessly via
   `riggen --export mjcf`, loaded by `mujoco.MjModel.from_xml_path` with zero
   compiler warnings, `mj_forward` agreeing with `fk` to 1e-6, and the model
@@ -212,11 +212,12 @@ loading the decomposed model with zero MuJoCo compiler warnings and
   the dependency is unconditional. Its `glamx` 0.3 pins **glam 0.33.6**, so
   the lock holds three glam versions (0.30.10, 0.32.1, 0.33.6) — contained
   as ADR-0007 contains the second, and ADR-0011 records it. The **wheel** grows
-  **10 532 556 → 10 541 521 bytes, +8 965 (+0.09 %)** (step 1,
-  `python/build_wheel.py`, manylinux_2_34 x86_64) — negligible, and OPEN 1
-  is closed. The caveat: nothing *calls* `decompose` yet, so thin LTO drops
-  most of parry from that build; step 8 re-measures once `resolve` and the
-  SDK reach it, and it changes nothing unless it is large.
+  **10 532 556 → 10 694 809 bytes, +162 253 (+1.5 %)**
+  (`python/build_wheel.py`, manylinux_2_34 x86_64). Step 1's first
+  measurement said +8 965 (+0.09 %) and was misleading: nothing *called*
+  `decompose` yet, so thin LTO dropped nearly all of parry. Re-measured at
+  step 8 with `resolve` and the SDK reaching it; still small, and OPEN 1 is
+  closed. ADR-0011's number was corrected to match.
 - `⚠ OPEN 2:` ~~the default parameters~~ — **measured 2026-08-31 on
   `bracket.stl`, the arm's `fore.stl` and `base.stl` across
   resolution × max_hulls × concavity (`riggen-mesh`'s `#[ignore]`d
