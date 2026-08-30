@@ -21,6 +21,6 @@ pub use export::{ExportIoError, export};
 pub use mesh_store::MeshStore;
 pub use resolve::{
     ComputeNow, DecompMiss, DecompSource, ExportError, ExportOptions, Format, MeshPathStyle,
-    ResolvedGeom, ResolvedJoint, ResolvedLink, ResolvedRobot, resolve,
+    ResolvedGeom, ResolvedJoint, ResolvedLink, ResolvedRobot, ResolvedSite, resolve,
 };
 pub use urdf_in::{ImportError, ImportWarning, PackageMap};

@@ -337,7 +337,9 @@ pub struct ResolvedLink {
     pub collisions: Vec<ResolvedGeom>,     // SameAsVisual copies visuals; hulls, decomposition
                                            // pieces and primitives computed
     pub inertial: Option<Inertial>,        // None for an empty static body: no <inertial>
+    pub sites: Vec<ResolvedSite>,          // the link's frames, FrameId order
 }
+pub struct ResolvedSite { pub name: String, pub pose: Pose }  // frame in the link frame
 pub enum ResolvedGeom { Mesh { name, mesh: Arc<TriMesh>, pose }, Primitive(Primitive) }
 pub struct ResolvedJoint { name, kind, parent: usize, child: usize, origin: Pose, axis: DVec3, limits, dynamics }
 pub struct ExportOptions { format: Format, mesh_paths: MeshPathStyle, floating_base: bool }
@@ -368,6 +370,12 @@ over a cache its job thread fills and reports `DecompMiss::Pending` for an
 entry that has not landed — which becomes `ExportError::DecompositionPending`
 and blocks the export until the job lands, listed beside every other
 blocker (no modal, no spinner over the dialog).
+
+Every `Frame` becomes a `ResolvedSite` on its parent link, in `FrameId`
+order, carrying its link-frame pose unchanged; a frame on a link the tree
+does not reach cannot get this far, because `validate` rejected the
+document first. No frame adds an `ExportError` of its own — the name rules
+under §Invariants are validation errors.
 
 `MeshStore`
 is the headless `MeshLookup` (files read and brought to meters as the

@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{
-    CollisionPolicy, Command, Geom, Joint, JointKind, Limits, Link, LinkId, MeshAsset, MeshId,
-    Pose, Primitive, Robot,
+    CollisionPolicy, Command, Frame, FrameId, Geom, Joint, JointKind, Limits, Link, LinkId,
+    MeshAsset, MeshId, Pose, Primitive, Robot,
 };
 use riggen_mesh::TriMesh;
 
@@ -92,6 +92,21 @@ impl Builder {
             .find(|(_, l)| l.name == name)
             .unwrap()
             .0
+    }
+
+    /// A named frame on `parent`, written straight into the document —
+    /// the `AddFrame` command arrives in step 4.
+    pub(crate) fn frame(&mut self, name: &str, parent: LinkId, pose: Pose) -> FrameId {
+        let id: FrameId = self.robot.next_id.alloc();
+        self.robot.frames.insert(
+            id,
+            Frame {
+                name: name.to_owned(),
+                parent,
+                pose,
+            },
+        );
+        id
     }
 
     pub(crate) fn resolve(&self) -> Result<ResolvedRobot, Vec<ExportError>> {
