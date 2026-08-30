@@ -538,6 +538,69 @@ class Geom(_Handle):
         return f"Geom({self.mesh.name!r} on {self.link.name!r})"
 
 
+class Frame(_Handle):
+    """A named pose on a link — a TCP, a sensor mount, a grasp pose. It
+    carries no mass and no geometry: an MJCF ``<site>`` and a URDF massless
+    dummy link on a fixed joint (ADR-0012). Its name shares the links'
+    namespace, so it may not repeat a link's."""
+
+    __slots__ = ()
+
+    @property
+    def _doc(self) -> _riggen.FrameDoc:
+        try:
+            return self.robot._inner.frames()[self.id]
+        except KeyError:
+            raise _unknown("frame", self.id) from None
+
+    def _set(self, **changes: Any) -> None:
+        doc = dict(self._doc)
+        doc.update(changes)
+        self.robot._inner.set_frame(self.id, doc)  # type: ignore[arg-type]
+
+    @property
+    def name(self) -> str:
+        """Unique among frames *and* links: URDF writes both as ``<link>``."""
+        return self._doc["name"]
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self.robot._inner.rename_frame(self.id, value)
+
+    @property
+    def parent(self) -> Link:
+        """The link this frame hangs on."""
+        return Link(self.robot, self._doc["parent"])
+
+    @parent.setter
+    def parent(self, value: Link) -> None:
+        """Moves the frame to another link, **keeping its stored pose** —
+        so it moves in the world. To keep the world pose, read
+        :meth:`world` first and write it back through :attr:`pose`."""
+        self._set(parent=value.id)
+
+    @property
+    def pose(self) -> Pose:
+        """The frame in its link's frame."""
+        return Pose.from_doc(self._doc["pose"])
+
+    @pose.setter
+    def pose(self, value: PoseLike) -> None:
+        self._set(pose=_pose(value).to_doc())
+
+    def world(self, q: dict[str | Joint, float] | None = None) -> Pose:
+        """This frame's world pose at the joint values ``q`` (by name or
+        handle; missing joints at zero)."""
+        return self.robot.frame_poses(q)[self.name]
+
+    def remove(self) -> None:
+        """Removes this frame. Nothing else changes: nothing hangs off it."""
+        self.robot._inner.remove_frame(self.id)
+
+    def __repr__(self) -> str:
+        return f"Frame({self.name!r} on {self.parent.name!r})"
+
+
 class Link(_Handle):
     """A body of the tree. Its :attr:`joint` connects it to :attr:`parent`;
     the root has neither. Properties that set are one edit each."""
@@ -600,6 +663,17 @@ class Link(_Handle):
     def geoms(self) -> list[Geom]:
         """The visual meshes of this link, in the order added."""
         return [Geom(self, g["id"]) for g in self._doc["visuals"]]
+
+    @property
+    def frames(self) -> list[Frame]:
+        """The named frames on this link, in creation order."""
+        return [f for f in self.robot.frames if f.parent == self]
+
+    def add_frame(self, name: str, pose: PoseLike | None = None) -> Frame:
+        """A named frame on this link at ``pose`` (identity by default) —
+        a TCP, a sensor mount. ``name`` may not repeat a link's or another
+        frame's (ADR-0012)."""
+        return Frame(self.robot, self.robot._inner.add_frame(name, self.id, pose=_pose(pose).to_doc()))
 
     def add_mesh(
         self,
@@ -818,7 +892,7 @@ class Joint(_Handle):
 def _unknown(kind: str, id: int) -> Exception:
     from .errors import UnknownId
 
-    prefix = {"link": "l", "joint": "j", "geom": "g"}[kind]
+    prefix = {"link": "l", "joint": "j", "geom": "g", "frame": "f"}[kind]
     return UnknownId(f"no {kind} {prefix}{id} in the document")
 
 
@@ -882,6 +956,11 @@ class Robot:
         return [Joint(self, j) for j in self._inner.joints()]
 
     @property
+    def frames(self) -> list[Frame]:
+        """Every named frame, in creation order."""
+        return [Frame(self, f) for f in self._inner.frames()]
+
+    @property
     def materials(self) -> dict[str, Material]:
         """By name; edit with :meth:`add_material` / :meth:`remove_material`."""
         return {name: Material(m["density"], tuple(m["color"])) for name, m in self._inner.materials().items()}  # type: ignore[arg-type]
@@ -899,6 +978,13 @@ class Robot:
         if id is None:
             raise KeyError(f"no joint named {name!r}")
         return Joint(self, id)
+
+    def frame(self, name: str) -> Frame:
+        """The frame called ``name``; ``KeyError`` when there is none."""
+        id = self._inner.frame(name)
+        if id is None:
+            raise KeyError(f"no frame named {name!r}")
+        return Frame(self, id)
 
     # -- building ------------------------------------------------------------
 
@@ -945,6 +1031,14 @@ class Robot:
         state = {(self.joint(k).id if isinstance(k, str) else k.id): float(v) for k, v in (q or {}).items()}
         names = {id: link["name"] for id, link in self._inner.links().items()}
         return {names[id]: Pose.from_doc(pose) for id, pose in self._inner.fk(state).items()}
+
+    def frame_poses(self, q: dict[str | Joint, float] | None = None) -> dict[str, Pose]:
+        """The world pose of every named frame, by name, for the joint
+        values ``q`` — ``world(link) ∘ frame.pose``. :meth:`fk` stays links
+        only, because it is what the export is checked against."""
+        state = {(self.joint(k).id if isinstance(k, str) else k.id): float(v) for k, v in (q or {}).items()}
+        names = {id: frame["name"] for id, frame in self._inner.frames().items()}
+        return {names[id]: Pose.from_doc(pose) for id, pose in self._inner.fk_frames(state).items()}
 
     def validate(self) -> list[str]:
         """Every invariant the document breaks, as messages; empty for a

@@ -16,9 +16,9 @@ use std::collections::BTreeMap;
 use pyo3::exceptions::{PyOSError, PyValueError};
 use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{
-    CollisionPolicy, Command, Created, EditError, Geom, GeomId, Id, InertialSpec, Joint, JointId,
-    JointState, Link, LinkId, Material, MeshAsset, MeshId, Pose, Robot, compose_inertial,
-    validation_errors,
+    CollisionPolicy, Command, Created, EditError, Frame, FrameId, Geom, GeomId, Id, InertialSpec,
+    Joint, JointId, JointState, Link, LinkId, Material, MeshAsset, MeshId, Pose, Robot,
+    compose_inertial, validation_errors,
 };
 use riggen_export::{ExportError, ExportOptions, Format, MeshPathStyle, MeshStore, PackageMap};
 use serde::{Deserialize, Serialize};
@@ -296,6 +296,15 @@ impl PyRobot {
             .map(|(id, _)| id.raw())
     }
 
+    /// The id of the frame called `name`, or `None`.
+    fn frame(&self, name: &str) -> Option<u32> {
+        self.inner
+            .frames
+            .iter()
+            .find(|(_, f)| f.name == name)
+            .map(|(id, _)| id.raw())
+    }
+
     /// The joint whose child is `link`; `None` for the root.
     fn parent_joint(&self, py: Python<'_>, link: u32) -> PyResult<Option<u32>> {
         let link = self.require_link(py, link)?;
@@ -449,6 +458,51 @@ impl PyRobot {
             py,
             Command::SetGeomPose(LinkId::from_raw(link), GeomId::from_raw(geom), pose),
         )?;
+        Ok(())
+    }
+
+    // ---- frames -----------------------------------------------------------
+
+    /// `AddFrame`: a named frame on `link` at `pose` (identity by default).
+    /// Returns the frame's id. Its name shares the links' namespace
+    /// (ADR-0012), so a name already taken by a link or a frame is refused.
+    #[pyo3(signature = (name, link, *, pose = None))]
+    fn add_frame(
+        &mut self,
+        py: Python<'_>,
+        name: String,
+        link: u32,
+        pose: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<u32> {
+        let pose = pose_from(pose)?;
+        let frame = Frame {
+            name,
+            parent: LinkId::from_raw(link),
+            pose,
+        };
+        Ok(self
+            .edit(py, Command::AddFrame(frame))?
+            .and_then(Created::frame)
+            .expect("AddFrame returns the frame it created")
+            .raw())
+    }
+
+    fn remove_frame(&mut self, py: Python<'_>, frame: u32) -> PyResult<()> {
+        self.edit(py, Command::RemoveFrame(FrameId::from_raw(frame)))?;
+        Ok(())
+    }
+
+    fn rename_frame(&mut self, py: Python<'_>, frame: u32, name: String) -> PyResult<()> {
+        self.edit(py, Command::RenameFrame(FrameId::from_raw(frame), name))?;
+        Ok(())
+    }
+
+    /// `SetFrame`: name, parent link and pose in one value. Moving a frame
+    /// to another link writes what it is given — the caller keeps the world
+    /// pose itself if it wants to, through `fk`.
+    fn set_frame(&mut self, py: Python<'_>, frame: u32, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        let value: Frame = from_doc(value, "frame")?;
+        self.edit(py, Command::SetFrame(FrameId::from_raw(frame), value))?;
         Ok(())
     }
 
@@ -611,6 +665,28 @@ impl PyRobot {
             state.set(id, value);
         }
         let world = riggen_core::fk(&self.inner, &state);
+        self.map(py, world.iter().map(|(id, pose)| (*id, pose)))
+    }
+
+    /// The world pose of every named frame at `q`, as `{frame id: pose}` —
+    /// `world(parent) ∘ frame.pose` (ADR-0012). `fk` itself stays links
+    /// only, because it is the export oracle.
+    fn fk_frames(&self, py: Python<'_>, q: BTreeMap<u32, f64>) -> PyResult<Py<PyDict>> {
+        let mut state = JointState::new();
+        for (joint, value) in q {
+            let id = JointId::from_raw(joint);
+            if !self.inner.joints.contains_key(&id) {
+                return Err(edit_error(
+                    py,
+                    EditError::UnknownId {
+                        kind: JointId::KIND,
+                        id: id.to_string(),
+                    },
+                ));
+            }
+            state.set(id, value);
+        }
+        let world = riggen_core::frames(&self.inner, &state);
         self.map(py, world.iter().map(|(id, pose)| (*id, pose)))
     }
 
