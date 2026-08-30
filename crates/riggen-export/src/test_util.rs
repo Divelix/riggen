@@ -121,7 +121,8 @@ impl Builder {
 
 /// base ─(revolute)─ upper ─(prismatic)─ slider ─(continuous)─ wheel
 /// ─(fixed)─ tip: every joint kind on one chain, an aluminium cube per
-/// link, one primitive collision, a rotated geom.
+/// link, one primitive collision, a rotated geom, and two named frames —
+/// one on the root, one on the leaf, one of them rotated.
 pub(crate) fn every_joint_kind() -> Builder {
     let mut b = Builder::new();
     let cube = b.mesh("cube", TriMesh::cube(0.05));
@@ -152,5 +153,14 @@ pub(crate) fn every_joint_kind() -> Builder {
             size: DVec3::new(0.1, 0.2, 0.3),
         }]);
     b.robot.links.get_mut(&tip).unwrap().collision = CollisionPolicy::None;
+    b.frame(
+        "camera_mount",
+        root,
+        Pose::new(
+            DVec3::new(0.0, 0.03, 0.04),
+            DQuat::from_rotation_x(std::f64::consts::FRAC_PI_2),
+        ),
+    );
+    b.frame("tcp", tip, Pose::from_translation(DVec3::Z * 0.05));
     b
 }

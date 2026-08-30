@@ -53,8 +53,18 @@ pub enum ValidationError {
     },
     DuplicateLinkName(String),
     DuplicateJointName(String),
+    /// Two frames share a name, or a frame's name is also a link's: frames
+    /// and links are **one namespace**, because a URDF frame is written as
+    /// a `<link>` (ADR-0012).
+    DuplicateFrameName(String),
+    /// The fixed joint the URDF writer gives a frame, `<frame>_fixed`, is
+    /// already a joint's name — the same one namespace (ADR-0012).
+    FrameJointNameCollision {
+        frame: String,
+        joint: String,
+    },
     /// Not an XML name / MJCF identifier: `[A-Za-z_][A-Za-z0-9_.-]*`.
-    /// `kind` is "link", "joint" or "material".
+    /// `kind` is "link", "joint", "frame" or "material".
     InvalidName {
         kind: &'static str,
         name: String,
@@ -110,6 +120,14 @@ impl fmt::Display for ValidationError {
             }
             Self::DuplicateLinkName(n) => write!(f, "two links are named \"{n}\""),
             Self::DuplicateJointName(n) => write!(f, "two joints are named \"{n}\""),
+            Self::DuplicateFrameName(n) => write!(
+                f,
+                "\"{n}\" names a frame and something else: a frame name must be unique among frames and different from every link name"
+            ),
+            Self::FrameJointNameCollision { frame, joint } => write!(
+                f,
+                "frame \"{frame}\" exports a fixed joint named \"{joint}\", which is already a joint"
+            ),
             Self::InvalidName { kind, name } => write!(
                 f,
                 "{kind} name \"{name}\" is not a valid identifier (letter or _ first, then letters, digits, _ . -)"
@@ -290,6 +308,20 @@ fn check_names(robot: &Robot, errors: &mut Vec<ValidationError>) {
             errors.push(ValidationError::DuplicateLinkName(link.name.clone()));
         }
     }
+    // Frames join that same set: MJCF keeps sites and bodies apart, URDF
+    // writes both as `<link>`, and renaming behind the user's back at
+    // export time is worse than one rule checked here (ADR-0012).
+    for frame in robot.frames.values() {
+        if !is_valid_name(&frame.name) {
+            errors.push(ValidationError::InvalidName {
+                kind: "frame",
+                name: frame.name.clone(),
+            });
+        }
+        if !seen.insert(frame.name.as_str()) {
+            errors.push(ValidationError::DuplicateFrameName(frame.name.clone()));
+        }
+    }
     for name in robot.materials.keys() {
         if !is_valid_name(name) {
             errors.push(ValidationError::InvalidName {
@@ -308,6 +340,16 @@ fn check_names(robot: &Robot, errors: &mut Vec<ValidationError>) {
         }
         if !seen.insert(joint.name.as_str()) {
             errors.push(ValidationError::DuplicateJointName(joint.name.clone()));
+        }
+    }
+    // …and the fixed joints the frames export to must not land on one.
+    for frame in robot.frames.values() {
+        let generated = format!("{}_fixed", frame.name);
+        if seen.contains(generated.as_str()) {
+            errors.push(ValidationError::FrameJointNameCollision {
+                frame: frame.name.clone(),
+                joint: generated,
+            });
         }
     }
 }
@@ -535,6 +577,73 @@ mod tests {
         assert_eq!(
             validate(&robot),
             Err(ValidationError::DanglingFrameLink { frame, link })
+        );
+    }
+
+    #[test]
+    fn frames_and_links_are_one_namespace() {
+        let (mut robot, arm, ..) = chain();
+        let add = |robot: &mut Robot, name: &str, parent: LinkId| -> FrameId {
+            let id: FrameId = robot.next_id.alloc();
+            robot.frames.insert(
+                id,
+                Frame {
+                    name: name.into(),
+                    parent,
+                    pose: Pose::IDENTITY,
+                },
+            );
+            id
+        };
+        add(&mut robot, "tcp", arm);
+        assert_eq!(validate(&robot), Ok(()));
+
+        // Two frames may not share a name…
+        let root = robot.root;
+        let second = add(&mut robot, "tcp", root);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::DuplicateFrameName("tcp".into()))
+        );
+        // …nor may a frame take a link's, because URDF writes both as
+        // `<link>` (ADR-0012).
+        robot.frames.get_mut(&second).unwrap().name = "arm".into();
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::DuplicateFrameName("arm".into()))
+        );
+        assert!(
+            validate(&robot)
+                .unwrap_err()
+                .to_string()
+                .contains("different from every link name")
+        );
+        // A frame may share a *joint*'s name — separate namespaces in both
+        // formats — but not produce a second joint called `<name>_fixed`.
+        robot.frames.get_mut(&second).unwrap().name = "hand_joint".into();
+        assert_eq!(validate(&robot), Ok(()));
+        robot.frames.get_mut(&second).unwrap().name = "grip".into();
+        robot
+            .joints
+            .values_mut()
+            .find(|j| j.name == "tail_joint")
+            .unwrap()
+            .name = "grip_fixed".into();
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::FrameJointNameCollision {
+                frame: "grip".into(),
+                joint: "grip_fixed".into(),
+            })
+        );
+        // A frame name is an XML name like every other.
+        robot.frames.get_mut(&second).unwrap().name = "2 hands".into();
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::InvalidName {
+                kind: "frame",
+                name: "2 hands".into()
+            })
         );
     }
 

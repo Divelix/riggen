@@ -110,6 +110,14 @@ fn write_body(x: &mut Xml, robot: &ResolvedRobot, index: usize) {
     for geom in &link.collisions {
         write_geom(x, "collision", geom);
     }
+    // A frame is a bare `<site>` at the class defaults (ADR-0012): no
+    // `size`, no `group`, so MuJoCo's own 0.005 m sphere renders it as a
+    // visible marker and an override is a `<default>` the user adds.
+    for site in &link.sites {
+        let mut attrs = vec![("name", site.name.clone())];
+        attrs.extend(pose_attrs(&site.pose));
+        x.empty("site", &attrs);
+    }
     for child in robot.child_joints(index) {
         write_body(x, robot, child.child);
     }
@@ -236,6 +244,7 @@ mod tests {
       <inertial pos="0 0 0" mass="2.7" fullinertia="0.0045 0.0045 0.0045 0 0 0"/>
       <geom class="visual" mesh="cube"/>
       <geom class="collision" type="mesh" mesh="cube"/>
+      <site name="camera_mount" pos="0 0.03 0.04" quat="0.707106781187 0.707106781187 0 0"/>
       <body name="upper" pos="0 0 0.1">
         <joint name="upper_joint" type="hinge" axis="0 1 0" range="-1 1" damping="0.1"/>
         <!-- joint upper_joint: effort 1 velocity 1 need an <actuator>; not written -->
@@ -254,6 +263,7 @@ mod tests {
             <geom class="visual" mesh="cube" pos="0 0.02 0" quat="0.707106781187 0.707106781187 0 0"/>
             <geom class="collision" type="mesh" mesh="cube" pos="0 0.02 0" quat="0.707106781187 0.707106781187 0 0"/>
             <body name="tip" pos="0 0 0.1">
+              <site name="tcp" pos="0 0 0.05"/>
             </body>
           </body>
         </body>
