@@ -394,9 +394,23 @@ impl eframe::App for RiggenApp {
                 self.viewport.set_overlay(overlay);
                 // One frame behind for the gizmo, which cannot say whether it
                 // owns the cursor until it has run, and the viewport runs
-                // first.
+                // first. Picking only: a handle or a glyph under the cursor
+                // hides the geometry that would answer for it, but the camera
+                // has no reason to stop (plans/gizmo-input).
                 self.viewport
-                    .set_input_suppressed(self.gizmo_state.captured || self.glyph_hover.is_some());
+                    .set_pick_suppressed(self.gizmo_state.captured || self.glyph_hover.is_some());
+                // The whole pointer, on the other hand, belongs to the
+                // toolbar while the cursor is on it — it is drawn in the
+                // viewport's own layer, which `contains_pointer` cannot see
+                // through — and to a gizmo drag in flight, which is solved
+                // against the projection it started in and would make the
+                // part jump if the camera moved under it.
+                let over_toolbar = ui
+                    .ctx()
+                    .pointer_hover_pos()
+                    .is_some_and(|pos| self.toolbar_rect.is_some_and(|rect| rect.contains(pos)));
+                self.viewport
+                    .set_pointer_blocked(over_toolbar || self.gizmo_dragging());
                 // A placement click means "put it here", not "select what is
                 // under the cursor" — but the hover pick has to keep running,
                 // because it is what the snap is computed from.

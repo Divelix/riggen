@@ -55,6 +55,11 @@ pub struct DebugState {
     /// Every instance in draw order, hidden ones included.
     pub instances: Vec<InstanceDebug>,
     pub selection: SelectionDebug,
+    /// The viewport's pointer policy, when any of it is on. Omitted while
+    /// all three switches are off, which is most frames — so the goldens
+    /// that never suppress anything are unchanged.
+    #[serde(skip_serializing_if = "InputDebug::is_off")]
+    pub input: InputDebug,
     /// The transform gizmo, when one is drawn (ADR-0007).
     pub gizmo: Option<GizmoDebug>,
     /// One entry per joint glyph the overlay drew, in joint id order.
@@ -143,6 +148,28 @@ pub struct JointDebug {
 pub struct SelectionDebug {
     pub hovered: Option<HitDebug>,
     pub selected: Option<HitDebug>,
+}
+
+/// Which of the viewport's pointer switches are on (plans/gizmo-input).
+///
+/// The bug this exists for was a *policy* bug — the gizmo took the whole
+/// pointer instead of the handle under it — and a policy is asserted here
+/// rather than inferred from whichever tint it did or did not produce.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct InputDebug {
+    /// Neither pick runs; the camera is still live.
+    pub pick_suppressed: bool,
+    /// A click means "place here", not "select what is under the cursor".
+    pub select_suppressed: bool,
+    /// The pointer belongs to something else entirely: no camera, no picks.
+    pub pointer_blocked: bool,
+}
+
+impl InputDebug {
+    /// Nothing suppressed — the plain viewport.
+    fn is_off(&self) -> bool {
+        !self.pick_suppressed && !self.select_suppressed && !self.pointer_blocked
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -352,6 +379,15 @@ impl RiggenApp {
             selection: SelectionDebug {
                 hovered: self.viewport.hovered().map(HitDebug::from),
                 selected: self.viewport.selected().map(HitDebug::from),
+            },
+            input: {
+                let (pick_suppressed, select_suppressed, pointer_blocked) =
+                    self.viewport.pointer_policy();
+                InputDebug {
+                    pick_suppressed,
+                    select_suppressed,
+                    pointer_blocked,
+                }
             },
             glyphs: {
                 let active = self.active_joint();

@@ -88,7 +88,7 @@ adapter becomes ours, recorded as ADR-0010.
   part away from the handles → `selection.hovered` resolves and
   `gizmo.captured` is false; click there → the selection changes. The
   existing `gizmo_drag_*` scenarios still commit one command.
-- [ ] Step 2 — Split the viewport's switch. `set_input_suppressed` →
+- [x] Step 2 — Split the viewport's switch. `set_input_suppressed` →
   `set_pick_suppressed` + `set_pointer_blocked`; camera input on
   `contains_pointer()`; the app sets `pick_suppressed` from
   `gizmo_state.captured || glyph_hover.is_some()` and `pointer_blocked`
@@ -164,8 +164,10 @@ PNG that does change is shown before it is staged (AGENTS.md).
   ADR-0010 will be — `app/gizmo.rs` (module doc, `interact`), `app/mod.rs`,
   the new scenario, and `docs/01-architecture.md` §Gizmos. Step 5 swaps
   those four citations when the ADR exists.
-- ⚠ OPEN 3: does a floating window (Joints, Materials) over the viewport
-  correctly stop `contains_pointer()`? egui's layer filter should do it,
-  but it is asserted, not assumed — step 2 adds the assertion to
-  `the_toolbar_does_not_zoom_the_camera` or splits a scenario for it. Agent,
-  step 2.
+- ~~⚠ OPEN 3~~: **answered (step 2): yes.** A floating window is a layer of
+  its own and egui's hit test drops the layers under one that covers the
+  search area, so `contains_pointer()` is already false over the Joints
+  window and no rect check is needed for it — asserted in
+  `the_toolbar_does_not_zoom_the_camera`, which checks that the camera stays
+  put there while `pointer_blocked` is *false*. Only the toolbar, drawn in
+  the viewport's own layer, needs `set_pointer_blocked`.

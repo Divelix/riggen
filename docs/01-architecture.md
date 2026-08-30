@@ -301,7 +301,7 @@ input ──► shortcuts ──► menu bar, status bar, tree, properties
        ──► central panel:
              joint glyphs from (Robot, q)  ──► glyph hover ──► snap candidate
              viewport.set_overlay(glyphs + align pick + snap marker)
-             viewport.set_input_suppressed / set_select_suppressed
+             viewport.set_pick_suppressed / set_pointer_blocked / set_select_suppressed
              viewport.ui ──► gizmo ──► toolbar   (registration order = pointer precedence)
              a click ──► select a joint / place a joint / align
        ──► Commands ──► History ──► Robot
@@ -465,11 +465,25 @@ pointer — hover, click and wheel — from the viewport under it.
 `app/gizmo.rs` hit-tests the handles itself with `Gizmo::pick_preview`,
 which asks the subgizmos directly and needs no widget, and registers one
 only while a handle is under the cursor or a drag it started is in flight.
-Everywhere else the viewport keeps the pointer it always had. While the
-gizmo does own the cursor, `Viewport::set_input_suppressed(bool)` — one
-frame late, the same lag egui's own interaction has — keeps the viewport's
-picking from running under it. The toolbar is registered after the gizmo in
-turn: viewport < gizmo < toolbar.
+Everywhere else the viewport keeps the pointer it always had. The toolbar
+is registered after the gizmo in turn: viewport < gizmo < toolbar.
+
+The viewport takes that policy through **three** switches, because "the
+pointer is busy" has three different meanings:
+
+| Switch | Off | Set by |
+|---|---|---|
+| `set_pick_suppressed` | both picks; the camera stays live | a gizmo handle or a joint glyph under the cursor — something drawn *in front of* the geometry that would answer |
+| `set_select_suppressed` | the select pick; the hover keeps running | a placement tool: the click means "put it here" |
+| `set_pointer_blocked` | camera **and** picks | the toolbar, which floats in the viewport's own egui layer; a gizmo drag in flight, which is solved against the projection it started in |
+
+The gizmo's two are one frame late — it cannot say whether it owns the
+cursor until it has run, and the viewport runs first — which is the same lag
+egui's own interaction has. Camera input keys on `Response::contains_pointer`
+rather than `hovered`: `contains_pointer` filters *layers* covering the
+cursor but not same-layer widgets, so a floating window still takes the wheel
+while a gizmo handle no longer freezes the camera — and the toolbar, being
+same-layer, is what `set_pointer_blocked` is for.
 
 What the gizmo edits follows the selection (plans/m2-placement-ux OPEN 2): a
 **link** moves through its parent joint's `origin` (one `SetJoint` via

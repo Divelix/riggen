@@ -183,6 +183,11 @@
     "hovered": null,
     "selected": null
   },
+  "input": {
+    "pick_suppressed": true,
+    "select_suppressed": false,
+    "pointer_blocked": false
+  },
   "gizmo": null,
   "glyphs": [
     {
