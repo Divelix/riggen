@@ -66,7 +66,7 @@ pub(crate) struct GizmoState {
     pub(crate) drag: Option<(GizmoTarget, Pose)>,
     /// Whether the gizmo owns the cursor: a handle is under it, or a drag
     /// it started is still in flight. Fed to
-    /// `Viewport::set_input_suppressed` *before* the viewport runs, so it
+    /// `Viewport::set_pick_suppressed` *before* the viewport runs, so it
     /// is one frame behind — the same lag egui's own interaction has.
     pub(crate) captured: bool,
 }
@@ -287,7 +287,9 @@ impl RiggenApp {
 /// This registers that widget only on the frames the gizmo actually wants
 /// the pointer: `over_handle` (a handle is under the cursor) or `active` (a
 /// drag it started is still in flight, the cursor by then anywhere). Every
-/// other frame the viewport keeps the pointer it has always had.
+/// other frame the viewport keeps the pointer it has always had. And even
+/// then it senses **clicks only**, so orbit and pan still start from a
+/// handle — see the comment on the `ui.interact` call.
 ///
 /// `hovered` is handed to the crate from our own hit test rather than from
 /// the widget's `Response`, so it is not a frame behind — the crate only
@@ -304,10 +306,19 @@ fn interact(
 ) -> Option<(GizmoResult, Vec<Transform>)> {
     let cursor = cursor.unwrap_or_default();
     if over_handle || active {
+        // `Sense::click()`, not `click_and_drag()`. The widget exists only to
+        // deny the viewport the *click* under a handle; the gizmo itself
+        // reads the raw pointer, never this response. Sensing drags as well
+        // would take the middle-drag too: `hit_test` picks `hits.drag` from
+        // the widgets that sense a drag, `interaction.rs` sets
+        // `potential_drag_id` from it on a press of **any** button, and the
+        // orbit would land on a widget that does not orbit. Click-only, the
+        // hit test reports `click: gizmo, drag: viewport` — the exact split
+        // this needs.
         ui.interact(
             egui::Rect::from_center_size(cursor, egui::Vec2::splat(1.0)),
             ui.id().with("riggen-gizmo-pointer"),
-            egui::Sense::click_and_drag(),
+            egui::Sense::click(),
         );
     }
 

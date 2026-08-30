@@ -464,8 +464,15 @@ prefers the widget registered last, so any gizmo on screen took the whole
 pointer — hover, click and wheel — from the viewport under it.
 `app/gizmo.rs` hit-tests the handles itself with `Gizmo::pick_preview`,
 which asks the subgizmos directly and needs no widget, and registers one
-only while a handle is under the cursor or a drag it started is in flight.
-Everywhere else the viewport keeps the pointer it always had. The toolbar
+only while a handle is under the cursor or a drag it started is in flight —
+and that widget senses **clicks only**. It exists to deny the viewport the
+click under a handle, nothing more; the gizmo reads the raw pointer, never
+the widget's response. Sensing drags as well would take the *middle* drag
+too, because egui sets `potential_drag_id` from `hits.drag` on a press of
+any button, and orbit would land on a widget that does not orbit.
+Click-only, the hit test reports `click: gizmo, drag: viewport` — so orbit
+and pan start from a handle like anywhere else. Everywhere else the
+viewport keeps the pointer it always had. The toolbar
 is registered after the gizmo in turn: viewport < gizmo < toolbar.
 
 The viewport takes that policy through **three** switches, because "the
