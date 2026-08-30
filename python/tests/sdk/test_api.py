@@ -5,11 +5,13 @@ every public name is documented."""
 from __future__ import annotations
 
 import inspect
+import json
 import math
 import runpy
 import subprocess
 import sys
 import warnings
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -266,3 +268,59 @@ def test_every_public_name_has_a_docstring():
                     undocumented.append(f"{name}.{member}")
     assert not undocumented, undocumented
     assert RawRobot.__doc__  # the extension's class carries its Rust doc comment
+
+
+def test_convex_decomposition_round_trips_and_exports(tmp_path: Path):
+    """The policy the window offers, from Python: assigned as a dataclass,
+    read back as one, saved and loaded unchanged, and exported as one mesh
+    file and one collision geom per piece (ADR-0011)."""
+    import shutil
+
+    from conftest import FIXTURES
+
+    shutil.copy2(FIXTURES / "bracket.stl", tmp_path / "bracket.stl")
+    robot = riggen.Robot("bracket")
+    link = robot.root.add_link(
+        "bracket", riggen.Fixed(), mesh=tmp_path / "bracket.stl", scale=0.001, material="PLA"
+    )
+
+    assert link.collision == "same_as_visual"
+    link.collision = riggen.ConvexDecomposition(max_hulls=4, resolution=48)
+    assert link.collision == riggen.ConvexDecomposition(max_hulls=4, resolution=48, concavity=0.01)
+    assert riggen.ConvexDecomposition() == riggen.ConvexDecomposition(8, 64, 0.01)
+
+    # The document's own JSON, and back through `load`.
+    doc = json.loads(robot.to_json())
+    (stored,) = [l["collision"] for l in doc["robot"]["links"].values() if l["name"] == "bracket"]
+    assert stored == {"ConvexDecomposition": {"max_hulls": 4, "resolution": 48, "concavity": 0.01}}
+    saved = tmp_path / "bracket.riggen"
+    robot.save(saved)
+    assert riggen.load(saved).link("bracket").collision == link.collision
+
+    # The export: N pieces, N mesh files, N collision geoms, one visual.
+    out = tmp_path / "out"
+    robot.export(out, format="urdf")
+    pieces = sorted(p.name for p in (out / "meshes").glob("bracket_hull_*.stl"))
+    assert 1 < len(pieces) <= 4, pieces
+    assert pieces == [f"bracket_hull_{i}.stl" for i in range(len(pieces))]
+    assert (out / "meshes" / "bracket.stl").is_file()
+
+    urdf = ET.fromstring((out / "bracket.urdf").read_text())
+    (element,) = [l for l in urdf.findall("link") if l.get("name") == "bracket"]
+    assert len(element.findall("visual")) == 1
+    files = [c.find("geometry/mesh").get("filename") for c in element.findall("collision")]
+    assert sorted(files) == sorted(f"meshes/{name}" for name in pieces)
+
+
+def test_a_bad_decomposition_is_refused_before_the_document(pendulum_api: riggen.Robot):
+    arm = pendulum_api.link("arm")
+    before = arm.collision
+    for bad in (
+        riggen.ConvexDecomposition(max_hulls=0),
+        riggen.ConvexDecomposition(resolution=-1),
+        riggen.ConvexDecomposition(concavity=2.0),
+        riggen.ConvexDecomposition(max_hulls=1.5),
+    ):
+        with pytest.raises(ValueError):
+            arm.collision = bad
+        assert arm.collision == before
