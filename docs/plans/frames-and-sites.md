@@ -78,7 +78,7 @@ to 1e-6.
   removed from the tree cannot exist (validation). Unit tests in
   `resolve.rs` for order, for a frame on the root, and for a document with
   no frames resolving byte-identically to today.
-- [ ] **Step 2 — both writers, and ADR-0012.** MJCF `<site>` inside the
+- [x] **Step 2 — both writers, and ADR-0012.** MJCF `<site>` inside the
   body after its geoms; URDF dummy link + fixed joint, emitted after every
   real link so the file still reads root-first. Golden-XML tests in
   `mjcf.rs` and `urdf.rs` extended with a two-frame fixture; the
@@ -197,3 +197,13 @@ implementation shape and live here only.
    separate namespaces in MJCF but both are `<link>` in URDF, and renaming
    behind the user's back at export time is worse than one rule checked
    once. → step 2.
+
+## Open questions
+
+- **Found in step 2, decided there:** decision 5 closes the frame-vs-link
+  collision but not the one it creates itself — the URDF writer's
+  `<frame>_fixed` joint can land on a real joint's name, and two `<joint
+  name="grip_fixed">` is an invalid URDF from a document that validated.
+  `validate` now rejects that too (`FrameJointNameCollision`), same rule,
+  same reason: refuse at the moment the name is typed rather than rename
+  behind the user's back. Recorded in ADR-0012.

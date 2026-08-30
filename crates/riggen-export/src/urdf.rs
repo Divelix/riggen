@@ -46,8 +46,37 @@ pub fn write(robot: &ResolvedRobot, options: &ExportOptions, dir: &Path) -> Stri
         }
         x.close("link");
     }
+    // URDF has no site, so a named frame is a massless childless link on a
+    // fixed joint — the ROS convention `tf` and MoveIt read (ADR-0012).
+    // Both blocks come after the real ones, so the file still reads
+    // root-first.
+    let sites = || {
+        robot
+            .links
+            .iter()
+            .flat_map(|l| l.sites.iter().map(move |s| (l, s)))
+    };
+    if sites().next().is_some() {
+        x.comment("Named frames: one massless link on a fixed joint each (ADR-0012).");
+    }
+    for (_, site) in sites() {
+        x.empty("link", &[("name", site.name.clone())]);
+    }
     for joint in &robot.joints {
         write_joint(&mut x, robot, joint);
+    }
+    for (link, site) in sites() {
+        x.open(
+            "joint",
+            &[
+                ("name", format!("{}_fixed", site.name)),
+                ("type", "fixed".into()),
+            ],
+        );
+        x.empty("origin", &origin_attrs(&site.pose));
+        x.empty("parent", &[("link", link.name.clone())]);
+        x.empty("child", &[("link", site.name.clone())]);
+        x.close("joint");
     }
     x.close("robot");
     x.finish()
@@ -254,6 +283,9 @@ mod tests {
   </link>
   <link name="tip">
   </link>
+  <!-- Named frames: one massless link on a fixed joint each (ADR-0012). -->
+  <link name="camera_mount"/>
+  <link name="tcp"/>
   <joint name="upper_joint" type="revolute">
     <origin xyz="0 0 0.1" rpy="0 0 0"/>
     <parent link="base_link"/>
@@ -280,6 +312,16 @@ mod tests {
     <parent link="wheel"/>
     <child link="tip"/>
   </joint>
+  <joint name="camera_mount_fixed" type="fixed">
+    <origin xyz="0 0.03 0.04" rpy="1.570796326795 0 0"/>
+    <parent link="base_link"/>
+    <child link="camera_mount"/>
+  </joint>
+  <joint name="tcp_fixed" type="fixed">
+    <origin xyz="0 0 0.05" rpy="0 0 0"/>
+    <parent link="tip"/>
+    <child link="tcp"/>
+  </joint>
 </robot>
 "#;
 
@@ -299,8 +341,10 @@ mod tests {
         }
         // And urdf-rs reads it whole.
         let parsed = urdf_rs::read_from_string(&urdf).unwrap();
-        assert_eq!(parsed.links.len(), 5);
-        assert_eq!(parsed.joints.len(), 4);
+        // Five real links and joints, plus a dummy link and a fixed
+        // joint for each of the two frames (ADR-0012).
+        assert_eq!(parsed.links.len(), 7);
+        assert_eq!(parsed.joints.len(), 6);
         assert_eq!(parsed.joints[0].joint_type, urdf_rs::JointType::Revolute);
         assert_eq!(parsed.joints[3].joint_type, urdf_rs::JointType::Fixed);
     }

@@ -601,7 +601,7 @@ mod tests {
     }
 
     use crate::MeshStore;
-    use crate::test_util::{Builder, every_joint_kind, fixtures};
+    use crate::test_util::{Builder, fixtures};
     use riggen_core::glam::{DMat3, DQuat};
     use riggen_core::{Command, InertialSpec, MeshAsset};
     use std::f64::consts::FRAC_PI_2;
@@ -1128,7 +1128,11 @@ mod tests {
 
     #[test]
     fn a_document_without_frames_has_no_sites() {
-        let resolved = every_joint_kind().resolve().unwrap();
+        let mut b = Builder::new();
+        let cube = b.mesh("cube", TriMesh::cube(0.05));
+        let root = b.robot.root;
+        b.link("arm", root, JointKind::Revolute, Some(cube));
+        let resolved = b.resolve().unwrap();
         assert!(resolved.links.iter().all(|l| l.sites.is_empty()));
         // Nothing else moved: the golden-XML tests are the rest of this.
         let (robot, _) = riggen_core::load(&fixtures().join("pendulum.riggen")).unwrap();

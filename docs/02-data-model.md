@@ -36,7 +36,7 @@ pub struct Robot {
     pub name: String,
     pub links:  BTreeMap<LinkId, Link>,
     pub joints: BTreeMap<JointId, Joint>,
-    pub frames: BTreeMap<FrameId, Frame>,      // post-MVP; present in schema from day one, always empty
+    pub frames: BTreeMap<FrameId, Frame>,      // named frames on links: TCP, sensor mounts
     pub assets: BTreeMap<MeshId, MeshAsset>,   // file references, not geometry
     pub root:   LinkId,
     pub materials: BTreeMap<String, Material>, // name → density (kg/m³), colour
@@ -97,7 +97,7 @@ pub enum CollisionPolicy {
     ConvexDecomposition { max_hulls: u32, resolution: u32, concavity: f64 }, // V-HACD, ADR-0011
 }
 
-pub struct Frame { pub name: String, pub parent: LinkId, pub pose: Pose }  // TCP, sensors; post-MVP
+pub struct Frame { pub name: String, pub parent: LinkId, pub pose: Pose }  // TCP, sensor mount, grasp pose
 ```
 
 `Robot::new(name)` is a root link `base_link` plus `Robot::default_materials()`
@@ -122,8 +122,13 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
   exactly one parent joint and the root has none. A loop is reported by
   `ValidationError::Cycle` with the links in parent order.
 - Every id a joint, geom, frame or link material names exists.
-- Link, joint and material names are unique (per kind) and are valid XML
-  names / MJCF identifiers: `[A-Za-z_][A-Za-z0-9_.-]*`.
+- Link, joint, frame and material names are valid XML names / MJCF
+  identifiers: `[A-Za-z_][A-Za-z0-9_.-]*`. Link and joint names are unique
+  per kind; **frames share the links' namespace** — a frame name is unique
+  among frames *and* different from every link name, because the URDF
+  writer turns each frame into a `<link>` (ADR-0012). The fixed joint it
+  exports to, `<frame>_fixed`, must not be an existing joint's name either
+  (`DuplicateFrameName`, `FrameJointNameCollision`).
 - A movable joint's `axis` is finite and non-zero; the properties panel
   normalises it on commit.
 - A `Revolute`/`Prismatic` joint has `limits` with `lower <= upper`; every
@@ -401,6 +406,7 @@ not a new resolve.
 | Inertial | `<inertial><origin xyz(com) rpy="0 0 0"/><mass/><inertia ixx ixy ixz iyy iyz izz/></inertial>` | `<inertial pos(com) mass fullinertia="Ixx Iyy Izz Ixy Ixz Iyz"/>` — MuJoCo does the principal-axes decomposition itself (ADR-0008) |
 | Mesh assets | `meshes/<stem>.stl`, path style per `MeshPathStyle` | `<asset><mesh name file/></asset>`, one per `MeshId`; **meshes are written in meters as binary STL, no `scale`** (ADR-0008) |
 | Root | first `<link>` | `<worldbody>` child; `floating_base` in `ExportOptions` adds `<freejoint name="root"/>` |
+| Frame (`Frame`, a `ResolvedSite`) | a massless `<link name="tcp"/>` — no visual, collision or inertial — plus `<joint name="tcp_fixed" type="fixed">` with the frame pose as its `<origin xyz rpy/>`; the dummy links after every real link and the fixed joints after every real joint, so the file still reads root-first (ADR-0012) | `<site name pos quat/>` inside its body after the geoms, bare: no `size`, `group` or `rgba`, so MuJoCo's default 0.005 m sphere marks it (ADR-0012) |
 | Effort / velocity | `<limit effort velocity/>` | `<actuator>` `forcerange`/`ctrlrange` — post-MVP, not silently dropped: a comment after the `<joint>` names the values |
 | Dynamics | `<dynamics damping friction/>` | `damping`, `frictionloss`, `armature` on the `<joint>`, written only when non-zero |
 | Angles | radians | **`<compiler angle="radian" meshdir="meshes" autolimits="true"/>` is always written** — MJCF's default is degrees |
@@ -430,8 +436,12 @@ MimicDropped, SafetyControllerDropped, NonUniformScale,
 PrimitiveVisualDropped, MixedCollisionDropped, NoInertial,
 PackageUnresolved, MeshNotFound }` reach the status bar (File › Import
 URDF…, a dropped `.urdf`, or `riggen --export … robot.urdf` on stderr).
-`floating` / `planar` / `spherical` joints, a missing link, no or several
-roots and a result that fails `validate` are `ImportError`s. The imported
+A massless childless link is **not** turned back into a `Frame`: nothing
+distinguishes our exported dummy from a real unweighed link, and guessing
+would silently delete links, so the asymmetry with the URDF writer is
+deliberate and round-tripping our own file gains one link per frame
+(ADR-0012). `floating` / `planar` / `spherical` joints, a missing link, no
+or several roots and a result that fails `validate` are `ImportError`s. The imported
 document is untitled until saved. `assets/fixtures/arm/arm.urdf` is the
 corpus file: the arm with every one of the above in it, whose FK matches
 `arm.riggen`'s and whose MJCF export the `mujoco` CI job loads too.

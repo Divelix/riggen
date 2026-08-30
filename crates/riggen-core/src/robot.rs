@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{FrameId, GeomId, IdGen, JointId, LinkId, MeshId};
 use crate::pose::Pose;
 
-/// The whole document. `frames` is present for the schema and always empty
-/// until post-MVP; `assets` holds file references, never geometry.
+/// The whole document. `frames` holds the named frames on links (TCP,
+/// sensor mounts — ADR-0012); `assets` holds file references, never
+/// geometry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Robot {
@@ -258,7 +259,10 @@ pub enum Primitive {
     },
 }
 
-/// A named frame on a link (TCP, sensor); post-MVP.
+/// A named frame on a link: a TCP, a sensor mount, a grasp pose. `pose` is
+/// in the parent link frame. Exported as an MJCF `<site>` and a URDF
+/// massless dummy link on a fixed joint (ADR-0012); its name shares the
+/// links' namespace.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Frame {
