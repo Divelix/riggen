@@ -77,6 +77,7 @@ riggen/
 │   ├── riggen-app/         # bin "riggen"; cdylib for the wasm build check; tests/visual,
 │       │                   # tests/cli.rs (the built binary from a shell)
 │       ├── build.rs        # RIGGEN_GIT_HASH / RIGGEN_BUILD_DATE for `--version`
+│       ├── src/jobs.rs     # the job thread: Jobs, Job, JobKey, JobResult (§Jobs and threads)
 │       ├── src/cli.rs      # the flag table, --help, --version, --example, `riggen
 │       │                   # --export …` headless (ADR-0008)
 │       └── src/app/        # document, file_io, file_menu, export_dialog, shortcuts,
@@ -273,10 +274,14 @@ closes.
   entries; mass) and, beside them, what the meshes say (mass, CoM,
   principal moments) or why they say nothing ("open mesh: <file>" in
   warning colour) — and **Collision** — the policy combo (None / Same as
-  visual / Convex hull / Primitives; `Meshes` and decomposition shown
-  read-only when a document carries them), and for Primitives the list
+  visual / Convex hull / Convex decomposition / Primitives; `Meshes` shown
+  read-only when a URDF import carries it), for Primitives the list
   with "+ Box / Cylinder / Sphere / Capsule" (each fitted to the link's
-  meshes on creation), Fit to mesh, Remove, pose and size fields. Every
+  meshes on creation), Fit to mesh, Remove, pose and size fields, and for
+  the decomposition its three parameters (max pieces, voxel grid,
+  concavity — capped at 64 pieces and a 256³ grid, so a typo cannot ask
+  for a thousand geoms) beside the job thread's own "pieces: N", a spinner
+  while it runs, or the reason there are none. Every
   commit is one `SetInertial` / `SetCollision`. A joint's name, kind
   (limits appear with Revolute/Prismatic, defaulting to ±π / ±1 m),
   origin, axis (normalised on commit), limits in ° or m, dynamics. Fields

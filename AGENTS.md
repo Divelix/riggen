@@ -19,20 +19,22 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**v0.2 SDK done (2026-08-30, version `0.2.0`; the `v0.2.0` tag is the
-human's):** `pip install riggen` gives the app *and* `import riggen`
-(ADR-0009): one `cp310-abi3` wheel per platform holding `crates/riggen-py`
-(PyO3 extension `riggen._riggen`, one method per `Command`) and the
-binary as wheel data; `python/build_wheel.py` is the one recipe;
-`python/riggen/` is the API (`Robot` with handles, `Pose`, joint specs,
-`load`, `load_urdf`, `fk`, `export`, `show()` → `wait()`); the `wheel`
-job runs pytest, pyright and MuJoCo over SDK output. **M4** (tag `m4`):
-the wheel, `release.yml` to TestPyPI/PyPI, `--example arm`. **M3**: MJCF +
-URDF export from one `ResolvedRobot`, MuJoCo-clean, URDF import,
-inertials, collision. **M2**: the mouse-only arm. **M1**: the document,
-commands, history, `.riggen` v1. **M0**: mesh, viewport, the
-`egui_kittest` suite (`visual-debug` skill). **Next:** the remaining v0.2
-lines of `docs/03-roadmap.md` (convex decomposition, frames/sites).
+**Convex decomposition done (2026-08-31, ADR-0011):** `parry3d-f64`'s
+pure-Rust V-HACD behind `riggen_mesh::decompose`, plus the merge step
+parry omits; `resolve` turns the policy into N geoms and
+`<stem>_hull_N.stl` through a `DecompSource`, computed on
+`riggen-app::jobs`, the first job thread; in the panel and the SDK.
+**v0.2 SDK (2026-08-30, `v0.2.0`, ADR-0009):** `pip install riggen` gives
+the app *and* `import riggen` — one `cp310-abi3` wheel per platform over
+`crates/riggen-py` with the binary as wheel data, `python/build_wheel.py`
+the one recipe, `python/riggen/` the API; the `wheel` job runs pytest,
+pyright and MuJoCo over it. **M4**: the wheel and `release.yml`.
+**M3**: MJCF + URDF from one `ResolvedRobot`,
+MuJoCo-clean, URDF import, inertials, collision. **M2**: the mouse-only
+arm. **M1**: the document, commands, history, `.riggen` v1. **M0**: mesh,
+viewport, the `egui_kittest` suite (`visual-debug` skill). **Next:** the
+remaining v0.2 lines of `docs/03-roadmap.md` (frames/sites, mimic joints,
+MJCF import).
 
 ## Rules that are not derivable from the code
 

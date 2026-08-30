@@ -173,10 +173,21 @@ release workflow is a tag push.
   active the viewport orbits, pans, zooms, tints and selects as it does
   with no tool, everywhere but on a gizmo handle. Closed the M2 exit
   gate's largest line.
+- **2026-08-31** — convex decomposition (ADR-0011). Not the CoACD port or
+  bundled binary this line guessed at: `parry3d-f64` has V-HACD in pure
+  Rust at f64, so `riggen_mesh::decompose` is a module beside the
+  quickhull and the wasm check stayed green. `CollisionPolicy::
+  ConvexDecomposition { max_hulls, resolution, concavity }` resolves to N
+  collision geoms and `<stem>_hull_N.stl` in both writers, computed once
+  per `(MeshId, params)` on `riggen-app::jobs` — the first job thread,
+  which 01 §Jobs and threads had specified since M3 — offered in the
+  properties panel and as `riggen.ConvexDecomposition`. parry implements
+  V-HACD's split half and not its merge half, so `decomp::merge` is ours
+  and `max_hulls` is a real ceiling. The `mujoco` job loads a decomposed
+  model as its third.
 
 Still open:
 
-- Convex decomposition (CoACD port or a bundled binary — decide with an ADR).
 - Named frames / MJCF sites; mimic joints; actuator presets.
 - MJCF import; SDF export.
 - Web demo build if the wasm check has stayed green.
