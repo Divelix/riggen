@@ -647,6 +647,13 @@ the id counter included. No `History`: a script has no undo.
 | `set_link_material`, `upsert_material`, `remove_material` | `SetLinkMaterial`, `UpsertMaterial`, `RemoveMaterial` |
 | `set_asset(mesh, doc)` | `SetAsset`; the path absolutised, the hash recomputed |
 | `set_inertial(link, doc)`, `set_collision(link, doc)` | `SetInertial`, `SetCollision` |
+| `validate() -> list[str]`, `check()` | `validation_errors`; `check` raises `ValidationError`. Empty for any document the edit methods, `load` or `from_json` let through — they validate |
+| `fk({joint: q}) -> {link: pose}` | `fk` with a `JointState`; a missing joint is at zero, an unknown one `UnknownId` |
+| `origin_for_world(link, world) -> pose \| None` | `origin_for_world` |
+| `inertial(link) -> (mass, com, inertia rows)` | `MeshStore::load` + `compose_inertial`; `InertialError` (mesh load errors appended) |
+| `export(dir, *, format, mesh_paths, floating_base, fk_samples) -> [Path]` | `MeshStore::load` + `resolve` + `export` (+ `fk_samples::to_json`), exactly `cli::run`: every resolve error joined one per line as `cannot export: …` into `ExportError`; `format` is `"mjcf" \| "urdf" \| "both"`, `mesh_paths` `"relative" \| "absolute" \| "package://<name>"` |
+| `fk_samples_json()` | `fk_samples::to_json` |
+| `Robot.load_urdf(path, packages=None) -> (robot, warnings)` | `urdf_in::load` with a `PackageMap`; `UrdfImportError`, `ImportWarning`s as strings |
 
 **Exceptions** live in Python (`python/riggen/errors.py`) and Rust raises
 them by name (`errors.rs`), so `except riggen.EditError` is a plain Python
@@ -657,8 +664,7 @@ class: `RiggenError` ← `EditError` ← one subclass per `EditError` variant
 `ExportError`, `UrdfImportError`, `InertialError`. The message is the Rust
 `Display`.
 
-Kinematics, inertials, export and import (step 5) and `show()` (step 7)
-extend this table.
+`show()` (step 7) extends this table.
 
 ## Testing
 
@@ -686,8 +692,16 @@ extend this table.
   `load` of it has no warnings and a changed mesh has one; every edit
   method runs once; every `EditError` variant is raised as its class and
   leaves `to_json()` unchanged; `set_joint` ignores `parent` / `child`;
-  malformed values are `ValueError` / `TypeError`. Never against the
-  checkout on `sys.path`, which has no extension module.
+  malformed values are `ValueError` / `TypeError`. Against the `riggen`
+  binary (`RIGGEN_BINARY`, else the one bundled beside the interpreter —
+  in the `wheel` job the same wheel's — else a local `target/` build, else
+  skipped): `fk` of the arm equals `--fk-samples`' JSON to 1e-9 and
+  `fk_samples_json()` is that file; `export` of `arm.riggen` and of
+  `load_urdf(arm.urdf)` are byte-identical to `riggen --export both
+  --fk-samples`, warnings included; `inertial` of the arm's base is the
+  `<inertial>` the MJCF carries; an unexportable pendulum's `export`
+  raises `ExportError` with every reason. Never against the checkout on
+  `sys.path`, which has no extension module.
 - **Wheel smoke** (`python/tests/test_wheel.py`; the `wheel` CI job and
   `release.yml`'s `smoke` jobs): given a venv the wheel is installed into,
   `riggen --version` matches `riggen \d+.\d+.\d+ (… …)`, `python -m

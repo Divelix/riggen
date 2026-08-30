@@ -61,3 +61,28 @@ def build_pendulum(cubes: Path):
 @pytest.fixture
 def pendulum(cubes: Path):
     return build_pendulum(cubes)
+
+
+def find_cli() -> Path:
+    """The `riggen` binary the SDK is compared against: `RIGGEN_BINARY`, the
+    one bundled in this interpreter's wheel (the `wheel` CI job), else a
+    local cargo build; otherwise the test skips."""
+    import os
+
+    if env := os.environ.get("RIGGEN_BINARY"):
+        return Path(env)
+    from riggen.__main__ import binary_path
+
+    try:
+        return Path(binary_path())
+    except SystemExit:
+        pass
+    for candidate in (ROOT / "target" / "release" / "riggen", ROOT / "target" / "debug" / "riggen"):
+        if candidate.is_file():
+            return candidate
+    pytest.skip("no riggen binary to compare against; set RIGGEN_BINARY")
+
+
+@pytest.fixture(scope="session")
+def cli() -> Path:
+    return find_cli()

@@ -11,11 +11,16 @@ use std::path::{Path, PathBuf};
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use std::collections::BTreeMap;
+
+use pyo3::exceptions::{PyOSError, PyValueError};
 use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{
-    CollisionPolicy, Command, EditError, Geom, GeomId, Id, InertialSpec, Joint, JointId, Link,
-    LinkId, Material, MeshAsset, MeshId, Pose, Robot,
+    CollisionPolicy, Command, EditError, Geom, GeomId, Id, InertialSpec, Joint, JointId,
+    JointState, Link, LinkId, Material, MeshAsset, MeshId, Pose, Robot, compose_inertial,
+    validation_errors,
 };
+use riggen_export::{ExportError, ExportOptions, Format, MeshPathStyle, MeshStore, PackageMap};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -107,6 +112,40 @@ impl PyRobot {
 
 fn apply(py: Python<'_>, robot: &mut Robot, command: Command) -> PyResult<Option<LinkId>> {
     command.apply(robot).map_err(|e| edit_error(py, e))
+}
+
+/// Every resolve error on its own line, spelled as `riggen --export` prints
+/// them.
+fn join_export_errors(errors: &[ExportError]) -> String {
+    errors
+        .iter()
+        .map(|e| format!("cannot export: {e}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_from(name: &str) -> PyResult<Format> {
+    match name {
+        "mjcf" => Ok(Format::Mjcf),
+        "urdf" => Ok(Format::Urdf),
+        "both" => Ok(Format::Both),
+        other => Err(PyValueError::new_err(format!(
+            "format: {other:?} is not \"mjcf\", \"urdf\" or \"both\""
+        ))),
+    }
+}
+
+fn mesh_paths_from(style: &str) -> PyResult<MeshPathStyle> {
+    match style {
+        "relative" => Ok(MeshPathStyle::Relative),
+        "absolute" => Ok(MeshPathStyle::Absolute),
+        other => match other.strip_prefix("package://") {
+            Some(name) if !name.is_empty() => Ok(MeshPathStyle::Package(name.to_owned())),
+            _ => Err(PyValueError::new_err(format!(
+                "mesh_paths: {other:?} is not \"relative\", \"absolute\" or \"package://<name>\""
+            ))),
+        },
+    }
 }
 
 #[pymethods]
@@ -510,6 +549,165 @@ impl PyRobot {
         let policy = from_doc::<CollisionPolicy>(policy, "collision")?;
         self.edit(py, Command::SetCollision(LinkId::from_raw(link), policy))?;
         Ok(())
+    }
+
+    // ---- kinematics -------------------------------------------------------
+
+    /// Every invariant the document breaks, as messages (`validation_errors`).
+    /// Empty for any document the edit methods, `load` or `from_json` let
+    /// through — they validate — so this is for a document assembled some
+    /// other way.
+    fn validate(&self) -> Vec<String> {
+        validation_errors(&self.inner)
+            .iter()
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    /// `validate()`, raising `riggen.ValidationError` (every message, one
+    /// per line) when the list is not empty.
+    fn check(&self, py: Python<'_>) -> PyResult<()> {
+        let errors = self.validate();
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(raise(py, "ValidationError", errors.join("\n")))
+        }
+    }
+
+    /// Forward kinematics: the world pose of every link for the joint values
+    /// `q` (`{joint id: radians or meters}`, missing joints at zero), as
+    /// `{link id: pose}`.
+    fn fk(&self, py: Python<'_>, q: BTreeMap<u32, f64>) -> PyResult<Py<PyDict>> {
+        let mut state = JointState::new();
+        for (joint, value) in q {
+            let id = JointId::from_raw(joint);
+            if !self.inner.joints.contains_key(&id) {
+                return Err(edit_error(
+                    py,
+                    EditError::UnknownId {
+                        kind: JointId::KIND,
+                        id: id.to_string(),
+                    },
+                ));
+            }
+            state.set(id, value);
+        }
+        let world = riggen_core::fk(&self.inner, &state);
+        self.map(py, world.iter().map(|(id, pose)| (*id, pose)))
+    }
+
+    /// The joint origin that puts `link` at `world` in the zero
+    /// configuration — what to `set_joint` so a part lands where wanted.
+    /// `None` for the root.
+    fn origin_for_world(
+        &self,
+        py: Python<'_>,
+        link: u32,
+        world: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let link = self.require_link(py, link)?;
+        let world = from_doc::<Pose>(world, "world")?;
+        riggen_core::origin_for_world(&self.inner, link, world)
+            .map(|pose| to_doc(py, &pose))
+            .transpose()
+    }
+
+    /// The link's inertial under its spec — `(mass, com, inertia)`, the
+    /// tensor about the CoM in link axes as three rows — with every
+    /// referenced mesh read from disk (`MeshStore`). Raises
+    /// `riggen.InertialError`.
+    #[allow(clippy::type_complexity)]
+    fn inertial(&self, py: Python<'_>, link: u32) -> PyResult<(f64, [f64; 3], [[f64; 3]; 3])> {
+        let id = self.require_link(py, link)?;
+        let (store, load_errors) = MeshStore::load(&self.inner);
+        let link = &self.inner.links[&id];
+        let composed = compose_inertial(link, &store, &self.inner.materials).map_err(|e| {
+            let mut message = e.to_string();
+            for load_error in &load_errors {
+                message.push_str(&format!("\n{load_error}"));
+            }
+            raise(py, "InertialError", message)
+        })?;
+        let i = composed.inertial;
+        Ok((
+            i.mass,
+            i.com.to_array(),
+            [
+                i.inertia.row(0).to_array(),
+                i.inertia.row(1).to_array(),
+                i.inertia.row(2).to_array(),
+            ],
+        ))
+    }
+
+    // ---- export and import ------------------------------------------------
+
+    /// Writes the export directory (ADR-0008): `<name>.xml` and/or
+    /// `<name>.urdf` beside `meshes/` in meters; with `fk_samples`,
+    /// `<name>.fk.json` too. `format` is `"mjcf"`, `"urdf"` or `"both"`;
+    /// `mesh_paths` (URDF only) `"relative"`, `"absolute"` or
+    /// `"package://<name>"`. Returns every path written. Raises
+    /// `riggen.ExportError` listing every reason the document cannot be
+    /// exported, exactly as `riggen --export` prints them.
+    #[pyo3(signature = (dir, *, format = "both", mesh_paths = "relative", floating_base = false, fk_samples = false))]
+    fn export(
+        &self,
+        py: Python<'_>,
+        dir: PathBuf,
+        format: &str,
+        mesh_paths: &str,
+        floating_base: bool,
+        fk_samples: bool,
+    ) -> PyResult<Vec<PathBuf>> {
+        let options = ExportOptions {
+            format: format_from(format)?,
+            mesh_paths: mesh_paths_from(mesh_paths)?,
+            floating_base,
+        };
+        let (store, load_errors) = MeshStore::load(&self.inner);
+        let resolved = match riggen_export::resolve(&self.inner, &store, &options) {
+            Ok(r) if load_errors.is_empty() => r,
+            Ok(_) => return Err(raise(py, "ExportError", join_export_errors(&load_errors))),
+            Err(mut errors) => {
+                errors.extend(load_errors);
+                return Err(raise(py, "ExportError", join_export_errors(&errors)));
+            }
+        };
+        let mut written = riggen_export::export(&resolved, &options, &dir)
+            .map_err(|e| PyOSError::new_err(e.to_string()))?;
+        if fk_samples {
+            let path = dir.join(format!("{}.fk.json", self.inner.name));
+            std::fs::write(&path, riggen_export::fk_samples::to_json(&self.inner))
+                .map_err(|e| PyOSError::new_err(format!("{}: {e}", path.display())))?;
+            written.push(path);
+        }
+        Ok(written)
+    }
+
+    /// The `<name>.fk.json` text `export(fk_samples=True)` writes: five
+    /// joint configurations and the FK at each, by name.
+    fn fk_samples_json(&self) -> String {
+        riggen_export::fk_samples::to_json(&self.inner)
+    }
+
+    /// Imports a URDF (docs/02-data-model.md §URDF import): mesh paths
+    /// resolved against the file and `packages` (`{name: directory}` for
+    /// `package://name/…`). Returns the document and the warnings — what
+    /// the URDF held that the document does not. Raises
+    /// `riggen.UrdfImportError`.
+    #[staticmethod]
+    #[pyo3(signature = (path, packages = None))]
+    fn load_urdf(
+        py: Python<'_>,
+        path: PathBuf,
+        packages: Option<BTreeMap<String, PathBuf>>,
+    ) -> PyResult<(Self, Vec<String>)> {
+        let packages = PackageMap(packages.unwrap_or_default());
+        let (inner, warnings) = riggen_export::urdf_in::load(&path, &packages)
+            .map_err(|e| raise(py, "UrdfImportError", e.to_string()))?;
+        let warnings = warnings.iter().map(ToString::to_string).collect();
+        Ok((Self { inner }, warnings))
     }
 
     fn __repr__(&self) -> String {
