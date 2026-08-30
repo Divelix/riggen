@@ -73,7 +73,7 @@ to 1e-6.
 
 ## Steps
 
-- [ ] **Step 1 — `resolve` carries sites.** `ResolvedSite`,
+- [x] **Step 1 — `resolve` carries sites.** `ResolvedSite`,
   `ResolvedLink::sites`, filled in `FrameId` order; frames on a link
   removed from the tree cannot exist (validation). Unit tests in
   `resolve.rs` for order, for a frame on the root, and for a document with

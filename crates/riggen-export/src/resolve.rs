@@ -202,6 +202,14 @@ pub enum ResolvedGeom {
     Primitive(Primitive),
 }
 
+/// A named frame on its link, in the link frame: an MJCF `<site>` and a
+/// URDF massless dummy link on a fixed joint (ADR-0012).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedSite {
+    pub name: String,
+    pub pose: Pose,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedLink {
     pub name: String,
@@ -209,6 +217,8 @@ pub struct ResolvedLink {
     pub collisions: Vec<ResolvedGeom>,
     /// `None` for an empty static body.
     pub inertial: Option<Inertial>,
+    /// The link's frames in `FrameId` order.
+    pub sites: Vec<ResolvedSite>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -274,6 +284,16 @@ pub fn resolve(
     let index: BTreeMap<LinkId, usize> = order.iter().enumerate().map(|(i, &l)| (l, i)).collect();
 
     let names = mesh_names(robot);
+    // Frames grouped by their link, `FrameId` order preserved by the walk
+    // over the `BTreeMap`. A frame whose parent is missing or unreachable
+    // never gets here: `validate` rejected the document above.
+    let mut sites: BTreeMap<LinkId, Vec<ResolvedSite>> = BTreeMap::new();
+    for frame in robot.frames.values() {
+        sites.entry(frame.parent).or_default().push(ResolvedSite {
+            name: frame.name.clone(),
+            pose: frame.pose,
+        });
+    }
     let mut files = BTreeMap::new();
     let mut hulls: BTreeMap<MeshId, Result<Arc<TriMesh>, ExportError>> = BTreeMap::new();
     // One decomposition per (mesh, parameters), however many links share
@@ -502,6 +522,7 @@ pub fn resolve(
             visuals,
             collisions,
             inertial,
+            sites: sites.remove(&lid).unwrap_or_default(),
         });
     }
 
@@ -580,8 +601,8 @@ mod tests {
     }
 
     use crate::MeshStore;
-    use crate::test_util::{Builder, fixtures};
-    use riggen_core::glam::DMat3;
+    use crate::test_util::{Builder, every_joint_kind, fixtures};
+    use riggen_core::glam::{DMat3, DQuat};
     use riggen_core::{Command, InertialSpec, MeshAsset};
     use std::f64::consts::FRAC_PI_2;
 
@@ -1067,5 +1088,53 @@ mod tests {
         let resolved = b.resolve().unwrap();
         let stems: Vec<&String> = resolved.meshes.keys().collect();
         assert_eq!(stems, ["part", "part_2"]);
+    }
+
+    #[test]
+    fn frames_resolve_to_their_link_in_frame_id_order() {
+        let mut b = Builder::new();
+        let cube = b.mesh("cube", TriMesh::cube(0.05));
+        let root = b.robot.root;
+        let arm = b.link("arm", root, JointKind::Revolute, Some(cube));
+        // Allocated out of link order, so id order and link order differ.
+        b.frame("tcp", arm, Pose::from_translation(DVec3::Z * 0.3));
+        b.frame(
+            "camera_mount",
+            root,
+            Pose::new(DVec3::new(0.0, 0.1, 0.2), DQuat::from_rotation_x(FRAC_PI_2)),
+        );
+        b.frame("elbow_mark", arm, Pose::from_translation(DVec3::X * 0.05));
+
+        let resolved = b.resolve().unwrap();
+        let names = |i: usize| -> Vec<&str> {
+            resolved.links[i]
+                .sites
+                .iter()
+                .map(|s| s.name.as_str())
+                .collect()
+        };
+        assert_eq!(names(0), ["camera_mount"], "a frame on the root resolves");
+        assert_eq!(names(1), ["tcp", "elbow_mark"], "FrameId order, not name");
+        assert_eq!(
+            resolved.links[1].sites[0].pose.t,
+            DVec3::Z * 0.3,
+            "the pose is the link-frame pose, untouched"
+        );
+        assert_eq!(
+            resolved.links[0].sites[0].pose.r,
+            DQuat::from_rotation_x(FRAC_PI_2)
+        );
+    }
+
+    #[test]
+    fn a_document_without_frames_has_no_sites() {
+        let resolved = every_joint_kind().resolve().unwrap();
+        assert!(resolved.links.iter().all(|l| l.sites.is_empty()));
+        // Nothing else moved: the golden-XML tests are the rest of this.
+        let (robot, _) = riggen_core::load(&fixtures().join("pendulum.riggen")).unwrap();
+        assert!(robot.frames.is_empty());
+        let (store, _) = MeshStore::load(&robot);
+        let resolved = resolve(&robot, &store, &ComputeNow, &ExportOptions::default()).unwrap();
+        assert!(resolved.links.iter().all(|l| l.sites.is_empty()));
     }
 }
