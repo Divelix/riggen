@@ -105,11 +105,13 @@ adapter becomes ours, recorded as ADR-0010.
   `orbit_works_from_a_gizmo_handle`: middle-drag starting on the gizmo
   origin changes `camera.yaw_deg`/`pitch_deg` and commits no command;
   shift+middle-drag pans and does not orbit.
-- [ ] Step 4 — A hovered glyph stops freezing the camera. `glyph_hover`
-  feeds `pick_suppressed` only; the §Panels sentence in
-  `docs/01-architecture.md` is corrected in the same commit. Extend
-  `glyph_hover`: with the glyph hot, the wheel still zooms and no part is
-  tinted.
+- [x] Step 4 — A hovered glyph stops freezing the camera. `glyph_hover`
+  feeds `pick_suppressed` only (landed with step 2); the §Panels sentence in
+  `docs/01-architecture.md` is corrected here. The assertion is a sibling
+  scenario, `a_hovered_glyph_leaves_the_camera_alone`, rather than an
+  extension of `glyph_hover`: zooming moves the camera and `glyph_hover` is
+  a golden that pins where everything is drawn. With the glyph hot, the
+  wheel still zooms and no part is tinted.
 - [ ] Step 5 — ADR-0010 and the docs sync. Written last, recording what
   step 1 proved rather than what we hoped: the pointer arrangement, why
   `pick_preview` is the hit test, the one-frame lag on the target

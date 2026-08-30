@@ -248,8 +248,10 @@ closes.
   within `GLYPH_HOVER_RADIUS` screen points, measured in screen space
   because what the user aims at is the line they can see — brightens the
   tree row and names the joint in the status bar. While a glyph is
-  hovered the viewport's own pick is suppressed, so the part behind it is
-  not highlighted as well and a click selects the *joint*.
+  hovered the viewport's own **picking** is suppressed
+  (`set_pick_suppressed`), so the part behind it is not highlighted as well
+  and a click selects the *joint* — the camera keeps the pointer, and the
+  wheel still zooms (plans/gizmo-input).
 - **Properties** (right): a link's name, material, and per geom the pose
   (xyz m, RPY °), asset scale and fix-up, "Add mesh to this link…"; then
   **Inertial** — the `InertialSpec` mode combo (Computed / Override /
