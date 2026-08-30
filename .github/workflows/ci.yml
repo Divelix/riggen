@@ -70,17 +70,20 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@v5
+      # `--no-project`: without it `uv run` builds the wheel from the root
+      # `pyproject.toml` before running anything.
       - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample assets/fixtures/arm/arm.riggen
       - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-urdf assets/fixtures/arm/arm.urdf
-      - run: uv run --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample target/sample-urdf
+      - run: uv run --no-project --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample target/sample-urdf
 
   # The product (ADR-0002, ADR-0009): the wheel builds in the manylinux 2_28
   # container maturin-action provides — `build_wheel.py --binary-only`
   # first, for the `riggen` binary into the wheel data directory, then
   # maturin for the abi3 extension module — installs into a fresh venv with
   # nothing else, `test_wheel.py` runs it headlessly (--version, --export,
-  # python -m riggen, import riggen._riggen, the abi3 tag), and the SDK's
-  # pytest suite runs against it.
+  # python -m riggen, import riggen._riggen, the abi3 tag), the SDK's
+  # pytest suite and pyright run, and `examples/arm.py`'s export is
+  # loaded in MuJoCo.
   # linux x86_64 only — the five-target matrix is `release.yml`'s; this job
   # is what guards `pyproject.toml`, `build_wheel.py` and
   # `python/riggen/__main__.py` on every push. The binary links only libc
@@ -113,3 +116,12 @@ jobs:
       - run: |
           uv pip install --python "$RUNNER_TEMP/wheel-venv" pytest
           "$RUNNER_TEMP/wheel-venv/bin/python" -m pytest python/tests/sdk
+      # The types: the package, its stubs and the examples (pyproject
+      # `[tool.pyright]`).
+      - run: uvx pyright
+      # The M3 bar over SDK output (ADR-0004 §2): the arm built by
+      # `examples/arm.py` through the installed wheel loads in MuJoCo with
+      # zero warnings and `mj_forward` matches its FK samples.
+      - run: |
+          "$RUNNER_TEMP/wheel-venv/bin/python" examples/arm.py --out "$RUNNER_TEMP/sdk-arm"
+          uv run --no-project --with mujoco --with numpy python python/tests/test_mjcf_load.py "$RUNNER_TEMP/sdk-arm"

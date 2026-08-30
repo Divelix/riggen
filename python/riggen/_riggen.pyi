@@ -17,6 +17,12 @@ from typing_extensions import NotRequired
 
 __version__: str
 
+def rpy_to_quat(rpy: tuple[float, float, float]) -> list[float]:
+    """``(roll, pitch, yaw)`` radians → ``[x, y, z, w]`` (URDF's Rz·Ry·Rx)."""
+
+def quat_to_rpy(quat: tuple[float, float, float, float]) -> list[float]:
+    """``[x, y, z, w]`` → ``(roll, pitch, yaw)``; pitch in ``[-π/2, π/2]``."""
+
 PathLike = str | os.PathLike[str]
 
 class PoseDoc(TypedDict):
@@ -39,19 +45,23 @@ class DynamicsDoc(TypedDict):
 
 JointKind = Literal["Fixed", "Revolute", "Continuous", "Prismatic"]
 
-class JointDoc(TypedDict):
-    """``origin`` is the child link frame in the parent link frame; ``axis``
-    is in the child frame. ``parent`` / ``child`` are present on read and
-    ignored on write (``add_link``, ``set_joint``)."""
+class JointInput(TypedDict):
+    """A joint as ``add_link`` / ``set_joint`` take it: ``origin`` is the child
+    link frame in the parent link frame; ``axis`` is in the child frame.
+    Endpoints are not needed — the command sets them — and ignored if given."""
 
     name: str
     kind: JointKind
-    parent: NotRequired[int]
-    child: NotRequired[int]
     origin: PoseDoc
     axis: list[float]
     limits: LimitsDoc | None
     dynamics: DynamicsDoc
+
+class JointDoc(JointInput):
+    """A joint as ``joints()`` returns it: with its endpoints."""
+
+    parent: int
+    child: int
 
 class GeomDoc(TypedDict):
     id: int
@@ -129,7 +139,7 @@ class Robot:
         self,
         name: str,
         parent: int,
-        joint: JointDoc,
+        joint: JointInput,
         *,
         mesh: PathLike | None = None,
         scale: float = 1.0,
@@ -149,7 +159,7 @@ class Robot:
     ) -> int: ...
     def remove_geom(self, link: int, geom: int) -> None: ...
     def set_geom_pose(self, link: int, geom: int, pose: PoseDoc) -> None: ...
-    def set_joint(self, joint: int, value: JointDoc) -> None: ...
+    def set_joint(self, joint: int, value: JointInput) -> None: ...
     def move_joint_frame(self, joint: int, origin: PoseDoc, axis: list[float]) -> None: ...
     def reparent(self, link: int, new_parent: int, *, keep_world_pose: bool = False) -> None: ...
     def set_root(self, link: int) -> None: ...

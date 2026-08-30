@@ -36,6 +36,12 @@ struct Envelope {
     robot: Robot,
 }
 
+/// The document (`riggen_core::Robot`): links, joints, materials and the
+/// mesh files it references. Every edit method applies one command on a
+/// copy and keeps it only on success; a refused edit raises a
+/// `riggen.EditError` subclass and changes nothing. Values are the
+/// `.riggen` file's shape with ids as ints; `riggen.Robot` is the API over
+/// this.
 #[pyclass(name = "Robot", module = "riggen._riggen")]
 pub struct PyRobot {
     pub(crate) inner: Robot,

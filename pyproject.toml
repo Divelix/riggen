@@ -53,6 +53,15 @@ dynamic = ["version"]
 Repository = "https://github.com/Divelix/riggen"
 Documentation = "https://github.com/Divelix/riggen#readme"
 
+# `uvx pyright` (the `wheel` CI job): the package, its stubs and the
+# examples. `python/` on the path so `import riggen` in an example resolves
+# to the source tree — typing only; the extension is its `.pyi`.
+[tool.pyright]
+include = ["python/riggen", "examples", "python/build_wheel.py"]
+extraPaths = ["python"]
+pythonVersion = "3.10"
+typeCheckingMode = "standard"
+
 [build-system]
 requires = ["maturin>=1.8,<2"]
 build-backend = "maturin"

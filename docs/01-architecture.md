@@ -93,9 +93,11 @@ riggen/
 │                           # robot (`write_arm_sample`), and arm/arm.urdf, the hand-written
 │                           # URDF import corpus file (02 §URDF import). arm.riggen and its
 │                           # four STLs are also `include_bytes!`d for `--example arm`
-├── python/riggen/          # the wheel's Python half: __init__ (__version__ from the
-│                           # installed metadata), __main__ (execs the bundled binary),
-│                           # _riggen.pyi + py.typed (the extension module's stubs)
+├── python/riggen/          # the wheel's Python half: __init__ (the public names,
+│                           # __version__), robot.py (the API), errors.py, __main__
+│                           # (execs the bundled binary), _riggen.pyi + py.typed
+├── examples/               # pendulum.py (the README's ten lines), arm.py (the M2 arm
+│                           # from its STLs) — the SDK's worked examples (§Python SDK)
 ├── python/build_wheel.py   # the one build recipe: cargo build riggen-app → the data
 │                           # directory → maturin build (§Python distribution)
 ├── python/tests/           # test_mjcf_load.py (MuJoCo load + FK) and test_wheel.py (the
@@ -666,6 +668,31 @@ class: `RiggenError` ← `EditError` ← one subclass per `EditError` variant
 
 `show()` (step 7) extends this table.
 
+**The public layer** (`python/riggen/robot.py`, re-exported from
+`riggen`; pure Python, typed, `pyright` clean) is handles and value types
+over that table — no logic of its own beyond spelling:
+
+| `riggen` | Over `_riggen` |
+|---|---|
+| `Robot(name)`, `load(path)`, `load_urdf(path, packages)` | `Robot`, `Robot.load`, `Robot.load_urdf`; the warnings become `RiggenWarning`s through `warnings.warn` |
+| `robot.root`, `.links`, `.joints`, `.link(name)`, `.joint(name)` (`KeyError`), `.materials` | handles by id; `Material(density, color)` |
+| `robot.add_link(name, parent, spec, *, mesh, scale, fix_up, material, joint_name)` = `link.add_link(name, spec, …)` | `add_link` with `spec.to_doc(joint_name or f"{name}_joint")` |
+| `link.name`, `.material`, `.collision`, `.inertial_spec` (get/set) | `rename_link`, `set_link_material`, `set_collision`, `set_inertial` — one edit per assignment |
+| `link.joint`, `.parent`, `.joints`, `.children`, `.subtree`, `.geoms` | `parent_joint`, `child_joints`, `subtree`, `links()[id]["visuals"]` |
+| `link.add_mesh(path, *, pose, scale, fix_up, color)` → `Geom`; `geom.pose`, `.mesh`, `.remove()` | `add_asset` + `add_geom`; `set_geom_pose`, `remove_geom` |
+| `link.remove()`, `.reparent(parent, keep_world_pose=True)`, `.place(world)`, `.make_root()` | `remove_link`, `reparent`, `origin_for_world` + `set_joint`, `set_root` |
+| `link.inertial` → `Inertial(mass, com, inertia)` | `inertial` |
+| `joint.name`, `.kind`, `.parent`, `.child`; `.origin`, `.axis`, `.limits`, `.dynamics`, `.spec` (get/set); `.move_frame(origin, axis)` | `set_joint` with the one field changed; `move_joint_frame` |
+| `Pose(xyz, rpy= \| quat=, degrees=)`, `.rpy`, `.rpy_degrees`, `.to_doc()` | `rpy_to_quat` / `quat_to_rpy` (the core's convention, never re-derived); `quat` is `(w, x, y, z)` |
+| `Fixed(origin)`, `Revolute(axis, *, origin, limits, dynamics, degrees)`, `Continuous`, `Prismatic` → `JointSpec` | the joint dict; `axis` is `"x" \| "-y" \| (x, y, z)`; `limits` a `Limits` or `(lower, upper)`; the app's defaults (`±π`, `±1`, effort and velocity 0) |
+| `ComputedInertial(density)`, `OverrideInertial(mass, com, rows)`, `HybridInertial(mass)` | the `InertialSpec` dict (the tensor column-major in the file, rows here) |
+| `robot.fk({name \| joint: q})` → `{name: Pose}`, `.validate()`, `.save()`, `.export(dir, *, format, mesh_paths, floating_base, fk_samples)`, `.to_json()` / `from_json`, `.copy()` | the same names, ids ↔ names |
+
+`examples/pendulum.py` (the README's ten lines; the corpus pendulum) and
+`examples/arm.py` (the M2 arm from its STLs, joints typed; its export is
+byte-identical to `arm.riggen`'s) are the API's worked examples and the
+`wheel` job's MuJoCo input.
+
 ## Testing
 
 - `riggen-mesh`, `riggen-core`, `riggen-export`: plain unit tests; no GPU,
@@ -700,8 +727,17 @@ class: `RiggenError` ← `EditError` ← one subclass per `EditError` variant
   `load_urdf(arm.urdf)` are byte-identical to `riggen --export both
   --fk-samples`, warnings included; `inertial` of the arm's base is the
   `<inertial>` the MJCF carries; an unexportable pendulum's `export`
-  raises `ExportError` with every reason. Never against the checkout on
-  `sys.path`, which has no extension module.
+  raises `ExportError` with every reason. The public layer: the corpus
+  pendulum built through `riggen.Robot`; every setter runs once; `fk` by
+  name and handle; `load` / `load_urdf` warn; `examples/arm.py` exports
+  byte-identical to `arm.riggen`'s export and `examples/pendulum.py` to
+  the corpus file's; both examples run from the command line; every name
+  in `riggen.__all__` and every public method and property has a
+  docstring. `uvx pyright` (pyproject `[tool.pyright]`: the package, the
+  stubs, the examples) is clean; the `wheel` job runs it, then
+  `examples/arm.py` through the wheel and `test_mjcf_load.py` on its
+  output. Never against the checkout on `sys.path`, which has no
+  extension module.
 - **Wheel smoke** (`python/tests/test_wheel.py`; the `wheel` CI job and
   `release.yml`'s `smoke` jobs): given a venv the wheel is installed into,
   `riggen --version` matches `riggen \d+.\d+.\d+ (… …)`, `python -m
