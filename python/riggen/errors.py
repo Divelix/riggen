@@ -11,6 +11,7 @@ from __future__ import annotations
 
 __all__ = [
     "RiggenError",
+    "RiggenWarning",
     "EditError",
     "InvalidDocument",
     "UnknownId",
@@ -30,6 +31,13 @@ __all__ = [
 
 class RiggenError(Exception):
     """Base of every error riggen raises."""
+
+
+class RiggenWarning(UserWarning):
+    """Something worth knowing about a file that did open: a mesh that
+    changed or went missing since the save (:func:`riggen.load`), or what a
+    URDF held that the document does not (:func:`riggen.load_urdf`).
+    Emitted through :mod:`warnings`."""
 
 
 class EditError(RiggenError):

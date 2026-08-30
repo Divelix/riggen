@@ -17,6 +17,28 @@ mod errors;
 mod robot;
 
 use pyo3::prelude::*;
+use riggen_core::Pose;
+use riggen_core::glam::{DQuat, DVec3};
+
+/// `(roll, pitch, yaw)` in radians → the quaternion `[x, y, z, w]` of
+/// `Pose::from_xyz_rpy` (URDF's `Rz·Ry·Rx`), so Python never re-derives
+/// the convention.
+#[pyfunction]
+fn rpy_to_quat(rpy: [f64; 3]) -> [f64; 4] {
+    Pose::from_xyz_rpy(DVec3::ZERO, DVec3::from_array(rpy))
+        .r
+        .to_array()
+}
+
+/// The inverse, `Pose::to_xyz_rpy`: pitch in `[-π/2, π/2]`, roll folded
+/// into yaw at gimbal lock.
+#[pyfunction]
+fn quat_to_rpy(quat: [f64; 4]) -> [f64; 3] {
+    Pose::from_rotation(DQuat::from_array(quat))
+        .to_xyz_rpy()
+        .1
+        .to_array()
+}
 
 /// The module. `__version__` is `CARGO_PKG_VERSION` in PEP 440 spelling —
 /// the workspace version, the same string `importlib.metadata.version
@@ -25,6 +47,8 @@ use pyo3::prelude::*;
 fn _riggen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", pep440(env!("CARGO_PKG_VERSION")))?;
     m.add_class::<robot::PyRobot>()?;
+    m.add_function(wrap_pyfunction!(rpy_to_quat, m)?)?;
+    m.add_function(wrap_pyfunction!(quat_to_rpy, m)?)?;
     Ok(())
 }
 

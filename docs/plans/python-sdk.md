@@ -246,7 +246,7 @@ will want to read before it is final.
   `load_urdf(arm.urdf)` then export equals the CLI's; `inertial` of the
   arm's base equals the readout in the fixture; an invalid robot's
   `export` raises `ExportError` listing every error.
-- [ ] Step 6 — The public Python API: `riggen.Robot` with `Link`/`Joint`
+- [x] Step 6 — The public Python API: `riggen.Robot` with `Link`/`Joint`
   handles, `Pose`, the joint constructors, `axis="z"`, `degrees=`,
   `load`, `load_urdf`, `fk` by name, docstrings on everything, the stubs
   complete, `pyright` clean, `examples/pendulum.py` and `examples/arm.py`.
@@ -401,6 +401,29 @@ Findings from step 5 (2026-08-30):
 - A floating base on the arm is refused (its root `base_link` has no
   mass, ADR-0008 OPEN 3) — the test asserts the refusal on the arm and the
   `<freejoint>` on the pendulum.
+
+Findings from step 6 (2026-08-30) — **OPEN 2: the human reviews
+`python/riggen/__init__.py`, `robot.py` and `examples/` now; renames land
+before step 7**:
+
+- The deltas' `link.joints` / `link.material = "PLA"` / `joint.limits =
+  (-1.57, 1.57)` shape held. Beyond them: `Geom` handles (`link.geoms`,
+  `geom.pose`), `link.add_mesh` (the root has no joint to `add_link`
+  with), `link.place(world)` (the align tool's `origin_for_world` +
+  `set_joint`), `link.make_root()`, `joint.spec` / `joint.move_frame`,
+  `joint_name=` on `add_link` (default `f"{name}_joint"`, the app's
+  spelling), and the inertial specs as three tiny classes
+  (`ComputedInertial`, `OverrideInertial`, `HybridInertial`) rather than
+  an overloaded property. `quat` is `(w, x, y, z)` everywhere in the
+  public layer; the document's `[x, y, z, w]` never surfaces.
+- `load` / `load_urdf` return the robot alone and route the warnings
+  through `warnings.warn(RiggenWarning)` — a notebook sees them, a
+  script can `-W error` them.
+- The MuJoCo check over SDK output lives in the **`wheel`** job, not the
+  `mujoco` job as step 6 said: it needs `import riggen`, which only the
+  wheel venv has. `uvx pyright` is there too.
+- Material colours are `f32` in the document, so `0.8` reads back as
+  `0.800000011920929`; the `Material` docstring says so.
 - The `cargo tree` layer check lives in the `clippy` job, which already
   has the toolchain, rather than the container-based `wheel` job.
 - The sdist holds `riggen-py` and its three lower crates only — maturin
