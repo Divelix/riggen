@@ -473,6 +473,13 @@ Findings from step 9 (2026-08-30):
   `mujoco.viewer`. If that run finds a bug, `0.2.0` on TestPyPI is
   spent (`skip-existing`), so the fix re-checks as `0.2.1-dev` and ships
   as `0.2.1`; PyPI is untouched until the tag.
+- From the human's notebook run (2026-08-30): (1) installing a TestPyPI
+  pre-release into a `uv` project needs an *explicit* index
+  (`[[tool.uv.index]] explicit = true` + `[tool.uv.sources]`), else uv's
+  dependency-confusion guard trips on ipykernel's `comm` — a README
+  line at retirement; (2) a missing mesh file raised `FileNotFoundError:
+  No such file or directory (os error 2)` with no path — fixed, the
+  message names the file (`with_path` in `robot.rs`, tested).
 - Then `/retire-plan`; the `v0.2.0` tag and its push are the human's.
 - The `cargo tree` layer check lives in the `clippy` job, which already
   has the toolchain, rather than the container-based `wheel` job.

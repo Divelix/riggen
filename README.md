@@ -103,12 +103,12 @@ uv add riggen        # or: pip install riggen — the wheel that has the app has
 import riggen
 
 robot = riggen.Robot("pendulum")
-robot.root.add_mesh("base.stl", scale=0.001)          # a millimetre STL
+robot.root.add_mesh("base.stl", scale=0.001)          # your STL, in millimetres
 robot.root.material = "aluminium"
 arm = robot.root.add_link(
     "arm",
     riggen.Revolute("y", origin=(0, 0, 0.5), limits=(-90, 90), degrees=True),
-    mesh="arm.stl", scale=0.001, material="PLA",
+    mesh="arm.stl", scale=0.001, material="PLA",      # and the part it moves
 )
 arm.geoms[0].pose = (0, 0, 0.5)                       # the mesh half a unit above the hinge
 robot.export("out", format="mjcf")                    # out/pendulum.xml + out/meshes/*.stl
