@@ -56,9 +56,10 @@ hover, or gizmos.
 riggen/
 ├── Cargo.toml              # [workspace], resolver 3, edition 2024, every dep version;
 │                           # [profile.release] strip + thin LTO: the wheel's binary
-├── pyproject.toml          # the `riggen` wheel: maturin `bindings = "bin"` over
-│                           # crates/riggen-app, python-source = python/, version from
-│                           # Cargo, readme = README.md (§Python distribution)
+├── pyproject.toml          # the `riggen` wheel: maturin `bindings = "pyo3"` over
+│                           # crates/riggen-py, python-source = python/, the binary from
+│                           # riggen._riggen.data/ (ignored; the build fills it), version
+│                           # from Cargo, readme = README.md (§Python distribution)
 ├── README.md               # user-facing, uv first; also the PyPI page
 ├── .cargo/config.toml      # one rustflag, wasm32 only: getrandom's backend (ADR-0007)
 ├── rust-toolchain.toml     # stable + rustfmt, clippy, wasm32-unknown-unknown
@@ -78,6 +79,8 @@ riggen/
 │       └── src/app/        # document, file_io, file_menu, export_dialog, shortcuts,
 │                           # status_bar, tool, gizmo, glyphs, snap, align,
 │                           # panels/{tree, properties, joints, materials}
+│   ├── riggen-py/          # cdylib `_riggen`, the PyO3 abi3 extension module `riggen._riggen`
+│   │                       # over core + export; `test = false`, tested from Python (ADR-0009)
 │   └── riggen/             # the crates.io name reservation: an empty 0.0.1 lib with its
 │                           # own README; publishing the app under this name is a backlog
 │                           # line (SEED.md §5)
@@ -90,7 +93,10 @@ riggen/
 │                           # URDF import corpus file (02 §URDF import). arm.riggen and its
 │                           # four STLs are also `include_bytes!`d for `--example arm`
 ├── python/riggen/          # the wheel's Python half: __init__ (__version__ from the
-│                           # installed metadata), __main__ (execs the bundled binary)
+│                           # installed metadata), __main__ (execs the bundled binary),
+│                           # _riggen.pyi + py.typed (the extension module's stubs)
+├── python/build_wheel.py   # the one build recipe: cargo build riggen-app → the data
+│                           # directory → maturin build (§Python distribution)
 ├── python/tests/           # test_mjcf_load.py (MuJoCo load + FK) and test_wheel.py (the
 │                           # installed wheel, headless) — plain scripts, no pytest (§Testing)
 ├── LICENSE-MIT, LICENSE-APACHE   # "MIT OR Apache-2.0"; the wheel's license-files

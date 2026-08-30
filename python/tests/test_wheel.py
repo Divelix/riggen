@@ -1,7 +1,8 @@
-"""The wheel smoke test (plans/m4-distribution): does the installed `riggen`
-run on a machine that never saw Rust?
+"""The wheel smoke test (plans/m4-distribution, plans/python-sdk): does the
+installed `riggen` run on a machine that never saw Rust, and does its
+extension module import?
 
-    uv build
+    python python/build_wheel.py
     uv venv target/wheel-venv && uv pip install --python target/wheel-venv dist/riggen-*.whl
     python python/tests/test_wheel.py target/wheel-venv
 
@@ -58,6 +59,21 @@ def check_version(riggen: Path, python: Path) -> None:
     assert "usage:" in help_text and "--export" in help_text, help_text
 
 
+def check_extension(python: Path) -> None:
+    """`import riggen._riggen` works, agrees on the version, and the wheel is
+    the abi3 one (ADR-0009) — one wheel per platform for every CPython ≥ 3.10."""
+    code = (
+        "import riggen, riggen._riggen as m; from importlib.metadata import distribution;"
+        " assert m.__version__ == riggen.__version__, (m.__version__, riggen.__version__);"
+        " print(m.__version__); print(distribution('riggen').read_text('WHEEL'))"
+    )
+    out = run([python, "-c", code]).stdout
+    version, wheel = out.split("\n", 1)
+    tags = [line.split(":", 1)[1].strip() for line in wheel.splitlines() if line.startswith("Tag:")]
+    assert tags and all(t.startswith("cp310-abi3-") for t in tags), f"wheel tags: {tags}"
+    print(f"  riggen._riggen {version}, tags {tags}")
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
@@ -71,6 +87,7 @@ def main(argv: list[str]) -> int:
 
     check_version(riggen, python)
     check_export(riggen)
+    check_extension(python)
     print("ok")
     return 0
 

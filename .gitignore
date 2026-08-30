@@ -2,6 +2,9 @@
 # `uv build` output: the wheel and the sdist.
 /dist
 /python/**/*.so
+# maturin's wheel data directory (pyproject.toml): `python/build_wheel.py`
+# copies the built `riggen` binary into its `scripts/` for the wheel.
+/riggen._riggen.data
 /python/build
 __pycache__/
 .venv/

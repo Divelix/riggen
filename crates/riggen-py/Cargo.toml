@@ -1,0 +1,31 @@
+[package]
+name = "riggen-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# The extension module `riggen._riggen` (ADR-0009): a PyO3 cdylib over
+# riggen-core + riggen-export, shipped in the same wheel as the `riggen`
+# binary. `test = false` / `doctest = false`: a cdylib built as an
+# extension module cannot link a test binary, so the bindings are tested
+# from Python (`python/tests/sdk/`).
+[lib]
+name = "_riggen"
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[features]
+# Only maturin turns this on (`pyproject.toml` `features`): it stops PyO3
+# from linking libpython, which an extension module must not do. Off, the
+# crate builds and lints against the host's `python3` like any other
+# workspace member, so `cargo clippy --workspace` sees it.
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+# Never egui or wgpu: this crate sits beside riggen-app, over riggen-export
+# (docs/01-architecture.md §Layer map). CI's `cargo tree` check enforces it.
+riggen-mesh.workspace = true
+riggen-core.workspace = true
+riggen-export.workspace = true
+pyo3.workspace = true
