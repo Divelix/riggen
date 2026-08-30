@@ -194,7 +194,7 @@ will want to read before it is final.
   riggen-py` (cdylib `_riggen`, PyO3 0.28 abi3-py310, `extension-module`
   feature, `test = false`, exposing only `__version__`), `pyproject.toml`
   switched (`bindings = "pyo3"`, `module-name`, `features`, `data =
-  "python/data"`), `python/build_wheel.py`, `python/data/` gitignored,
+  "python/data"`), `python/build_wheel.py`, the data directory gitignored,
   `python/riggen/_riggen.pyi` + `py.typed`. `python python/build_wheel.py`
   produces `riggen-0.1.0-cp310-abi3-manylinux_2_28_x86_64.whl` (or
   `linux_x86_64` locally) with `riggen-0.1.0.data/scripts/riggen` *and*
@@ -275,7 +275,7 @@ will want to read before it is final.
 ## Acceptance
 
 ```sh
-python python/build_wheel.py                                     # cargo build riggen-app → python/data/scripts → maturin build
+python python/build_wheel.py                                     # cargo build riggen-app → riggen._riggen.data/scripts → maturin build
 uv venv target/wheel-venv && uv pip install --python target/wheel-venv dist/riggen-*.whl
 python python/tests/test_wheel.py target/wheel-venv               # M4's checks + import riggen._riggen + the tag
 uv run --python target/wheel-venv --with pytest pytest python/tests/sdk
