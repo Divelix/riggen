@@ -204,9 +204,13 @@ release workflow is a tag push.
   link (a file and `show()`), the `_riggen` layer speaks the v1 schema.
   Wheel sizes at 0.2.0.dev0: linux x86_64 9.7 MB (M4: 9.6; 10.1 with the
   full extension), linux aarch64 9.2, macOS arm64 6.2, macOS x86_64 6.6,
-  Windows 7.4; the extension 1.3 MB. ⚠ OPEN: the notebook half of the
-  acceptance — a TestPyPI wheel, `show()`, a joint placed by hand,
-  `wait()`, `mujoco.viewer` — is the human's, before the `v0.2.0` tag.
+  Windows 7.4; the extension 1.3 MB. The by-hand notebook run
+  (2026-08-30, the TestPyPI `0.2.0` wheel in a fresh `uv` project with
+  ipykernel): the pendulum from the README, `show()`, a joint placed by
+  hand and saved, `wait()`, MuJoCo — worked; it found one message with
+  no file name in it (fixed before the tag) and that a TestPyPI
+  pre-release needs an explicit index in a `uv` project (README
+  §Developing). The `v0.2.0` tag is the release.
 - Convex decomposition (CoACD port or a bundled binary — decide with an ADR).
 - Named frames / MJCF sites; mimic joints; actuator presets.
 - MJCF import; SDF export.

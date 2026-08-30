@@ -6,6 +6,8 @@
 # copies the built `riggen` binary into its `scripts/` for the wheel.
 /riggen._riggen.data
 /python/build
+# Personal notebooks on the dev build (README §Developing).
+/scratch
 __pycache__/
 .venv/
 
