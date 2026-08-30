@@ -191,10 +191,36 @@ pub enum CollisionPolicy {
     /// read-only in the properties panel; a v1 file without the variant
     /// still reads.
     Meshes(Vec<Geom>),
-    /// Post-MVP.
+    /// Approximate convex decomposition of every visual mesh: N convex
+    /// pieces that keep the part's concavity, where one hull would fill it
+    /// (ADR-0011). The three fields mirror `riggen_mesh::DecompParams` and
+    /// are the *parameters* — the pieces are derived at export from the
+    /// mesh and these numbers, never stored (ADR-0008, extended). Each has
+    /// a serde default, so a v1 file written before they existed — one
+    /// carrying only `max_hulls` — still reads.
     ConvexDecomposition {
+        #[serde(default = "default_max_hulls")]
         max_hulls: u32,
+        #[serde(default = "default_resolution")]
+        resolution: u32,
+        #[serde(default = "default_concavity")]
+        concavity: f64,
     },
+}
+
+// One source of truth for the three defaults: the algorithm's own, in
+// `riggen-mesh`. Core does not re-export `DecompParams` — the document type
+// stays plain serde data that `riggen-export` maps across.
+fn default_max_hulls() -> u32 {
+    riggen_mesh::DecompParams::default().max_hulls
+}
+
+fn default_resolution() -> u32 {
+    riggen_mesh::DecompParams::default().resolution
+}
+
+fn default_concavity() -> f64 {
+    riggen_mesh::DecompParams::default().concavity
 }
 
 impl CollisionPolicy {

@@ -94,7 +94,7 @@ pub enum CollisionPolicy {
     ConvexHull,                         // one hull per visual geom
     Primitives(Vec<Primitive>),         // boxes/cylinders/spheres/capsules in link frame
     Meshes(Vec<Geom>),                  // collision meshes that are not the visuals (a URDF import)
-    ConvexDecomposition { max_hulls: u32 }, // post-MVP
+    ConvexDecomposition { max_hulls: u32, resolution: u32, concavity: f64 }, // V-HACD, ADR-0011
 }
 
 pub struct Frame { pub name: String, pub parent: LinkId, pub pose: Pose }  // TCP, sensors; post-MVP
@@ -424,3 +424,12 @@ document. `assets/fixtures/pendulum.riggen` (base + arm from the cube
 fixtures, one revolute hinge, produced by `save` itself) is the first corpus
 file; `file::tests::corpus_pendulum_opens` keeps it opening and re-saving
 byte-for-byte forever.
+
+`CollisionPolicy::ConvexDecomposition`'s `resolution` and `concavity` are so
+far the only fields added after their variant existed, and they are the
+worked example of the rule: all three fields carry `#[serde(default = …)]`
+taken from `riggen_mesh::DecompParams::default()`, a v1 file carrying only
+`{"ConvexDecomposition": {"max_hulls": 4}}` opens with the algorithm's
+defaults filled in (`file::tests::a_v1_file_with_only_max_hulls_reads_with_the_defaults`),
+and `schema_version` stays 1 — nothing that reads an old file needs to
+change, so nothing is an upgrade step.
