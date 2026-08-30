@@ -206,7 +206,7 @@ will want to read before it is final.
   riggen-app`). Report wheel and `.so` sizes. **This is the plan's risk;
   stop and report if maturin's data directory does not install into
   `bin/`, or PyO3 abi3 does not build in the manylinux container.**
-- [ ] Step 2 — The five targets: `release.yml`'s `build` matrix runs the
+- [x] Step 2 — The five targets: `release.yml`'s `build` matrix runs the
   binary half per target (`before-script-linux` for the two containers, a
   preceding step for macOS/Windows, `--target` passed to both cargo runs),
   `smoke` unchanged plus the import line. Ends by asking the human to
@@ -217,8 +217,13 @@ will want to read before it is final.
   and reported, not worked around blind. The workspace version goes to
   `0.2.0-dev` in this step (OPEN 5): TestPyPI already holds a 0.1.0 and
   `skip-existing` would make a same-version dispatch a silent no-op.
-  **Code landed 2026-08-30; the box waits for the human's dispatch** —
-  see the step 2 finding under Open questions for what to run.
+  **Accepted 2026-08-30**: the dispatch on `13f753d` (run 33303264056)
+  built all five wheels and the sdist, the three smokes passed, TestPyPI
+  holds `0.2.0.dev0`; on the dev machine `uvx --refresh … --from
+  "riggen==0.2.0.dev0" python -c "import riggen._riggen"` imports and
+  `riggen --version` from the same install runs. Wheel sizes: linux
+  x86_64 9.7 MB, linux aarch64 9.2, macOS arm64 6.2, macOS x86_64 6.6,
+  Windows 7.4; sdist 143 KB.
 - [x] Step 3 — ADR-0009 "one wheel: PyO3 abi3 extension plus the binary
   as wheel data": the layout step 1–2 proved, why not cdylib+bin in one
   crate, why not two wheels, why not pure Python, the sdist consequence
@@ -354,9 +359,9 @@ Findings from step 2 (2026-08-30):
   https://test.pypi.org/simple/ --index-strategy unsafe-best-match --from
   "riggen==0.2.0.dev0" python -c "import riggen._riggen"` — TestPyPI holds
   the 0.1.0 final, and uv prefers a final over a pre-release unless the
-  pre-release is asked for by name. Not verified until the human pushes
-  and dispatches `release.yml` (workflow_dispatch → TestPyPI); the box is
-  ticked after that run's smoke matrix is green and the command works.
+  pre-release is asked for by name. And **`--refresh`**: uv caches the
+  index, so a lookup made before the upload keeps answering "no version"
+  until refreshed. Verified 2026-08-30 (the step's box).
 
 Findings from step 4 (2026-08-30):
 
