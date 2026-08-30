@@ -234,7 +234,9 @@ closes.
   (`hinge · revolute`), and under it — before its child links — a row per
   named frame (`⌖ tcp   frame`, ADR-0012); click selects the link, the
   joint or the frame, double-click or F2 renames a link or a frame inline,
-  "+ Link" adds an empty link under the selection, Delete / "− Remove"
+  "+ Link" adds an empty link under the selection and "+ Frame" a named
+  frame at that link's origin (both start the new row's rename), Delete /
+  "− Remove"
   removes the subtree (root refused, reason in the status bar) or, for a
   selected frame, that frame alone, dragging a row onto another
   reparents with `keep_world_pose`. Every row is a `dnd_drop_zone` around a
@@ -296,7 +298,12 @@ closes.
   while it runs, or the reason there are none. Every
   commit is one `SetInertial` / `SetCollision`. A joint's name, kind
   (limits appear with Revolute/Prismatic, defaulting to ±π / ±1 m),
-  origin, axis (normalised on commit), limits in ° or m, dynamics. Fields
+  origin, axis (normalised on commit), limits in ° or m, dynamics. A
+  frame's name, the link it hangs on (a combo — changing it keeps the frame
+  where it is in the world, the panel re-expressing the pose through `fk`
+  in the zero configuration so `SetFrame` stays as dumb as `SetJoint`) and
+  its pose in that link's frame as xyz (m) and RPY (°); whatever changed,
+  one `SetFrame` (ADR-0012). Fields
   are `labelled_by` their labels for the accessibility tree.
 - **Window › Joints** / **Materials**: floating windows, closed by default.
   Joints: one slider per movable joint in its limits (Continuous ±180°),

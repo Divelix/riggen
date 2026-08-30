@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::inertial::{Inertial, InertialError, principal_moments};
 use riggen_core::{
-    CollisionPolicy, Command, FrameId, InertialSpec, JointId, JointKind, Limits, LinkId, Pose,
-    Primitive,
+    CollisionPolicy, Command, FrameId, InertialSpec, JointId, JointKind, JointState, Limits,
+    LinkId, Pose, Primitive, fk,
 };
 use riggen_mesh::{DecompParams, fit};
 
@@ -1066,34 +1066,68 @@ impl RiggenApp {
         }
     }
 
-    /// A named frame: its name and the link it hangs on. The editable pose
-    /// fields arrive with the rest of the panel in the next step.
+    /// A named frame (ADR-0012): name, the link it hangs on, and its pose
+    /// in that link's frame as xyz and RPY. Whatever changed, the panel
+    /// commits **one** `SetFrame` — one gesture, one command.
+    ///
+    /// Changing the link keeps the frame where it is in the world: the
+    /// panel re-expresses the pose through `fk` first, so the command stays
+    /// dumb and writes what it is given, like `SetJoint`. Like every other
+    /// frame-rewriting edit that is done in the **zero configuration**, the
+    /// one `Reparent { keep_world_pose }` and `origin_for_world` also work
+    /// in.
     fn frame_properties(&mut self, ui: &mut egui::Ui, frame: FrameId, commands: &mut Vec<Command>) {
         let Some(data) = self.robot.frames.get(&frame).cloned() else {
             return;
         };
-        let state = &mut self.props;
         let base = ui.make_persistent_id(("frame", frame));
+        let mut edited = data.clone();
+
         egui::Grid::new(base.with("grid"))
             .num_columns(2)
             .show(ui, |ui| {
+                let state = &mut self.props;
                 let tag = ui.label("name");
                 if let (_, Some(name)) =
                     text_field(ui, state, base.with("name"), &tag, &data.name, 160.0)
                 {
-                    commands.push(Command::RenameFrame(frame, name));
+                    edited.name = name;
                 }
                 ui.end_row();
 
                 ui.label("link");
-                ui.label(
-                    self.robot
-                        .links
-                        .get(&data.parent)
-                        .map_or("—", |l| l.name.as_str()),
-                );
+                let shown = self
+                    .robot
+                    .links
+                    .get(&data.parent)
+                    .map_or("—", |l| l.name.as_str())
+                    .to_owned();
+                let mut parent = data.parent;
+                egui::ComboBox::from_id_salt(base.with("link"))
+                    .selected_text(shown)
+                    .show_ui(ui, |ui| {
+                        for (id, link) in &self.robot.links {
+                            ui.selectable_value(&mut parent, *id, &link.name);
+                        }
+                    });
+                if parent != data.parent {
+                    let world = fk(&self.robot, &JointState::default());
+                    if let (Some(from), Some(to)) = (world.get(&data.parent), world.get(&parent)) {
+                        edited.pose = to.inverse().compose(&from.compose(&data.pose));
+                    }
+                    edited.parent = parent;
+                }
                 ui.end_row();
+
+                let state = &mut self.props;
+                if let Some(pose) = pose_rows(ui, state, base.with("pose"), &data.pose) {
+                    edited.pose = pose;
+                }
             });
+
+        if edited != data {
+            commands.push(Command::SetFrame(frame, edited));
+        }
     }
 
     fn joint_properties(&mut self, ui: &mut egui::Ui, joint: JointId, commands: &mut Vec<Command>) {
