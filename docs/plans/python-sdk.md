@@ -217,6 +217,8 @@ will want to read before it is final.
   and reported, not worked around blind. The workspace version goes to
   `0.2.0-dev` in this step (OPEN 5): TestPyPI already holds a 0.1.0 and
   `skip-existing` would make a same-version dispatch a silent no-op.
+  **Code landed 2026-08-30; the box waits for the human's dispatch** —
+  see the step 2 finding under Open questions for what to run.
 - [ ] Step 3 — ADR-0009 "one wheel: PyO3 abi3 extension plus the binary
   as wheel data": the layout step 1–2 proved, why not cdylib+bin in one
   crate, why not two wheels, why not pure Python, the sdist consequence
@@ -335,6 +337,26 @@ above:
   name is maturin's to choose (`<module-name>.data`). The deltas and the
   docs list above say the new path.
 - PyO3 is 0.29 (current on crates.io), not 0.28.
+
+Findings from step 2 (2026-08-30):
+
+- The matrix names full triples (`x86_64-unknown-linux-gnu`, …,
+  `x86_64-pc-windows-msvc`) so one `${{ matrix.target }}` reaches both
+  maturin-action and `build_wheel.py --target`; maturin-action accepts
+  them. Verified locally: `build_wheel.py --target x86_64-unknown-linux-gnu`
+  finds `target/<triple>/release/riggen` and the wheel carries it.
+- `0.2.0-dev` is `0.2.0.dev0` to maturin and pip. `riggen --version`
+  prints Cargo's spelling (`test_wheel.py`'s regex accepts a pre-release
+  suffix); `_riggen.__version__` maps Cargo's `-dev`/`-alpha.N`/
+  `-beta.N`/`-rc.N` to PEP 440 so it equals `importlib.metadata`'s string,
+  which `test_wheel.py` asserts.
+- **The acceptance command must pin the version**: `uvx --index-url
+  https://test.pypi.org/simple/ --index-strategy unsafe-best-match --from
+  "riggen==0.2.0.dev0" python -c "import riggen._riggen"` — TestPyPI holds
+  the 0.1.0 final, and uv prefers a final over a pre-release unless the
+  pre-release is asked for by name. Not verified until the human pushes
+  and dispatches `release.yml` (workflow_dispatch → TestPyPI); the box is
+  ticked after that run's smoke matrix is green and the command works.
 - The `cargo tree` layer check lives in the `clippy` job, which already
   has the toolchain, rather than the container-based `wheel` job.
 - The sdist holds `riggen-py` and its three lower crates only — maturin
