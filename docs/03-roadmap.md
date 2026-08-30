@@ -191,8 +191,22 @@ release workflow is a tag push.
 
 ## v0.2 — Python SDK and the harder mesh work
 
-- `riggen-py` (PyO3 over core + export): `Robot`, `Link`, `Joint`, `fk`,
-  `validate`, `export_mjcf`, `export_urdf`, `load_urdf`; `riggen.show()`.
+- **Done 2026-08-30** — the Python SDK (plans/python-sdk, ADR-0009): one
+  wheel per platform with two halves, `crates/riggen-py` (PyO3 abi3
+  `riggen._riggen`, one method per `Command`, values in the schema's
+  shape) plus the app binary as wheel data; `python/riggen/` the API —
+  `Robot` with `Link` / `Joint` / `Geom` handles, `Pose`, `Fixed` /
+  `Revolute` / `Continuous` / `Prismatic`, the inertial specs, `load`,
+  `load_urdf`, `fk`, `export`, `show()` → `Viewer.wait()`. 37 public
+  names, 53 methods and properties on 18 classes, all documented, pyright
+  clean; 57 pytest tests on the built wheel. Decisions: the data-directory
+  layout and abi3 (ADR-0009), no numpy (tuples and nested lists), no live
+  link (a file and `show()`), the `_riggen` layer speaks the v1 schema.
+  Wheel sizes at 0.2.0.dev0: linux x86_64 9.7 MB (M4: 9.6; 10.1 with the
+  full extension), linux aarch64 9.2, macOS arm64 6.2, macOS x86_64 6.6,
+  Windows 7.4; the extension 1.3 MB. ⚠ OPEN: the notebook half of the
+  acceptance — a TestPyPI wheel, `show()`, a joint placed by hand,
+  `wait()`, `mujoco.viewer` — is the human's, before the `v0.2.0` tag.
 - Convex decomposition (CoACD port or a bundled binary — decide with an ADR).
 - Named frames / MJCF sites; mimic joints; actuator presets.
 - MJCF import; SDF export.
