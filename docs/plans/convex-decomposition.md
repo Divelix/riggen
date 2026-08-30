@@ -108,7 +108,7 @@ job loads a decomposed model with zero warnings.
 
 ## Steps
 
-- [ ] Step 1 — `riggen_mesh::decompose` over `parry3d-f64`'s `VHACD`:
+- [x] Step 1 — `riggen_mesh::decompose` over `parry3d-f64`'s `VHACD`:
   `DecompParams` (`max_hulls`, `resolution`, `concavity`), the `TriMesh`
   conversion in and out, `DecompError`. `assets/fixtures/bracket.stl` and
   its `#[ignore]`d generator beside the arm's. Test: the bracket decomposes
@@ -187,6 +187,22 @@ loading the decomposed model with zero MuJoCo compiler warnings and
 
 ## Open questions
 
+- **Finding, step 1: `parry3d-f64` has no merge step, so `max_convex_hulls`
+  is a recursion depth and not a ceiling.** `do_compute_acd` splits a
+  binary tree `2·2^ceil(log2(max_convex_hulls))` leaves deep and returns
+  every leaf; its own comment describes the merge that would bring the
+  count back to what was asked and parry does not implement it. Measured:
+  a *convex* cube comes back as **nine** pieces, and `max_hulls: 1` gives
+  four. Both are wrong for an exported model — the user asks for four
+  collision geoms and gets sixteen — so `decomp::merge` is ours: repeatedly
+  join the pair whose common hull adds the least volume, unconditionally
+  while there are more pieces than `max_hulls` and after that only while it
+  costs less than `concavity`. The cube is one piece again, the bracket
+  keeps its notch, and `max_hulls` means what it says. **ADR-0011 (step 2)
+  records this**: it is the one thing we implement that the dependency was
+  supposed to bring, and it is why the boundary is `decompose`, not
+  `VHACD` itself.
+
 - `⚠ OPEN 1:` ~~what `parry3d-f64` costs to compile~~ — **measured
   2026-08-30, closed.** 15 new crates (`approx byteorder ena glamx hash32
   heapless num-complex num-derive parry3d-f64 robust rstar safe_arch simba
@@ -195,9 +211,12 @@ loading the decomposed model with zero MuJoCo compiler warnings and
   3`, and it builds for `wasm32-unknown-unknown`. No cargo feature gate:
   the dependency is unconditional. Its `glamx` 0.3 pins **glam 0.33.6**, so
   the lock holds three glam versions (0.30.10, 0.32.1, 0.33.6) — contained
-  as ADR-0007 contains the second, and ADR-0011 records it. What is still
-  unmeasured is the **wheel's** growth once the abi3 extension links parry;
-  step 1 reports it, and it changes nothing unless it is large.
+  as ADR-0007 contains the second, and ADR-0011 records it. The **wheel** grows
+  **10 532 556 → 10 541 521 bytes, +8 965 (+0.09 %)** (step 1,
+  `python/build_wheel.py`, manylinux_2_34 x86_64) — negligible, and OPEN 1
+  is closed. The caveat: nothing *calls* `decompose` yet, so thin LTO drops
+  most of parry from that build; step 8 re-measures once `resolve` and the
+  SDK reach it, and it changes nothing unless it is large.
 - `⚠ OPEN 2:` **the default parameters** the combo starts with. V-HACD's own
   defaults are generous (tens of hulls at a high voxel resolution, seconds
   per part). *Agent decides* by step 6, measured on `bracket.stl` and

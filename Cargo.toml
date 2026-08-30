@@ -56,6 +56,16 @@ stl_io = "0.11"
 # build, where it does not compile without a JS shim we have no use for.
 tobj = { version = "4", default-features = false, features = ["use_f64"] }
 
+# Approximate convex decomposition (ADR-0011): Dimforge's pure-Rust V-HACD,
+# `transformation::vhacd`, at f64 — the algorithm `riggen-mesh::decompose`
+# wraps beside our own quickhull. Default features: `default-features =
+# false` drops the crate's own `dim3`/`f64` selection and does not compile,
+# and the default set pulls neither `rayon` nor `serde`. Its `glamx` bridge
+# pins a third glam (0.33) beside our 0.30 and transform-gizmo's 0.32; no
+# parry or glam-0.33 type appears in a riggen signature (ADR-0007's
+# containment, applied again).
+parry3d-f64 = "0.30"
+
 # UI stack pinned together: egui/eframe/egui-wgpu 0.36.x from crates.io, wgpu
 # version dictated by egui-wgpu — never depend on a different wgpu (ADR-0001).
 egui = "0.36"
