@@ -4,7 +4,8 @@
 [![PyPI](https://img.shields.io/pypi/v/riggen)](https://pypi.org/project/riggen/)
 
 **The blazingly fast, lightweight robot assembler for RL researchers.**
-Drop meshes in, get a simulation-ready MJCF or URDF out.
+Drop meshes in, get a simulation-ready MJCF or URDF out — in a window, or
+from ten lines of Python.
 
 ![The sample arm in riggen: the link tree, the viewport with joint glyphs, the Joints window](https://raw.githubusercontent.com/Divelix/riggen/main/docs/assets/arm.png)
 
@@ -17,9 +18,10 @@ riggen --example arm        # the bundled sample robot
 
 One wheel per platform (Linux x86_64 / aarch64, macOS arm64 / x86_64,
 Windows x86_64), Python 3.10 or later, nothing else to install — the
-`riggen` command is a native executable, and there is no Rust toolchain
-on this path. On a platform without a wheel, `pip install` builds it from
-source with `cargo` on `PATH`.
+`riggen` command is a native executable, `import riggen` the SDK over the
+same core, and there is no Rust toolchain on this path. On a platform
+without a wheel, `pip install` builds the SDK from source with `cargo` on
+`PATH` and tells you how to get the app (see [Python](#python)).
 
 ## The first minute
 
@@ -89,6 +91,71 @@ the file `python/tests/test_mjcf_load.py` checks MuJoCo against.
 `python -m riggen` is the same executable, for an environment whose
 `bin/` is not on `PATH`.
 
+## Python
+
+The same document, the same rules, from a script or a notebook:
+
+```sh
+uv add riggen        # or: pip install riggen — the wheel that has the app has the SDK
+```
+
+```python
+import riggen
+
+robot = riggen.Robot("pendulum")
+robot.root.add_mesh("base.stl", scale=0.001)          # a millimetre STL
+robot.root.material = "aluminium"
+arm = robot.root.add_link(
+    "arm",
+    riggen.Revolute("y", origin=(0, 0, 0.5), limits=(-90, 90), degrees=True),
+    mesh="arm.stl", scale=0.001, material="PLA",
+)
+arm.geoms[0].pose = (0, 0, 0.5)                       # the mesh half a unit above the hinge
+robot.export("out", format="mjcf")                    # out/pendulum.xml + out/meshes/*.stl
+```
+
+Every call is one document edit, checked the way the window checks it: a
+duplicate name, a hinge without limits or a link hung under its own child
+raises a `riggen.EditError` subclass and changes nothing. Meters and
+radians, Z-up; `degrees=True` wherever an angle is typed.
+
+```python
+robot.fk({"arm_joint": 0.3})["arm"]                   # Pose((0.0, 0.0, 0.5), rpy=(0.0, 0.3, 0.0))
+arm.inertial                                          # Inertial(mass=…, com=…, inertia=…) from the mesh
+robot.link("arm").joint.limits = (-1.0, 1.0)          # radians; one edit
+robot.save("pendulum.riggen")                         # the window opens this file
+```
+
+Place the joint by hand, keep scripting:
+
+```python
+viewer = riggen.show(robot)      # the riggen window on a copy; click the bore, Ctrl+S
+robot = viewer.wait()            # the document as the window saved it
+```
+
+Then MuJoCo:
+
+```python
+import mujoco
+model = mujoco.MjModel.from_xml_path("out/pendulum.xml")
+```
+
+`riggen.load(path)` reads a `.riggen`, `riggen.load_urdf(path)` an existing
+URDF (with `packages={"name": "dir"}` for `package://` paths); export writes
+`format="urdf"` or `"both"` too, and `fk_samples=True` adds the five joint
+configurations CI compares against MuJoCo. [`examples/pendulum.py`](examples/pendulum.py)
+is the snippet above as a file; [`examples/arm.py`](examples/arm.py) builds
+the bundled arm from its four STLs with typed joints — its export is
+byte-identical to the app's. Everything is typed (`py.typed`) and
+documented in docstrings: `help(riggen.Link)`.
+
+The wheel is `cp310-abi3`: one build for every CPython from 3.10 on,
+which is why it needs no per-version matrix — and why it does not install
+on free-threaded CPython (3.13t / 3.14t) yet. An install from the source
+distribution (any other platform) compiles the SDK alone; `riggen.show()`
+and `python -m riggen` then say how to get the app: a wheel, `cargo
+install --git`, or `RIGGEN_BINARY` pointing at a binary you built.
+
 ## Developing
 
 Rust stable, then:
@@ -110,8 +177,8 @@ Read, in order: [`SEED.md`](SEED.md) (what and why),
 [`docs/01-architecture.md`](docs/01-architecture.md),
 [`docs/02-data-model.md`](docs/02-data-model.md),
 [`docs/03-roadmap.md`](docs/03-roadmap.md), [`docs/adr/`](docs/adr/) — then
-[`AGENTS.md`](AGENTS.md) for the rules, agent or human. A Python SDK
-(`riggen-py`, the same core through PyO3) is v0.2.
+[`AGENTS.md`](AGENTS.md) for the rules, agent or human. The SDK's own
+tests are `python/tests/sdk/` (pytest, against the built wheel).
 
 ## Licence
 

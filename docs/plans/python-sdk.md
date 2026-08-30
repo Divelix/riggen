@@ -267,7 +267,7 @@ will want to read before it is final.
   on the document, Save in the GUI, `wait()` returns the edit. The
   missing-binary message (sdist installs) tested with `RIGGEN_BINARY`
   pointing nowhere.
-- [ ] Step 8 — README §Python (install, the ten-line pendulum, `show()`,
+- [x] Step 8 — README §Python (install, the ten-line pendulum, `show()`,
   export to MuJoCo, the abi3/free-threaded line), `python/riggen/
   __init__.py` docstring rewritten (it says "nothing else until the v0.2
   SDK" today), `examples/` linked, `uvx twine check` on the sdist. The
@@ -442,6 +442,16 @@ Findings from step 7 (2026-08-30):
   `RIGGEN_BINARY=target/release/riggen` opened the window on the file and
   stayed open until `kill()`; `wait()` returned the original. Save in the
   GUI → `wait()` returns the edit is still the human's check.
+
+Findings from step 8 (2026-08-30):
+
+- `uvx twine check` passes on the sdist and the wheel. The sdist is 53
+  files: `riggen-py` and the three crates under it, `python/riggen/`,
+  the README and licences — no examples, no tests, no app (OPEN 3).
+- The `__init__` docstring was already rewritten in step 6; step 8 only
+  checked it against the README's §Python. The free-threaded backlog line
+  is under a "v0.2 SDK" heading in `docs/BACKLOG.md`, where step 9's
+  by-hand findings go.
 - The `cargo tree` layer check lives in the `clippy` job, which already
   has the toolchain, rather than the container-based `wheel` job.
 - The sdist holds `riggen-py` and its three lower crates only — maturin
