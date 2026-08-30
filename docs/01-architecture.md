@@ -439,7 +439,14 @@ by a pixel; its plane is the fallback. `app/snap.rs` builds the
 candidates and picks among them by a fixed ladder — **vertex > box >
 circle > point** — with the winner, its axis and its readout in
 `debug_state().snap`. Only the placement tools snap (`Tool::snaps`);
-markers under the cursor while merely selecting would be noise.
+markers under the cursor while merely selecting would be noise. Move and
+Rotate join them for a **selected frame** (`RiggenApp::placing_frame`,
+`snapping`): a frame is the one thing the gizmo edits that nothing hangs
+off, so a click puts it on the picked feature — Move takes the point and
+keeps the orientation, Rotate keeps the point and turns the frame's +Z onto
+the feature's axis — and a TCP lands on a bore or a corner without a
+coordinate typed (ADR-0012). One `SetFrame` per click, and the gizmo is
+still there for the rest of the gesture.
 
 - **vertex**: a corner of the hit triangle within `SNAP_PIXEL_RADIUS`
   screen points;
@@ -537,7 +544,9 @@ What the gizmo edits follows the selection (plans/m2-placement-ux OPEN 2): a
 `fk::origin_for_world`; the subtree follows), a **joint** moves its pivot
 alone (one `MoveJointFrame`; the axis is expressed in the child frame, which
 is the frame the gizmo just moved, so it rides along unchanged and nothing
-in the world moves). Drag previews through `preview_world`, release commits.
+in the world moves), a **frame** moves on its link (one `SetFrame`; nothing
+else moves, because nothing hangs off a frame — ADR-0012). Drag previews
+through `preview_world`, or on the glyph itself for a frame; release commits.
 
 `Viewport::project(DVec3) -> Option<Pos2>` is the one projection everything
 drawn over the viewport goes through — glyphs, snap markers, a scripted

@@ -7,6 +7,8 @@
 //! - a **link** → its parent joint's `origin`, so the link and its whole
 //!   subtree move; committed as one `SetJoint` through
 //!   `fk::origin_for_world`;
+//! - a **frame** → the frame's own pose on its link, committed as one
+//!   `SetFrame`; nothing else moves, because nothing hangs off a frame;
 //! - a **joint** → the pivot itself, committed as one `MoveJointFrame`.
 //!   The joint frame *is* the child link frame, and the axis is expressed
 //!   in it, so the axis rides along with the gizmo and is written back
@@ -29,7 +31,7 @@
 //! (ADR-0010).
 
 use riggen_core::glam::{DQuat, DVec3};
-use riggen_core::{Command, JointId, LinkId, Pose, origin_for_world};
+use riggen_core::{Command, FrameId, JointId, JointState, LinkId, Pose, origin_for_world};
 use transform_gizmo_egui::{
     Gizmo, GizmoConfig, GizmoInteraction, GizmoMode, GizmoOrientation, GizmoResult, GizmoVisuals,
     math::Transform,
@@ -44,6 +46,8 @@ pub enum GizmoTarget {
     Link(LinkId),
     /// Moves the pivot; the geometry stays.
     Joint(JointId),
+    /// Moves the frame on its link; nothing else moves (ADR-0012).
+    Frame(FrameId),
 }
 
 impl GizmoTarget {
@@ -53,6 +57,7 @@ impl GizmoTarget {
         match self {
             Self::Link(l) => format!("link {l}"),
             Self::Joint(j) => format!("joint {j}"),
+            Self::Frame(f) => format!("frame {f}"),
         }
     }
 }
@@ -84,6 +89,18 @@ impl RiggenApp {
             Selection::Joint(j) if self.robot.joints.contains_key(&j) => {
                 Some(GizmoTarget::Joint(j))
             }
+            Selection::Frame(f) if self.robot.frames.contains_key(&f) => {
+                Some(GizmoTarget::Frame(f))
+            }
+            _ => None,
+        }
+    }
+
+    /// The pose a frame's glyph is drawn at: the drag in flight, if this is
+    /// the frame being dragged, else its FK pose.
+    pub(crate) fn dragged_frame(&self, frame: FrameId) -> Option<Pose> {
+        match self.gizmo_state.drag {
+            Some((GizmoTarget::Frame(dragged), pose)) if dragged == frame => Some(pose),
             _ => None,
         }
     }
@@ -96,9 +113,13 @@ impl RiggenApp {
         {
             return Some(pose);
         }
+        if let GizmoTarget::Frame(f) = target {
+            return riggen_core::frames(&self.robot, &self.q).get(&f).copied();
+        }
         let link = match target {
             GizmoTarget::Link(l) => l,
             GizmoTarget::Joint(j) => self.robot.joints.get(&j)?.child,
+            GizmoTarget::Frame(_) => unreachable!("handled above"),
         };
         riggen_core::fk(&self.robot, &self.q).get(&link).copied()
     }
@@ -253,7 +274,28 @@ impl RiggenApp {
                     axis: joint.axis,
                 });
             }
+            GizmoTarget::Frame(id) => {
+                let Some(edited) = self.frame_at_world(id, world) else {
+                    return;
+                };
+                let _ = self.apply(Command::SetFrame(id, edited));
+            }
         }
+    }
+
+    /// The frame `id` would be, with its pose re-expressed so it sits at
+    /// `world`. Like every frame-rewriting edit this reads the **zero
+    /// configuration** — which is what the tool is in, since `set_tool`
+    /// resets `q` before an editing tool runs.
+    pub(crate) fn frame_at_world(&self, id: FrameId, world: Pose) -> Option<riggen_core::Frame> {
+        let frame = self.robot.frames.get(&id)?;
+        let parent = riggen_core::fk(&self.robot, &JointState::default())
+            .get(&frame.parent)?
+            .inverse();
+        Some(riggen_core::Frame {
+            pose: parent.compose(&world),
+            ..frame.clone()
+        })
     }
 
     /// Whether a gizmo drag is in flight — `debug_state` and the repaint

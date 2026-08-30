@@ -338,7 +338,7 @@ impl RiggenApp {
         // glyph sits exactly where the user is aiming.
         if joint_from_tree.is_none()
             && frame_from_tree.is_none()
-            && !self.tool.snaps()
+            && !self.snapping()
             && self.pending.is_none()
             && !self.gizmo_state.captured
             && let Some(pos) = ctx.pointer_hover_pos()
@@ -463,7 +463,7 @@ impl eframe::App for RiggenApp {
                 // A placement click means "put it here", not "select what is
                 // under the cursor" — but the hover pick has to keep running,
                 // because it is what the snap is computed from.
-                self.viewport.set_select_suppressed(self.tool.snaps());
+                self.viewport.set_select_suppressed(self.snapping());
 
                 let response = self.viewport.ui(ui);
                 let rect = response.rect;
@@ -491,7 +491,12 @@ impl eframe::App for RiggenApp {
                             }
                         }
                         Tool::Align => self.align_click(&snap),
-                        _ => {}
+                        Tool::Move | Tool::Rotate => {
+                            if let Some(frame) = self.placing_frame() {
+                                self.place_frame(frame, &snap);
+                            }
+                        }
+                        Tool::Select => {}
                     }
                 }
             });

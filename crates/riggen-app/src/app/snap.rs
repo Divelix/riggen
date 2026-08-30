@@ -154,8 +154,10 @@ pub(crate) fn nearest_within(
 }
 
 impl Tool {
-    /// Whether this tool snaps. Snapping is a placement affordance: markers
-    /// under the cursor while merely selecting would be noise.
+    /// Whether this tool always snaps. Snapping is a placement affordance:
+    /// markers under the cursor while merely selecting would be noise.
+    /// Move and Rotate snap only for a selected frame
+    /// ([`RiggenApp::placing_frame`]).
     pub fn snaps(self) -> bool {
         matches!(self, Tool::PlaceJoint | Tool::Align)
     }
@@ -167,10 +169,32 @@ impl RiggenApp {
         self.snap_candidate
     }
 
+    /// The frame a click in the viewport would place, if any: Move or
+    /// Rotate with a frame selected. A frame is the one thing the gizmo
+    /// edits that has nothing hanging off it, so "put the TCP on that
+    /// corner" is a click, not three typed numbers (ADR-0012) — and the
+    /// gizmo is still there for the rest of the gesture.
+    pub fn placing_frame(&self) -> Option<riggen_core::FrameId> {
+        match (self.tool, self.selection) {
+            (Tool::Move | Tool::Rotate, crate::app::Selection::Frame(f))
+                if self.robot.frames.contains_key(&f) =>
+            {
+                Some(f)
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether the snap ladder runs this frame: a placement tool, or a
+    /// frame being placed under Move / Rotate.
+    pub fn snapping(&self) -> bool {
+        self.tool.snaps() || self.placing_frame().is_some()
+    }
+
     /// Recomputes the snap target for this frame. Called before the overlay
     /// is built, from the same place the glyph hover is resolved.
     pub(crate) fn update_snap(&mut self, ctx: &egui::Context) {
-        self.snap_candidate = self.tool.snaps().then(|| self.compute_snap(ctx)).flatten();
+        self.snap_candidate = self.snapping().then(|| self.compute_snap(ctx)).flatten();
         if self.snap_candidate.is_none() {
             self.snap_cache.key = None;
         }
@@ -382,6 +406,41 @@ impl RiggenApp {
                 origin,
                 axis,
             })
+            .is_ok()
+        {
+            self.status = Some(placed_status(&current.name, snap));
+        }
+    }
+
+    /// Puts `frame` on the snapped feature: **Move** takes the point and
+    /// keeps the orientation, **Rotate** keeps the point and turns the
+    /// frame's +Z onto the feature's axis (the fitted circle's, else the
+    /// face normal). One `SetFrame` either way (ADR-0012).
+    pub fn place_frame(&mut self, frame: riggen_core::FrameId, snap: &SnapCandidate) {
+        let Some(current) = self.robot.frames.get(&frame).cloned() else {
+            return;
+        };
+        let Some(at) = self.gizmo_world(crate::app::GizmoTarget::Frame(frame)) else {
+            return;
+        };
+        let world = match self.tool {
+            Tool::Rotate => {
+                let axis = snap.axis().normalize_or_zero();
+                if axis == DVec3::ZERO {
+                    return;
+                }
+                Pose::new(
+                    at.t,
+                    riggen_core::glam::DQuat::from_rotation_arc(DVec3::Z, axis),
+                )
+            }
+            _ => Pose::new(snap.point, at.r),
+        };
+        let Some(edited) = self.frame_at_world(frame, world) else {
+            return;
+        };
+        if self
+            .apply(riggen_core::Command::SetFrame(frame, edited))
             .is_ok()
         {
             self.status = Some(placed_status(&current.name, snap));
