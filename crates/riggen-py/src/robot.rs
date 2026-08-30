@@ -680,14 +680,16 @@ impl PyRobot {
             floating_base,
         };
         let (store, load_errors) = MeshStore::load(&self.inner);
-        let resolved = match riggen_export::resolve(&self.inner, &store, &options) {
-            Ok(r) if load_errors.is_empty() => r,
-            Ok(_) => return Err(raise(py, "ExportError", join_export_errors(&load_errors))),
-            Err(mut errors) => {
-                errors.extend(load_errors);
-                return Err(raise(py, "ExportError", join_export_errors(&errors)));
-            }
-        };
+        let resolved =
+            match riggen_export::resolve(&self.inner, &store, &riggen_export::ComputeNow, &options)
+            {
+                Ok(r) if load_errors.is_empty() => r,
+                Ok(_) => return Err(raise(py, "ExportError", join_export_errors(&load_errors))),
+                Err(mut errors) => {
+                    errors.extend(load_errors);
+                    return Err(raise(py, "ExportError", join_export_errors(&errors)));
+                }
+            };
         let mut written = riggen_export::export(&resolved, &options, &dir)
             .map_err(|e| PyOSError::new_err(e.to_string()))?;
         if fk_samples {

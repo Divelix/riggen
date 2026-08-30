@@ -330,14 +330,15 @@ pub fn run(args: &ExportArgs) -> Result<Vec<PathBuf>, String> {
         format: args.format,
         ..Default::default()
     };
-    let resolved = match riggen_export::resolve(&robot, &store, &options) {
-        Ok(r) if load_errors.is_empty() => r,
-        Ok(_) => return Err(join_errors(&load_errors)),
-        Err(mut errors) => {
-            errors.extend(load_errors);
-            return Err(join_errors(&errors));
-        }
-    };
+    let resolved =
+        match riggen_export::resolve(&robot, &store, &riggen_export::ComputeNow, &options) {
+            Ok(r) if load_errors.is_empty() => r,
+            Ok(_) => return Err(join_errors(&load_errors)),
+            Err(mut errors) => {
+                errors.extend(load_errors);
+                return Err(join_errors(&errors));
+            }
+        };
     let mut written =
         riggen_export::export(&resolved, &options, &args.out).map_err(|e| e.to_string())?;
     if args.fk_samples {

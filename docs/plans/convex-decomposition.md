@@ -126,7 +126,7 @@ job loads a decomposed model with zero warnings.
   Test: `assets/fixtures/pendulum.riggen` and a hand-written v1 file
   carrying `{"ConvexDecomposition":{"max_hulls":4}}` both round-trip. 02
   §Core types updated in the same commit.
-- [ ] Step 4 — `resolve`: the `DecompSource` trait, `ComputeNow`, the
+- [x] Step 4 — `resolve`: the `DecompSource` trait, `ComputeNow`, the
   `(MeshId, params)` cache, `<stem>_hull_N.stl`, `DecompositionPending` and
   `DegenerateDecomposition`; `ExportError::Unsupported` for the variant is
   deleted. Test: a robot whose link is `ConvexDecomposition` resolves to

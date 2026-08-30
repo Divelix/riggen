@@ -283,7 +283,7 @@ mod tests {
             floating_base: true,
             ..Default::default()
         };
-        let resolved = crate::resolve(&b.robot, &b.store, &options).unwrap();
+        let resolved = crate::resolve(&b.robot, &b.store, &crate::ComputeNow, &options).unwrap();
         let xml = write(&resolved, &options);
         assert!(
             xml.contains("    <body name=\"base_link\">\n      <freejoint name=\"root\"/>\n"),

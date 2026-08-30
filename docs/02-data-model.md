@@ -322,6 +322,9 @@ The exporters never see `Robot`. `resolve(&Robot, &impl MeshLookup,
 pure-numeric, convention-fixed intermediate:
 
 ```rust
+pub fn resolve(&Robot, &impl MeshLookup, &impl DecompSource, &ExportOptions)
+    -> Result<ResolvedRobot, Vec<ExportError>>;
+
 pub struct ResolvedRobot {
     pub name: String,
     pub links: Vec<ResolvedLink>,     // topological order, root first
@@ -342,7 +345,8 @@ pub struct ExportOptions { format: Format, mesh_paths: MeshPathStyle, floating_b
 
 `resolve` returns **every** problem it finds, so the export dialog lists
 them all at once: `ExportError::{Invalid(ValidationError), Inertial { link,
-error }, ZeroMassMovableLink, UnloadableMesh, Unsupported}`. A link whose
+error }, ZeroMassMovableLink, UnloadableMesh, DegenerateHull,
+DegenerateDecomposition, DecompositionPending}`. A link whose
 parent joint is movable — or the root when `floating_base` is set — must
 have mass, because MuJoCo refuses a moving body without it; an empty static
 body is fine and gets no `<inertial>`. Mesh file stems are the assets' own
@@ -350,7 +354,22 @@ stems made into identifiers, `_2`, `_3`, … when two collide;
 `CollisionPolicy::ConvexHull` adds `<stem>_hull` — `riggen_mesh::convex_hull`
 (quickhull) of the visual mesh, computed once per `MeshId` however many
 links share it, at the visual's pose; a mesh that spans no volume is
-`ExportError::DegenerateHull`. `MeshStore`
+`ExportError::DegenerateHull`. `CollisionPolicy::ConvexDecomposition` adds
+**N** geoms per visual, `<stem>_hull_0` … `<stem>_hull_<N-1>` at the
+visual's pose — V-HACD (ADR-0011), computed once per `(MeshId,
+DecompParams)`; a mesh decomposed at two different parameter sets gets a
+second family `<stem>_hull2_0 …` so the files never collide. A mesh V-HACD
+finds nothing solid in is `ExportError::DegenerateDecomposition`.
+
+Where those pieces come from is the `DecompSource` trait, `resolve`'s third
+argument: `ComputeNow` runs V-HACD inline (the CLI, the SDK, the tests,
+where a blocking second is what the caller asked for), while the app hands
+over a cache its job thread fills and reports `DecompMiss::Pending` for an
+entry that has not landed — which becomes `ExportError::DecompositionPending`
+and blocks the export until the job lands, listed beside every other
+blocker (no modal, no spinner over the dialog).
+
+`MeshStore`
 is the headless `MeshLookup` (files read and brought to meters as the
 viewport does); the app implements the trait on its own store.
 
@@ -369,7 +388,7 @@ not a new resolve.
 | Continuous | `type="continuous"` | `type="hinge"` without `range` |
 | Prismatic | `type="prismatic"` + `<limit/>` | `type="slide" range="lo hi"` |
 | Visual geom | `<visual><origin/><geometry><mesh filename/></geometry></visual>` | `<geom class="visual" mesh=… pos quat/>` with `<default class="visual">` = `type="mesh" contype="0" conaffinity="0" group="2"` |
-| Collision geom | `<collision>…` | `<geom class="collision" type="mesh" mesh=… />` (mesh → MuJoCo takes the convex hull itself; primitives map directly), `<default class="collision">` = `group="3"`, translucent rgba |
+| Collision geom (one per resolved collision — N of them for a decomposition) | `<collision>…` | `<geom class="collision" type="mesh" mesh=… />` (mesh → MuJoCo takes the convex hull itself; primitives map directly), `<default class="collision">` = `group="3"`, translucent rgba |
 | Primitive | `<box size>` (full extents), `<cylinder radius length>`, `<sphere radius>`; a capsule becomes a cylinder plus a warning | `type="box|cylinder|sphere|capsule" size pos quat` — **`size` is half-extents / (radius, half-length)**, pinned by a test |
 | Inertial | `<inertial><origin xyz(com) rpy="0 0 0"/><mass/><inertia ixx ixy ixz iyy iyz izz/></inertial>` | `<inertial pos(com) mass fullinertia="Ixx Iyy Izz Ixy Ixz Iyz"/>` — MuJoCo does the principal-axes decomposition itself (ADR-0008) |
 | Mesh assets | `meshes/<stem>.stl`, path style per `MeshPathStyle` | `<asset><mesh name file/></asset>`, one per `MeshId`; **meshes are written in meters as binary STL, no `scale`** (ADR-0008) |
