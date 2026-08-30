@@ -219,7 +219,7 @@ will want to read before it is final.
   `skip-existing` would make a same-version dispatch a silent no-op.
   **Code landed 2026-08-30; the box waits for the human's dispatch** —
   see the step 2 finding under Open questions for what to run.
-- [ ] Step 3 — ADR-0009 "one wheel: PyO3 abi3 extension plus the binary
+- [x] Step 3 — ADR-0009 "one wheel: PyO3 abi3 extension plus the binary
   as wheel data": the layout step 1–2 proved, why not cdylib+bin in one
   crate, why not two wheels, why not pure Python, the sdist consequence
   (OPEN 3), the closing of ADR-0002's open question; ADR-0002 gets the

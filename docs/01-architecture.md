@@ -3,25 +3,26 @@
 ## Layer map
 
 Strictly layered; dependencies point downward only. `riggen-core` and
-`riggen-export` must compile without egui or wgpu — they are what the v0.2
-Python module links against, and they are where the tests that matter live.
+`riggen-export` must compile without egui or wgpu — they are what the
+Python extension module links against, and they are where the tests that
+matter live.
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │  riggen-app       eframe shell, panels, gizmos, drag-drop,     │  binary
-│                   selection, snapping, export dialog, the CLI  │  (maturin bin,
-│                   (--export, --example, --version), snapshots  │   the wheel)
+│                   selection, snapping, export dialog, the CLI  │  (the wheel's
+│                   (--export, --example, --version), snapshots  │   scripts/)
 ├────────────────────────────────────────────────────────────────┤
 │  riggen-viewport  wgpu renderer via egui_wgpu callbacks:       │
 │                   instances, camera, ID-buffer picking,        │
 │                   project / cursor_ray, Overlay (world-space   │
 │                   segment, polyline, arc, point, label)        │
 ├──────────────────────────────┬─────────────────────────────────┤
-│  riggen-export               │  (riggen-py, v0.2)              │
-│  resolve → ResolvedRobot,    │  PyO3 over core + export        │
-│  MJCF + URDF writers, URDF   │                                 │
-│  import, export dir, FK      │                                 │
-│  samples, round-trip FK test │                                 │
+│  riggen-export               │  riggen-py                      │  cdylib
+│  resolve → ResolvedRobot,    │  PyO3 abi3 extension module     │  (the wheel's
+│  MJCF + URDF writers, URDF   │  riggen._riggen over core +     │   riggen/)
+│  import, export dir, FK      │  export; never egui or wgpu     │
+│  samples, round-trip FK test │  (ADR-0009)                     │
 ├──────────────────────────────┴─────────────────────────────────┤
 │  riggen-core      Robot document (links, joints, frames,       │
 │                   inertial spec, collision policy), FK,        │
@@ -523,54 +524,83 @@ returning before eframe starts, which is what CI's `mujoco` job runs. A
 `.urdf` opens as a new, untitled document through `riggen_export::urdf_in`
 (02 §URDF import); the import's warnings go to the status bar.
 
-## Python distribution (ADR-0002)
+## Python distribution (ADR-0002, ADR-0009)
 
-`pyproject.toml` at the repository root, build backend maturin (`>=1.8,<2`)
-with `bindings = "bin"`, `manifest-path = crates/riggen-app/Cargo.toml`,
-`python-source = python`, `dynamic = ["version"]` — the version is read
-from the workspace `Cargo.toml` and lives once. `readme = "README.md"` is
-the root README, so the GitHub page and the PyPI page are one file
-(plans/m4-distribution OPEN 3). No PyO3, no extension module, no GIL: the
-process is the app, exactly as if installed with `cargo install`.
+`pyproject.toml` at the repository root, build backend maturin (`>=1.8,<2`),
+`dynamic = ["version"]` — the version is read from the workspace
+`Cargo.toml` and lives once. `readme = "README.md"` is the root README, so
+the GitHub page and the PyPI page are one file. One wheel per platform,
+with **two halves**:
 
-- **The command is the binary.** maturin puts `riggen` into the wheel's
-  `scripts/` directory (`riggen-<ver>.data/scripts/`), which installs to
-  the environment's `bin/` (`Scripts\` on Windows). There is *no*
-  `[project.scripts]` entry — a console script of the same name would
-  shadow it and put a Python interpreter in front of the startup budget.
-- `python -m riggen` (`python/riggen/__main__.py`) finds that binary in
+- **The extension module** `riggen._riggen`, built by maturin: `bindings
+  = "pyo3"`, `manifest-path = crates/riggen-py/Cargo.toml`, `module-name
+  = "riggen._riggen"`, `features = ["extension-module"]` (the crate
+  feature that stops PyO3 linking libpython; off, the workspace checks
+  build the crate like any other), `python-source = python`. PyO3 is
+  `abi3-py310`, so the wheel is `cp310-abi3-<platform>`: one per platform
+  for every CPython ≥ 3.10. `python/riggen/_riggen.pyi` and `py.typed`
+  ship beside it.
+- **The binary**, built by cargo from `crates/riggen-app` and copied by
+  `python/build_wheel.py` into maturin's wheel data directory
+  `riggen._riggen.data/scripts/` (maturin's default `<module-name>.data/`
+  beside `pyproject.toml`; gitignored; deliberately not a `data = …`
+  setting, which must exist or maturin fails — the default is skipped
+  when absent). maturin packages it as `riggen-<ver>.data/scripts/
+  riggen[.exe]`, which installs to the environment's `bin/` (`Scripts\`
+  on Windows), exactly where M4's `bindings = "bin"` put it.
+- **The command is the binary.** There is *no* `[project.scripts]` entry —
+  a console script of the same name would shadow it and put a Python
+  interpreter in front of the startup budget. `python -m riggen`
+  (`python/riggen/__main__.py`) finds the binary in
   `sysconfig.get_path("scripts")` (the user-site layout second) and
   `os.execv`s it; on Windows, which has no exec, `subprocess.call` +
-  `sys.exit`. `riggen.__version__` is `importlib.metadata.version("riggen")`.
-- Wheel tags are `py3-none-<platform>`: nothing links CPython, so one
-  wheel per platform covers every Python ≥ 3.10. Targets: linux x86_64 and
-  aarch64 (manylinux 2_28), macOS arm64 and x86_64, Windows x86_64. The
-  sdist carries the workspace (and `assets/fixtures/arm/` for `--example`,
-  minus the snapshot PNGs), so `pip install` on any other platform builds
-  from source with a Rust toolchain.
-- `[profile.release]`: `strip = true`, `lto = "thin"`, `codegen-units = 1`.
-  linux x86_64: the binary is 22 MB, the wheel 9.6 MB.
-- `riggen --version` prints `riggen 0.1.0 (<hash> <date>)`; `build.rs`
-  takes the hash and date from `RIGGEN_GIT_HASH` / `RIGGEN_BUILD_DATE`
-  when set (the workflows set them — the manylinux container cannot ask
-  git about a checkout another uid owns), else from git (`-dirty` when
-  the tree is), else `unknown` / today. A local `uv build` builds the
-  wheel from the sdist, which has no `.git`, hence `RIGGEN_GIT_HASH=$(git
-  rev-parse --short HEAD) uv build`.
-- `release.yml`: a `build` matrix of the five targets (maturin-action;
-  the linux pair in its manylinux 2_28 and cross containers, both macOS
-  architectures on the arm64 runner) plus the sdist; `smoke` installs the
-  wheel into a fresh venv on ubuntu / macos / windows and runs
-  `test_wheel.py`; `publish-testpypi` on `workflow_dispatch` and
-  `publish-pypi` + a GitHub Release on a `v*` tag push, both through PyPI
-  trusted publishing (environments `testpypi` / `pypi`, no token in the
-  repository).
+  `sys.exit`. `riggen.__version__` is `importlib.metadata.version
+  ("riggen")`; `_riggen.__version__` is `CARGO_PKG_VERSION` mapped to PEP
+  440 (`0.2.0-dev` → `0.2.0.dev0`), so the two agree.
+- **The recipe** is `python python/build_wheel.py [--target <triple>]
+  [--binary-only]`: `cargo build --release -p riggen-app [--target T]`, the
+  copy into the data directory, then `maturin build --release --out dist`
+  (`maturin` from PATH, else `uvx maturin`). `--binary-only` stops before
+  maturin — for the CI containers, where maturin-action runs maturin.
+  Built in the tree, `build.rs` asks git for the hash, so no
+  `RIGGEN_GIT_HASH` is needed locally; the workflows set it because their
+  containers cannot ask git about a checkout another uid owns.
+- **The sdist** carries `crates/riggen-py` and the three crates below it
+  (maturin packages the extension's path dependencies; `riggen-app` is
+  not one) and no data directory, so `pip install` from it — any platform
+  outside the five, or `pip install .` — builds `import riggen` with a
+  Rust toolchain and a `python3` and gets **no binary**; `python -m
+  riggen` and `show()` say so. Targets with wheels: linux x86_64 and
+  aarch64 (manylinux 2_28), macOS arm64 and x86_64, Windows x86_64.
+- Free-threaded CPython (3.13t / 3.14t) has no wheel: abi3 does not
+  install there (BACKLOG).
+- `[profile.release]`: `strip = true`, `lto = "thin"`, `codegen-units =
+  1`. linux x86_64: the binary is 21.9 MB, the extension 357 KB with only
+  `__version__` in it (step 1 of plans/python-sdk), the wheel 9.7 MB.
+- `riggen --version` prints `riggen <cargo version> (<hash> <date>)`;
+  `build.rs` takes the hash and date from `RIGGEN_GIT_HASH` /
+  `RIGGEN_BUILD_DATE` when set, else from git (`-dirty` when the tree
+  is), else `unknown` / today.
+- `release.yml`: a `build` matrix of the five targets named as full
+  triples, so one `${{ matrix.target }}` reaches maturin-action and
+  `build_wheel.py --target` and both cargo runs agree on
+  `target/<triple>/release/`. Linux runs both halves inside
+  maturin-action's container (manylinux 2_28 for x86_64, the cross
+  container for aarch64) — the binary half in `before-script-linux`, which
+  the action runs after installing Rust and the target and putting
+  `/opt/python/*/bin` on PATH. macOS (both architectures on the arm64
+  runner) and Windows run `build_wheel.py --binary-only` as a step before
+  maturin-action, after `dtolnay/rust-toolchain` and `setup-python`. Then
+  the sdist; `smoke` installs the wheel into a fresh venv on ubuntu /
+  macos / windows and runs `test_wheel.py`; `publish-testpypi` on
+  `workflow_dispatch` (`skip-existing`, so the workspace version is
+  `0.2.0-dev` between releases) and `publish-pypi` + a GitHub Release on a
+  `v*` tag push, both through PyPI trusted publishing (environments
+  `testpypi` / `pypi`, no token in the repository).
 
-v0.2: `riggen-py` is a PyO3 `cdylib` over `riggen-core` + `riggen-export`
-exposing `Robot`, `Link`, `Joint`, `fk`, `validate`, `export_mjcf`,
-`export_urdf`, `load_urdf`. `riggen.show(robot)` serialises to a temp
-`.riggen` and spawns the bundled binary on it (the `rr.spawn()` model). The
-GUI is never entered from inside a Python call.
+`riggen.show(robot)` (plans/python-sdk step 7) serialises to a temp
+`.riggen` and spawns the bundled binary on it — the `rr.spawn()` model.
+The GUI is never entered from inside a Python call (ADR-0002).
 
 ## Testing
 
@@ -698,9 +728,12 @@ GUI is never entered from inside a Python call.
   web build is not a product in v1), the `mujoco` job — the app's
   `--export` of `arm.riggen` and of `arm.urdf` (with `rust-cache`), then
   `python/tests/test_mjcf_load.py` on both through `uv` (ADR-0008 §3) —
-  and the `wheel` job: maturin-action builds the linux x86_64 wheel in the
-  manylinux 2_28 container, a fresh `uv venv` installs it, `test_wheel.py`
+  and the `wheel` job: in maturin-action's manylinux 2_28 container,
+  `build_wheel.py --binary-only` (`before-script-linux`) then maturin for
+  the extension, a fresh `uv venv` installs the wheel, `test_wheel.py`
   runs — about 6.5 min wall time, the same as the `mujoco` job (a release
-  build of the app from cold either way). The binary links only libc, so
-  no container needs a package installed first. The `clippy` job runs the
-  *latest* stable, so a new lint reaches CI before the local hook. `release.yml` is §Python distribution.
+  build of the app from cold either way). The binary links only libc and
+  the container has a `python3`, so it needs no package installed first.
+  The `clippy` job runs the *latest* stable, so a new lint reaches CI
+  before the local hook, and pins the layer rule for `riggen-py` with
+  `cargo tree` (ADR-0009). `release.yml` is §Python distribution.
