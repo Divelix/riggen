@@ -72,6 +72,10 @@ The by-hand half was done headlessly: the manylinux wheel installed into
 - `load_files` starts a camera animation, so a harness test that opens a document through it never settles; the tests open through `open_path` + `fit_view_now` and the difference is only in the harness's head
 - `cargo build --release` had never been run before M4: egui's `Style::debug` is `cfg(debug_assertions)` and the Debug menu did not compile; CI now builds release through the wheel job, which is the only reason it stays caught
 
+### From the v0.2 SDK (plans/python-sdk, 2026-08-30)
+
+- Free-threaded CPython (3.13t / 3.14t): the abi3 wheel does not install there. Needs either per-version wheels (five targets × every Python) or PyO3's free-threaded support once it covers what the module uses; nobody has asked yet (ADR-0009).
+
 ## Rejected
 
 - `SetRoot` across a movable joint — a URDF always has a root, and the reversed-pivot convention is a design question nothing in M3 needed (plans/m3-sim-ready OPEN 2, 2026-08-29)
