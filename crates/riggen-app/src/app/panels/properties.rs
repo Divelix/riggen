@@ -9,7 +9,8 @@ use std::collections::HashMap;
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::inertial::{Inertial, InertialError, principal_moments};
 use riggen_core::{
-    CollisionPolicy, Command, InertialSpec, JointId, JointKind, Limits, LinkId, Pose, Primitive,
+    CollisionPolicy, Command, FrameId, InertialSpec, JointId, JointKind, Limits, LinkId, Pose,
+    Primitive,
 };
 use riggen_mesh::{DecompParams, fit};
 
@@ -389,6 +390,7 @@ impl RiggenApp {
                         self.link_properties(ui, link, &mut commands, &mut add_mesh_to);
                     }
                     Selection::Joint(joint) => self.joint_properties(ui, joint, &mut commands),
+                    Selection::Frame(frame) => self.frame_properties(ui, frame, &mut commands),
                 });
             });
         for command in commands {
@@ -1062,6 +1064,36 @@ impl RiggenApp {
                 ui.weak("nothing to compute");
             }
         }
+    }
+
+    /// A named frame: its name and the link it hangs on. The editable pose
+    /// fields arrive with the rest of the panel in the next step.
+    fn frame_properties(&mut self, ui: &mut egui::Ui, frame: FrameId, commands: &mut Vec<Command>) {
+        let Some(data) = self.robot.frames.get(&frame).cloned() else {
+            return;
+        };
+        let state = &mut self.props;
+        let base = ui.make_persistent_id(("frame", frame));
+        egui::Grid::new(base.with("grid"))
+            .num_columns(2)
+            .show(ui, |ui| {
+                let tag = ui.label("name");
+                if let (_, Some(name)) =
+                    text_field(ui, state, base.with("name"), &tag, &data.name, 160.0)
+                {
+                    commands.push(Command::RenameFrame(frame, name));
+                }
+                ui.end_row();
+
+                ui.label("link");
+                ui.label(
+                    self.robot
+                        .links
+                        .get(&data.parent)
+                        .map_or("—", |l| l.name.as_str()),
+                );
+                ui.end_row();
+            });
     }
 
     fn joint_properties(&mut self, ui: &mut egui::Ui, joint: JointId, commands: &mut Vec<Command>) {

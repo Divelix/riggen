@@ -11,4 +11,4 @@ mod tree;
 pub(crate) use joints::JointsWindow;
 pub(crate) use materials::MaterialsWindow;
 pub(crate) use properties::PropertiesState;
-pub(crate) use tree::TreeState;
+pub(crate) use tree::{RenameTarget, TreeState};

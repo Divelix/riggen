@@ -16,7 +16,7 @@
 //! link frame, which for a prismatic joint has already slid away by `q`.
 
 use riggen_core::glam::{DQuat, DVec3};
-use riggen_core::{JointId, JointKind, LinkId, Pose};
+use riggen_core::{FrameId, JointId, JointKind, LinkId, Pose};
 use riggen_viewport::{Overlay, OverlayItem};
 
 use super::{RiggenApp, Selection};
@@ -33,8 +33,11 @@ const TRIAD_COLORS: [egui::Color32; 3] = [
     egui::Color32::from_rgb(89, 217, 89),
     egui::Color32::from_rgb(77, 140, 242),
 ];
-/// The tick at the current `q`.
+/// The tick at the current `q`, and a frame glyph's origin dot and label.
 const TICK_COLOR: egui::Color32 = egui::Color32::from_rgb(245, 245, 245);
+/// A frame's name and origin dot: the same near-white, so the label reads
+/// against the scene without competing with the joints' amber.
+const LABEL_COLOR: egui::Color32 = TICK_COLOR;
 
 /// How near the cursor has to come to a glyph's axis segment, in screen
 /// points, to count as pointing at it. Roughly a finger's worth of slop on
@@ -44,6 +47,10 @@ pub const GLYPH_HOVER_RADIUS: f32 = 8.0;
 
 /// Fractions of the glyph's size (§`glyph_size`).
 const AXIS_HALF_LENGTH: f64 = 1.15;
+/// A frame glyph's triad arms, as a fraction of its link's glyph size.
+/// Longer than a joint's origin triad, which is one decoration among four:
+/// the triad *is* the frame glyph, so it has to be aimable on its own.
+const FRAME_TRIAD_LENGTH: f64 = 0.55;
 const TRIAD_LENGTH: f64 = 0.4;
 const ARC_RADIUS: f64 = 0.6;
 /// How far past the arc the current-`q` tick sticks out.
@@ -91,6 +98,27 @@ impl JointGlyph {
     }
 }
 
+/// One frame's glyph: a triad in the triad colours at the frame's world
+/// pose, with its name beside it (ADR-0012). A frame has no geometry, so
+/// like a joint it exists in the viewport only as this.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrameGlyph {
+    pub frame: FrameId,
+    pub name: String,
+    /// `world(parent) ∘ frame.pose`.
+    pub pose: Pose,
+    /// Length of a triad arm.
+    pub size: f64,
+}
+
+impl FrameGlyph {
+    /// The far end of each triad arm, in world coordinates, X then Y then Z
+    /// — what the overlay draws and a hover hit-test measures against.
+    pub fn arms(&self) -> [DVec3; 3] {
+        [DVec3::X, DVec3::Y, DVec3::Z].map(|local| self.pose.t + self.pose.r * local * self.size)
+    }
+}
+
 impl RiggenApp {
     /// Every glyph the viewport should draw this frame.
     pub fn joint_glyphs(&self) -> Vec<JointGlyph> {
@@ -120,6 +148,85 @@ impl RiggenApp {
                 })
             })
             .collect()
+    }
+
+    /// A glyph for every named frame, in `FrameId` order. Unlike joints,
+    /// all of them are drawn all the time: a frame is a thing the user
+    /// placed on purpose and there are a handful, not one per weld.
+    pub fn frame_glyphs(&self) -> Vec<FrameGlyph> {
+        let world = riggen_core::frames(&self.robot, &self.q);
+        self.robot
+            .frames
+            .iter()
+            .filter_map(|(&id, frame)| {
+                Some(FrameGlyph {
+                    frame: id,
+                    name: frame.name.clone(),
+                    pose: *world.get(&id)?,
+                    size: self.glyph_size(frame.parent) * FRAME_TRIAD_LENGTH,
+                })
+            })
+            .collect()
+    }
+
+    /// The frame glyphs as overlay primitives. `active` is the frame the
+    /// user is pointing at or has selected: brighter, thicker, and its
+    /// label in the active amber.
+    pub(crate) fn push_frame_overlay(
+        &self,
+        overlay: &mut Overlay,
+        glyphs: &[FrameGlyph],
+        active: Option<FrameId>,
+    ) {
+        for glyph in glyphs {
+            let hot = active == Some(glyph.frame);
+            let width = if hot { 3.0 } else { 1.5 };
+            overlay.point(glyph.pose.t, if hot { 5.0 } else { 3.5 }, LABEL_COLOR);
+            for (arm, color) in glyph.arms().into_iter().zip(TRIAD_COLORS) {
+                overlay.segment(glyph.pose.t, arm, color, width);
+            }
+            overlay.label(
+                glyph.pose.t,
+                glyph.name.clone(),
+                if hot { AXIS_COLOR_ACTIVE } else { LABEL_COLOR },
+                egui::vec2(8.0, -8.0),
+            );
+        }
+    }
+
+    /// The frame a glyph is drawn hot for: the one under the pointer, else
+    /// the selected one.
+    pub fn active_frame(&self) -> Option<FrameId> {
+        self.hovered_frame.or(match self.selection {
+            Selection::Frame(f) => Some(f),
+            _ => None,
+        })
+    }
+
+    /// The frame the pointer is on, from the tree or from its glyph.
+    pub fn hovered_frame(&self) -> Option<FrameId> {
+        self.hovered_frame
+    }
+
+    /// The frame whose glyph is under `pos`: screen distance to the nearest
+    /// of its three triad arms, within [`GLYPH_HOVER_RADIUS`], as for a
+    /// joint's axis segment.
+    pub fn frame_glyph_at(&self, glyphs: &[FrameGlyph], pos: egui::Pos2) -> Option<FrameId> {
+        glyphs
+            .iter()
+            .filter_map(|glyph| {
+                let origin = self.project_world(glyph.pose.t)?;
+                let distance = glyph
+                    .arms()
+                    .into_iter()
+                    .filter_map(|arm| {
+                        Some(distance_to_segment(pos, origin, self.project_world(arm)?))
+                    })
+                    .fold(f32::INFINITY, f32::min);
+                (distance <= GLYPH_HOVER_RADIUS).then_some((distance, glyph.frame))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, frame)| frame)
     }
 
     /// How big a glyph on `child` is: the half-diagonal of the child link's

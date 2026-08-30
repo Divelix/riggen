@@ -98,7 +98,7 @@ to 1e-6.
   frames — already there —, `MoveJointFrame` re-expresses them, `Reparent`
   leaves them on their link). A `.riggen` corpus fixture with a frame,
   saved and reopened byte-for-byte; `schema_version` stays 1.
-- [ ] **Step 5 — the tree knows frames.** `Selection::Frame(FrameId)`
+- [x] **Step 5 — the tree knows frames.** `Selection::Frame(FrameId)`
   through the ~33 match sites; a frame row under its link (indented, its
   own icon, click selects, F2 / double-click renames, Delete removes);
   hovering a row highlights its glyph and vice versa, as joints do. The

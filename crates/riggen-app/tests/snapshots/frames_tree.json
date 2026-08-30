@@ -80,7 +80,7 @@
   "document": {
     "file": "arm.riggen",
     "name": "arm",
-    "dirty": true,
+    "dirty": false,
     "import_scale": 1.0,
     "links": [
       {
@@ -187,15 +187,14 @@
         ]
       }
     ],
-    "selection": null
+    "selection": "frame f17"
   },
   "ui": {
     "tool": "Select",
     "renaming": null,
     "windows": [],
     "modal": null,
-    "title": "arm.riggen* — riggen",
-    "collision_view": true
+    "title": "arm.riggen — riggen"
   },
   "instances": [
     {
@@ -317,130 +316,6 @@
         0.2,
         1.0
       ]
-    },
-    {
-      "id": 4,
-      "link": "l3",
-      "geom": null,
-      "visible": true,
-      "triangles": 60,
-      "bounds": [
-        [
-          -0.03,
-          -0.03,
-          0.0
-        ],
-        [
-          0.03,
-          0.03,
-          0.06
-        ]
-      ],
-      "position": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "color": [
-        0.9,
-        0.4,
-        0.1,
-        0.35
-      ],
-      "collision": true
-    },
-    {
-      "id": 5,
-      "link": "l7",
-      "geom": null,
-      "visible": true,
-      "triangles": 108,
-      "bounds": [
-        [
-          -0.01,
-          -0.035,
-          0.06
-        ],
-        [
-          0.01,
-          0.035,
-          0.103
-        ]
-      ],
-      "position": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "color": [
-        0.9,
-        0.4,
-        0.1,
-        0.35
-      ],
-      "collision": true
-    },
-    {
-      "id": 6,
-      "link": "l11",
-      "geom": null,
-      "visible": true,
-      "triangles": 108,
-      "bounds": [
-        [
-          -0.01,
-          -0.035,
-          0.095
-        ],
-        [
-          0.01,
-          0.035,
-          0.203
-        ]
-      ],
-      "position": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "color": [
-        0.9,
-        0.4,
-        0.1,
-        0.35
-      ],
-      "collision": true
-    },
-    {
-      "id": 7,
-      "link": "l15",
-      "geom": null,
-      "visible": true,
-      "triangles": 100,
-      "bounds": [
-        [
-          0.076,
-          0.058,
-          0.121
-        ],
-        [
-          0.104,
-          0.082,
-          0.215
-        ]
-      ],
-      "position": [
-        -0.09,
-        -0.07,
-        0.06
-      ],
-      "color": [
-        0.9,
-        0.4,
-        0.1,
-        0.35
-      ],
-      "collision": true
     }
   ],
   "selection": {
@@ -533,8 +408,8 @@
         652.0,
         130.085419
       ],
-      "active": false,
-      "hovered": false
+      "active": true,
+      "hovered": true
     },
     {
       "frame": "f18",

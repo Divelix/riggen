@@ -1096,6 +1096,63 @@ fn properties_collision() {
     });
 }
 
+/// The tree with frames: the sample arm's `tcp` and `camera_mount` each
+/// get a row under the link they hang on, clicking one selects it, and its
+/// triad glyph in the viewport goes hot with it (ADR-0012).
+#[test]
+fn frames_tree() {
+    scenario("frames_tree", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("open the sample arm");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        // Both frames are rows, under their own link and nobody else's.
+        let state = harness.state().debug_state();
+        assert_eq!(state.document.frames.len(), 2);
+        let by_name = |n: &str| {
+            state
+                .document
+                .frames
+                .iter()
+                .find(|f| f.name == n)
+                .unwrap_or_else(|| panic!("{n}"))
+        };
+        let link = |id: &str| {
+            state
+                .document
+                .links
+                .iter()
+                .find(|l| l.id == id)
+                .unwrap()
+                .name
+                .as_str()
+        };
+        assert_eq!(link(&by_name("tcp").parent), "fore");
+        assert_eq!(link(&by_name("camera_mount").parent), "base");
+        assert_eq!(state.frame_glyphs.len(), 2, "one triad each");
+        assert!(state.frame_glyphs.iter().all(|g| !g.active));
+
+        harness.get_by_label("⌖ tcp").click();
+        pump_rendered(harness, 4);
+        let state = harness.state().debug_state();
+        assert_eq!(state.document.selection.as_deref(), Some("frame f17"));
+        let tcp = state
+            .frame_glyphs
+            .iter()
+            .find(|g| g.name == "tcp")
+            .expect("the tcp glyph");
+        assert!(tcp.active, "the selected frame's glyph is drawn hot");
+        // At rest the TCP is 80 mm past the forearm's 0.195 m.
+        assert!((tcp.origin[2] - 0.275).abs() < 1e-6, "{:?}", tcp.origin);
+        assert!(tcp.screen.is_some(), "and it is on screen");
+        // Selecting a frame is not selecting a link: no instance goes with it.
+        assert_eq!(state.selection.selected, None);
+    });
+}
+
 /// The properties panel for a joint: kind, origin, axis, limits in
 /// degrees, dynamics.
 #[test]

@@ -8,6 +8,7 @@
 //! set down, because egui matches modifiers logically and a bare pattern
 //! swallows its shifted variant.
 
+use crate::app::panels::RenameTarget;
 use crate::app::{RiggenApp, Selection};
 
 impl RiggenApp {
@@ -55,8 +56,12 @@ impl RiggenApp {
             self.remove_selected();
         }
         let rename = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F2));
-        if rename && let Selection::Link(link) = self.selection {
-            self.start_rename(link);
+        if rename {
+            match self.selection {
+                Selection::Link(link) => self.start_rename_target(RenameTarget::Link(link)),
+                Selection::Frame(frame) => self.start_rename_target(RenameTarget::Frame(frame)),
+                _ => {}
+            }
         }
     }
 }
