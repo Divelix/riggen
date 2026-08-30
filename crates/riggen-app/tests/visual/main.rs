@@ -1270,7 +1270,7 @@ fn gizmo_rotate_joint() {
 }
 
 /// The gizmo takes the pointer on its handles and **nowhere else**
-/// (plans/gizmo-input): with Move active and a link selected, the part under
+/// (ADR-0010): with Move active and a link selected, the part under
 /// the cursor still tints and a click still selects it. The crate's own
 /// `GizmoExt::interact` registered a click-and-drag widget at the cursor on
 /// every frame, and egui's hit test preferred it over the viewport — the M2
@@ -1372,7 +1372,7 @@ fn pendulum_with_move_armed(harness: &mut egui_kittest::Harness<'_, riggen_app::
 }
 
 /// The wheel still zooms with a gizmo handle under the cursor
-/// (plans/gizmo-input step 2): a handle suppresses *picking*, because it
+/// (ADR-0010): a handle suppresses *picking*, because it
 /// hides the geometry that would answer for the cursor, but the camera has
 /// no reason to stop. This is the M2 exit gate's "dead camera" reported
 /// directly.
@@ -1410,7 +1410,7 @@ fn camera_works_while_the_gizmo_is_up() {
 }
 
 /// The two things that *do* take the whole pointer, and the reason they need
-/// different mechanisms (plans/gizmo-input step 2, OPEN 3).
+/// different mechanisms (ADR-0010).
 ///
 /// The toolbar floats over the viewport in the viewport's **own** egui layer,
 /// which `contains_pointer()` cannot see through — so the app blocks the
@@ -1467,7 +1467,7 @@ fn the_toolbar_does_not_zoom_the_camera() {
     });
 }
 
-/// Orbit and pan start *from a gizmo handle* (plans/gizmo-input step 3): the
+/// Orbit and pan start *from a gizmo handle* (ADR-0010): the
 /// gizmo's pointer widget senses clicks only, so egui's hit test hands the
 /// drag to the viewport underneath whichever button started it, and no
 /// command is committed.
@@ -1769,7 +1769,7 @@ fn glyph_hover() {
 }
 
 /// A hovered glyph suppresses the *picks* and nothing else
-/// (plans/gizmo-input step 4). It hides the part behind it, so tinting that
+/// (ADR-0010). It hides the part behind it, so tinting that
 /// part would be a lie — but the wheel has no reason to stop, and under the
 /// old all-or-nothing switch it did.
 ///
