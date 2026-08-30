@@ -838,17 +838,61 @@ fn properties_collision() {
         // left after the caps.
         assert!((radius - 0.5f64.sqrt()).abs() < 1e-9, "{radius}");
         assert_eq!(*length, 0.0);
+
+        harness.get_by_label("+ Cylinder").click();
+        harness.step();
+        harness.step();
+        let riggen_core::CollisionPolicy::Primitives(prims) =
+            harness.state().robot().links[&arm].collision.clone()
+        else {
+            panic!()
+        };
+        assert_eq!(prims.len(), 3);
+        let riggen_core::Primitive::Cylinder {
+            pose,
+            radius,
+            length,
+        } = &prims[2]
+        else {
+            panic!("{prims:?}");
+        };
+        // The cube's AABB is a tie, and `longest_axis` breaks ties towards
+        // Z: an upright cylinder spanning the whole metre, with the corner
+        // radius the capsule also took.
+        assert!(
+            (pose.t - DVec3::new(0.0, 0.0, 0.5)).length() < 1e-9,
+            "{pose:?}"
+        );
+        assert!((radius - 0.5f64.sqrt()).abs() < 1e-9, "{radius}");
+        assert!((length - 1.0).abs() < 1e-9, "{length}");
+
+        // Typing into the axial editor: the capsule owns the first
+        // "radius m" / "length m" pair, the cylinder the second. One
+        // command per committed field, like every other number field.
+        type_into(harness, "radius m", 1, "0.3");
+        type_into(harness, "length m", 1, "0.8");
+        let riggen_core::CollisionPolicy::Primitives(prims) =
+            harness.state().robot().links[&arm].collision.clone()
+        else {
+            panic!()
+        };
+        let riggen_core::Primitive::Cylinder { radius, length, .. } = &prims[2] else {
+            panic!("{prims:?}");
+        };
+        assert!((radius - 0.3).abs() < 1e-9, "{radius}");
+        assert!((length - 0.8).abs() < 1e-9, "{length}");
+
         assert_eq!(
             harness.state().history().undo_depth(),
-            depth + 2,
+            depth + 5,
             "one command per gesture"
         );
         settle(harness);
         let state = harness.state().debug_state();
         assert_eq!(
             state.instances.iter().filter(|i| i.collision).count(),
-            2,
-            "both primitives drawn translucent"
+            3,
+            "every primitive drawn translucent"
         );
     });
 }

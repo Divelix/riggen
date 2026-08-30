@@ -240,6 +240,37 @@
         0.35
       ],
       "collision": true
+    },
+    {
+      "id": 4,
+      "link": "l5",
+      "geom": null,
+      "visible": true,
+      "triangles": 128,
+      "bounds": [
+        [
+          -0.3,
+          -0.3,
+          -0.4
+        ],
+        [
+          0.3,
+          0.3,
+          0.4
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "color": [
+        0.9,
+        0.4,
+        0.1,
+        0.35
+      ],
+      "collision": true
     }
   ],
   "selection": {
