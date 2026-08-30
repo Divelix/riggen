@@ -688,6 +688,107 @@ mod tests {
         );
     }
 
+    /// `assets/fixtures/bracket.riggen`, the decomposition acceptance's
+    /// model (plans/convex-decomposition step 8): the U-channel of
+    /// `bracket.stl` on a revolute joint, its collision a
+    /// `ConvexDecomposition`. The `mujoco` CI job exports it and checks
+    /// that the decomposed body carries several collision geoms and that
+    /// `mj_forward` agrees with our FK.
+    fn bracket_sample() -> Robot {
+        use crate::robot::{Geom, InertialSpec, Joint, JointKind, Limits, Link, MeshAsset};
+
+        // Normalised the way `load` returns it, so the two compare equal.
+        let path = absolute(&fixtures().join("bracket.stl")).unwrap();
+        let mut robot = Robot::new("bracket");
+        let base = robot.root;
+        robot.links.get_mut(&base).unwrap().material = Some("aluminium".into());
+        let mesh = robot.add_asset(MeshAsset {
+            content_hash: crate::hash_file(&path).unwrap(),
+            path,
+            scale: 0.001, // the fixture is in millimetres, like the arm's parts
+            fix_up: None,
+        });
+        let mut link = Link::new("bracket");
+        link.material = Some("PLA".into());
+        link.inertial = InertialSpec::Computed {
+            density_override: None,
+        };
+        // The pieces are derived at export from these three numbers; the
+        // document never stores them (ADR-0011).
+        link.collision = CollisionPolicy::ConvexDecomposition {
+            max_hulls: 4,
+            resolution: 48,
+            concavity: 0.01,
+        };
+        link.visuals.push(Geom {
+            id: robot.next_id.alloc(),
+            mesh,
+            pose: Pose::IDENTITY,
+            color: None,
+        });
+        let joint = Joint {
+            kind: JointKind::Revolute,
+            axis: DVec3::Y,
+            origin: Pose::from_translation(DVec3::new(0.0, 0.0, 0.1)),
+            limits: Some(Limits {
+                lower: -FRAC_PI_2,
+                upper: FRAC_PI_2,
+                effort: 5.0,
+                velocity: 3.0,
+            }),
+            ..Joint::fixed("hinge", base, base)
+        };
+        Command::AddLink {
+            link: Box::new(link),
+            parent: base,
+            joint,
+        }
+        .apply(&mut robot)
+        .unwrap();
+        robot
+    }
+
+    /// Regenerates `assets/fixtures/bracket.riggen`. Ignored like the other
+    /// fixture generators; the test below keeps the committed bytes in step
+    /// with it. `cargo test -p riggen-core write_bracket_sample --
+    /// --ignored`.
+    #[test]
+    #[ignore = "writes the committed fixture; run on purpose"]
+    fn write_bracket_sample() {
+        save(&bracket_sample(), &fixtures().join("bracket.riggen")).unwrap();
+    }
+
+    #[test]
+    fn corpus_bracket_opens_and_matches_its_generator() {
+        let file = fixtures().join("bracket.riggen");
+        let (robot, warnings) = load(&file).unwrap();
+        assert_eq!(warnings, vec![], "the fixture mesh must match its hash");
+        assert_eq!(robot, bracket_sample());
+        let bracket = robot.links.values().find(|l| l.name == "bracket").unwrap();
+        assert_eq!(
+            bracket.collision,
+            CollisionPolicy::ConvexDecomposition {
+                max_hulls: 4,
+                resolution: 48,
+                concavity: 0.01,
+            }
+        );
+
+        // Saving it again reproduces the committed bytes.
+        let dir = scratch("bracket");
+        std::fs::copy(fixtures().join("bracket.stl"), dir.join("bracket.stl")).unwrap();
+        let again = dir.join("bracket.riggen");
+        let mut relocated = robot.clone();
+        for asset in relocated.assets.values_mut() {
+            asset.path = dir.join(asset.path.file_name().unwrap());
+        }
+        save(&relocated, &again).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&again).unwrap(),
+            std::fs::read_to_string(&file).unwrap()
+        );
+    }
+
     #[test]
     fn relative_and_resolve_are_inverses() {
         let dir = Path::new("/home/u/proj/robot");

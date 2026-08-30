@@ -94,7 +94,9 @@ riggen/
 │                           # generator test writes them); arm/arm.riggen, the M3 sample
 │                           # robot (`write_arm_sample`), and arm/arm.urdf, the hand-written
 │                           # URDF import corpus file (02 §URDF import). arm.riggen and its
-│                           # four STLs are also `include_bytes!`d for `--example arm`
+│                           # four STLs are also `include_bytes!`d for `--example arm`;
+│                           # bracket.stl (a U-channel) and bracket.riggen, the convex
+│                           # decomposition fixture and the `mujoco` job's third model
 ├── python/riggen/          # the wheel's Python half: __init__ (the public names,
 │                           # __version__), robot.py (the API), show.py (the window,
 │                           # binary_path), errors.py, __main__ (execs the bundled
@@ -782,8 +784,13 @@ byte-identical to `arm.riggen`'s) are the API's worked examples and the
   `mujoco.MjModel.from_xml_path` on the exported MJCF must succeed with
   zero compiler warnings (a `set_mju_user_warning` hook fails on any), and
   `mj_forward` body poses must match the `<name>.fk.json` the export wrote
-  with `--fk-samples` to 1e-6 at five joint configurations — for both the
-  sample's export and the export of its URDF import.
+  with `--fk-samples` to 1e-6 at five joint configurations — for the
+  sample's export, the export of its URDF import, and
+  `assets/fixtures/bracket.riggen`, the decomposition acceptance
+  (ADR-0011). The script also fails any body whose `<stem>_hull_N` pieces
+  do not number at least two and run 0..N: MuJoCo hulls a collision mesh
+  itself, so one piece would mean the policy bought nothing. It reads that
+  off the model, not off the fixture.
 - **SDK suite** (`python/tests/sdk/`, pytest; the `wheel` CI job after the
   smoke, and locally `uv venv target/sdk-venv && VIRTUAL_ENV=$PWD/target/
   sdk-venv uvx maturin develop --uv`, `uv pip install --python target/

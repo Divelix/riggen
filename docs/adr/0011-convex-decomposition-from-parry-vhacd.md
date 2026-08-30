@@ -44,8 +44,11 @@ No vendored C++, no `cc` build, no target gate, no second wheel.
    heapless num-complex num-derive parry3d-f64 robust rstar safe_arch simba
    spade wide`); the other 24 of its 39 dependencies were already in our
    446-package lock. **9.0 s** to build the whole new stack from clean with
-   `[profile.dev.package."*"] opt-level = 3`. The wheel grows **8 965
-   bytes, +0.09 %**. A pure-Rust dependency at that price is cheaper than
+   `[profile.dev.package."*"] opt-level = 3`. The wheel grows **162 253
+   bytes, +1.5 %** (10 532 556 → 10 694 809, manylinux_2_34 x86_64, thin
+   LTO, measured once `resolve` and the SDK actually reach `decompose` —
+   before that the linker dropped nearly all of parry and the figure was a
+   misleading +0.09 %). A pure-Rust dependency at that price is cheaper than
    ~1500 lines of vendored C++ that only builds on four of our five targets.
    `default-features = false` is not an option: it drops the crate's own
    `dim3`/`f64` selection and does not compile. The default set pulls

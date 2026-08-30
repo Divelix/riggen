@@ -74,7 +74,11 @@ jobs:
       # `pyproject.toml` before running anything.
       - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample assets/fixtures/arm/arm.riggen
       - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-urdf assets/fixtures/arm/arm.urdf
-      - run: uv run --no-project --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample target/sample-urdf
+      # The convex-decomposition acceptance (ADR-0011): the U-channel of
+      # `bracket.stl` on a hinge, its collision a `ConvexDecomposition`.
+      # `test_mjcf_load.py` fails a body that carries only one piece.
+      - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-decomp assets/fixtures/bracket.riggen
+      - run: uv run --no-project --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample target/sample-urdf target/sample-decomp
 
   # The product (ADR-0002, ADR-0009): the wheel builds in the manylinux 2_28
   # container maturin-action provides — `build_wheel.py --binary-only`
