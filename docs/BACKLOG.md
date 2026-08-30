@@ -27,7 +27,6 @@ below with the reason, so the same idea is not re-brainstormed.
 
 ### From the M2 exit gate (the by-hand arm build, 2026-08-29)
 
-- The gizmo swallows **all** viewport pointer input, not just its own drag: with Move or Rotate active, zoom, pan, orbit and click-to-select stop working (two causes — `set_input_suppressed` is all-or-nothing, and `transform-gizmo-egui::interact` registers a click-sensing widget at the cursor *every* frame, which egui's hit test prefers over the viewport; reported three ways: dead camera, laggy-feeling zoom, clicks that only flicker the hover tint)
 - A joint gizmo drag previews nothing: the glyph stays on the old pivot until the release commits (`preview_world` covers a link drag only — the glyph should be built from the dragged pose)
 - Place joint with a *link* selected, and Align with a *joint* selected, do nothing and say nothing (each tool wants the other kind of selection; say so in the status bar, or grey the button)
 - Orbit on left-drag instead of middle-drag (LMB-drag does nothing today; needs a rule that keeps click-to-select working — an idea, not a plan)

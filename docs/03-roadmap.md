@@ -76,9 +76,10 @@ gizmo on a link moves the link and on a joint moves the pivot; the crate
 before an own gizmo; glyphs for movable joints plus the selection.
 
 The by-hand exit gate was run and came back "generally fine", with nine
-lines now in `docs/BACKLOG.md` — the largest being that the gizmo swallows
-all viewport pointer input while it is near the cursor, which reads as a
-dead camera and clicks that do not select.
+lines then in `docs/BACKLOG.md`. The largest — the gizmo swallowing all
+viewport pointer input while it was near the cursor, which read as a dead
+camera and clicks that did not select — is fixed (ADR-0010, 2026-08-30);
+eight lines remain.
 
 - `transform-gizmo-egui` on a link (its parent joint's origin; the subtree
   follows) or on a joint (its pivot, the geometry staying put); drag =
@@ -211,6 +212,17 @@ release workflow is a tag push.
   no file name in it (fixed before the tag) and that a TestPyPI
   pre-release needs an explicit index in a `uv` project (README
   §Developing). The `v0.2.0` tag is the release.
+- **Done 2026-08-30** — the viewport pointer, the M2 exit gate's first
+  line (ADR-0010): the gizmo's egui glue is ours instead of
+  `GizmoExt::interact`, it hit-tests its own handles with
+  `Gizmo::pick_preview` and registers a click-only widget solely on the
+  frames it wants the pointer, and the viewport's one suppression switch
+  became `set_pick_suppressed` (picks off, camera live) beside
+  `set_pointer_blocked` (both off) with camera input on
+  `contains_pointer()`. With Move or Rotate active the viewport now orbits,
+  pans, zooms, tints and selects exactly as with no tool — everywhere but
+  on a handle. `gizmo_shares_the_viewport` is the acceptance run; no golden
+  PNG changed.
 - Convex decomposition (CoACD port or a bundled binary — decide with an ADR).
 - Named frames / MJCF sites; mimic joints; actuator presets.
 - MJCF import; SDF export.
