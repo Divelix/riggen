@@ -19,20 +19,20 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**M4 done (2026-08-30, tag `m4`):** `uv tool install riggen && riggen
---example arm` (ADR-0002). Root `pyproject.toml`, maturin `bindings =
-"bin"`: the `riggen` binary sits in the wheel's `scripts/`, no console
-script; `python -m riggen` execs it. `--help` / `--version` (git hash via
-`build.rs`) / `--timing` / `--example arm`. `ci.yml` builds and smokes the
-linux wheel on every push; `release.yml` builds five targets + sdist,
-smokes each OS, publishes to TestPyPI on dispatch and PyPI + GitHub
-Release on a `v*` tag through trusted publishing. `README.md` is the user
-page and the PyPI page. M3: MJCF + URDF export from one `ResolvedRobot`
-(ADR-0004, ADR-0008), MuJoCo loads it clean and matches `fk`, URDF
-import, inertials, collision. M2: the mouse-only arm (toolbar, gizmo,
-glyphs, snapping). M1: the `Robot` document, commands, history, `.riggen`
-v1, panels. M0: mesh, viewport, the `egui_kittest` suite (`visual-debug`
-skill). **Next: v0.2** — the Python SDK (`riggen-py`, PyO3).
+**v0.2 SDK done (2026-08-30, version `0.2.0`; the `v0.2.0` tag is the
+human's):** `pip install riggen` gives the app *and* `import riggen`
+(ADR-0009): one `cp310-abi3` wheel per platform holding `crates/riggen-py`
+(PyO3 extension `riggen._riggen`, one method per `Command`) and the
+binary as wheel data; `python/build_wheel.py` is the one recipe;
+`python/riggen/` is the API (`Robot` with handles, `Pose`, joint specs,
+`load`, `load_urdf`, `fk`, `export`, `show()` → `wait()`); the `wheel`
+job runs pytest, pyright and MuJoCo over SDK output. **M4** (tag `m4`):
+the wheel, `release.yml` to TestPyPI/PyPI, `--example arm`. **M3**: MJCF +
+URDF export from one `ResolvedRobot`, MuJoCo-clean, URDF import,
+inertials, collision. **M2**: the mouse-only arm. **M1**: the document,
+commands, history, `.riggen` v1. **M0**: mesh, viewport, the
+`egui_kittest` suite (`visual-debug` skill). **Next:** the remaining v0.2
+lines of `docs/03-roadmap.md` (convex decomposition, frames/sites).
 
 ## Rules that are not derivable from the code
 

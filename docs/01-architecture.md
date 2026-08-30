@@ -102,7 +102,9 @@ riggen/
 ├── python/build_wheel.py   # the one build recipe: cargo build riggen-app → the data
 │                           # directory → maturin build (§Python distribution)
 ├── python/tests/           # test_mjcf_load.py (MuJoCo load + FK) and test_wheel.py (the
-│                           # installed wheel, headless) — plain scripts, no pytest (§Testing)
+│                           # installed wheel, headless) — plain scripts; sdk/ the SDK's
+│                           # pytest suite, run on the built wheel (§Testing)
+├── scratch/                # gitignored: personal notebooks on the dev build (README §Developing)
 ├── LICENSE-MIT, LICENSE-APACHE   # "MIT OR Apache-2.0"; the wheel's license-files
 ├── docs/                   # 0N design docs, adr/, ideas/, plans/, assets/arm.png (the README hero)
 ├── SEED.md
@@ -580,8 +582,8 @@ with **two halves**:
 - Free-threaded CPython (3.13t / 3.14t) has no wheel: abi3 does not
   install there (BACKLOG).
 - `[profile.release]`: `strip = true`, `lto = "thin"`, `codegen-units =
-  1`. linux x86_64: the binary is 21.9 MB, the extension 357 KB with only
-  `__version__` in it; with the whole SDK, 1.3 MB and the wheel 10.1 MB.
+  1`. linux x86_64 at 0.2.0: the binary 21.9 MB, the extension 1.3 MB,
+  the wheel 10.1 MB (M4's binary-only wheel was 9.6).
 - `riggen --version` prints `riggen <cargo version> (<hash> <date>)`;
   `build.rs` takes the hash and date from `RIGGEN_GIT_HASH` /
   `RIGGEN_BUILD_DATE` when set, else from git (`-dirty` when the tree
@@ -598,8 +600,9 @@ with **two halves**:
   maturin-action, after `dtolnay/rust-toolchain` and `setup-python`. Then
   the sdist; `smoke` installs the wheel into a fresh venv on ubuntu /
   macos / windows and runs `test_wheel.py`; `publish-testpypi` on
-  `workflow_dispatch` (`skip-existing`, so the workspace version is
-  `0.2.0-dev` between releases) and `publish-pypi` + a GitHub Release on a
+  `workflow_dispatch` (`skip-existing`: a version TestPyPI already holds
+  is a silent no-op, so the workspace version is a `-dev` pre-release
+  between releases and a final one only for the tag) and `publish-pypi` + a GitHub Release on a
   `v*` tag push, both through PyPI trusted publishing (environments
   `testpypi` / `pypi`, no token in the repository).
 

@@ -62,12 +62,11 @@ The by-hand half was done headlessly: the manylinux wheel installed into
 `--export` ran; the window on a clean VM, the TestPyPI dispatch and the
 `v0.1.0` push are the human's. What was annoying on the way:
 
-- `uv build` builds the wheel from the sdist, which has no `.git`, so `--version` says `unknown` unless `RIGGEN_GIT_HASH` is set by hand (the workflows set it); `uv build --wheel` from the tree would know — or `build.rs` could read a hash file maturin is told to include
 - The NVIDIA Vulkan device creation is ~200 ms of the ~400 ms launch; creating the wgpu device on a thread while winit creates the window (`WgpuSetup::Existing`) would overlap them, at the cost of choosing the adapter without a surface
 - `WGPU_BACKEND=gl` fails on X11 + NVIDIA with `incompatible_surface_backends: GL` (pre-existing, eframe's default did the same), so the GL escape hatch is only a hatch on machines where wgpu's GL surface works
 - The linux aarch64 wheel is built and its ELF checked, but nothing in the pipeline *runs* it: the release smoke matrix has no ARM runner (ubuntu-24.04-arm exists on GitHub now — add it)
 - `--example arm` overwrites `<temp>/riggen-example-arm/` on every run, so a document saved there is lost next time; save should nudge the user to Save As
-- The wheel carries a 566 KB CycloneDX SBOM (`riggen-app.cyclonedx.json`) that maturin adds; fine for 0.1, worth a look when size matters
+- The wheel carries a CycloneDX SBOM maturin adds — 566 KB for the app in 0.1, 48 KB for `riggen-py` since 0.2 (the binary is wheel data now, ADR-0009); fine, worth a look when size matters
 - `python -m riggen` on Windows is `subprocess.call`, so Ctrl-C reaches the child through the console, not through the parent — good enough, but `riggen` on `PATH` is the real entry there
 - `load_files` starts a camera animation, so a harness test that opens a document through it never settles; the tests open through `open_path` + `fit_view_now` and the difference is only in the harness's head
 - `cargo build --release` had never been run before M4: egui's `Style::debug` is `cfg(debug_assertions)` and the Debug menu did not compile; CI now builds release through the wheel job, which is the only reason it stays caught
@@ -75,6 +74,11 @@ The by-hand half was done headlessly: the manylinux wheel installed into
 ### From the v0.2 SDK (plans/python-sdk, 2026-08-30)
 
 - Free-threaded CPython (3.13t / 3.14t): the abi3 wheel does not install there. Needs either per-version wheels (five targets × every Python) or PyO3's free-threaded support once it covers what the module uses; nobody has asked yet (ADR-0009).
+- `riggen.show()` leaves its `riggen-show-*` temp directory behind (`viewer.path` is the user's to reopen); a `Viewer.close()` that removes it, or cleanup at interpreter exit, once someone minds
+- `Robot.validate()` / `check()` are always empty in the SDK — every way to obtain a document validates; drop them or find them a purpose (a document assembled from `to_json` edits?)
+- The `_riggen` layer carries a joint's `parent` / `child` on read and ignores them on write; a `Frame` API (`robot.frames()`) is read-only until frames exist in the app
+- The SDK suite's `cli` fixture skips silently when no binary is found outside CI; a `pytest -rs` in the wheel job would show a skip as a skip
+- A live link between a running script and the window (streaming `q`) stays a file-based loop (`show()` / `wait()`); revisit only if it becomes the headline feature (ADR-0009 closed ADR-0002's question as "no")
 
 ## Rejected
 

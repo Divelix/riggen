@@ -169,6 +169,38 @@ cargo test --workspace                # incl. the visual snapshot suite (needs a
 python python/build_wheel.py                             # the wheel: the app binary + the extension module
 ```
 
+A notebook on the dev build, next to the fixtures — the SDK's own venv,
+the extension installed editable, the app from a local build:
+
+```sh
+uv venv target/sdk-venv --python 3.12
+VIRTUAL_ENV=$PWD/target/sdk-venv uvx maturin develop --uv   # rerun after a Rust change (~10 s)
+uv pip install --python target/sdk-venv ipykernel mujoco pytest
+target/sdk-venv/bin/python -m ipykernel install --user --name riggen-dev --display-name "riggen (dev)"
+cargo build --release -p riggen-app && export RIGGEN_BINARY=$PWD/target/release/riggen   # for riggen.show()
+```
+
+Put notebooks in `scratch/` (gitignored) on the "riggen (dev)" kernel;
+anything worth keeping becomes an `examples/*.py`, which the test suite
+runs. The SDK suite itself: `target/sdk-venv/bin/python -m pytest
+python/tests/sdk`.
+
+To try a TestPyPI build in a `uv` project instead, give riggen its own
+index — an *explicit* one, or uv's dependency-confusion guard will find
+some other package's old version on TestPyPI and refuse:
+
+```toml
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+explicit = true
+
+[tool.uv.sources]
+riggen = { index = "testpypi" }
+```
+
+then `uv add "riggen==<version>"`.
+
 The Rust route to the binary is `cargo install --git
 https://github.com/Divelix/riggen riggen-app`; publishing the workspace to
 crates.io so that `cargo install riggen` works is a later release.
