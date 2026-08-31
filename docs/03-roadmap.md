@@ -198,9 +198,24 @@ release workflow is a tag push.
   every site pose from `mj_forward` against `fk::frames` at five
   configurations, over both the `.riggen` and the URDF route.
 
+- **2026-08-31** — mimic joints (ADR-0013). `Joint::mimic` couples one
+  joint's `q` to another's, `q = multiplier · q(leader) + offset`, and
+  `fk::resolve_q` is the one place that rule lives, read by `fk`, the
+  Joints window and `--fk-samples` alike. `validate` refuses the seven
+  shapes that would export to a model MuJoCo loads and simulates wrongly —
+  chains among them. It writes as URDF's native `<mimic>` and as an MJCF
+  `<equality><joint polycoef>`, a *soft* solver constraint rather than a
+  reduction, and — closing the `ImportWarning::MimicDropped` dead end that
+  shipped in M3 — the URDF import keeps it, dropping with a reason only
+  what the document cannot hold. The first schema bump: `.riggen` is
+  version 2, `load` walks an `upgrade_vN_to_vN+1` chain and
+  `pendulum.riggen` is frozen at 1 as the file it reads. The `mujoco` job
+  checks every `mjEQ_JOINT` against the sampled `qpos`, so a swapped
+  `polycoef` order or a dropped `<equality>` fails.
+
 Still open:
 
-- Mimic joints; actuator presets.
+- Actuator presets.
 - MJCF import; SDF export.
 - Web demo build if the wasm check has stayed green.
 
