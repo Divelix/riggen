@@ -86,6 +86,42 @@ jobs:
       - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-mjcf-in target/sample/arm.xml
       - run: uv run --no-project --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample target/sample-urdf target/sample-decomp target/sample-mjcf-in target/sample-mjcf-in=target/sample
 
+  # The SDF acceptance (ADR-0016 §6): the app's headless export produces the
+  # sample arm's SDF, and libsdformat — the spec's own parser, through its
+  # Python bindings — loads it, raising on anything illegal, resolves the
+  # pose graph and the axis frames, and FK over what it resolved agrees with
+  # `riggen_core::fk` to 1e-9. Tighter than the `mujoco` job's 1e-6 because
+  # nothing in this loop is a simulator with its own integrator.
+  #
+  # `packages.osrfoundation.org` is the only third-party apt repository in
+  # this workflow. It is here because `libsdformat` is in no Ubuntu archive
+  # and on no wheel on PyPI, and the alternatives were measured and refused
+  # (ADR-0016 §Context): pybullet ignores `//pose/@relative_to` silently and
+  # is f32; `gz sdf -k` exits 0 on hard errors and computes no poses.
+  sdf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo curl -sSL https://packages.osrfoundation.org/gazebo.gpg \
+            -o /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" \
+            | sudo tee /etc/apt/sources.list.d/gazebo-stable.list
+          sudo apt-get update
+          sudo apt-get install -y gz-jetty-sdformat-python python3-numpy
+      - run: cargo run -p riggen-app -- --export sdf --fk-samples --out target/sample-sdf assets/fixtures/arm/arm.riggen
+      # The same robot through the URDF import, where the frames arrive as
+      # dummy links: a different tree, the same FK.
+      - run: cargo run -p riggen-app -- --export sdf --fk-samples --out target/sample-sdf-urdf assets/fixtures/arm/arm.urdf
+      # And the convex decomposition (ADR-0011), whose pieces are one
+      # `<collision>` each.
+      - run: cargo run -p riggen-app -- --export sdf --fk-samples --out target/sample-sdf-decomp assets/fixtures/bracket.riggen
+      # `/usr/bin/python3` by name: the bindings are an apt package under
+      # `/usr/lib/python3/dist-packages`, which a tool-cache Python cannot see.
+      - run: /usr/bin/python3 python/tests/test_sdf_load.py target/sample-sdf target/sample-sdf-urdf target/sample-sdf-decomp
+
   # The product (ADR-0002, ADR-0009): the wheel builds in the manylinux 2_28
   # container maturin-action provides — `build_wheel.py --binary-only`
   # first, for the `riggen` binary into the wheel data directory, then
