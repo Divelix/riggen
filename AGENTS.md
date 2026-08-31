@@ -19,22 +19,23 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**MJCF import done (2026-09-01, ADR-0015):** `mjcf_in::load` opens an
-`.xml` by every route a `.urdf` does, over the reading half of `xml.rs`;
-`<compiler>` and `<default>` are resolved and dropped, our own export
-round-trips (`<site>` → `Frame`, `<equality>` → mimic, `<actuator>` →
-preset), a foreign file imports with one warning per thing the document
-cannot hold, and the shapes it cannot represent are refused by name. One
-import vocabulary for both formats.
-**v0.2 before it:** actuator presets on the joint (ADR-0014), mimic joints
-through the one `fk::resolve_q` (ADR-0013), named frames end to end
-(ADR-0012), V-HACD convex decomposition on `riggen-app::jobs` (ADR-0011),
+**SDF export done (2026-09-01, ADR-0016):** `sdf.rs` is a third writer
+over the same `ResolvedRobot` and no new field — SDF 1.11, links posed
+`relative_to` their parent, native `<capsule>`, `<frame>` and
+`<axis><mimic>`, only the actuator still a comment. `Format` is a set
+(`mjcf|urdf|sdf|both|all`); the `sdf` CI job holds the file to libsdformat
+itself at 1e-9. **MJCF import before it (ADR-0015):** an `.xml` opens by
+every route a `.urdf` does, over the reading half of `xml.rs`; one import
+vocabulary for both formats. **v0.2 before that:** actuator presets
+(ADR-0014), mimic joints through the one `fk::resolve_q` (ADR-0013), named
+frames (ADR-0012), V-HACD decomposition on `riggen-app::jobs` (ADR-0011),
 and the `cp310-abi3` wheel that is both the app and `import riggen`
 (ADR-0009). `.riggen` is **schema 3**, with the upgrade chain `load` walks.
-**Before that:** M3 MJCF + URDF from one `ResolvedRobot`, MuJoCo-clean,
-URDF import, inertials, collision; M2 the mouse-only arm; M1 the document,
-commands, history, `.riggen`.
-**Next:** the last v0.2 line of `docs/03-roadmap.md` (SDF export).
+**Before that:** M3 the writers from one `ResolvedRobot`, URDF import,
+inertials, collision; M2 the mouse-only arm; M1 the document, commands,
+history, `.riggen`.
+**Next:** `/close-cycle` for v0.2 — every plan is retired and only the
+conditional web-demo line is left in `docs/03-roadmap.md`.
 
 ## Rules that are not derivable from the code
 

@@ -250,9 +250,29 @@ release workflow is a tag push.
   both imports. The `mujoco` job gains a fourth model: the arm exported,
   imported and exported again, held to the *original* document's `fk.json`.
 
+- **2026-09-01** — SDF export (ADR-0016). `sdf.rs` is the third dumb
+  serialiser of one `ResolvedRobot`, and the one that apologises least: a
+  capsule stays a capsule, a `Frame` is SDF's own `<frame attached_to>`
+  rather than a dummy link, and a mimic is `<axis><mimic>`, which is why
+  the file declares spec **1.11**. It costs no arithmetic, because SDF's
+  defaults are riggen's conventions: a link's `<pose relative_to="«parent»">`
+  *is* `ResolvedJoint::origin`, a joint carries no `<pose>` because SDF
+  already expresses one in the child link frame (ADR-0004), and `<xyz>`
+  carries no `expressed_in` because its default is that same frame. Only
+  the actuator still becomes a comment — Gazebo's `<plugin>` names a C++
+  class and a version of Gazebo, so ADR-0014's URDF reasoning holds word
+  for word. `Format` stopped being a three-valued enum and became a set of
+  three booleans, spelled `mjcf|urdf|sdf|both|all` on the command line and
+  in the SDK and three checkboxes in the dialog. The `sdf` CI job holds the
+  file to **libsdformat itself**: the spec's own parser raises on anything
+  illegal and resolves the pose graph, and FK over what it resolved matches
+  `fk` to 1e-9 — a tighter bar than the `mujoco` job's, because nothing in
+  that loop is a simulator. `pybullet` is not in CI and reads our SDF
+  wrong, measured and stated: it ignores `relative_to` in silence, and its
+  users want the `.urdf` the same export writes.
+
 Still open:
 
-- SDF export.
 - Web demo build if the wasm check has stayed green.
 
 ## What not to spend agent time on

@@ -91,6 +91,14 @@ The by-hand half was done headlessly: the manylinux wheel installed into
 - The SDK suite's `cli` fixture skips silently when no binary is found outside CI; a `pytest -rs` in the wheel job would show a skip as a skip
 - A live link between a running script and the window (streaming `q`) stays a file-based loop (`show()` / `wait()`); revisit only if it becomes the headline feature (ADR-0009 closed ADR-0002's question as "no")
 
+### From SDF export (plans/sdf-export, 2026-09-01)
+
+- A **Gazebo model package** — `model.config`, a `<world>`, `<include>`, `<plugin>` — was a non-goal: that is a distribution format, not an export, and ADR-0008's directory is what the other two writers fill. Worth doing if a user asks for one.
+- **SDF import.** The reading direction is URDF and MJCF; `libsdformat` is a CI test dependency (ADR-0016 §6) and never a runtime one. A third import would extend the one vocabulary ADR-0015 §4 built rather than invent a third.
+- `pybullet` reads riggen's SDF wrong — it ignores `//pose/@relative_to` in silence and is f32 (measured, ADR-0016 §Context). Nothing is planned: its users want the `.urdf` the same export writes. Revisit only if SDF-for-pybullet becomes a real request, and then as a second pose convention behind an option, never as the default.
+- `test_sdf_load.py` cannot see which frame an `<xyz>` is expressed in, because every joint in the fixtures is axis-aligned with the model at q = 0; the convention is pinned in `sdf.rs`'s golden instead. A fixture with a rotated joint origin would close it numerically.
+- The `sdf` CI job adds `packages.osrfoundation.org`, the workflow's only third-party apt repository, and pins nothing: `gz-jetty-sdformat-python` follows the repo. A version pin, or a mirror, if it ever breaks a build.
+
 ## Rejected
 
 - `SetRoot` across a movable joint — a URDF always has a root, and the reversed-pivot convention is a design question nothing in M3 needed (plans/m3-sim-ready OPEN 2, 2026-08-29)
