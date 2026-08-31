@@ -87,7 +87,7 @@ the `mujoco` job already does for MJCF.
   name>` → `<link name><pose …><inertial><pose><mass><inertia ixx…/>`, in
   the resolved order. A golden test against `test_util::every_joint_kind`,
   the shape `mjcf.rs` and `urdf.rs` both use.
-- [ ] 5 — **Geometry.** `<visual>` / `<collision>` with `<geometry><mesh>
+- [x] 5 — **Geometry.** `<visual>` / `<collision>` with `<geometry><mesh>
   <uri>`, and `<box><size>` (full extents) / `<cylinder>` / `<sphere>` /
   native `<capsule>` — so the "a capsule becomes a cylinder plus a
   warning" line of the URDF writer has no counterpart here. `MeshPathStyle`

@@ -7,10 +7,10 @@
 
 use std::path::Path;
 
-use riggen_core::Pose;
+use riggen_core::{Pose, Primitive};
 
-use crate::resolve::{ExportOptions, ResolvedRobot};
-use crate::xml::{Xml, num, pose6};
+use crate::resolve::{ExportOptions, MeshPathStyle, ResolvedGeom, ResolvedRobot};
+use crate::xml::{Xml, num, pose6, vec3};
 
 /// The spec version we write. 1.11 is the first with `<axis><mimic>`, and
 /// `libsdformat14` — what Gazebo Harmonic ships — reads it (ADR-0016 §1).
@@ -18,7 +18,7 @@ pub const VERSION: &str = "1.11";
 
 /// `dir` is where the export lands: `MeshPathStyle::Absolute` names the
 /// written mesh files by their absolute path.
-pub fn write(robot: &ResolvedRobot, _options: &ExportOptions, _dir: &Path) -> String {
+pub fn write(robot: &ResolvedRobot, options: &ExportOptions, dir: &Path) -> String {
     let mut x = Xml::new();
     x.open("sdf", &[("version", VERSION.into())]);
     x.open("model", &[("name", robot.name.clone())]);
@@ -56,11 +56,96 @@ pub fn write(robot: &ResolvedRobot, _options: &ExportOptions, _dir: &Path) -> St
             x.close("inertia");
             x.close("inertial");
         }
+        // SDF names every visual and collision, and the names have to be
+        // unique inside the link, so they are the link's own plus the
+        // index the resolver put them in.
+        for (i, geom) in link.visuals.iter().enumerate() {
+            write_geom(&mut x, "visual", &link.name, i, geom, options, dir);
+        }
+        for (i, geom) in link.collisions.iter().enumerate() {
+            write_geom(&mut x, "collision", &link.name, i, geom, options, dir);
+        }
         x.close("link");
     }
     x.close("model");
     x.close("sdf");
     x.finish()
+}
+
+fn write_geom(
+    x: &mut Xml,
+    tag: &str,
+    link: &str,
+    index: usize,
+    geom: &ResolvedGeom,
+    options: &ExportOptions,
+    dir: &Path,
+) {
+    x.open(tag, &[("name", format!("{link}_{tag}_{index}"))]);
+    match geom {
+        ResolvedGeom::Mesh { name, pose, .. } => {
+            x.text("pose", &[], &pose6(pose));
+            x.open("geometry", &[]);
+            x.open("mesh", &[]);
+            x.text("uri", &[], &mesh_uri(name, options, dir));
+            x.close("mesh");
+            x.close("geometry");
+        }
+        // Every primitive riggen has, SDF has — including the capsule,
+        // which URDF writes as a cylinder plus an apology (ADR-0016 §3).
+        // SDF's capsule `<length>` is its cylindrical part, exactly ours.
+        ResolvedGeom::Primitive(p) => {
+            let (pose, shape, fields): (&Pose, &str, Vec<(&str, String)>) = match p {
+                Primitive::Box { pose, size } => (pose, "box", vec![("size", vec3(*size))]),
+                Primitive::Cylinder {
+                    pose,
+                    radius,
+                    length,
+                } => (
+                    pose,
+                    "cylinder",
+                    vec![("radius", num(*radius)), ("length", num(*length))],
+                ),
+                Primitive::Sphere { pose, radius } => {
+                    (pose, "sphere", vec![("radius", num(*radius))])
+                }
+                Primitive::Capsule {
+                    pose,
+                    radius,
+                    length,
+                } => (
+                    pose,
+                    "capsule",
+                    vec![("radius", num(*radius)), ("length", num(*length))],
+                ),
+            };
+            x.text("pose", &[], &pose6(pose));
+            x.open("geometry", &[]);
+            x.open(shape, &[]);
+            for (field, value) in fields {
+                x.text(field, &[], &value);
+            }
+            x.close(shape);
+            x.close("geometry");
+        }
+    }
+    x.close(tag);
+}
+
+/// The `<mesh><uri>` for `stem` under `options.mesh_paths` (ADR-0016 §4):
+/// SDF's `model://` is URDF's `package://`, so the one dialog control
+/// means one thing in both files.
+pub fn mesh_uri(stem: &str, options: &ExportOptions, dir: &Path) -> String {
+    let relative = format!("meshes/{stem}.stl");
+    match &options.mesh_paths {
+        MeshPathStyle::Relative => relative,
+        MeshPathStyle::Package(package) => format!("model://{package}/{relative}"),
+        MeshPathStyle::Absolute => {
+            let path = dir.join(&relative);
+            let path = riggen_core::absolute(&path).unwrap_or(path);
+            format!("file://{}", path.display())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -85,6 +170,22 @@ pub(crate) mod tests {
           <izz>0.0045</izz>
         </inertia>
       </inertial>
+      <visual name="base_link_visual_0">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>meshes/cube.stl</uri>
+          </mesh>
+        </geometry>
+      </visual>
+      <collision name="base_link_collision_0">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>meshes/cube.stl</uri>
+          </mesh>
+        </geometry>
+      </collision>
     </link>
     <link name="upper">
       <pose relative_to="base_link">0 0 0.1 0 0 0</pose>
@@ -100,6 +201,22 @@ pub(crate) mod tests {
           <izz>0.0045</izz>
         </inertia>
       </inertial>
+      <visual name="upper_visual_0">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>meshes/cube.stl</uri>
+          </mesh>
+        </geometry>
+      </visual>
+      <collision name="upper_collision_0">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>meshes/cube.stl</uri>
+          </mesh>
+        </geometry>
+      </collision>
     </link>
     <link name="slider">
       <pose relative_to="upper">0 0 0.1 0 0 0</pose>
@@ -115,6 +232,22 @@ pub(crate) mod tests {
           <izz>0.0045</izz>
         </inertia>
       </inertial>
+      <visual name="slider_visual_0">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>meshes/cube.stl</uri>
+          </mesh>
+        </geometry>
+      </visual>
+      <collision name="slider_collision_0">
+        <pose>0 0 0.01 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.1 0.2 0.3</size>
+          </box>
+        </geometry>
+      </collision>
     </link>
     <link name="wheel">
       <pose relative_to="slider">0 0 0.1 0 0 0</pose>
@@ -130,6 +263,22 @@ pub(crate) mod tests {
           <izz>0.0045</izz>
         </inertia>
       </inertial>
+      <visual name="wheel_visual_0">
+        <pose>0 0.02 0 1.570796326795 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>meshes/cube.stl</uri>
+          </mesh>
+        </geometry>
+      </visual>
+      <collision name="wheel_collision_0">
+        <pose>0 0.02 0 1.570796326795 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>meshes/cube.stl</uri>
+          </mesh>
+        </geometry>
+      </collision>
     </link>
     <link name="tip">
       <pose relative_to="wheel">0 0 0.1 0 0 0</pose>
@@ -179,5 +328,121 @@ pub(crate) mod tests {
         // An empty static link gets no `<inertial>`, as in URDF.
         assert_eq!(links[4].attr("name"), Some("tip"));
         assert_eq!(links[4].child("inertial"), None);
+        // Every visual and collision is named, and uniquely inside its
+        // link — SDF requires it, and a duplicate is an error there.
+        for link in &links {
+            let mut names: Vec<&str> = link
+                .children
+                .iter()
+                .filter(|c| c.tag == "visual" || c.tag == "collision")
+                .map(|c| c.attr("name").expect("named"))
+                .collect();
+            let count = names.len();
+            names.sort_unstable();
+            names.dedup();
+            assert_eq!(names.len(), count, "{names:?}");
+        }
+    }
+
+    /// The one place SDF beats URDF: a capsule stays a capsule, so the
+    /// URDF writer's "written as a cylinder" apology has no counterpart
+    /// here (ADR-0016 §3). `<box><size>` is full extents, as in URDF and
+    /// unlike MJCF's half-extents.
+    #[test]
+    fn primitives_are_full_extents_and_a_capsule_stays_a_capsule() {
+        let mut b = every_joint_kind();
+        let tip = *b
+            .robot
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "tip")
+            .unwrap()
+            .0;
+        let pose = Pose::from_translation(riggen_core::glam::DVec3::Z * 0.01);
+        b.robot.links.get_mut(&tip).unwrap().collision =
+            riggen_core::CollisionPolicy::Primitives(vec![
+                Primitive::Cylinder {
+                    pose,
+                    radius: 0.02,
+                    length: 0.5,
+                },
+                Primitive::Sphere { pose, radius: 0.03 },
+                Primitive::Capsule {
+                    pose,
+                    radius: 0.04,
+                    length: 0.6,
+                },
+            ]);
+        let sdf = write(
+            &b.resolve().unwrap(),
+            &ExportOptions::default(),
+            Path::new("."),
+        );
+        for block in [
+            "<box>\n            <size>0.1 0.2 0.3</size>\n          </box>",
+            "<cylinder>\n            <radius>0.02</radius>\n            <length>0.5</length>\n          </cylinder>",
+            "<sphere>\n            <radius>0.03</radius>\n          </sphere>",
+            "<capsule>\n            <radius>0.04</radius>\n            <length>0.6</length>\n          </capsule>",
+        ] {
+            assert!(sdf.contains(block), "missing {block}\n{sdf}");
+        }
+        // Nothing is apologised for: the only comment in the file is the
+        // generated-by line every writer opens with.
+        assert_eq!(sdf.matches("<!--").count(), 1, "{sdf}");
+        assert!(!sdf.contains("cylinder: URDF"), "{sdf}");
+        // The three of them are three named collisions on the one link.
+        let root = crate::xml::parse(&sdf).unwrap();
+        let tip = root
+            .child("model")
+            .unwrap()
+            .kids("link")
+            .find(|l| l.attr("name") == Some("tip"))
+            .unwrap();
+        let names: Vec<&str> = tip
+            .kids("collision")
+            .map(|c| c.attr("name").unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            ["tip_collision_0", "tip_collision_1", "tip_collision_2"]
+        );
+    }
+
+    /// `MeshPathStyle` needs no new variant for SDF: `model://` is what
+    /// `package://` is to URDF, and an absolute path becomes a `file://`
+    /// URI because `<uri>` is a URI (ADR-0016 §4).
+    #[test]
+    fn every_mesh_path_style() {
+        let dir = Path::new("/exports/arm");
+        let rel = ExportOptions::default();
+        assert_eq!(mesh_uri("base", &rel, dir), "meshes/base.stl");
+        let pkg = ExportOptions {
+            mesh_paths: MeshPathStyle::Package("arm_description".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            mesh_uri("base", &pkg, dir),
+            "model://arm_description/meshes/base.stl"
+        );
+        let abs = ExportOptions {
+            mesh_paths: MeshPathStyle::Absolute,
+            ..Default::default()
+        };
+        assert_eq!(
+            mesh_uri("base", &abs, dir),
+            "file:///exports/arm/meshes/base.stl"
+        );
+        // A relative export dir is made absolute against the cwd, and the
+        // `file://` prefix leaves the leading slash of the path in place.
+        let here = mesh_uri("base", &abs, Path::new("out"));
+        assert!(here.starts_with("file:///"), "{here}");
+        assert!(here.ends_with("/out/meshes/base.stl"), "{here}");
+        // And the style reaches the written file, not just this helper.
+        let b = every_joint_kind();
+        let sdf = write(&b.resolve().unwrap(), &pkg, dir);
+        assert!(
+            sdf.contains("<uri>model://arm_description/meshes/cube.stl</uri>"),
+            "{sdf}"
+        );
     }
 }
