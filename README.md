@@ -64,8 +64,10 @@ mount — which Move and Rotate land on a picked feature the same way.
   meters as STL — frames as `<site>`s and as the massless dummy links ROS
   expects — so MuJoCo loads it with zero warnings and its forward
   kinematics agree with riggen's (that is a CI job, not a hope).
-- **Imports**: an existing URDF, `package://` paths resolved beside the
-  file, to fix and convert it.
+- **Imports**: an existing URDF or MJCF — `package://` paths resolved
+  beside the file, MuJoCo's `<default>` classes and degrees understood —
+  to fix and convert it. Whatever the file held that the document cannot
+  is named, never dropped in silence.
 - **Stays out of the way**: a native window through wgpu, a document that
   is plain JSON (`.riggen`), undo for everything, and a headless CLI.
 
@@ -80,7 +82,7 @@ usage:
 
 options:
   --example NAME          open a bundled example: arm (the five-link sample robot)
-  --export FORMAT         headless export of INPUT (.riggen or .urdf): mjcf, urdf or both
+  --export FORMAT         headless export of INPUT (.riggen, .urdf or .xml): mjcf, urdf or both
   --out DIR               where --export writes; created if missing
   --fk-samples            with --export: also write <name>.fk.json, five sampled joint configurations
   --timing                print the time from launch to the first frame on stderr
@@ -89,7 +91,8 @@ options:
 ```
 
 `riggen --export` needs no display, so it runs in CI and in scripts: give
-it a `.riggen` or a `.urdf` and it writes the model, the meshes and, with
+it a `.riggen`, a `.urdf` or an MJCF `.xml` and it writes the model, the
+meshes and, with
 `--fk-samples`, five joint configurations with every body's world pose —
 the file `python/tests/test_mjcf_load.py` checks MuJoCo against.
 
@@ -147,7 +150,8 @@ model = mujoco.MjModel.from_xml_path("out/pendulum.xml")
 ```
 
 `riggen.load(path)` reads a `.riggen`, `riggen.load_urdf(path)` an existing
-URDF (with `packages={"name": "dir"}` for `package://` paths); export writes
+URDF (with `packages={"name": "dir"}` for `package://` paths) and
+`riggen.load_mjcf(path)` an MJCF; export writes
 `format="urdf"` or `"both"` too, and `fk_samples=True` adds the five joint
 configurations CI compares against MuJoCo. [`examples/pendulum.py`](examples/pendulum.py)
 is the snippet above as a file; [`examples/arm.py`](examples/arm.py) builds
