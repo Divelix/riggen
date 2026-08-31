@@ -141,7 +141,7 @@ and the import-warning docstring at `robot.py:1101` loses "mimic".
   follower as a disabled slider at its derived value, labelled `= -0.5 ×
   upper_joint + 0.1`. Snapshots: `properties_joint_mimic`,
   `joints_window_mimic` (ADR-0003 — show the human the images).
-- [ ] **Step 6 — SDK, both layers.** `Mimic` in `python/riggen/robot.py`,
+- [x] **Step 6 — SDK, both layers.** `Mimic` in `python/riggen/robot.py`,
   `mimic` through `_riggen`'s `JointInput`/`JointDoc`, `Joint.mimic` with
   its setter, `_riggen.pyi`, and a test that builds a coupled pair in
   Python, exports MJCF and finds the `<equality>`.

@@ -63,6 +63,7 @@ from .robot import (
     Limits,
     Link,
     Material,
+    Mimic,
     OverrideInertial,
     Pose,
     Prismatic,
@@ -94,6 +95,7 @@ __all__ = [
     # values
     "Pose",
     "Limits",
+    "Mimic",
     "Dynamics",
     "Material",
     "Inertial",

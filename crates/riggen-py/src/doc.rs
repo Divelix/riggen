@@ -4,8 +4,9 @@
 //! (docs/02-data-model.md §Schema) — with one difference: **ids are ints**.
 //! The file writes `"l5"`; Python sees `5`. The keys that hold an id are
 //! fixed by the schema (`id` a geom, `mesh` a mesh, `parent` / `child` a
-//! link), so the rule is by key and nothing else is touched — a link
-//! *named* `"l5"` lives under `name` and stays a string.
+//! link, `joint` a mimic's leader), so the rule is by key and nothing else
+//! is touched — a link *named* `"l5"` lives under `name` and stays a
+//! string.
 
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -16,7 +17,13 @@ use serde_json::{Map, Number, Value};
 
 /// Schema keys whose value is an id, with the letter the file prefixes it
 /// with (`riggen_core::Id::PREFIX`).
-const ID_KEYS: [(&str, char); 4] = [("id", 'g'), ("mesh", 'm'), ("parent", 'l'), ("child", 'l')];
+const ID_KEYS: [(&str, char); 5] = [
+    ("id", 'g'),
+    ("mesh", 'm'),
+    ("parent", 'l'),
+    ("child", 'l'),
+    ("joint", 'j'),
+];
 
 /// A document value as Python, ids as ints.
 pub fn to_doc<T: Serialize>(py: Python<'_>, value: &T) -> PyResult<Py<PyAny>> {

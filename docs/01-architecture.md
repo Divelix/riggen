@@ -799,7 +799,8 @@ over that table — no logic of its own beyond spelling:
 | `link.add_mesh(path, *, pose, scale, fix_up, color)` → `Geom`; `geom.pose`, `.mesh`, `.remove()` | `add_asset` + `add_geom`; `set_geom_pose`, `remove_geom` |
 | `link.remove()`, `.reparent(parent, keep_world_pose=True)`, `.place(world)`, `.make_root()` | `remove_link`, `reparent`, `origin_for_world` + `set_joint`, `set_root` |
 | `link.inertial` → `Inertial(mass, com, inertia)` | `inertial` |
-| `joint.name`, `.kind`, `.parent`, `.child`; `.origin`, `.axis`, `.limits`, `.dynamics`, `.spec` (get/set); `.move_frame(origin, axis)` | `set_joint` with the one field changed; `move_joint_frame` |
+| `joint.name`, `.kind`, `.parent`, `.child`; `.origin`, `.axis`, `.limits`, `.dynamics`, `.mimic`, `.spec` (get/set); `.move_frame(origin, axis)` | `set_joint` with the one field changed; `move_joint_frame` |
+| `Mimic(joint, multiplier, offset)` — `joint` is the leader's handle | the `mimic` dict, the leader as an id; a coupling is not part of a `JointSpec`, so assigning `.spec` carries it over (and a `Fixed` spec drops it, ADR-0013) |
 | `link.add_frame(name, pose)` → `Frame`; `link.frames`, `robot.frames`, `robot.frame(name)` (`KeyError`) | `add_frame`, `frames()`, `frame(name)` |
 | `frame.name`, `.parent`, `.pose` (get/set), `.world(q)`, `.remove()` | `rename_frame`, `set_frame`, `fk_frames`, `remove_frame`; setting `.parent` keeps the *stored* pose, so the frame moves — the app's panel is the one that keeps the world pose (ADR-0012) |
 | `Pose(xyz, rpy= \| quat=, degrees=)`, `.rpy`, `.rpy_degrees`, `.to_doc()` | `rpy_to_quat` / `quat_to_rpy` (the core's convention, never re-derived); `quat` is `(w, x, y, z)` |
@@ -810,8 +811,8 @@ over that table — no logic of its own beyond spelling:
 
 `examples/pendulum.py` (the README's ten lines; the corpus pendulum) and
 `examples/arm.py` (the M2 arm from its STLs, joints typed, a `tcp` and a
-`camera_mount` frame on top; its export is byte-identical to
-`arm.riggen`'s) are the API's worked examples and the
+`camera_mount` frame on top and the forearm coupled to the upper arm; its
+export is byte-identical to `arm.riggen`'s) are the API's worked examples and the
 `wheel` job's MuJoCo input.
 
 ## Testing
