@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Not written by riggen: the corpus for the MJCF import (ADR-0015), shaped
+  like a MuJoCo Menagerie model rather than like our own export. It carries,
+  on purpose, everything the import has to cope with and everything it has
+  to refuse to guess at:
+
+    * <compiler angle="degree">, which is MJCF's default and the opposite
+      of ours, plus a meshdir pointing at the arm fixture's own meshes;
+    * a <default> tree with a childclass on the root body, class names that
+      are not our "visual" / "collision", and gains inherited two levels up;
+    * all five spellings of a rotation — quat, euler, axisangle, xyaxes,
+      zaxis — one per element;
+    * a <geom fromto> capsule, a non-uniform mesh scale, an ellipsoid and a
+      primitive on the visual side;
+    * a <general> actuator and one driving a tendon;
+    * <option>, <light>, <camera>, <texture>, <material>, <tendon>,
+      <sensor>, <contact> and <keyframe>, none of which the document holds.
+
+  `mjcf_in::tests::the_menagerie_style_corpus_imports_with_the_warnings_it_should`
+  pins what comes of all that, warning by warning.
+-->
+<mujoco model="menagerie_style">
+  <compiler angle="degree" eulerseq="xyz" meshdir="arm" autolimits="true"/>
+  <option timestep="0.002" integrator="implicitfast"/>
+
+  <default>
+    <geom contype="1" conaffinity="1" solref="0.004 1"/>
+    <joint damping="0.1" armature="0.01" frictionloss="0.02"/>
+    <default class="arm">
+      <joint range="-180 180"/>
+      <default class="arm_visual">
+        <geom type="mesh" contype="0" conaffinity="0" group="2" rgba="0.2 0.2 0.25 1"/>
+      </default>
+      <default class="arm_collision">
+        <geom type="mesh" group="3"/>
+      </default>
+    </default>
+  </default>
+
+  <asset>
+    <mesh name="base" file="base.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="shoulder" file="shoulder.stl" scale="0.001 0.002 0.001"/>
+    <material name="metal" rgba="0.5 0.5 0.55 1"/>
+    <texture name="grid" type="2d" builtin="checker" width="8" height="8"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 2"/>
+    <body name="base_link" childclass="arm">
+      <inertial pos="0 0 0.02" mass="0.5" diaginertia="0.001 0.001 0.002"/>
+      <geom class="arm_visual" mesh="base"/>
+      <geom class="arm_collision" mesh="base" quat="0.7071068 0 0 0.7071068"/>
+      <site name="mount" pos="0 0 0.03" euler="90 0 0"/>
+      <body name="shoulder" pos="0 0 0.04" euler="0 0 45">
+        <joint name="shoulder_pan" axis="0 0 1"/>
+        <inertial pos="0 0 0.03" mass="0.3" fullinertia="0.001 0.001 0.001 0 0 0"/>
+        <geom class="arm_visual" mesh="shoulder"/>
+        <camera name="wrist_cam" pos="0 0 0.1"/>
+        <body name="upper" pos="0 0 0.055" axisangle="0 1 0 30">
+          <joint name="shoulder_lift" axis="0 1 0" range="-90 90"/>
+          <inertial pos="0 0 0.05" mass="0.2" diaginertia="0.001 0.001 0.001"/>
+          <geom class="arm_collision" type="capsule" size="0.02" fromto="0 0 0 0 0 0.1"/>
+          <body name="wrist" pos="0 0 0.1" xyaxes="1 0 0 0 0 1">
+            <joint name="wrist_slide" type="slide" axis="0 0 1" range="0 0.05"/>
+            <inertial pos="0 0 0.01" mass="0.05" diaginertia="0.0001 0.0001 0.0001"/>
+            <geom class="arm_visual" type="box" size="0.01 0.02 0.03"/>
+            <geom class="arm_collision" type="ellipsoid" size="0.01 0.02 0.03"/>
+            <body name="tool" zaxis="0 -1 0">
+              <site name="tcp" pos="0 0 0.02"/>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <equality>
+    <joint joint1="shoulder_lift" joint2="shoulder_pan" polycoef="0 0.25 0 0 0"/>
+  </equality>
+
+  <actuator>
+    <position name="pan" joint="shoulder_pan" kp="120" kv="12" forcerange="-30 30"/>
+    <general name="lift" joint="shoulder_lift" dyntype="filter" gaintype="fixed" gainprm="200"/>
+    <motor name="grip" tendon="grip_tendon" gear="80"/>
+  </actuator>
+
+  <tendon>
+    <fixed name="grip_tendon">
+      <joint joint="wrist_slide" coef="1"/>
+    </fixed>
+  </tendon>
+  <sensor>
+    <jointpos joint="shoulder_pan"/>
+  </sensor>
+  <contact>
+    <exclude body1="base_link" body2="shoulder"/>
+  </contact>
+  <keyframe>
+    <key name="home" qpos="0 0 0"/>
+  </keyframe>
+</mujoco>

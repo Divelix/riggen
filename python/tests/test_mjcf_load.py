@@ -19,6 +19,12 @@ convex-decomposition pieces
 MuJoCo hulls a collision mesh itself, so a single piece would mean the
 part collides as a solid block and the policy bought nothing.
 
+An argument may be `MODEL_DIR=SAMPLES_DIR`, and then the model comes from
+the first and its `<name>.fk.json` from the second. That is how the MJCF
+round trip is checked (ADR-0015): the arm exported, imported back and
+exported again has to reproduce the *original* document's FK, not merely
+agree with its own.
+
     uv run --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample
 
 Plain script, no pytest: the CI job is the four lines in the plan's
@@ -296,9 +302,10 @@ def check_decomposition(model: mujoco.MjModel) -> int:
 
 
 def main(argv: list[str]) -> int:
-    dirs = [Path(a) for a in argv] or [Path("target/sample")]
+    specs = [tuple(a.split("=", 1) * 2)[:2] for a in argv] or [("target/sample",) * 2]
     failures = 0
-    for directory in dirs:
+    for model_dir, samples_dir in specs:
+        directory, samples_root = Path(model_dir), Path(samples_dir)
         xmls = sorted(directory.glob("*.xml"))
         if not xmls:
             print(f"FAIL {directory}: no .xml in it")
@@ -320,7 +327,7 @@ def main(argv: list[str]) -> int:
                 continue
             if pieces:
                 summary += f", {pieces} convex-decomposition geoms"
-            fk = xml.with_suffix(".fk.json")
+            fk = (samples_root / xml.name).with_suffix(".fk.json")
             if fk.exists():
                 samples = json.loads(fk.read_text())
                 try:

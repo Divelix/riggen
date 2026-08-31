@@ -78,7 +78,13 @@ jobs:
       # `bracket.stl` on a hinge, its collision a `ConvexDecomposition`.
       # `test_mjcf_load.py` fails a body that carries only one piece.
       - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-decomp assets/fixtures/bracket.riggen
-      - run: uv run --no-project --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample target/sample-urdf target/sample-decomp
+      # The MJCF round trip (ADR-0015): the arm's own export read back and
+      # written out again. `=target/sample` holds the *second* model to the
+      # *first* document's FK — poses, sites, mjEQ_JOINT and model.nu — so
+      # anything the import quietly lost fails here rather than agreeing
+      # with itself.
+      - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-mjcf-in target/sample/arm.xml
+      - run: uv run --no-project --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample target/sample-urdf target/sample-decomp target/sample-mjcf-in target/sample-mjcf-in=target/sample
 
   # The product (ADR-0002, ADR-0009): the wheel builds in the manylinux 2_28
   # container maturin-action provides — `build_wheel.py --binary-only`
