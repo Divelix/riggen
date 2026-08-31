@@ -519,11 +519,19 @@ mod tests {
                 for c in grid {
                     let values = [a, b, c];
                     let mut state = JointState::new();
-                    let mut q = BTreeMap::new();
-                    for ((id, joint), v) in movable.iter().zip(values) {
+                    for ((id, _), v) in movable.iter().zip(values) {
                         state.set(**id, v);
-                        q.insert(joint.name.as_str(), v);
                     }
+                    // `independent_fk` knows nothing about `<mimic>` — it
+                    // is deliberately the dumbest possible reader — so it
+                    // is handed the configuration the couplings produce.
+                    // What the `<mimic>` element itself means is pinned by
+                    // the golden and by MuJoCo, not here.
+                    let state = riggen_core::resolve_q(&robot, &state);
+                    let q: BTreeMap<&str, f64> = movable
+                        .iter()
+                        .map(|(id, joint)| (joint.name.as_str(), state.get(**id)))
+                        .collect();
                     let ours = fk(&robot, &state)[&fore].to_mat4();
                     let theirs = independent_fk(&parsed, &q)["fore"];
                     let diff = (ours - theirs).to_cols_array();

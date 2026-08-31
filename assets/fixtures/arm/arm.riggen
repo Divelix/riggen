@@ -273,7 +273,11 @@
           "friction": 0.0,
           "armature": 0.0
         },
-        "mimic": null
+        "mimic": {
+          "joint": "j12",
+          "multiplier": -0.5,
+          "offset": 0.1
+        }
       }
     },
     "frames": {

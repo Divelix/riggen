@@ -684,8 +684,8 @@ mod tests {
             joint("fore_joint").mimic,
             Some(riggen_core::Mimic {
                 joint: upper,
-                multiplier: 1.0,
-                offset: 0.0
+                multiplier: -0.5,
+                offset: 0.1
             })
         );
         assert_eq!(joint("upper_joint").mimic, None);

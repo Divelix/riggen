@@ -6,7 +6,11 @@ a `<name>.fk.json` sits beside it — set each sampled joint configuration,
 `mj_forward`, and compare every body's and every **site's** world pose with
 what `riggen_core::fk` wrote, to 1e-6. A site the samples name and the model
 does not have is a failure, not a skip: it is how a dropped `<site>` would
-look (ADR-0012). A body carrying convex-decomposition pieces
+look (ADR-0012). Every `mjEQ_JOINT` equality — what a mimic joint is written
+as (ADR-0013) — must agree with the sampled `qpos`, and a pair of joints the
+samples show as exactly coupled must have one, which is how a dropped
+`<equality>` or a `polycoef` in the wrong order would look. A body carrying
+convex-decomposition pieces
 (`<stem>_hull_0`, `_1`, … — ADR-0011) must carry more than one of them:
 MuJoCo hulls a collision mesh itself, so a single piece would mean the
 part collides as a solid block and the policy bought nothing.
@@ -89,6 +93,94 @@ def check_fk(model: mujoco.MjModel, samples: dict) -> int:
     return checked
 
 
+def affine(xs: list[float], ys: list[float]) -> tuple[float, float] | None:
+    """`(a0, a1)` if `ys == a0 + a1 * xs` exactly, with `a1` non-zero.
+
+    Exact, not fitted: both series come out of one linear rule in f64, so
+    they agree to rounding or they are unrelated.
+    """
+    base = next(
+        (
+            (i, j)
+            for i in range(len(xs))
+            for j in range(i + 1, len(xs))
+            if abs(xs[i] - xs[j]) > 1e-12
+        ),
+        None,
+    )
+    if base is None:
+        return None
+    i, j = base
+    a1 = (ys[j] - ys[i]) / (xs[j] - xs[i])
+    a0 = ys[i] - a1 * xs[i]
+    if abs(a1) < 1e-12:
+        return None
+    if any(abs(y - (a0 + a1 * x)) > 1e-12 for x, y in zip(xs, ys)):
+        return None
+    return a0, a1
+
+
+def check_equalities(model: mujoco.MjModel, samples: dict) -> int:
+    """Every joint equality agrees with the sampled qpos, and none is missing.
+
+    A mimic joint is an `<equality><joint polycoef>` (ADR-0013), where
+    `polycoef` is `y - y0 = a0 + a1 (x - x0) + …` over the two joints'
+    deviations from `qpos0`. riggen never writes `ref`, so both references
+    are zero and the rule is plain `y = a0 + a1 x`. The samples carry the
+    follower's *derived* value, so the two readings of `polycoef` agree
+    here or they do not agree at all — a swapped coefficient order fails.
+    """
+    q_of = {
+        name: [s["q"][i] for s in samples["samples"]]
+        for i, name in enumerate(samples["joints"])
+    }
+    # Unordered, because the relation is symmetric: `y = a0 + a1 x` is
+    # also `x = -a0/a1 + (1/a1) y`, and one equality covers both readings.
+    coupled: set[frozenset[str]] = set()
+    equalities = 0
+    for e in range(model.neq):
+        if model.eq_type[e] != mujoco.mjtEq.mjEQ_JOINT:
+            continue
+        follower = model.joint(int(model.eq_obj1id[e])).name
+        leader = model.joint(int(model.eq_obj2id[e])).name
+        a0, a1 = (float(v) for v in model.eq_data[e][:2])
+        higher = [float(v) for v in model.eq_data[e][2:5]]
+        if any(higher):
+            raise AssertionError(
+                f"equality {follower!r}/{leader!r} has non-linear polycoef {higher}; "
+                "riggen only ever writes the first two coefficients"
+            )
+        equalities += 1
+        coupled.add(frozenset({follower, leader}))
+        if follower not in q_of or leader not in q_of:
+            raise AssertionError(
+                f"equality couples {follower!r} to {leader!r}, which the samples "
+                f"do not name (they have {sorted(q_of)})"
+            )
+        for i, (f, l) in enumerate(zip(q_of[follower], q_of[leader])):
+            want = a0 + a1 * l
+            if abs(f - want) > TOLERANCE:
+                raise AssertionError(
+                    f"equality {follower!r} = {a0} + {a1} * {leader!r}: sample {i} has "
+                    f"{follower}={f} and {leader}={l}, which polycoef makes {want}"
+                )
+    # …and nothing was dropped on the way out: a joint whose sampled values
+    # are an exact linear function of another's is a mimic, and must have
+    # brought its equality with it.
+    for follower, ys in q_of.items():
+        for leader, xs in q_of.items():
+            if leader == follower or frozenset({follower, leader}) in coupled:
+                continue
+            fit = affine(xs, ys)
+            if fit:
+                raise AssertionError(
+                    f"the samples have {follower!r} = {fit[0]} + {fit[1]} * {leader!r} "
+                    "at every configuration, but the model has no equality for it: "
+                    "a mimic joint was dropped"
+                )
+    return equalities
+
+
 PIECE = re.compile(r"^(?P<stem>.+)_hull_(?P<index>\d+)$")
 
 
@@ -148,13 +240,18 @@ def main(argv: list[str]) -> int:
                 summary += f", {pieces} convex-decomposition geoms"
             fk = xml.with_suffix(".fk.json")
             if fk.exists():
+                samples = json.loads(fk.read_text())
                 try:
-                    n = check_fk(model, json.loads(fk.read_text()))
+                    n = check_fk(model, samples)
+                    equalities = check_equalities(model, samples)
                 except AssertionError as e:
                     print(f"FAIL {xml}: {e}")
                     failures += 1
                     continue
                 summary += f", {n} body and site poses match riggen's FK to {TOLERANCE:g}"
+                if equalities:
+                    word = "equality" if equalities == 1 else "equalities"
+                    summary += f", {equalities} mimic {word} checked against the samples"
             print(f"ok   {xml}: {summary}")
     return 1 if failures else 0
 

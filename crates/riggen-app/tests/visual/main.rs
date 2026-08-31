@@ -1145,8 +1145,16 @@ fn frames_tree() {
             .find(|g| g.name == "tcp")
             .expect("the tcp glyph");
         assert!(tcp.active, "the selected frame's glyph is drawn hot");
-        // At rest the TCP is 80 mm past the forearm's 0.195 m.
-        assert!((tcp.origin[2] - 0.275).abs() < 1e-6, "{:?}", tcp.origin);
+        // At rest the TCP is 80 mm past the forearm's 0.195 m, swung by
+        // the 0.1 rad `fore_joint` sits at even at rest: it follows
+        // `upper_joint` at `-0.5 q + 0.1` (ADR-0013).
+        let swung = 0.195 + 0.08 * 0.1_f64.cos();
+        assert!((tcp.origin[2] - swung).abs() < 1e-6, "{:?}", tcp.origin);
+        assert!(
+            (tcp.origin[0] - 0.08 * 0.1_f64.sin()).abs() < 1e-6,
+            "{:?}",
+            tcp.origin
+        );
         assert!(tcp.screen.is_some(), "and it is on screen");
         // Selecting a frame is not selecting a link: no instance goes with it.
         assert_eq!(state.selection.selected, None);
@@ -3191,6 +3199,21 @@ fn write_arm_sample() {
             },
         );
     }
+    // The forearm follows the upper arm (ADR-0013) — the coupling the
+    // MJCF writes as an `<equality>` and the URDF as a `<mimic>`, and the
+    // one `arm.urdf` carries too, so the pair stays equivalent. Both
+    // coefficients are non-degenerate on purpose: a multiplier of 1 and an
+    // offset of 0 would let a wrong `polycoef` order pass the MuJoCo
+    // acceptance unnoticed.
+    let joint_id =
+        |robot: &Robot, name: &str| *robot.joints.iter().find(|(_, j)| j.name == name).unwrap().0;
+    let leader = joint_id(&robot, "upper_joint");
+    let follower = joint_id(&robot, "fore_joint");
+    robot.joints.get_mut(&follower).unwrap().mimic = Some(riggen_core::Mimic {
+        joint: leader,
+        multiplier: -0.5,
+        offset: 0.1,
+    });
     riggen_core::validate(&robot).unwrap();
     riggen_core::save(&robot, &arm_fixture("arm.riggen")).unwrap();
 }
