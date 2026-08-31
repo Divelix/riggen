@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use riggen_core::{JointKind, JointState, Robot, fk, resolve_q};
+use riggen_core::{ActuatorSpec, JointKind, JointState, Robot, fk, resolve_q};
 use serde::Serialize;
 
 use crate::xml::quat_wxyz;
@@ -25,7 +25,32 @@ pub const FRACTIONS: [&[f64]; 5] = [
 pub struct Samples {
     /// Movable joint names, in the order `q` is given.
     pub joints: Vec<String>,
+    /// What the MJCF's `<actuator>` block should hold (ADR-0014). Empty
+    /// for a document with none — an imported URDF, say, which has no
+    /// actuator to bring.
+    pub actuators: Vec<SampledActuator>,
     pub samples: Vec<Sample>,
+}
+
+/// One `<actuator>` element, as the numbers rather than as XML: what
+/// `test_mjcf_load.py` reads out of `MjModel` and compares. Derived from
+/// the document here and from `ResolvedJoint` in `mjcf.rs` — two
+/// statements of one rule, the way `fk` and `mj_forward` are.
+#[derive(Debug, Serialize)]
+pub struct SampledActuator {
+    /// The element's name, which is its joint's name.
+    pub name: String,
+    /// `position`, `velocity` or `motor`.
+    pub kind: String,
+    /// The joint it drives — the same string, spelled out so the check is
+    /// not a restatement of the naming rule.
+    pub joint: String,
+    /// `kp` / `kv` / `gear` by name.
+    pub gains: BTreeMap<String, f64>,
+    /// Absent where MJCF leaves the attribute out and MuJoCo's unbounded
+    /// default stands.
+    pub ctrlrange: Option<[f64; 2]>,
+    pub forcerange: Option<[f64; 2]>,
 }
 
 #[derive(Debug, Serialize)]
@@ -55,6 +80,41 @@ impl WorldPose {
     }
 }
 
+/// Every actuator in `robot`, in `JointId` order, with the ranges the MJCF
+/// writer derives from the same joint (ADR-0014).
+fn actuators(robot: &Robot) -> Vec<SampledActuator> {
+    let symmetric = |v: f64| (v != 0.0).then_some([-v, v]);
+    robot
+        .joints
+        .values()
+        .filter_map(|joint| {
+            let actuator = joint.actuator?;
+            let (gains, ctrlrange) = match actuator {
+                ActuatorSpec::Position { kp, kv } => (
+                    BTreeMap::from([("kp".to_owned(), kp), ("kv".to_owned(), kv)]),
+                    joint.limits.map(|l| [l.lower, l.upper]),
+                ),
+                ActuatorSpec::Velocity { kv } => (
+                    BTreeMap::from([("kv".to_owned(), kv)]),
+                    joint.limits.and_then(|l| symmetric(l.velocity)),
+                ),
+                ActuatorSpec::Motor { gear } => (
+                    BTreeMap::from([("gear".to_owned(), gear)]),
+                    Some([-1.0, 1.0]),
+                ),
+            };
+            Some(SampledActuator {
+                name: joint.name.clone(),
+                kind: actuator.kind_name().to_owned(),
+                joint: joint.name.clone(),
+                gains,
+                ctrlrange,
+                forcerange: joint.limits.and_then(|l| symmetric(l.effort)),
+            })
+        })
+        .collect()
+}
+
 /// Five configurations of `robot`'s movable joints (in `JointId` order)
 /// and the FK at each.
 pub fn samples(robot: &Robot) -> Samples {
@@ -65,6 +125,7 @@ pub fn samples(robot: &Robot) -> Samples {
         .collect();
     let mut out = Samples {
         joints: movable.iter().map(|(_, j)| j.name.clone()).collect(),
+        actuators: actuators(robot),
         samples: Vec::new(),
     };
     for fractions in FRACTIONS {
@@ -266,5 +327,77 @@ mod tests {
         let first: Vec<f64> = s.samples.iter().map(|s| s.q[0]).collect();
         assert_eq!(first.len(), 5);
         assert!(first.windows(2).any(|w| w[0] != w[1]));
+    }
+
+    /// The `actuators` block is what `test_mjcf_load.py` holds MuJoCo to,
+    /// so it must be the numbers the MJCF writer derives — including the
+    /// two attributes it leaves out (ADR-0014).
+    #[test]
+    fn the_actuators_block_carries_the_ranges_the_mjcf_writer_derives() {
+        let mut robot = Robot::new("r");
+        let root = robot.root;
+        for (name, kind, limits) in [
+            (
+                "servo",
+                JointKind::Revolute,
+                Some(Limits {
+                    lower: -1.0,
+                    upper: 2.0,
+                    effort: 5.0,
+                    velocity: 3.0,
+                }),
+            ),
+            ("free", JointKind::Continuous, None),
+        ] {
+            Command::AddLink {
+                link: Box::new(Link::new(name)),
+                parent: root,
+                joint: Joint {
+                    kind,
+                    axis: DVec3::Z,
+                    origin: Pose::from_translation(DVec3::X),
+                    limits,
+                    ..Joint::fixed(name, root, root)
+                },
+            }
+            .apply(&mut robot)
+            .unwrap();
+        }
+        let id =
+            |robot: &Robot, n: &str| *robot.joints.iter().find(|(_, j)| j.name == n).unwrap().0;
+        let (servo, free) = (id(&robot, "servo"), id(&robot, "free"));
+        robot.joints.get_mut(&servo).unwrap().actuator = Some(ActuatorSpec::Position {
+            kp: 100.0,
+            kv: 10.0,
+        });
+        robot.joints.get_mut(&free).unwrap().actuator = Some(ActuatorSpec::Velocity { kv: 2.0 });
+        riggen_core::validate(&robot).unwrap();
+
+        let a = actuators(&robot);
+        assert_eq!(a.len(), 2);
+        assert_eq!(
+            (a[0].name.as_str(), a[0].kind.as_str()),
+            ("servo", "position")
+        );
+        assert_eq!(a[0].joint, "servo");
+        assert_eq!(a[0].gains["kp"], 100.0);
+        assert_eq!(a[0].gains["kv"], 10.0);
+        assert_eq!(a[0].ctrlrange, Some([-1.0, 2.0]), "the joint's own range");
+        assert_eq!(a[0].forcerange, Some([-5.0, 5.0]), "±effort");
+        // A `Continuous` joint has no `Limits`, so neither range is
+        // written and MuJoCo's unbounded defaults stand.
+        assert_eq!(
+            (a[1].name.as_str(), a[1].kind.as_str()),
+            ("free", "velocity")
+        );
+        assert_eq!(a[1].gains["kv"], 2.0);
+        assert_eq!((a[1].ctrlrange, a[1].forcerange), (None, None));
+        assert!(to_json(&robot).contains("\"kind\": \"position\""));
+
+        // A motor is normalised, whatever the joint says.
+        robot.joints.get_mut(&servo).unwrap().actuator = Some(ActuatorSpec::Motor { gear: 50.0 });
+        let a = actuators(&robot);
+        assert_eq!(a[0].ctrlrange, Some([-1.0, 1.0]));
+        assert_eq!(a[0].gains["gear"], 50.0);
     }
 }

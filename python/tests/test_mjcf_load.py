@@ -9,7 +9,11 @@ does not have is a failure, not a skip: it is how a dropped `<site>` would
 look (ADR-0012). Every `mjEQ_JOINT` equality — what a mimic joint is written
 as (ADR-0013) — must agree with the sampled `qpos`, and a pair of joints the
 samples show as exactly coupled must have one, which is how a dropped
-`<equality>` or a `polycoef` in the wrong order would look. A body carrying
+`<equality>` or a `polycoef` in the wrong order would look. Every actuator
+the samples name (ADR-0014) must be in the model, driving the joint it
+names, with the gains and the two ranges the samples give — and the model
+may carry no others: `model.nu` is the count, never a `> 0` that a wrong
+preset would pass. A body carrying
 convex-decomposition pieces
 (`<stem>_hull_0`, `_1`, … — ADR-0011) must carry more than one of them:
 MuJoCo hulls a collision mesh itself, so a single piece would mean the
@@ -181,6 +185,84 @@ def check_equalities(model: mujoco.MjModel, samples: dict) -> int:
     return equalities
 
 
+def check_actuators(model: mujoco.MjModel, samples: dict) -> int:
+    """Every `<actuator>` riggen wrote is in the model, driving the right joint.
+
+    An actuator is named after its joint and targets it (ADR-0014), so the
+    check is data-driven: the samples say what should be there and an
+    actuator they name that the model lacks is a failure — which is how a
+    dropped `<actuator>` looks. A URDF-imported robot legitimately has
+    none, and then `model.nu` must be zero too.
+
+    Where riggen leaves `ctrlrange` / `forcerange` out — a zero effort or
+    velocity is the *unfilled* value, not a clamp to zero — MuJoCo's
+    `*limited` flag must be off, so the actuator is unbounded rather than
+    stuck.
+    """
+    want = samples.get("actuators", [])
+    have = {model.actuator(i).name for i in range(model.nu)}
+    missing = sorted({a["name"] for a in want} - have)
+    if missing:
+        raise AssertionError(
+            f"the samples name actuator(s) {missing} the model does not have "
+            f"(it has {sorted(have)}): an <actuator> was dropped on the way out"
+        )
+    if model.nu != len(want):
+        raise AssertionError(
+            f"the model has {model.nu} actuator(s) {sorted(have)}, "
+            f"the samples name {len(want)}"
+        )
+    for spec in want:
+        name = spec["name"]
+        i = int(model.actuator(name).id)
+        if int(model.actuator_trntype[i]) != mujoco.mjtTrn.mjTRN_JOINT:
+            raise AssertionError(f"actuator {name!r} does not drive a joint")
+        driven = model.joint(int(model.actuator_trnid[i][0])).name
+        if driven != spec["joint"]:
+            raise AssertionError(
+                f"actuator {name!r} drives joint {driven!r}, not {spec['joint']!r}"
+            )
+        for what in ("ctrl", "force"):
+            limited = bool(getattr(model, f"actuator_{what}limited")[i])
+            got = getattr(model, f"actuator_{what}range")[i]
+            wanted = spec.get(f"{what}range")
+            if wanted is None:
+                if limited:
+                    raise AssertionError(
+                        f"actuator {name!r} has {what}range {list(got)}, but riggen wrote "
+                        "none: an unfilled effort/velocity must leave it unbounded"
+                    )
+            elif not limited or np.abs(np.asarray(wanted) - got).max() > TOLERANCE:
+                raise AssertionError(
+                    f"actuator {name!r} {what}range is {list(got)} (limited={limited}), "
+                    f"not {wanted}"
+                )
+        # Where MuJoCo puts each preset's gains: `<position kp kv>` is
+        # gainprm[0] = kp with an affine bias (-kp, -kv), `<velocity kv>`
+        # is gainprm[0] = kv with bias (0, -kv), and `<motor gear>` is a
+        # unit gain with the gear in the transmission.
+        gains, kind = spec["gains"], spec["kind"]
+        gain, bias = model.actuator_gainprm[i], model.actuator_biasprm[i]
+        gear = model.actuator_gear[i][0]
+        if kind == "position":
+            expected = [("kp", gain[0], gains["kp"]), ("-kp", bias[1], -gains["kp"]),
+                        ("-kv", bias[2], -gains["kv"]), ("gear", gear, 1.0)]
+        elif kind == "velocity":
+            expected = [("kv", gain[0], gains["kv"]), ("-kv", bias[2], -gains["kv"]),
+                        ("gear", gear, 1.0)]
+        elif kind == "motor":
+            expected = [("gain", gain[0], 1.0), ("gear", gear, gains["gear"])]
+        else:
+            raise AssertionError(f"actuator {name!r} has unknown kind {kind!r}")
+        for label, got, wanted in expected:
+            if abs(float(got) - wanted) > TOLERANCE:
+                raise AssertionError(
+                    f"actuator {name!r} ({kind}, gains {gains}): mujoco has {float(got)} "
+                    f"where {label} = {wanted} belongs"
+                )
+    return len(want)
+
+
 PIECE = re.compile(r"^(?P<stem>.+)_hull_(?P<index>\d+)$")
 
 
@@ -244,6 +326,7 @@ def main(argv: list[str]) -> int:
                 try:
                     n = check_fk(model, samples)
                     equalities = check_equalities(model, samples)
+                    actuators = check_actuators(model, samples)
                 except AssertionError as e:
                     print(f"FAIL {xml}: {e}")
                     failures += 1
@@ -252,6 +335,7 @@ def main(argv: list[str]) -> int:
                 if equalities:
                     word = "equality" if equalities == 1 else "equalities"
                     summary += f", {equalities} mimic {word} checked against the samples"
+                summary += f", {actuators} actuator(s) match what the samples ask for"
             print(f"ok   {xml}: {summary}")
     return 1 if failures else 0
 

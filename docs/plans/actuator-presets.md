@@ -99,7 +99,7 @@ the properties panel's actuator section.
       joint with no actuator; URDF gains the mirror comment. Golden-file
       tests in `mjcf.rs` and `urdf.rs` for all three presets and for a
       `Continuous` joint (no `ctrlrange`).
-- [ ] **Step 3 — the arm carries real actuators and MuJoCo agrees.**
+- [x] **Step 3 — the arm carries real actuators and MuJoCo agrees.**
       `arm.riggen`'s three movable joints take one preset each; `fk_samples`
       writes an `actuators` block (name → kind, target joint, ctrlrange,
       forcerange, gain); `test_mjcf_load.py` grows `check_actuators` —
@@ -107,6 +107,11 @@ the properties panel's actuator section.
       sampled actuator the model lacks is a failure, which is how a dropped
       `<actuator>` would look. The URDF-imported arm legitimately has none,
       so the check is data-driven, never "nu > 0". **This retires the risk.**
+      *Done, with one correction: the arm has **two** actuators, not three
+      — `fore_joint` follows `upper_joint` and a follower may carry none
+      (ADR-0014). The third preset, a `<motor>`, went on
+      `bracket.riggen`'s hinge, which the same CI job exports, so all
+      three are checked against MuJoCo.*
 - [ ] **Step 4 — the panel.** Properties › Joint gains an actuator section
       (combo none / position / velocity / motor, then its gain fields), and
       — in that same section, beside the thing it copies — the "apply to
@@ -130,10 +135,13 @@ uv run --no-project --with mujoco --with numpy python \
     python/tests/test_mjcf_load.py target/sample target/sample-urdf
 ```
 
-The sample arm loads with **zero compiler warnings**, `model.nu == 3` (one
-per movable joint), every actuator's target, `ctrlrange`, `forcerange` and
-gain match what `arm.fk.json` says, and `mj_forward` still agrees with `fk`
-to 1e-6 — over both the `.riggen` and the URDF route.
+The sample arm loads with **zero compiler warnings** and `model.nu == 2`
+— one per movable joint that is not a mimic follower; `bracket.riggen`,
+exported by the same CI job, adds the third preset with `model.nu == 1` —
+every actuator's target, `ctrlrange`, `forcerange` and gain match what the
+`.fk.json` says, and `mj_forward` still agrees with `fk` to 1e-6 — over
+both the `.riggen` and the URDF route (which has none, and is checked as
+having none).
 
 ## Docs to update on completion
 

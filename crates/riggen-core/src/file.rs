@@ -330,7 +330,9 @@ mod tests {
     use super::*;
     use crate::command::Command;
     use crate::pose::Pose;
-    use crate::robot::{CollisionPolicy, Geom, Joint, JointKind, Limits, Link, MeshAsset};
+    use crate::robot::{
+        ActuatorSpec, CollisionPolicy, Geom, Joint, JointKind, Limits, Link, MeshAsset,
+    };
     use riggen_mesh::glam::DVec3;
     use std::f64::consts::FRAC_PI_2;
 
@@ -617,6 +619,28 @@ mod tests {
         let mimic = robot.joints[&fore_joint].mimic.expect("the coupling");
         assert_eq!(robot.joints[&mimic.joint].name, "upper_joint");
         assert_eq!((mimic.multiplier, mimic.offset), (-0.5, 0.1));
+        // The two joints nothing else drives carry an actuator each
+        // (ADR-0014); the forearm follows, so it carries none.
+        let actuator = |name: &str| {
+            robot
+                .joints
+                .values()
+                .find(|j| j.name == name)
+                .unwrap()
+                .actuator
+        };
+        assert_eq!(
+            actuator("shoulder_joint"),
+            Some(ActuatorSpec::Position {
+                kp: 100.0,
+                kv: 10.0
+            })
+        );
+        assert_eq!(
+            actuator("upper_joint"),
+            Some(ActuatorSpec::Velocity { kv: 8.0 })
+        );
+        assert_eq!(actuator("fore_joint"), None, "a follower is already driven");
         assert_eq!(
             crate::resolve_q(&robot, &crate::JointState::default()).get(fore_joint),
             0.1
@@ -712,11 +736,16 @@ mod tests {
         let dir = scratch("v2");
         std::fs::copy(fixtures().join("bracket.stl"), dir.join("bracket.stl")).unwrap();
         let text = std::fs::read_to_string(fixtures().join("bracket.riggen")).unwrap();
-        let old = text
-            .replace("\"schema_version\": 3", "\"schema_version\": 2")
-            .replace(",\n        \"actuator\": null", "");
+        let mut doc: serde_json::Value = serde_json::from_str(&text).unwrap();
+        doc["schema_version"] = 2.into();
+        for joint in doc["robot"]["joints"].as_object_mut().unwrap().values_mut() {
+            assert!(
+                joint.as_object_mut().unwrap().remove("actuator").is_some(),
+                "the v3 fixture has the key this strips back out"
+            );
+        }
+        let old = serde_json::to_string_pretty(&doc).unwrap();
         assert!(!old.contains("actuator"), "{old}");
-        assert_ne!(old, text);
         let file = dir.join("bracket.riggen");
         std::fs::write(&file, &old).unwrap();
 
@@ -858,6 +887,11 @@ mod tests {
                 effort: 5.0,
                 velocity: 3.0,
             }),
+            // The third actuator preset (ADR-0014), so the MuJoCo
+            // acceptance sees a `<motor>` too: the arm carries the two
+            // servos, and this hinge is the only other joint the CI job
+            // exports.
+            actuator: Some(crate::robot::ActuatorSpec::Motor { gear: 50.0 }),
             ..Joint::fixed("hinge", base, base)
         };
         Command::AddLink {
@@ -894,6 +928,12 @@ mod tests {
                 resolution: 48,
                 concavity: 0.01,
             }
+        );
+        // The hinge is the `<motor>` the MuJoCo acceptance checks
+        // (ADR-0014); the arm's two joints carry the other two presets.
+        assert_eq!(
+            robot.joints.values().next().unwrap().actuator,
+            Some(ActuatorSpec::Motor { gear: 50.0 })
         );
 
         // Saving it again reproduces the committed bytes.

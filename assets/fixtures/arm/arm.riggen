@@ -203,7 +203,12 @@
           "armature": 0.0
         },
         "mimic": null,
-        "actuator": null
+        "actuator": {
+          "Position": {
+            "kp": 100.0,
+            "kv": 10.0
+          }
+        }
       },
       "j12": {
         "name": "upper_joint",
@@ -240,7 +245,11 @@
           "armature": 0.0
         },
         "mimic": null,
-        "actuator": null
+        "actuator": {
+          "Velocity": {
+            "kv": 8.0
+          }
+        }
       },
       "j16": {
         "name": "fore_joint",

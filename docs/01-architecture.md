@@ -842,7 +842,16 @@ export is byte-identical to `arm.riggen`'s) are the API's worked examples and th
   (ADR-0011). Every `mjEQ_JOINT` equality — a mimic joint (ADR-0013) —
   must reproduce the sampled `qpos` through its `polycoef`, and a pair of
   joints the samples show as exactly coupled must have one, so a swapped
-  coefficient order and a dropped `<equality>` both fail. The script also fails any body whose `<stem>_hull_N` pieces
+  coefficient order and a dropped `<equality>` both fail. The `.fk.json`'s
+  `actuators` block says what the `<actuator>` block should hold
+  (ADR-0014) — the driven joint, the gains where MuJoCo keeps them
+  (`gainprm` / `biasprm` / `gear`), and the two ranges, an omitted one
+  having to leave `ctrllimited` / `forcelimited` off — and `model.nu` must
+  be exactly that many, so a dropped or invented actuator fails and the
+  URDF import's actuator-less model is checked as such, not skipped. The
+  three presets are covered by the two fixtures: the arm's shoulder is a
+  `<position>` and its upper arm a `<velocity>`, the bracket's hinge a
+  `<motor>`. The script also fails any body whose `<stem>_hull_N` pieces
   do not number at least two and run 0..N: MuJoCo hulls a collision mesh
   itself, so one piece would mean the policy bought nothing. It reads that
   off the model, not off the fixture.
