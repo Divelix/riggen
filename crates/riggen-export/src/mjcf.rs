@@ -5,7 +5,7 @@
 //! under `meshdir="meshes"`.
 
 use riggen_core::glam::DVec3;
-use riggen_core::{JointKind, Pose, Primitive};
+use riggen_core::{ActuatorSpec, JointKind, Pose, Primitive};
 
 use crate::resolve::{ExportOptions, ResolvedGeom, ResolvedJoint, ResolvedRobot};
 use crate::xml::{Xml, num, quat, vec3};
@@ -85,6 +85,19 @@ pub fn write(robot: &ResolvedRobot, _options: &ExportOptions) -> String {
             );
         }
         x.close("equality");
+    }
+
+    // One element per actuated joint, named after it (ADR-0014): MJCF
+    // namespaces are per element type, so `model.actuator("shoulder")` and
+    // `model.joint("shoulder")` coexist and `data.ctrl` is indexable by the
+    // name the user already knows.
+    if robot.joints.iter().any(|j| j.actuator.is_some()) {
+        x.open("actuator", &[]);
+        for j in &robot.joints {
+            let Some(a) = j.actuator else { continue };
+            write_actuator(&mut x, j, a);
+        }
+        x.close("actuator");
     }
 
     x.close("mujoco");
@@ -176,9 +189,10 @@ fn write_joint(x: &mut Xml, j: &ResolvedJoint) {
         attrs.push(("armature", num(d.armature)));
     }
     x.empty("joint", &attrs);
-    if let Some(l) = &j.limits {
-        // ADR-0004 §4: what MJCF cannot hold without an actuator is named,
-        // not dropped.
+    // ADR-0004 §4, as amended by ADR-0014: what MJCF cannot hold without an
+    // actuator is named, not dropped — but only while the joint has none,
+    // or the apology would be a lie beside the `<actuator>` two lines down.
+    if let Some(l) = j.limits.filter(|_| j.actuator.is_none()) {
         x.comment(&format!(
             "joint {}: effort {} velocity {} need an <actuator>; not written",
             j.name,
@@ -186,6 +200,44 @@ fn write_joint(x: &mut Xml, j: &ResolvedJoint) {
             num(l.velocity)
         ));
     }
+}
+
+/// One `<position>` / `<velocity>` / `<motor>` for `j` (ADR-0014).
+///
+/// `ctrlrange` is the joint's own range for a position servo and `±velocity`
+/// for a velocity one — both out of `Limits`, so a `Continuous` joint has
+/// none — while a motor's `ctrl` is the normalised `-1 1` that `gear`
+/// scales. `forcerange` is `±effort`. A zero `effort` or `velocity` is the
+/// *unfilled* value, not a clamp to zero, so its attribute is left out and
+/// MuJoCo's own unbounded default stands (`autolimits="true"` then leaves
+/// the matching `*limited` off).
+fn write_actuator(x: &mut Xml, j: &ResolvedJoint, actuator: ActuatorSpec) {
+    let symmetric = |v: f64| (v != 0.0).then(|| format!("{} {}", num(-v), num(v)));
+    let (tag, gains, ctrlrange) = match actuator {
+        ActuatorSpec::Position { kp, kv } => (
+            "position",
+            vec![("kp", num(kp)), ("kv", num(kv))],
+            j.limits
+                .map(|l| format!("{} {}", num(l.lower), num(l.upper))),
+        ),
+        ActuatorSpec::Velocity { kv } => (
+            "velocity",
+            vec![("kv", num(kv))],
+            j.limits.and_then(|l| symmetric(l.velocity)),
+        ),
+        ActuatorSpec::Motor { gear } => {
+            ("motor", vec![("gear", num(gear))], Some("-1 1".to_owned()))
+        }
+    };
+    let mut attrs = vec![("name", j.name.clone()), ("joint", j.name.clone())];
+    attrs.extend(gains);
+    if let Some(range) = ctrlrange {
+        attrs.push(("ctrlrange", range));
+    }
+    if let Some(range) = j.limits.and_then(|l| symmetric(l.effort)) {
+        attrs.push(("forcerange", range));
+    }
+    x.empty(tag, &attrs);
 }
 
 fn write_geom(x: &mut Xml, class: &str, geom: &ResolvedGeom) {
@@ -248,6 +300,7 @@ fn pose_attrs(pose: &Pose) -> Vec<(&'static str, String)> {
 mod tests {
     use super::*;
     use crate::test_util::every_joint_kind;
+    use riggen_core::Limits;
 
     const GOLDEN: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <mujoco model="test">
@@ -272,7 +325,6 @@ mod tests {
       <site name="camera_mount" pos="0 0.03 0.04" quat="0.707106781187 0.707106781187 0 0"/>
       <body name="upper" pos="0 0 0.1">
         <joint name="upper_joint" type="hinge" axis="0 1 0" range="-1 1" damping="0.1"/>
-        <!-- joint upper_joint: effort 1 velocity 1 need an <actuator>; not written -->
         <inertial pos="0 0 0" mass="2.7" fullinertia="0.0045 0.0045 0.0045 0 0 0"/>
         <geom class="visual" mesh="cube"/>
         <geom class="collision" type="mesh" mesh="cube"/>
@@ -298,6 +350,10 @@ mod tests {
   <equality>
     <joint joint1="slider_joint" joint2="upper_joint" polycoef="0.1 -0.5 0 0 0"/>
   </equality>
+  <actuator>
+    <position name="upper_joint" joint="upper_joint" kp="100" kv="5" ctrlrange="-1 1" forcerange="-1 1"/>
+    <velocity name="wheel_joint" joint="wheel_joint" kv="2"/>
+  </actuator>
 </mujoco>
 "#;
 
@@ -312,6 +368,73 @@ mod tests {
             }
             assert_eq!(xml.lines().count(), GOLDEN.lines().count());
         }
+    }
+
+    /// The element, the gains and the two ranges each preset writes — and
+    /// the two zeros that mean "nobody filled this in" rather than "clamp
+    /// it to zero" (ADR-0014). The golden above covers the third case, a
+    /// `Continuous` joint, whose missing `Limits` leave both ranges out.
+    #[test]
+    fn each_preset_writes_its_element_with_ctrlrange_and_forcerange() {
+        /// The `<actuator>` line for `upper_joint`, alone in the block.
+        fn line(actuator: ActuatorSpec, effort: f64, velocity: f64) -> String {
+            let mut b = every_joint_kind();
+            for j in b.robot.joints.values_mut() {
+                let hinge = j.name == "upper_joint";
+                j.actuator = hinge.then_some(actuator);
+                if hinge {
+                    // Only the two ranges vary: moving `lower`/`upper`
+                    // would move the slider's mimic reach with them.
+                    j.limits = Some(Limits {
+                        lower: -1.0,
+                        upper: 1.0,
+                        effort,
+                        velocity,
+                    });
+                }
+            }
+            let xml = write(&b.resolve().unwrap(), &ExportOptions::default());
+            assert!(
+                !xml.contains("joint upper_joint: effort"),
+                "an actuated joint keeps no apology (ADR-0004 §4 as amended)\n{xml}"
+            );
+            assert!(
+                xml.contains("joint slider_joint: effort"),
+                "one with no actuator still does\n{xml}"
+            );
+            xml.lines()
+                .find(|l| l.contains(r#"joint="upper_joint""#))
+                .unwrap_or_default()
+                .trim()
+                .to_owned()
+        }
+
+        assert_eq!(
+            line(ActuatorSpec::Position { kp: 100.0, kv: 5.0 }, 2.0, 3.0),
+            r#"<position name="upper_joint" joint="upper_joint" kp="100" kv="5" ctrlrange="-1 1" forcerange="-2 2"/>"#
+        );
+        // A velocity servo is commanded in the joint's own rate, so its
+        // `ctrlrange` is the velocity limit, not the position one.
+        assert_eq!(
+            line(ActuatorSpec::Velocity { kv: 2.0 }, 2.0, 3.0),
+            r#"<velocity name="upper_joint" joint="upper_joint" kv="2" ctrlrange="-3 3" forcerange="-2 2"/>"#
+        );
+        // A motor's `ctrl` is normalised; `gear` is what scales it.
+        assert_eq!(
+            line(ActuatorSpec::Motor { gear: 50.0 }, 2.0, 3.0),
+            r#"<motor name="upper_joint" joint="upper_joint" gear="50" ctrlrange="-1 1" forcerange="-2 2"/>"#
+        );
+        // `effort` 0 is the unfilled value: no `forcerange`, so
+        // `autolimits` leaves the force unbounded — MuJoCo's own default —
+        // rather than clamping it to zero. Same for `velocity` 0.
+        assert_eq!(
+            line(ActuatorSpec::Position { kp: 100.0, kv: 5.0 }, 0.0, 3.0),
+            r#"<position name="upper_joint" joint="upper_joint" kp="100" kv="5" ctrlrange="-1 1"/>"#
+        );
+        assert_eq!(
+            line(ActuatorSpec::Velocity { kv: 2.0 }, 0.0, 0.0),
+            r#"<velocity name="upper_joint" joint="upper_joint" kv="2"/>"#
+        );
     }
 
     #[test]
