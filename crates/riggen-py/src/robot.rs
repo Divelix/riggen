@@ -805,6 +805,18 @@ impl PyRobot {
         Ok((Self { inner }, warnings))
     }
 
+    /// Imports an MJCF (docs/02-data-model.md §MJCF import, ADR-0015):
+    /// mesh files resolved against the file and its `<compiler meshdir>`.
+    /// Returns the document and the warnings — what the MJCF held that the
+    /// document does not. Raises `riggen.MjcfImportError`.
+    #[staticmethod]
+    fn load_mjcf(py: Python<'_>, path: PathBuf) -> PyResult<(Self, Vec<String>)> {
+        let (inner, warnings) = riggen_export::mjcf_in::load(&path)
+            .map_err(|e| raise(py, "MjcfImportError", e.to_string()))?;
+        let warnings = warnings.iter().map(ToString::to_string).collect();
+        Ok((Self { inner }, warnings))
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Robot('{}': {} links, {} joints)",

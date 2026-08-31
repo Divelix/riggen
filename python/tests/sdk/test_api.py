@@ -366,6 +366,23 @@ def test_load_urdf_warns_and_builds(tmp_path: Path):
     assert robot.joint("shoulder_joint").kind == "revolute"
 
 
+def test_load_mjcf_warns_and_builds(tmp_path: Path):
+    riggen.load(ARM).export(tmp_path, format="mjcf")
+    # Nothing of ours is unreadable, so nothing warns…
+    robot = riggen.load_mjcf(tmp_path / "arm.xml")
+    assert [l.name for l in robot.links] == ["base_link", "base", "shoulder", "upper", "fore"]
+    assert sorted(f.name for f in robot.frames) == ["camera_mount", "tcp"]
+    # …but what MJCF holds and the document does not is a warning, by name.
+    foreign = tmp_path / "foreign.xml"
+    foreign.write_text(
+        '<mujoco><worldbody><body name="a"><body name="b">'
+        '<joint name="j" range="-1 1"/></body></body></worldbody>'
+        "<sensor><jointpos joint=\"j\"/></sensor></mujoco>"
+    )
+    with pytest.warns(riggen.RiggenWarning, match="<sensor>"):
+        riggen.load_mjcf(foreign)
+
+
 # ---- the examples --------------------------------------------------------------
 
 

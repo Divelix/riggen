@@ -25,6 +25,7 @@ __all__ = [
     "FileError",
     "ExportError",
     "UrdfImportError",
+    "MjcfImportError",
     "InertialError",
 ]
 
@@ -36,7 +37,8 @@ class RiggenError(Exception):
 class RiggenWarning(UserWarning):
     """Something worth knowing about a file that did open: a mesh that
     changed or went missing since the save (:func:`riggen.load`), or what a
-    URDF held that the document does not (:func:`riggen.load_urdf`).
+    URDF or MJCF held that the document does not
+    (:func:`riggen.load_urdf`, :func:`riggen.load_mjcf`).
     Emitted through :mod:`warnings`."""
 
 
@@ -98,6 +100,13 @@ class ExportError(RiggenError):
 
 class UrdfImportError(RiggenError):
     """``load_urdf`` could not turn the file into a document."""
+
+
+class MjcfImportError(RiggenError):
+    """``load_mjcf`` could not turn the file into a document: it is not XML
+    or not a ``<mujoco>`` model, it composes other files, or its shape is
+    one the link tree cannot hold — several joints in one body, a joint on
+    the root body, a ball or free joint (ADR-0015)."""
 
 
 class InertialError(RiggenError):

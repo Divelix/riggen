@@ -157,6 +157,33 @@ def test_load_urdf_then_export_matches_the_cli(cli: Path, tmp_path: Path):
     assert tree(tmp_path / "sdk") == tree(tmp_path / "cli")
 
 
+def test_load_mjcf_then_export_matches_the_cli(cli: Path, tmp_path: Path):
+    # The arm's own MJCF, read back and written out again by both routes.
+    run_cli(cli, "--export", "mjcf", "--out", tmp_path / "first", ARM)
+    mjcf = tmp_path / "first" / "arm.xml"
+    result = run_cli(cli, "--export", "mjcf", "--fk-samples", "--out", tmp_path / "cli", mjcf)
+    robot, warnings = Robot.load_mjcf(mjcf)
+    assert warnings == [], "our own MJCF holds nothing the document cannot"
+    assert result.stderr == ""
+    assert robot.name == "arm"
+    # The `<site>` → `Frame` symmetry the URDF import does not have (ADR-0012).
+    assert sorted(f["name"] for f in robot.frames().values()) == ["camera_mount", "tcp"]
+    robot.export(tmp_path / "sdk", format="mjcf", fk_samples=True)
+    assert tree(tmp_path / "sdk") == tree(tmp_path / "cli")
+
+
+def test_load_mjcf_errors_are_typed(tmp_path: Path):
+    with pytest.raises(errors.MjcfImportError, match="nowhere.xml"):
+        Robot.load_mjcf(tmp_path / "nowhere.xml")
+    composite = tmp_path / "composite.xml"
+    composite.write_text(
+        '<mujoco><worldbody><body name="a"><body name="w">'
+        '<joint name="w0"/><joint name="w1"/></body></body></worldbody></mujoco>'
+    )
+    with pytest.raises(errors.MjcfImportError, match="w0, w1"):
+        Robot.load_mjcf(composite)
+
+
 def test_load_urdf_errors_are_typed(tmp_path: Path):
     with pytest.raises(errors.UrdfImportError, match="nowhere.urdf"):
         Robot.load_urdf(tmp_path / "nowhere.urdf")

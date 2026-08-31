@@ -38,6 +38,7 @@ from .errors import (
     InertialError,
     InvalidDocument,
     MaterialInUse,
+    MjcfImportError,
     MovableJointOnRootPath,
     RiggenError,
     RiggenWarning,
@@ -74,6 +75,7 @@ from .robot import (
     Robot,
     Velocity,
     load,
+    load_mjcf,
     load_urdf,
 )
 
@@ -93,6 +95,7 @@ __all__ = [
     "Geom",
     "load",
     "load_urdf",
+    "load_mjcf",
     # the window
     "show",
     "Viewer",
@@ -136,5 +139,6 @@ __all__ = [
     "FileError",
     "ExportError",
     "UrdfImportError",
+    "MjcfImportError",
     "InertialError",
 ]
