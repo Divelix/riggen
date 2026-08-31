@@ -20,11 +20,12 @@ use std::path::{Path, PathBuf};
 
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::{
-    CollisionPolicy, Dynamics, Frame, FrameId, Geom, GeomId, InertialSpec, Joint, JointId,
-    JointKind, Limits, Link, LinkId, MeshAsset, MeshId, Pose, Primitive, Robot, validate,
+    ActuatorSpec, CollisionPolicy, Dynamics, Frame, FrameId, Geom, GeomId, InertialSpec, Joint,
+    JointId, JointKind, Limits, Link, LinkId, MeshAsset, MeshId, Mimic, Pose, Primitive, Robot,
+    ValidationError, validate,
 };
 
-use crate::import::{ImportError, ImportWarning};
+use crate::import::{ImportError, ImportWarning, mimic_refusals};
 use crate::xml::{AngleConvention, Node, ORIENTATION_ATTRS};
 
 /// The class an element belongs to when neither it nor an enclosing
@@ -248,6 +249,7 @@ pub fn from_mjcf(root: &Node, path: &Path) -> Result<(Robot, Vec<ImportWarning>)
         assets: BTreeMap::new(),
         registered: BTreeMap::new(),
         sites: Vec::new(),
+        moved_zero: BTreeSet::new(),
         unnamed: 0,
     };
     im.robot.links.clear();
@@ -287,8 +289,11 @@ struct Import {
     dropped: BTreeMap<String, usize>,
     /// Joint name → id, for `<equality>` and `<actuator>`, which name
     /// joints that may be anywhere in the file.
-    #[allow(dead_code, reason = "the blocks after </worldbody> arrive in step 6")]
     joint_ids: BTreeMap<String, JointId>,
+    /// Joints whose `<joint ref>` moved their zero. A coupling over one of
+    /// them is not `q(follower) = m·q(leader) + o` in the document's terms,
+    /// so it cannot be kept.
+    moved_zero: BTreeSet<String>,
     /// `<asset><mesh>` by name: the file it points at, and its scale.
     assets: BTreeMap<String, (Option<String>, [f64; 3])>,
     /// (resolved path, scale) → the asset already registered for it, so a
@@ -319,6 +324,9 @@ impl Import {
             }
         }
         self.place_frames();
+        self.read_equalities(root)?;
+        self.read_actuators(root)?;
+        self.drop_what_validate_refuses();
         count_dropped(root, &mut self.dropped);
         for (element, count) in std::mem::take(&mut self.dropped) {
             self.warnings
@@ -522,6 +530,7 @@ impl Import {
         // and which would quietly shift the whole subtree.
         if jn.attrs.contains_key("ref") {
             self.drop("<joint ref>");
+            self.moved_zero.insert(name.clone());
         }
         Ok(Joint {
             name,
@@ -907,6 +916,173 @@ impl Import {
         });
     }
 
+    /// `<equality><joint polycoef>` → `Joint::mimic` (ADR-0013).
+    ///
+    /// `polycoef` is `y − y0 = a0 + a1(x − x0) + …` over the two joints'
+    /// deviations from `qpos0`, so it is our `q(follower) = a1·q(leader) +
+    /// a0` exactly when the last three terms are zero and neither joint
+    /// moved its zero with a `ref`. Anything else is dropped with the
+    /// reason, the way the URDF import phrases a `<mimic>` it cannot keep.
+    fn read_equalities(&mut self, root: &Node) -> Result<(), ImportError> {
+        for block in root.kids("equality") {
+            for e in block.kids("joint") {
+                let e = self.resolved(e, MAIN_CLASS)?;
+                let follower = e.attr("joint1").unwrap_or_default().to_owned();
+                let leader = e.attr("joint2").unwrap_or_default().to_owned();
+                let [a0, a1, a2, a3, a4] = self
+                    .nums::<5>(&e, "polycoef")?
+                    .unwrap_or([0.0, 1.0, 0.0, 0.0, 0.0]);
+                let drop = |im: &mut Self, reason: &str| {
+                    im.warnings.push(ImportWarning::MimicDropped {
+                        joint: follower.clone(),
+                        mimics: leader.clone(),
+                        reason: reason.to_owned(),
+                    });
+                };
+                let active = e.flag("active").map_err(|m| self.parse_err(m))?;
+                if active == Some(false) {
+                    drop(self, "the constraint is not active");
+                    continue;
+                }
+                if leader.is_empty() {
+                    drop(self, "it holds one joint to a constant, not to another");
+                    continue;
+                }
+                if a2 != 0.0 || a3 != 0.0 || a4 != 0.0 {
+                    drop(self, "its polycoef is not linear");
+                    continue;
+                }
+                if self.moved_zero.contains(&follower) || self.moved_zero.contains(&leader) {
+                    drop(self, "a <joint ref> moved one of the two zeros");
+                    continue;
+                }
+                let (Some(&id), true) = (
+                    self.joint_ids.get(&follower),
+                    self.joint_ids.contains_key(&leader),
+                ) else {
+                    drop(self, "no joint of that name is in the file");
+                    continue;
+                };
+                let joint = self.joint_ids[&leader];
+                self.robot.joints.get_mut(&id).expect("just walked").mimic = Some(Mimic {
+                    joint,
+                    multiplier: a1,
+                    offset: a0,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// `<position>` / `<velocity>` / `<motor>` on a joint → `ActuatorSpec`
+    /// (ADR-0014). Its `forcerange` and `ctrlrange` are also where
+    /// `Limits::effort` and `Limits::velocity` come back from: MJCF keeps
+    /// them on the actuator, not on the joint.
+    fn read_actuators(&mut self, root: &Node) -> Result<(), ImportError> {
+        for block in root.kids("actuator") {
+            for a in &block.children {
+                let a = self.resolved(a, MAIN_CLASS)?;
+                let name = a
+                    .attr("name")
+                    .unwrap_or_else(|| a.attr("joint").unwrap_or("<unnamed>"))
+                    .to_owned();
+                let drop = |im: &mut Self, reason: String| {
+                    im.warnings.push(ImportWarning::ActuatorDropped {
+                        actuator: name.clone(),
+                        reason,
+                    });
+                };
+                // Anything not driving a joint is out of the document's
+                // three presets by definition (ADR-0015 §1).
+                let Some(joint) = a.attr("joint").map(str::to_owned) else {
+                    let target = ["tendon", "site", "body", "cranksite", "slidersite"]
+                        .into_iter()
+                        .find(|t| a.attrs.contains_key(*t))
+                        .unwrap_or("nothing");
+                    drop(self, format!("it drives a {target}, not a joint"));
+                    continue;
+                };
+                let spec = match a.tag.as_str() {
+                    "position" => ActuatorSpec::Position {
+                        kp: self.num(&a, "kp")?.unwrap_or(1.0),
+                        kv: self.num(&a, "kv")?.unwrap_or(0.0),
+                    },
+                    "velocity" => ActuatorSpec::Velocity {
+                        kv: self.num(&a, "kv")?.unwrap_or(1.0),
+                    },
+                    // `gear` is six numbers; for a joint only the first
+                    // scales it.
+                    "motor" => ActuatorSpec::Motor {
+                        gear: self
+                            .numbers(&a, "gear")?
+                            .and_then(|g| g.first().copied())
+                            .unwrap_or(1.0),
+                    },
+                    other => {
+                        drop(self, format!("<{other}> is not one of the three presets"));
+                        continue;
+                    }
+                };
+                let Some(&id) = self.joint_ids.get(&joint) else {
+                    drop(self, format!("no joint \"{joint}\" is in the file"));
+                    continue;
+                };
+                let force = self.nums::<2>(&a, "forcerange")?;
+                let ctrl = self.nums::<2>(&a, "ctrlrange")?;
+                let j = self.robot.joints.get_mut(&id).expect("just walked");
+                j.actuator = Some(spec);
+                if let Some(limits) = &mut j.limits {
+                    // Both are written as ±v and read back as the upper
+                    // half; a zero one was never filled in (ADR-0014).
+                    if let Some([_, upper]) = force {
+                        limits.effort = upper;
+                    }
+                    if let (ActuatorSpec::Velocity { .. }, Some([_, upper])) = (spec, ctrl) {
+                        limits.velocity = upper;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// A coupling or an actuator `validate` refuses is dropped with its
+    /// reason rather than failing the whole import — the rule the URDF
+    /// import already follows, so a file still opens and the user is told.
+    fn drop_what_validate_refuses(&mut self) {
+        // Couplings first: an actuator on a mimic follower is refused
+        // because the `<equality>` already drives it (ADR-0014), and a
+        // coupling that is itself dropped never drove anything.
+        for (follower, reason) in mimic_refusals(&self.robot) {
+            let leader = self
+                .robot
+                .joints
+                .get_mut(&follower)
+                .and_then(|j| j.mimic.take())
+                .map(|m| m.joint);
+            let mimics = leader
+                .and_then(|l| self.robot.joints.get(&l))
+                .map(|j| j.name.clone())
+                .unwrap_or_default();
+            self.warnings.push(ImportWarning::MimicDropped {
+                joint: self.robot.joints[&follower].name.clone(),
+                mimics,
+                reason,
+            });
+        }
+        for (joint, reason) in actuator_refusals(&self.robot) {
+            self.robot
+                .joints
+                .get_mut(&joint)
+                .expect("named by validate")
+                .actuator = None;
+            self.warnings.push(ImportWarning::ActuatorDropped {
+                actuator: self.robot.joints[&joint].name.clone(),
+                reason,
+            });
+        }
+    }
+
     fn pose(&self, node: &Node) -> Result<Pose, ImportError> {
         Ok(Pose::new(
             self.vec3(node, "pos")?.unwrap_or(DVec3::ZERO),
@@ -962,6 +1138,28 @@ impl Import {
             }
         }
     }
+}
+
+/// What `validate` refuses about an actuator, per joint (ADR-0014). As
+/// with the couplings, `validate` owns the rules and this only phrases its
+/// verdict; every other error it reports still fails the import.
+fn actuator_refusals(robot: &Robot) -> Vec<(JointId, String)> {
+    riggen_core::validation_errors(robot)
+        .into_iter()
+        .filter_map(|e| match e {
+            ValidationError::ActuatorOnFixedJoint(j) => {
+                Some((j, "a fixed joint has no <joint> for it to drive".to_owned()))
+            }
+            ValidationError::ActuatorOnMimicFollower { joint, .. } => Some((
+                joint,
+                "the joint is already driven by an <equality>".to_owned(),
+            )),
+            ValidationError::InvalidActuatorGain { joint, what } => {
+                Some((joint, format!("its {what}")))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// "a" or "an", so a warning about an ellipsoid reads like a sentence.
@@ -1110,13 +1308,51 @@ mod tests {
         assert_eq!(joint("upper_joint").dynamics.damping, 0.1);
         assert_eq!(joint("wheel_joint").limits, None, "Continuous keeps none");
         for name in ["upper_joint", "slider_joint"] {
-            let l = joint(name).limits.unwrap();
-            assert_eq!((l.lower, l.upper), (-1.0, 1.0), "{name}");
-            // `effort` and `velocity` live on the `<actuator>`, not the
-            // joint (ADR-0004 §4 as amended): a joint that has one gets
-            // them back in step 6, one that has none — the slider — cannot.
-            assert_eq!((l.effort, l.velocity), (0.0, 0.0), "{name}");
+            assert_eq!(
+                joint(name).limits.map(|l| (l.lower, l.upper)),
+                Some((-1.0, 1.0)),
+                "{name}"
+            );
         }
+        // The coupling and the two actuators (ADR-0013, ADR-0014).
+        let upper = *robot
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "upper_joint")
+            .unwrap()
+            .0;
+        assert_eq!(
+            joint("slider_joint").mimic,
+            Some(Mimic {
+                joint: upper,
+                multiplier: -0.5,
+                offset: 0.1
+            })
+        );
+        assert_eq!(joint("upper_joint").mimic, None);
+        assert_eq!(
+            joint("upper_joint").actuator,
+            Some(ActuatorSpec::Position { kp: 100.0, kv: 5.0 })
+        );
+        assert_eq!(
+            joint("wheel_joint").actuator,
+            Some(ActuatorSpec::Velocity { kv: 2.0 })
+        );
+        assert_eq!(
+            joint("slider_joint").actuator,
+            None,
+            "a mimic follower carries none, and the writer wrote none"
+        );
+        // `effort` and `velocity` live on the `<actuator>`, not the joint
+        // (ADR-0004 §4 as amended by ADR-0014), so they come back only
+        // where an actuator carried them: `forcerange` is the hinge's
+        // effort, its `ctrlrange` is the *position* range and says nothing
+        // about velocity, and the slider — which has no actuator at all —
+        // keeps neither.
+        assert_eq!(joint("upper_joint").limits.unwrap().effort, 1.0);
+        assert_eq!(joint("upper_joint").limits.unwrap().velocity, 0.0);
+        let slider = joint("slider_joint").limits.unwrap();
+        assert_eq!((slider.effort, slider.velocity), (0.0, 0.0));
         // `<inertial pos mass fullinertia>` read straight back.
         assert_eq!(
             link("upper").inertial,
@@ -1134,12 +1370,9 @@ mod tests {
         ));
 
         // The oracle (ADR-0004): the same world pose per link at five
-        // configurations. The couplings are cleared on both sides —
-        // `<equality>` is step 6 — so this compares the tree, not ADR-0013.
-        let mut original = b.robot.clone();
-        for j in original.joints.values_mut() {
-            j.mimic = None;
-        }
+        // configurations, couplings and all — `fk` resolves the mimic
+        // through the one implementation of ADR-0013's rule.
+        let original = b.robot.clone();
         let state = |r: &Robot, q: f64| {
             let mut s = JointState::new();
             for (&id, j) in &r.joints {
@@ -1163,6 +1396,126 @@ mod tests {
                 assert!(pose.r.dot(p.r).abs() > 1.0 - 1e-12, "{name} at q={q}");
             }
         }
+    }
+
+    #[test]
+    fn a_coupling_and_an_actuator_the_document_cannot_hold_are_named() {
+        let (robot, warnings) = load(
+            r#"<mujoco model="m"><compiler angle="radian"/><worldbody>
+                 <body name="a">
+                   <body name="b"><joint name="j" range="-1 1"/>
+                     <body name="c"><joint name="k" range="-1 1"/>
+                       <body name="d"><joint name="l" ref="0.2" range="-1 1"/></body>
+                     </body>
+                   </body>
+                 </body>
+               </worldbody>
+               <equality>
+                 <joint joint1="k" joint2="j" polycoef="0 2 0 0 0"/>
+                 <joint joint1="k" joint2="j" polycoef="0 1 0.5 0 0"/>
+                 <joint joint1="l" joint2="j"/>
+                 <joint joint1="k" joint2="j" active="false"/>
+                 <joint joint1="k" joint2="nope"/>
+                 <joint joint1="k" polycoef="0 1 0 0 0"/>
+                 <weld body1="a" body2="b"/>
+               </equality>
+               <actuator>
+                 <motor name="drive" joint="j" gear="50 0 0 0 0 0" forcerange="-7 7"/>
+                 <velocity name="rate" joint="k" kv="3" ctrlrange="-4 4"/>
+                 <general name="fancy" joint="j" dyntype="filter"/>
+                 <position name="tendon_servo" tendon="t" kp="9"/>
+                 <motor name="ghost" joint="missing"/>
+               </actuator>
+               </mujoco>"#,
+        )
+        .unwrap();
+        let joint = |n: &str| robot.joints.values().find(|j| j.name == n).unwrap();
+        // The last coupling written for a follower is the one that stands,
+        // and only the linear, active, `ref`-free one survives at all.
+        assert_eq!(joint("k").mimic.map(|m| (m.multiplier, m.offset)), None);
+        assert_eq!(
+            joint("j").actuator,
+            Some(ActuatorSpec::Motor { gear: 50.0 })
+        );
+        assert_eq!(joint("j").limits.unwrap().effort, 7.0);
+        assert_eq!(
+            joint("k").actuator,
+            Some(ActuatorSpec::Velocity { kv: 3.0 })
+        );
+        // A velocity servo *is* commanded in the joint's own rate, so its
+        // `ctrlrange` is where `Limits::velocity` comes back from.
+        assert_eq!(joint("k").limits.unwrap().velocity, 4.0);
+
+        let said: Vec<String> = warnings.iter().map(ToString::to_string).collect();
+        for line in [
+            "joint \"k\": <mimic joint=\"j\"> dropped, its polycoef is not linear",
+            "joint \"l\": <mimic joint=\"j\"> dropped, a <joint ref> moved one of the two zeros",
+            "joint \"k\": <mimic joint=\"j\"> dropped, the constraint is not active",
+            "joint \"k\": <mimic joint=\"nope\"> dropped, no joint of that name is in the file",
+            "joint \"k\": <mimic joint=\"\"> dropped, it holds one joint to a constant, not to another",
+            "actuator \"fancy\" dropped, <general> is not one of the three presets",
+            "actuator \"tendon_servo\" dropped, it drives a tendon, not a joint",
+            "actuator \"ghost\" dropped, no joint \"missing\" is in the file",
+            "<weld> × 1: nothing in the document holds it; not read",
+            "<joint ref> × 1: nothing in the document holds it; not read",
+        ] {
+            assert!(
+                said.contains(&line.to_owned()),
+                "missing {line:?}\n{said:#?}"
+            );
+        }
+        // The one coupling that was fine is the one `validate` then refused
+        // — `k` would reach ±2, outside its own ±1 — and it says so.
+        assert!(
+            said.iter()
+                .any(|s| s.contains("it would reach -2..2, outside its own limits")),
+            "{said:#?}"
+        );
+    }
+
+    #[test]
+    fn an_actuator_validate_refuses_is_dropped_rather_than_failing_the_file() {
+        let (robot, warnings) = load(
+            r#"<mujoco model="m"><compiler angle="radian"/><worldbody>
+                 <body name="a">
+                   <body name="b"><joint name="j" range="-1 1"/>
+                     <body name="c"><joint name="k" range="-1 1"/>
+                       <body name="d"/>
+                     </body>
+                   </body>
+                 </body>
+               </worldbody>
+               <equality><joint joint1="k" joint2="j" polycoef="0 1 0 0 0"/></equality>
+               <actuator>
+                 <position name="follower" joint="k" kp="10"/>
+                 <position name="welded" joint="d_joint" kp="10"/>
+                 <position name="sour" joint="j" kp="-1"/>
+               </actuator>
+               </mujoco>"#,
+        )
+        .unwrap();
+        // The file opens; every actuator the document cannot hold is gone
+        // with its reason, and the coupling that motivated the first one
+        // stays.
+        for j in robot.joints.values() {
+            assert_eq!(j.actuator, None, "{}", j.name);
+        }
+        assert!(robot.joints.values().any(|j| j.mimic.is_some()));
+        let said: Vec<String> = warnings.iter().map(ToString::to_string).collect();
+        for line in [
+            "actuator \"k\" dropped, the joint is already driven by an <equality>",
+            "actuator \"d_joint\" dropped, a fixed joint has no <joint> for it to drive",
+        ] {
+            assert!(
+                said.contains(&line.to_owned()),
+                "missing {line:?}\n{said:#?}"
+            );
+        }
+        assert!(
+            said.iter()
+                .any(|s| s.starts_with("actuator \"j\" dropped, its kp")),
+            "{said:#?}"
+        );
     }
 
     #[test]
