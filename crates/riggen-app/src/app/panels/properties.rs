@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::inertial::{Inertial, InertialError, principal_moments};
 use riggen_core::{
-    CollisionPolicy, Command, FrameId, InertialSpec, JointId, JointKind, JointState, Limits,
-    LinkId, Mimic, Pose, Primitive, fk,
+    ActuatorSpec, CollisionPolicy, Command, FrameId, InertialSpec, JointId, JointKind, JointState,
+    Limits, LinkId, Mimic, Pose, Primitive, fk,
 };
 use riggen_mesh::{DecompParams, fit};
 
@@ -221,6 +221,38 @@ fn fmt_readout(v: f64) -> String {
 }
 
 /// Default limits handed to a joint switched to a kind that needs them.
+/// The three presets the combo offers, at MuJoCo's own defaults — `kv` 0
+/// on a position servo, `kv` 1 on a velocity one, `gear` 1 on a motor — so
+/// picking a kind states nothing we invented (ADR-0014). `kp` has no
+/// MuJoCo default worth calling one; 100 is a starting point the user
+/// types over.
+fn default_actuators() -> [ActuatorSpec; 3] {
+    [
+        ActuatorSpec::Position { kp: 100.0, kv: 0.0 },
+        ActuatorSpec::Velocity { kv: 1.0 },
+        ActuatorSpec::Motor { gear: 1.0 },
+    ]
+}
+
+/// An actuator's gains as `(label, value)`, in the order they are shown.
+fn gains(spec: ActuatorSpec) -> Vec<(&'static str, f64)> {
+    match spec {
+        ActuatorSpec::Position { kp, kv } => vec![("kp", kp), ("kv", kv)],
+        ActuatorSpec::Velocity { kv } => vec![("kv", kv)],
+        ActuatorSpec::Motor { gear } => vec![("gear", gear)],
+    }
+}
+
+/// Writes one gain back by the label [`gains`] gave it.
+fn set_gain(spec: &mut ActuatorSpec, label: &str, value: f64) {
+    match (spec, label) {
+        (ActuatorSpec::Position { kp, .. }, "kp") => *kp = value,
+        (ActuatorSpec::Position { kv, .. } | ActuatorSpec::Velocity { kv }, "kv") => *kv = value,
+        (ActuatorSpec::Motor { gear }, "gear") => *gear = value,
+        _ => {}
+    }
+}
+
 fn default_limits(kind: JointKind) -> Limits {
     match kind {
         JointKind::Prismatic => Limits {
@@ -1169,10 +1201,12 @@ impl RiggenApp {
                         edited.limits = Some(default_limits(kind));
                     }
                     if !kind.is_movable() {
-                        // A fixed joint has no value to drive, so the
-                        // coupling goes with the kind rather than being
-                        // refused by `validate` after the fact (ADR-0013).
+                        // A fixed joint has no value to drive and no
+                        // degree of freedom to actuate, so both go with
+                        // the kind rather than being refused by `validate`
+                        // after the fact (ADR-0013, ADR-0014).
                         edited.mimic = None;
+                        edited.actuator = None;
                     }
                 }
                 ui.end_row();
@@ -1319,6 +1353,59 @@ impl RiggenApp {
                             m.offset = v;
                         }
                     }
+                }
+
+                // What drives the joint in the exported MJCF (ADR-0014).
+                // A follower is left out: its `<equality>` already moves
+                // it, and `validate` refuses an actuator beside one.
+                if data.kind.is_movable() && data.mimic.is_none() {
+                    ui.label("actuator");
+                    let mut actuator = data.actuator;
+                    egui::ComboBox::from_id_salt(base.with("actuator"))
+                        .selected_text(actuator.map_or("none", ActuatorSpec::kind_name))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut actuator, None, "none");
+                            for preset in default_actuators() {
+                                ui.selectable_value(
+                                    &mut actuator,
+                                    Some(preset),
+                                    preset.kind_name(),
+                                );
+                            }
+                        });
+                    ui.end_row();
+                    // The combo picks the *kind*; the fields below edit the
+                    // gains, so switching kinds and back does not carry the
+                    // old ones over.
+                    if actuator.map(ActuatorSpec::kind_name)
+                        != data.actuator.map(ActuatorSpec::kind_name)
+                    {
+                        edited.actuator = actuator;
+                    }
+                    if let Some(spec) = data.actuator {
+                        for (label, value) in gains(spec) {
+                            if let Some(v) = number_row(ui, state, base.with(label), label, value)
+                                && let Some(edit) = &mut edited.actuator
+                            {
+                                set_gain(edit, label, v);
+                            }
+                        }
+                    }
+                    // Beside the thing it copies: seven joints on one arm
+                    // usually want one actuator, and clicking each is the
+                    // tedium we exist to remove. Mimic followers are
+                    // skipped, not refused (ADR-0014).
+                    ui.label("");
+                    if ui
+                        .button("Apply to every movable joint")
+                        .on_hover_text(
+                            "every joint that is not fixed and does not follow another one",
+                        )
+                        .clicked()
+                    {
+                        commands.push(Command::SetActuators(edited.actuator));
+                    }
+                    ui.end_row();
                 }
 
                 let d = data.dynamics;

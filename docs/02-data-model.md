@@ -178,6 +178,7 @@ pub enum Command {
     SetInertial(LinkId, InertialSpec), SetCollision(LinkId, CollisionPolicy), SetRoot(LinkId),
     AddFrame(Frame),                                           // allocates the FrameId, returns it
     RemoveFrame(FrameId), SetFrame(FrameId, Frame), RenameFrame(FrameId, String),
+    SetActuators(Option<ActuatorSpec>),                        // every movable joint at once; mimic followers skipped
 }
 
 /// What a command created, for the caller that selects it afterwards.
@@ -201,7 +202,14 @@ the pivot moves. `CollisionPolicy::Meshes` and `Primitives` poses are not
 re-expressed and do move — a backlog line. `Reparent` moves a link between parents; `MoveJointFrame`
 moves where a link's joint turns. Both work in the zero configuration
 (plans/m2-placement-ux OPEN 1); the app resets `q` before entering an
-editing tool. `RemoveMaterial` is refused while a link uses the material
+editing tool. `SetActuators` is the whole-model apply (ADR-0014): every movable joint that
+does not follow another one gets the same actuator, in one command and one
+undo, because the uniform case is the common one and clicking seven joints is
+the tedium the app exists to remove. A follower is *skipped*, not refused —
+its `<equality>` already drives it — the same way `RemoveLink` frees a
+follower rather than failing. The per-joint edit needs no command of its own:
+it rides `SetJoint`, which preserves only `parent` / `child`, as `mimic` does.
+`RemoveMaterial` is refused while a link uses the material
 (`MaterialInUse`). `SetRoot` reverses the fixed joints on the path to the
 old root and refuses a movable one (a reversed revolute pivot has no home in
 the swapped child frame). That stays so: a URDF always has a root, and a
