@@ -72,7 +72,7 @@ import it back, export it again, and MuJoCo agrees with `fk` on the result.
   are `ImportError` (`<include>`, several `<joint>`s in one body — see
   OPEN 1, several `<worldbody>` bodies, a body cycle). Docs-only commit;
   the ADR README row lands with it.
-- [ ] 2 — **The reader half of `xml.rs`.** `xml::parse(&str) -> Result<Node,
+- [x] 2 — **The reader half of `xml.rs`.** `xml::parse(&str) -> Result<Node,
   ParseError>`; attribute helpers for `f64`, `[f64; N]`, `DVec3`; the five
   orientation spellings → `DQuat`. Test: every spelling of one rotation
   agrees to 1e-12, `angle="degree"` flips them, and re-parsing the golden

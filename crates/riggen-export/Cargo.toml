@@ -17,3 +17,5 @@ serde_json.workspace = true
 # The URDF parser behind `urdf_in` (File › Import URDF…), and the
 # independent reader the writer's round-trip test parses our output with.
 urdf-rs.workspace = true
+# The XML pull parser `xml::parse` reads MJCF with (ADR-0015 §2).
+quick-xml.workspace = true

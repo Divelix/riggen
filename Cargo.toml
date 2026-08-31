@@ -93,6 +93,11 @@ web-time = "1"
 # URDF parser: the round-trip FK test reads our own URDF back through it
 # (dev, step 6), and File › Import URDF… is built on it (step 13).
 urdf-rs = "0.9"
+# The XML pull parser behind `xml::parse`, the reading half of the MJCF
+# import (ADR-0015 §2). 0.36 is the version `urdf-rs` already compiles, so
+# this line adds a dependency and no crate. Escaping, CDATA and encodings
+# are exactly what the writer's `escape` must not have to invert by hand.
+quick-xml = "0.36"
 
 # The Python SDK's binding layer (ADR-0009). `abi3-py310`: one extension
 # module for every CPython ≥ 3.10 (`requires-python`), so the wheel matrix
