@@ -121,8 +121,10 @@ impl Builder {
 
 /// base ─(revolute)─ upper ─(prismatic)─ slider ─(continuous)─ wheel
 /// ─(fixed)─ tip: every joint kind on one chain, an aluminium cube per
-/// link, one primitive collision, a rotated geom, and two named frames —
-/// one on the root, one on the leaf, one of them rotated.
+/// link, one primitive collision, a rotated geom, two named frames —
+/// one on the root, one on the leaf, one of them rotated — and one mimic:
+/// the slider follows the hinge at `-0.5 q + 0.1` (ADR-0013), a reach of
+/// -0.4..0.6 inside its own ±1.
 pub(crate) fn every_joint_kind() -> Builder {
     let mut b = Builder::new();
     let cube = b.mesh("cube", TriMesh::cube(0.05));
@@ -137,10 +139,21 @@ pub(crate) fn every_joint_kind() -> Builder {
     let tip = b.link("tip", wheel, JointKind::Fixed, None);
     // Damping on the hinge; a rotated visual on the wheel; a box on the
     // slider; nothing collides on the tip.
-    for j in b.robot.joints.values_mut() {
+    let mut hinge = None;
+    for (&id, j) in b.robot.joints.iter_mut() {
         if j.child == upper {
             j.dynamics.damping = 0.1;
             j.axis = DVec3::Y;
+            hinge = Some(id);
+        }
+    }
+    for j in b.robot.joints.values_mut() {
+        if j.child == slider {
+            j.mimic = Some(riggen_core::Mimic {
+                joint: hinge.expect("the hinge is above the slider"),
+                multiplier: -0.5,
+                offset: 0.1,
+            });
         }
     }
     b.robot.links.get_mut(&wheel).unwrap().visuals[0].pose = Pose::new(

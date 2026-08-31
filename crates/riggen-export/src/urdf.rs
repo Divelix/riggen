@@ -114,6 +114,19 @@ fn write_joint(x: &mut Xml, robot: &ResolvedRobot, j: &ResolvedJoint) {
             &[("damping", num(d.damping)), ("friction", num(d.friction))],
         );
     }
+    // URDF's native spelling of a coupled DoF (ADR-0013). Both optional
+    // attributes are written out rather than left to their defaults, so
+    // the file says the whole rule.
+    if let Some(m) = &j.mimic {
+        x.empty(
+            "mimic",
+            &[
+                ("joint", robot.joints[m.joint].name.clone()),
+                ("multiplier", num(m.multiplier)),
+                ("offset", num(m.offset)),
+            ],
+        );
+    }
     if d.armature != 0.0 {
         x.comment(&format!(
             "joint {}: armature {} is an MJCF property; not written",
@@ -300,6 +313,7 @@ mod tests {
     <child link="slider"/>
     <axis xyz="0 0 1"/>
     <limit lower="-1" upper="1" effort="1" velocity="1"/>
+    <mimic joint="upper_joint" multiplier="-0.5" offset="0.1"/>
   </joint>
   <joint name="wheel_joint" type="continuous">
     <origin xyz="0 0 0.1" rpy="0 0 0"/>
@@ -347,6 +361,13 @@ mod tests {
         assert_eq!(parsed.joints.len(), 6);
         assert_eq!(parsed.joints[0].joint_type, urdf_rs::JointType::Revolute);
         assert_eq!(parsed.joints[3].joint_type, urdf_rs::JointType::Fixed);
+        // The `<mimic>` is URDF's own element, not a string we invented:
+        // urdf-rs parses it back with the rule intact (ADR-0013).
+        assert!(parsed.joints[0].mimic.is_none());
+        let mimic = parsed.joints[1].mimic.as_ref().unwrap();
+        assert_eq!(mimic.joint, "upper_joint");
+        assert_eq!(mimic.multiplier, Some(-0.5));
+        assert_eq!(mimic.offset, Some(0.1));
     }
 
     #[test]

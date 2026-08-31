@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use riggen_core::{JointKind, JointState, Robot, fk};
+use riggen_core::{JointKind, JointState, Robot, fk, resolve_q};
 use serde::Serialize;
 
 use crate::xml::quat_wxyz;
@@ -69,7 +69,6 @@ pub fn samples(robot: &Robot) -> Samples {
     };
     for fractions in FRACTIONS {
         let mut state = JointState::new();
-        let mut q = Vec::new();
         for (i, (id, joint)) in movable.iter().enumerate() {
             let f = fractions[i % fractions.len()];
             let value = match (joint.kind, joint.limits) {
@@ -77,8 +76,12 @@ pub fn samples(robot: &Robot) -> Samples {
                 (_, Some(l)) => 0.5 * (l.lower + l.upper) + f * 0.5 * (l.upper - l.lower),
             };
             state.set(**id, value);
-            q.push(value);
         }
+        // A follower's slot holds its **derived** value, not the fraction
+        // rule's (ADR-0013), so `q` is a `qpos` MuJoCo can be given whole
+        // — the equality is soft and would otherwise fight it.
+        let state = resolve_q(robot, &state);
+        let q: Vec<f64> = movable.iter().map(|(id, _)| state.get(**id)).collect();
         let world = fk(robot, &state);
         let links = robot
             .links
@@ -209,5 +212,59 @@ mod tests {
             json.contains("\"joints\": [\n    \"j1\",\n    \"j2\"\n  ]"),
             "{json}"
         );
+    }
+
+    /// A follower's `q` is the value its leader implies, not the fraction
+    /// rule's — the `qpos` MuJoCo is handed has to satisfy the equality it
+    /// is given, or the soft constraint fights it (ADR-0013).
+    #[test]
+    fn a_followers_q_is_the_derived_one() {
+        let mut robot = Robot::new("r");
+        let root = robot.root;
+        let limits = Some(Limits {
+            lower: -1.0,
+            upper: 1.0,
+            effort: 1.0,
+            velocity: 1.0,
+        });
+        for (name, parent) in [("j1", root), ("j2", root)] {
+            Command::AddLink {
+                link: Box::new(Link::new(if name == "j1" { "a" } else { "b" })),
+                parent,
+                joint: Joint {
+                    kind: JointKind::Revolute,
+                    axis: DVec3::Z,
+                    origin: Pose::from_translation(DVec3::X),
+                    limits,
+                    ..Joint::fixed(name, parent, parent)
+                },
+            }
+            .apply(&mut robot)
+            .unwrap();
+        }
+        let id = |n: &str| *robot.joints.iter().find(|(_, j)| j.name == n).unwrap().0;
+        let (leader, follower) = (id("j1"), id("j2"));
+        robot.joints.get_mut(&follower).unwrap().mimic = Some(riggen_core::Mimic {
+            joint: leader,
+            multiplier: -0.5,
+            offset: 0.1,
+        });
+        riggen_core::validate(&robot).unwrap();
+
+        let s = samples(&robot);
+        assert_eq!(s.joints, ["j1", "j2"]);
+        for sample in &s.samples {
+            assert!(
+                (sample.q[1] - (-0.5 * sample.q[0] + 0.1)).abs() < 1e-12,
+                "{:?}",
+                sample.q
+            );
+            // …and it is a value the follower's own range allows.
+            assert!(sample.q[1] >= -1.0 && sample.q[1] <= 1.0, "{:?}", sample.q);
+        }
+        // The five configurations are still five different ones.
+        let first: Vec<f64> = s.samples.iter().map(|s| s.q[0]).collect();
+        assert_eq!(first.len(), 5);
+        assert!(first.windows(2).any(|w| w[0] != w[1]));
     }
 }
