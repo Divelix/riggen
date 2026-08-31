@@ -1,5 +1,6 @@
-//! MJCF and URDF export, and URDF import (docs/02-data-model.md
-//! §`ResolvedRobot`, §Format mapping, §URDF import; ADR-0004, ADR-0008).
+//! MJCF, URDF and SDF export, and MJCF and URDF import
+//! (docs/02-data-model.md §`ResolvedRobot`, §Format mapping, §URDF import;
+//! ADR-0004, ADR-0008, ADR-0016).
 //! Never depends on egui or wgpu (docs/01-architecture.md §Crates).
 //!
 //! The writers never see `Robot`: [`resolve`] turns the document plus its
@@ -13,6 +14,7 @@ pub mod mesh_store;
 pub mod mjcf;
 pub mod mjcf_in;
 pub mod resolve;
+pub mod sdf;
 #[cfg(test)]
 pub(crate) mod test_util;
 pub mod urdf;

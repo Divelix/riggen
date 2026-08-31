@@ -83,7 +83,7 @@ the `mujoco` job already does for MJCF.
 - [x] 3 — **`xml.rs`: text elements and `pose6`.** `Xml::text`,
   `xml::pose6`, unit tests including escaping inside a body and the
   `-0` folding `num` already does.
-- [ ] 4 — **`sdf::write`: model, links, inertials.** `<sdf><model
+- [x] 4 — **`sdf::write`: model, links, inertials.** `<sdf><model
   name>` → `<link name><pose …><inertial><pose><mass><inertia ixx…/>`, in
   the resolved order. A golden test against `test_util::every_joint_kind`,
   the shape `mjcf.rs` and `urdf.rs` both use.
