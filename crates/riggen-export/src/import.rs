@@ -164,7 +164,7 @@ impl fmt::Display for ImportWarning {
                 "{element} × {count}: nothing in the document holds it; not read"
             ),
             Self::GeomDropped { link, kind } => {
-                write!(f, "link \"{link}\": a {kind} geom was dropped")
+                write!(f, "link \"{link}\": {kind} was dropped")
             }
             Self::FreeJointDropped { body } => write!(
                 f,

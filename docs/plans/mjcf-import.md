@@ -94,7 +94,7 @@ import it back, export it again, and MuJoCo agrees with `fk` on the result.
   option, not a document field). Test: `every_joint_kind`'s exported MJCF
   imports to a `Robot` whose `fk` matches the original at five
   configurations.
-- [ ] 5 — **`<asset><mesh>` and `<geom>`.** Mesh assets by name → `MeshAsset`
+- [x] 5 — **`<asset><mesh>` and `<geom>`.** Mesh assets by name → `MeshAsset`
   (file through `meshdir`, uniform `scale`, `MeshNotFound` when absent),
   the visual / collision split (OPEN 2), mesh geoms → `Geom`s, primitives →
   `CollisionPolicy::Primitives` with the half-extents undone, `plane` /
@@ -190,6 +190,16 @@ to 1e-9 — the exact round trip ADR-0012 promised. Plus
   round-trip exactly" is true of `lower`/`upper` and of `effort`/`velocity`
   only where an `<actuator>` carries them; §MJCF import says so. The CI
   acceptance is unaffected: MuJoCo sees neither number.
+
+- **Step 5, `CollisionPolicy::None` vs `SameAsVisual`.** ADR-0015 §6's
+  third step (everything is a visual, the link is `SameAsVisual`) is for a
+  file that never distinguished. A link in a file that *did* — by class or
+  by `contype` — and has nothing on the collision side means
+  `CollisionPolicy::None`, so our own round trip keeps it. Which of the two
+  rules applies is decided once per link, not per geom: in a file that uses
+  `contype`, a geom that omits it collides at MuJoCo's default.
+- **Step 5, `<geom fromto>`** names the two ends of a cylinder or capsule
+  and replaces its pose; Menagerie is full of it, and it is read.
 
 ## Open questions
 
