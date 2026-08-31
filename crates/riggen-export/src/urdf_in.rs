@@ -290,6 +290,8 @@ pub fn from_urdf(
                 // A `<mimic>` may name a joint further down the file, so
                 // the couplings are resolved in a second pass below.
                 mimic: None,
+                // URDF has no actuator to import (ADR-0014).
+                actuator: None,
             },
         );
         joint_ids.insert(joint.name.as_str(), id);
