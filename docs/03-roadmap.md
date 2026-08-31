@@ -213,9 +213,27 @@ release workflow is a tag push.
   checks every `mjEQ_JOINT` against the sampled `qpos`, so a swapped
   `polycoef` order or a dropped `<equality>` fails.
 
+- **2026-08-31** — actuator presets (ADR-0014). `Joint::actuator` holds
+  one of `Position { kp, kv }`, `Velocity { kv }` or `Motor { gear }`, and
+  the MJCF writer turns it into an `<actuator>` element named after its
+  joint, `ctrlrange` from the joint's limits (or the normalised `-1 1` of a
+  motor) and `forcerange` from `Limits::effort`, each attribute omitted
+  where the number is the unfilled zero. `model.nu` stops being zero and
+  `data.ctrl["shoulder_joint"]` works, which is what "sim-ready is a
+  feature, not a claim" was missing. It **amends ADR-0004 §4**: the
+  apologetic "need an `<actuator>`" comment survives only on a joint that
+  has none. URDF invents no `<transmission>` and names the preset in a
+  comment instead, beside the `armature` one. `validate` refuses an
+  actuator on a fixed joint, on a mimic follower (already driven by its
+  `<equality>`), and any gain MuJoCo cannot use. The panel edits one per
+  joint and `SetActuators` gives the whole model the same one in a single
+  undo; the SDK has `Position` / `Velocity` / `Motor`. `.riggen` is schema
+  3 — the second bump, an empty step on the chain ADR-0013 built — and the
+  `mujoco` job holds `MjModel` to an `actuators` block `--fk-samples`
+  writes, `model.nu` included, so a dropped or invented actuator fails.
+
 Still open:
 
-- Actuator presets.
 - MJCF import; SDF export.
 - Web demo build if the wasm check has stayed green.
 

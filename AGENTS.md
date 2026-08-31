@@ -19,12 +19,15 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**Mimic joints done (2026-08-31, ADR-0013):** `Joint::mimic` couples one
-joint's `q` to another's; `fk::resolve_q` is the one implementation,
-`validate` refuses chains and what MuJoCo would mis-simulate, and it writes
-as a URDF `<mimic>` and an MJCF `<equality polycoef>` — checked against the
-sampled `qpos` in CI — and imports back. **`.riggen` is schema 2**, with
-the upgrade chain `load` walks.
+**Actuator presets done (2026-08-31, ADR-0014):** `Joint::actuator` is a
+`Position` / `Velocity` / `Motor`, written as an MJCF `<actuator>` named
+after its joint — `model.nu` is no longer zero — with the ranges from
+`Limits`; URDF gets a comment, and it amends ADR-0004 §4. Panel, whole-model
+`SetActuators`, SDK, and CI checks `MjModel` against the samples.
+**Mimic joints (ADR-0013):** `Joint::mimic` couples one joint's `q` to
+another's; `fk::resolve_q` is the one implementation, exported as a URDF
+`<mimic>` and an MJCF `<equality polycoef>`, imported back. **`.riggen` is
+schema 3**, with the upgrade chain `load` walks.
 **Named frames (ADR-0012):** `Robot::frames` live end to end — tree, glyph,
 panel, gizmo, SDK — as an MJCF `<site>` and a URDF massless dummy link, one
 namespace with the links. **Convex decomposition (ADR-0011):**
@@ -34,8 +37,8 @@ wheel gives the app *and* `import riggen`; `python/build_wheel.py` is the
 recipe. **M4**: the wheel and `release.yml`. **M3**: MJCF + URDF from one
 `ResolvedRobot`, MuJoCo-clean, URDF import, inertials, collision. **M2**:
 the mouse-only arm. **M1**: the document, commands, history, `.riggen`.
-**Next:** the remaining v0.2 lines of `docs/03-roadmap.md` (actuator
-presets, MJCF import).
+**Next:** the remaining v0.2 lines of `docs/03-roadmap.md` (MJCF import,
+SDF export).
 
 ## Rules that are not derivable from the code
 

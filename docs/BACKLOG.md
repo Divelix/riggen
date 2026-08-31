@@ -6,7 +6,10 @@ below with the reason, so the same idea is not re-brainstormed.
 
 - Mimic chains (a follower whose leader also follows), rejected by `validate` today (ADR-0013): `fk::resolve_q` would grow from one pass to a topological one, no schema change
 - MJCF `<tendon><fixed>` for a coupling that really is a cable, beside the `<equality>` a mimic writes (ADR-0013)
-- A driven joint is not told apart from a free one in the viewport: no tint or badge on a follower's joint glyph (ADR-0013)
+- A driven joint is not told apart from a free one in the viewport: no tint or badge on a follower's joint glyph (ADR-0013), nor on an actuated one (ADR-0014)
+- MJCF `<general>` (and `<adhesion>`, `<muscle>`): the escape hatch beside the three actuator presets, for a user who needs `dyntype` / `gaintype` / `biastype` — hand-edited XML until MJCF import can read one back (ADR-0014)
+- Actuator gains in a `<default class>` rather than on every element, and explicit `ctrllimited` / `forcelimited` beside the `autolimits="true"` we write (ADR-0014)
+- Promote `Joint::actuator` to a top-level `Robot::actuators` map keyed by what it drives, the shape MJCF has and MJCF import will want (an actuator may target a tendon or a site); an `upgrade_` step moves each `Some(spec)` into the map (ADR-0014, option F of its idea)
 - `validate` does not check that geom poses or an `Override` inertial's numbers are finite (joint origins, joint limits, frame poses and densities are); a NaN typed into a geom pose reaches the export
 - `MoveJointFrame` re-expresses a link's visual geom poses but not `CollisionPolicy::Meshes` / `Primitives` poses, so a link with imported collision meshes or hand-placed primitives moves its collision in the world when its pivot moves
 - Things that *reference* a site now that frames exist (ADR-0012): MJCF sensors, actuators on a site, equality constraints, cameras, `<touch>`/`<force>`

@@ -493,7 +493,7 @@ not a new resolve.
 | Joint origin (child frame in parent frame) | `<joint><origin xyz rpy/>` | `<body pos quat>` of the child body |
 | Joint axis (child frame) | `<joint><axis xyz/>` | `<joint axis>` inside the child body; no `pos` is written, and MuJoCo's default is the body origin, which is the joint frame |
 | Fixed | `type="fixed"` | no `<joint>` element |
-| Revolute | `type="revolute"` + `<limit lower upper effort velocity/>` | `type="hinge" range="lo hi" limited="true"` |
+| Revolute | `type="revolute"` + `<limit lower upper effort velocity/>` | `type="hinge" range="lo hi"` — no `limited` attribute is written, because `autolimits="true"` on the `<compiler>` makes a written range a limiting one |
 | Continuous | `type="continuous"` | `type="hinge"` without `range` |
 | Prismatic | `type="prismatic"` + `<limit/>` | `type="slide" range="lo hi"` |
 | Visual geom | `<visual><origin/><geometry><mesh filename/></geometry></visual>` | `<geom class="visual" mesh=… pos quat/>` with `<default class="visual">` = `type="mesh" contype="0" conaffinity="0" group="2"` |
@@ -535,6 +535,9 @@ meshes that repeat the visuals are `SameAsVisual`, any other set is
 downgrade), collision primitives are `Primitives`; `<mimic>` becomes a `Joint::mimic`
 (ADR-0013), resolved in a second pass so it may name a joint further down
 the file, with URDF's own defaults (multiplier 1, offset 0) filled in.
+`Joint::actuator` is always `None` on import: URDF has no actuator element
+to read, which is also why nothing is dropped and no warning appears
+(ADR-0014).
 `package://name/rest`
 resolves through the map, else `rest` beside the file, else `name/rest`
 under an ancestor of the file's directory — `urdf-rs`'s own resolution
