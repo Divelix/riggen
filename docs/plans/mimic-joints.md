@@ -122,7 +122,7 @@ and the import-warning docstring at `robot.py:1101` loses "mimic".
   `<mimic>` in `urdf.rs`, the `<equality>` block in `mjcf.rs`, followers'
   derived `q` in `fk_samples`. A mimic goes into
   `test_util::every_joint_kind()` so both goldens carry one.
-- [ ] **Step 3 — import: URDF `<mimic>` becomes a `Mimic`.** `urdf_in`
+- [x] **Step 3 — import: URDF `<mimic>` becomes a `Mimic`.** `urdf_in`
   reads it; `MimicDropped` narrows to a `reason` and keeps its inline test
   coverage for the chain / fixed-leader / unknown-leader cases.
 - [ ] **Step 4 — the corpus, and MuJoCo proves it.** `assets/fixtures/arm`

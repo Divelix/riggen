@@ -3597,9 +3597,10 @@ fn unsaved_confirm() {
 }
 
 /// File › Import URDF… (here through `open_path`): the hand-written arm
-/// URDF becomes the document, its dropped `<mimic>` reaches the status
-/// bar, and the imported collision shapes — a box, a separate hull mesh —
-/// show with the collision view on.
+/// URDF becomes the document, its dropped `<safety_controller>` reaches
+/// the status bar — its `<mimic>` is kept now (ADR-0013), so it is the
+/// only warning left — and the imported collision shapes — a box, a
+/// separate hull mesh — show with the collision view on.
 #[test]
 fn import_urdf() {
     scenario("import_urdf", |harness| {
@@ -3620,10 +3621,12 @@ fn import_urdf() {
         assert_eq!(state.document.file, None, "not a .riggen until saved");
         let status = state.status.as_deref().unwrap_or_default();
         assert!(
-            status.contains("arm.urdf")
-                && status.contains("<safety_controller>")
-                && status.contains("+1 more"),
+            status.contains("arm.urdf") && status.contains("<safety_controller>"),
             "{status}"
+        );
+        assert!(
+            !status.contains("mimic") && !status.contains("more"),
+            "the <mimic> is kept, so it is the one warning: {status}"
         );
         // base's box, shoulder / upper repeat their visuals (nothing extra),
         // fore's hull mesh: two translucent shapes.

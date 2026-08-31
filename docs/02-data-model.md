@@ -503,7 +503,10 @@ link axes); a `<mesh scale>` becomes `MeshAsset::scale` (uniform only — a
 non-uniform one is a warning and the largest component); `<collision>`
 meshes that repeat the visuals are `SameAsVisual`, any other set is
 `CollisionPolicy::Meshes` kept losslessly (OPEN 1, decided: no
-downgrade), collision primitives are `Primitives`. `package://name/rest`
+downgrade), collision primitives are `Primitives`; `<mimic>` becomes a `Joint::mimic`
+(ADR-0013), resolved in a second pass so it may name a joint further down
+the file, with URDF's own defaults (multiplier 1, offset 0) filled in.
+`package://name/rest`
 resolves through the map, else `rest` beside the file, else `name/rest`
 under an ancestor of the file's directory — `urdf-rs`'s own resolution
 shells out to `rospack`. Nothing is dropped silently: `ImportWarning::{
@@ -511,6 +514,14 @@ MimicDropped, SafetyControllerDropped, NonUniformScale,
 PrimitiveVisualDropped, MixedCollisionDropped, NoInertial,
 PackageUnresolved, MeshNotFound }` reach the status bar (File › Import
 URDF…, a dropped `.urdf`, or `riggen --export … robot.urdf` on stderr).
+`ImportWarning::MimicDropped` now carries a `reason`, and only for a
+coupling the document cannot hold: a leader that is not a joint in the file
+or is `fixed`, a joint following itself, a `<mimic>` on a `fixed` joint, a
+chain, a zero or non-finite multiplier, and a reach outside the follower's
+own limits. `validate` owns those rules — the import runs it and phrases
+its verdict — so a refused coupling is dropped and the file still opens; it
+never turns into an `ImportError`.
+
 A massless childless link is **not** turned back into a `Frame`: nothing
 distinguishes our exported dummy from a real unweighed link, and guessing
 would silently delete links, so the asymmetry with the URDF writer is

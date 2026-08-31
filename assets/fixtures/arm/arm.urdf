@@ -8,7 +8,7 @@
   meshes with a scale, <inertial> on every part (the values riggen computed
   for arm.riggen), a box collision, collisions that repeat the visual, a
   collision mesh that does not (fore_hull.stl), one continuous joint, a
-  <safety_controller> and a <mimic> to warn on, and the two massless dummy
+  <safety_controller> to warn on, a <mimic> to import, and the two dummy
   links riggen writes for arm.riggen's named frames (ADR-0012) — which the
   import deliberately keeps as links, not frames.
 -->
