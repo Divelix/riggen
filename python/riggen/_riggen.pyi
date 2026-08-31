@@ -51,6 +51,11 @@ class MimicDoc(TypedDict):
     multiplier: float
     offset: float
 
+# One MJCF ``<actuator>`` element for the joint (ADR-0014):
+# ``{"Position": {"kp", "kv"}}`` / ``{"Velocity": {"kv"}}`` /
+# ``{"Motor": {"gear"}}``.
+ActuatorDoc = dict[str, Any]
+
 JointKind = Literal["Fixed", "Revolute", "Continuous", "Prismatic"]
 
 class JointInput(TypedDict):
@@ -65,6 +70,7 @@ class JointInput(TypedDict):
     limits: LimitsDoc | None
     dynamics: DynamicsDoc
     mimic: MimicDoc | None
+    actuator: ActuatorDoc | None
 
 class JointDoc(JointInput):
     """A joint as ``joints()`` returns it: with its endpoints."""

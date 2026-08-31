@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 import os
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, ClassVar, Literal, Union
 
@@ -26,6 +26,10 @@ __all__ = [
     "Pose",
     "Limits",
     "Dynamics",
+    "Actuator",
+    "Position",
+    "Velocity",
+    "Motor",
     "JointSpec",
     "Fixed",
     "Revolute",
@@ -247,6 +251,64 @@ class Dynamics:
         return cls(doc["damping"], doc["friction"], doc["armature"])
 
 
+# ---- actuators ---------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Actuator:
+    """What drives a joint in the exported MJCF — one ``<actuator>`` element
+    named after the joint, so ``data.ctrl["shoulder"]`` is the name you
+    already know (ADR-0014). Build one with :class:`Position`,
+    :class:`Velocity` or :class:`Motor`; read one from
+    :attr:`Joint.actuator`.
+
+    MJCF only: URDF has no actuator element and gets a comment naming this
+    one instead. ``ctrlrange`` and ``forcerange`` are not typed here — they
+    come from the joint's own limits at export."""
+
+    kind: ClassVar[str]
+
+    def to_doc(self) -> _riggen.ActuatorDoc:
+        return {self.kind: {f.name: float(getattr(self, f.name)) for f in fields(self)}}
+
+    @staticmethod
+    def from_doc(doc: _riggen.ActuatorDoc) -> Actuator:
+        ((kind, values),) = doc.items()
+        return _ACTUATORS[kind](**values)
+
+
+@dataclass(frozen=True)
+class Position(Actuator):
+    """A servo tracking a target position: MJCF ``<position kp kv>``.
+    ``ctrl`` is in the joint's own units and ``ctrlrange`` is its limits.
+    ``kv`` defaults to MuJoCo's own 0 — no damping term."""
+
+    kind = "Position"
+    kp: float
+    kv: float = 0.0
+
+
+@dataclass(frozen=True)
+class Velocity(Actuator):
+    """A servo tracking a target rate: MJCF ``<velocity kv>``. ``ctrlrange``
+    is ``±`` the joint's velocity limit."""
+
+    kind = "Velocity"
+    kv: float = 1.0
+
+
+@dataclass(frozen=True)
+class Motor(Actuator):
+    """Direct force or torque: MJCF ``<motor gear>``, with ``ctrl``
+    normalised to ``-1 1`` and scaled by ``gear``."""
+
+    kind = "Motor"
+    gear: float = 1.0
+
+
+_ACTUATORS: dict[str, type[Actuator]] = {c.kind: c for c in (Position, Velocity, Motor)}
+
+
 # ---- joint specs ------------------------------------------------------------
 
 
@@ -271,10 +333,15 @@ class JointSpec:
         object.__setattr__(self, "limits", limits)
         object.__setattr__(self, "dynamics", dynamics)
 
-    def to_doc(self, name: str, mimic: _riggen.MimicDoc | None = None) -> _riggen.JointInput:
-        """The document's joint, without endpoints. A coupling is not part
-        of the spec — it belongs to the joint, not to its kind — so it is
-        passed through rather than described here."""
+    def to_doc(
+        self,
+        name: str,
+        mimic: _riggen.MimicDoc | None = None,
+        actuator: _riggen.ActuatorDoc | None = None,
+    ) -> _riggen.JointInput:
+        """The document's joint, without endpoints. Neither a coupling nor an
+        actuator is part of the spec — both belong to the joint, not to its
+        kind — so they are passed through rather than described here."""
         return {
             "name": name,
             "kind": self.kind,  # type: ignore[typeddict-item]  # a ClassVar[str] narrowed by the subclass
@@ -283,6 +350,7 @@ class JointSpec:
             "limits": None if self.limits is None else self.limits.to_doc(),
             "dynamics": self.dynamics.to_doc(),
             "mimic": mimic,
+            "actuator": actuator,
         }
 
     @staticmethod
@@ -864,11 +932,14 @@ class Joint(_Handle):
 
     @spec.setter
     def spec(self, value: JointSpec) -> None:
-        # Retyping a joint does not decouple it — the mimic is the joint's,
-        # not the spec's — but a fixed joint has no value to drive, so the
-        # coupling goes with the kind (ADR-0013).
-        mimic = None if value.kind == "Fixed" else self._doc["mimic"]
-        self.robot._inner.set_joint(self.id, value.to_doc(self.name, mimic))
+        # Retyping a joint does not decouple it, nor unpower it — the mimic
+        # and the actuator are the joint's, not the spec's — but a fixed
+        # joint has neither a value to drive nor a degree of freedom to
+        # actuate, so both go with the kind (ADR-0013, ADR-0014).
+        movable = value.kind != "Fixed"
+        mimic = self._doc["mimic"] if movable else None
+        actuator = self._doc["actuator"] if movable else None
+        self.robot._inner.set_joint(self.id, value.to_doc(self.name, mimic, actuator))
 
     @property
     def origin(self) -> Pose:
@@ -917,6 +988,18 @@ class Joint(_Handle):
     @mimic.setter
     def mimic(self, value: Mimic | None) -> None:
         self._set(mimic=None if value is None else value.to_doc())
+
+    @property
+    def actuator(self) -> Actuator | None:
+        """What drives this joint in the exported MJCF, or ``None`` — see
+        :class:`Position`, :class:`Velocity` and :class:`Motor`. A fixed
+        joint and a joint that follows another one may not carry one."""
+        doc = self._doc["actuator"]
+        return None if doc is None else Actuator.from_doc(doc)
+
+    @actuator.setter
+    def actuator(self, value: Actuator | None) -> None:
+        self._set(actuator=None if value is None else value.to_doc())
 
     def move_frame(self, origin: PoseLike, axis: Axis | None = None) -> None:
         """Moves the pivot without moving anything in the world: the child's

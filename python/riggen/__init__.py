@@ -49,6 +49,7 @@ from .errors import (
 )
 from .show import Viewer, show
 from .robot import (
+    Actuator,
     ComputedInertial,
     Continuous,
     ConvexDecomposition,
@@ -64,11 +65,14 @@ from .robot import (
     Link,
     Material,
     Mimic,
+    Motor,
     OverrideInertial,
+    Position,
     Pose,
     Prismatic,
     Revolute,
     Robot,
+    Velocity,
     load,
     load_urdf,
 )
@@ -97,6 +101,11 @@ __all__ = [
     "Limits",
     "Mimic",
     "Dynamics",
+    # actuators
+    "Actuator",
+    "Position",
+    "Velocity",
+    "Motor",
     "Material",
     "Inertial",
     # joint specs

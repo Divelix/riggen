@@ -34,16 +34,17 @@ def hinge_joint(**overrides):
 
 
 def upgraded_from_v1(path: Path) -> dict:
-    """A schema-1 corpus file as schema 2 holds it: the version moves and
-    every joint gains a `mimic` of `None` (ADR-0013). `pendulum.riggen` is
-    frozen at 1 — it is the file the upgrade chain reads — so a document
-    the SDK builds and saves is compared against this, not against its
-    bytes."""
+    """A schema-1 corpus file as the current schema holds it: the version
+    moves and every joint gains a `mimic` (ADR-0013) and an `actuator`
+    (ADR-0014) of `None`. `pendulum.riggen` is frozen at 1 — it is the file
+    the upgrade chain reads — so a document the SDK builds and saves is
+    compared against this, not against its bytes."""
     doc = json.loads(path.read_text())
     assert doc["schema_version"] == 1, "the upgrade corpus stays at schema 1"
-    doc["schema_version"] = 2
+    doc["schema_version"] = 3
     for joint in doc["robot"]["joints"].values():
         joint["mimic"] = None
+        joint["actuator"] = None
     return doc
 
 
