@@ -272,6 +272,9 @@ reads.
 export oracle and the round-trip tests' contract, and a frame is not a body.
 `frames` is the separate one pass over the same result, and it is what
 `--fk-samples` writes as `sites` and the SDK's `frame.world(q)` returns.
+`--fk-samples` writes every movable joint's `q`, a follower's at its
+**derived** value, so the `qpos` it hands MuJoCo already satisfies the
+equality the MJCF carries.
 
 `fk` resolves mimic joints first, through `resolve_q`: a follower's `q` is
 `multiplier · q(leader) + offset` (ADR-0013) and whatever the caller put in
@@ -403,7 +406,9 @@ pub struct ResolvedLink {
 }
 pub struct ResolvedSite { pub name: String, pub pose: Pose }  // frame in the link frame
 pub enum ResolvedGeom { Mesh { name, mesh: Arc<TriMesh>, pose }, Primitive(Primitive) }
-pub struct ResolvedJoint { name, kind, parent: usize, child: usize, origin: Pose, axis: DVec3, limits, dynamics }
+pub struct ResolvedJoint { name, kind, parent: usize, child: usize, origin: Pose, axis: DVec3, limits, dynamics,
+                           mimic: Option<ResolvedMimic> }
+pub struct ResolvedMimic { pub joint: usize, pub multiplier: f64, pub offset: f64 }  // joint indexes ResolvedRobot::joints
 pub struct ExportOptions { format: Format, mesh_paths: MeshPathStyle, floating_base: bool }
 ```
 
@@ -434,6 +439,10 @@ over a cache its job thread fills and reports `DecompMiss::Pending` for an
 entry that has not landed — which becomes `ExportError::DecompositionPending`
 and blocks the export until the job lands, listed beside every other
 blocker (no modal, no spinner over the dialog).
+
+A `Joint::mimic` becomes a `ResolvedMimic` whose `joint` is an **index into
+`ResolvedRobot::joints`**, not a `JointId`, so both writers stay dumb
+serialisers of the vector they already have (ADR-0004 §1, ADR-0013).
 
 Every `Frame` becomes a `ResolvedSite` on its parent link, in `FrameId`
 order, carrying its link-frame pose unchanged; a frame on a link the tree
@@ -466,9 +475,16 @@ not a new resolve.
 | Mesh assets | `meshes/<stem>.stl`, path style per `MeshPathStyle` | `<asset><mesh name file/></asset>`, one per written **file** — a referenced mesh, plus each hull and decomposition piece; **meshes are written in meters as binary STL, no `scale`** (ADR-0008) |
 | Root | first `<link>` | `<worldbody>` child; `floating_base` in `ExportOptions` adds `<freejoint name="root"/>` |
 | Frame (`Frame`, a `ResolvedSite`) | a massless `<link name="tcp"/>` — no visual, collision or inertial — plus `<joint name="tcp_fixed" type="fixed">` with the frame pose as its `<origin xyz rpy/>`; the dummy links after every real link and the fixed joints after every real joint, so the file still reads root-first (ADR-0012) | `<site name pos quat/>` inside its body after the geoms, bare: no `size`, `group` or `rgba`, so MuJoCo's default 0.005 m sphere marks it (ADR-0012) |
+| Mimic (`ResolvedMimic`) | `<mimic joint multiplier offset/>` inside the follower's `<joint>`, after `<dynamics>` | `<equality><joint joint1="follower" joint2="leader" polycoef="offset multiplier 0 0 0"/></equality>` after `</worldbody>` — a **soft** solver constraint, not a reduction (ADR-0013) |
 | Effort / velocity | `<limit effort velocity/>` | `<actuator>` `forcerange`/`ctrlrange` — post-MVP, not silently dropped: a comment after the `<joint>` names the values |
 | Dynamics | `<dynamics damping friction/>` | `damping`, `frictionloss`, `armature` on the `<joint>`, written only when non-zero |
 | Angles | radians | **`<compiler angle="radian" meshdir="meshes" autolimits="true"/>` is always written** — MJCF's default is degrees |
+
+MJCF's `polycoef` is `a0 a1 a2 a3 a4` in `y − y0 = a0 + a1(x − x0) + …`,
+where `x` and `y` are the two joints' deviations from their `qpos0`. We
+never write `ref`, so both references are zero and `(offset, multiplier, 0,
+0, 0)` is exactly URDF's `q_y = k·q_x + o`; the last three slots are always
+zero, because non-linear coupling is not modelled.
 
 Quaternion order: MJCF is `w x y z`; `glam::DQuat` is `x y z w`. One helper,
 one place, tested (`xml::quat_wxyz`). Numbers are written with twelve

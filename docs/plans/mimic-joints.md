@@ -118,7 +118,7 @@ and the import-warning docstring at `robot.py:1101` loses "mimic".
   pose is `k·q + o` at three configurations; one rejection test per new
   `ValidationError`; `RemoveLink` of a leader's subtree leaves a valid
   document; `pendulum.riggen` still opens.
-- [ ] **Step 2 — export: both writers.** `ResolvedMimic` in `resolve`,
+- [x] **Step 2 — export: both writers.** `ResolvedMimic` in `resolve`,
   `<mimic>` in `urdf.rs`, the `<equality>` block in `mjcf.rs`, followers'
   derived `q` in `fk_samples`. A mimic goes into
   `test_util::every_joint_kind()` so both goldens carry one.

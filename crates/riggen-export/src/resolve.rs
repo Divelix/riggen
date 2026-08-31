@@ -12,8 +12,8 @@ use std::sync::Arc;
 use riggen_core::glam::DVec3;
 use riggen_core::inertial::{self, Inertial, InertialError, MeshLookup};
 use riggen_core::{
-    CollisionPolicy, Dynamics, Geom, JointKind, Limits, LinkId, MeshId, Pose, Primitive, Robot,
-    ValidationError, validation_errors,
+    CollisionPolicy, Dynamics, Geom, JointId, JointKind, Limits, LinkId, MeshId, Pose, Primitive,
+    Robot, ValidationError, validation_errors,
 };
 use riggen_mesh::{DecompParams, TriMesh};
 
@@ -234,6 +234,18 @@ pub struct ResolvedJoint {
     pub axis: DVec3,
     pub limits: Option<Limits>,
     pub dynamics: Dynamics,
+    /// This joint follows another one (ADR-0013).
+    pub mimic: Option<ResolvedMimic>,
+}
+
+/// `q(this) = multiplier * q(joints[joint]) + offset` (ADR-0013). The
+/// leader is an **index into `ResolvedRobot::joints`**, so a writer needs
+/// nothing but the vector it already has (ADR-0004 §1).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResolvedMimic {
+    pub joint: usize,
+    pub multiplier: f64,
+    pub offset: f64,
 }
 
 /// The pure-numeric, convention-fixed intermediate every writer reads.
@@ -283,6 +295,17 @@ pub fn resolve(
     let order = robot.subtree(robot.root);
     let index: BTreeMap<LinkId, usize> = order.iter().enumerate().map(|(i, &l)| (l, i)).collect();
 
+    // Document joint → its index in `joints` below: `joints[i]` is the
+    // parent joint of `links[i + 1]`, so a mimic can name an index and the
+    // writers stay dumb serialisers. `validate` passed above, so every
+    // joint is some reachable link's parent joint.
+    let joint_index: BTreeMap<JointId, usize> = order
+        .iter()
+        .enumerate()
+        .skip(1)
+        .filter_map(|(i, &l)| Some((robot.parent_joint(l)?, i - 1)))
+        .collect();
+
     let names = mesh_names(robot);
     // Frames grouped by their link, `FrameId` order preserved by the walk
     // over the `BTreeMap`. A frame whose parent is missing or unreachable
@@ -319,6 +342,11 @@ pub fn resolve(
                 axis: joint.axis.normalize_or_zero(),
                 limits: joint.limits,
                 dynamics: joint.dynamics,
+                mimic: joint.mimic.map(|m| ResolvedMimic {
+                    joint: joint_index[&m.joint],
+                    multiplier: m.multiplier,
+                    offset: m.offset,
+                }),
             });
         }
 
@@ -1140,5 +1168,30 @@ mod tests {
         let (store, _) = MeshStore::load(&robot);
         let resolved = resolve(&robot, &store, &ComputeNow, &ExportOptions::default()).unwrap();
         assert!(resolved.links.iter().all(|l| l.sites.is_empty()));
+    }
+
+    /// A mimic reaches the writers as an **index** into `joints`, so
+    /// neither of them needs the document (ADR-0004 §1, ADR-0013).
+    #[test]
+    fn a_mimic_resolves_to_the_leaders_index() {
+        let r = crate::test_util::every_joint_kind().resolve().unwrap();
+        let names: Vec<&str> = r.joints.iter().map(|j| j.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["upper_joint", "slider_joint", "wheel_joint", "tip_joint"]
+        );
+        assert_eq!(r.joints[0].mimic, None);
+        assert_eq!(
+            r.joints[1].mimic,
+            Some(ResolvedMimic {
+                joint: 0,
+                multiplier: -0.5,
+                offset: 0.1
+            })
+        );
+        assert_eq!(
+            r.joints[r.joints[1].mimic.unwrap().joint].name,
+            "upper_joint"
+        );
     }
 }

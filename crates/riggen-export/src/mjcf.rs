@@ -62,6 +62,31 @@ pub fn write(robot: &ResolvedRobot, _options: &ExportOptions) -> String {
         write_body(&mut x, robot, 0);
     }
     x.close("worldbody");
+
+    // MJCF has no `<mimic>`: a coupled DoF is a solver equality, and
+    // `polycoef` is `y - y0 = a0 + a1(x - x0) + …` over the two joints'
+    // deviations from `qpos0`. We never write `ref`, so both references
+    // are zero and `(offset, multiplier, 0, 0, 0)` is exactly URDF's rule
+    // (ADR-0013). It is a *soft* constraint, not a reduction.
+    if robot.joints.iter().any(|j| j.mimic.is_some()) {
+        x.open("equality", &[]);
+        for j in &robot.joints {
+            let Some(m) = &j.mimic else { continue };
+            x.empty(
+                "joint",
+                &[
+                    ("joint1", j.name.clone()),
+                    ("joint2", robot.joints[m.joint].name.clone()),
+                    (
+                        "polycoef",
+                        format!("{} {} 0 0 0", num(m.offset), num(m.multiplier)),
+                    ),
+                ],
+            );
+        }
+        x.close("equality");
+    }
+
     x.close("mujoco");
     x.finish()
 }
@@ -270,6 +295,9 @@ mod tests {
       </body>
     </body>
   </worldbody>
+  <equality>
+    <joint joint1="slider_joint" joint2="upper_joint" polycoef="0.1 -0.5 0 0 0"/>
+  </equality>
 </mujoco>
 "#;
 
