@@ -78,7 +78,7 @@ import it back, export it again, and MuJoCo agrees with `fk` on the result.
   agrees to 1e-12, `angle="degree"` flips them, and re-parsing the golden
   of `mjcf::tests::GOLDEN` yields the elements the writer wrote. *Retires
   the parsing-and-rotation unknown before anything depends on it.*
-- [ ] 3 — **`<compiler>` and the `<default>` tree.** A `Defaults` keyed by
+- [x] 3 — **`<compiler>` and the `<default>` tree.** A `Defaults` keyed by
   class with `childclass` inheritance, resolving any element's effective
   attributes; `angle`, `eulerseq`, `meshdir`, `assetdir`, `autolimits`.
   Test: a hand-written file with nested defaults and a `childclass` on a

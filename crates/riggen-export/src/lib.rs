@@ -10,6 +10,7 @@ mod export;
 pub mod fk_samples;
 pub mod mesh_store;
 pub mod mjcf;
+pub mod mjcf_in;
 pub mod resolve;
 #[cfg(test)]
 pub(crate) mod test_util;
