@@ -271,8 +271,10 @@ class JointSpec:
         object.__setattr__(self, "limits", limits)
         object.__setattr__(self, "dynamics", dynamics)
 
-    def to_doc(self, name: str) -> _riggen.JointInput:
-        """The document's joint, without endpoints."""
+    def to_doc(self, name: str, mimic: _riggen.MimicDoc | None = None) -> _riggen.JointInput:
+        """The document's joint, without endpoints. A coupling is not part
+        of the spec — it belongs to the joint, not to its kind — so it is
+        passed through rather than described here."""
         return {
             "name": name,
             "kind": self.kind,  # type: ignore[typeddict-item]  # a ClassVar[str] narrowed by the subclass
@@ -280,6 +282,7 @@ class JointSpec:
             "axis": list(self.axis),
             "limits": None if self.limits is None else self.limits.to_doc(),
             "dynamics": self.dynamics.to_doc(),
+            "mimic": mimic,
         }
 
     @staticmethod
@@ -785,11 +788,35 @@ class Link(_Handle):
         return f"Link({self.name!r})"
 
 
+@dataclass(frozen=True)
+class Mimic:
+    """A coupled degree of freedom: ``q(this) = multiplier * q(joint) +
+    offset``. Exported as URDF's ``<mimic>`` and as an MJCF
+    ``<equality><joint polycoef>`` — a *soft* solver constraint there, not
+    a reduction (ADR-0013).
+
+    ``joint`` is the leader: a movable joint that is not the follower and
+    does not itself follow one — chains are refused, as is a leader whose
+    range, mapped through ``(multiplier, offset)``, leaves the follower's
+    own limits."""
+
+    joint: Joint
+    multiplier: float = 1.0
+    offset: float = 0.0
+
+    def to_doc(self) -> _riggen.MimicDoc:
+        return {"joint": self.joint.id, "multiplier": float(self.multiplier), "offset": float(self.offset)}
+
+    @classmethod
+    def from_doc(cls, robot: Robot, doc: _riggen.MimicDoc) -> Mimic:
+        return cls(Joint(robot, doc["joint"]), doc["multiplier"], doc["offset"])
+
+
 class Joint(_Handle):
     """The edge from :attr:`parent` to :attr:`child`. Setting
-    :attr:`origin`, :attr:`axis`, :attr:`limits`, :attr:`dynamics` or
-    :attr:`spec` is one edit each; the endpoints change only through
-    :meth:`Link.reparent`."""
+    :attr:`origin`, :attr:`axis`, :attr:`limits`, :attr:`dynamics`,
+    :attr:`mimic` or :attr:`spec` is one edit each; the endpoints change
+    only through :meth:`Link.reparent`."""
 
     __slots__ = ()
 
@@ -837,7 +864,11 @@ class Joint(_Handle):
 
     @spec.setter
     def spec(self, value: JointSpec) -> None:
-        self.robot._inner.set_joint(self.id, value.to_doc(self.name))
+        # Retyping a joint does not decouple it — the mimic is the joint's,
+        # not the spec's — but a fixed joint has no value to drive, so the
+        # coupling goes with the kind (ADR-0013).
+        mimic = None if value.kind == "Fixed" else self._doc["mimic"]
+        self.robot._inner.set_joint(self.id, value.to_doc(self.name, mimic))
 
     @property
     def origin(self) -> Pose:
@@ -876,6 +907,16 @@ class Joint(_Handle):
     @dynamics.setter
     def dynamics(self, value: Dynamics) -> None:
         self._set(dynamics=value.to_doc())
+
+    @property
+    def mimic(self) -> Mimic | None:
+        """The joint this one follows, or ``None`` — see :class:`Mimic`."""
+        doc = self._doc["mimic"]
+        return None if doc is None else Mimic.from_doc(self.robot, doc)
+
+    @mimic.setter
+    def mimic(self, value: Mimic | None) -> None:
+        self._set(mimic=None if value is None else value.to_doc())
 
     def move_frame(self, origin: PoseLike, axis: Axis | None = None) -> None:
         """Moves the pivot without moving anything in the world: the child's

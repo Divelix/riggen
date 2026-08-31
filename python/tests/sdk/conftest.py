@@ -7,6 +7,7 @@ module. `FIXTURES` is `assets/fixtures/` at the repository root.
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -30,6 +31,20 @@ def hinge_joint(**overrides):
     }
     joint.update(overrides)
     return joint
+
+
+def upgraded_from_v1(path: Path) -> dict:
+    """A schema-1 corpus file as schema 2 holds it: the version moves and
+    every joint gains a `mimic` of `None` (ADR-0013). `pendulum.riggen` is
+    frozen at 1 — it is the file the upgrade chain reads — so a document
+    the SDK builds and saves is compared against this, not against its
+    bytes."""
+    doc = json.loads(path.read_text())
+    assert doc["schema_version"] == 1, "the upgrade corpus stays at schema 1"
+    doc["schema_version"] = 2
+    for joint in doc["robot"]["joints"].values():
+        joint["mimic"] = None
+    return doc
 
 
 @pytest.fixture

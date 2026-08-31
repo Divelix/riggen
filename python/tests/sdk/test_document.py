@@ -15,7 +15,7 @@ import riggen
 from riggen import _riggen, errors
 from riggen._riggen import Robot
 
-from conftest import FIXTURES, IDENTITY, hinge_joint
+from conftest import FIXTURES, IDENTITY, hinge_joint, upgraded_from_v1
 
 PENDULUM = FIXTURES / "pendulum.riggen"
 
@@ -38,13 +38,13 @@ def test_new_robot_has_a_root_and_the_default_materials():
 
 
 def test_pendulum_saves_as_the_corpus_file(pendulum: Robot, cubes: Path):
-    """Ids, order, hashes, `next_id`, key order — the file is byte-identical
-    to `assets/fixtures/pendulum.riggen` once the mesh paths rebase to the
-    same bare names."""
+    """Ids, order, hashes, `next_id`, key order — the file is
+    `assets/fixtures/pendulum.riggen` once the mesh paths rebase to the
+    same bare names, and once that schema-1 corpus is read as schema 2."""
     assert pendulum.next_id == 7
     out = cubes / "pendulum.riggen"
     pendulum.save(out)
-    assert out.read_text() == PENDULUM.read_text()
+    assert json.loads(out.read_text()) == upgraded_from_v1(PENDULUM)
 
 
 def test_read_access_matches_the_document(pendulum: Robot):
@@ -95,7 +95,7 @@ def test_load_of_a_missing_file_is_a_file_error(tmp_path: Path):
 def test_json_round_trip_and_copy(pendulum: Robot):
     text = pendulum.to_json()
     doc = json.loads(text)
-    assert doc["schema_version"] == 1 and doc["robot"]["next_id"] == 7
+    assert doc["schema_version"] == 2 and doc["robot"]["next_id"] == 7
     again = Robot.from_json(text)
     assert again.to_json() == text
     twin = pendulum.copy()

@@ -43,6 +43,14 @@ class DynamicsDoc(TypedDict):
     friction: float
     armature: float
 
+class MimicDoc(TypedDict):
+    """One joint following another: ``q = multiplier * q(joint) + offset``.
+    ``joint`` is the leader's id."""
+
+    joint: int
+    multiplier: float
+    offset: float
+
 JointKind = Literal["Fixed", "Revolute", "Continuous", "Prismatic"]
 
 class JointInput(TypedDict):
@@ -56,6 +64,7 @@ class JointInput(TypedDict):
     axis: list[float]
     limits: LimitsDoc | None
     dynamics: DynamicsDoc
+    mimic: MimicDoc | None
 
 class JointDoc(JointInput):
     """A joint as ``joints()`` returns it: with its endpoints."""

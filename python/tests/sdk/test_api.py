@@ -20,7 +20,7 @@ import riggen
 from riggen import Continuous, Dynamics, Fixed, Limits, Pose, Prismatic, Revolute
 from riggen._riggen import Robot as RawRobot
 
-from conftest import FIXTURES, ROOT
+from conftest import FIXTURES, ROOT, upgraded_from_v1
 
 ARM = FIXTURES / "arm" / "arm.riggen"
 EXAMPLES = ROOT / "examples"
@@ -91,9 +91,60 @@ def pendulum_api(cubes: Path) -> riggen.Robot:
     return robot
 
 
+def test_a_mimic_couples_two_joints_all_the_way_to_the_export(pendulum_api: riggen.Robot, cubes: Path, tmp_path: Path):
+    """Two arms on one motor, the gripper case: `Joint.mimic` holds the
+    rule, `fk` derives the follower, and both writers carry it (ADR-0013)."""
+    robot = pendulum_api
+    hinge = robot.joint("hinge")
+    second = robot.root.add_link(
+        "arm2",
+        Revolute("y", origin=(0, 0, 0.5), limits=Limits(-90, 90, effort=10, velocity=3, degrees=True)),
+        mesh=cubes / "cube_ascii.stl",
+        material="PLA",
+        joint_name="hinge2",
+    )
+    follower = second.joint
+    assert follower.mimic is None
+    follower.mimic = riggen.Mimic(hinge, multiplier=-1.0, offset=0.0)
+    assert follower.mimic == riggen.Mimic(hinge, -1.0, 0.0)
+    assert follower.mimic.joint == hinge and follower.mimic.joint.name == "hinge"
+
+    # The follower's own slot is ignored; its leader is what moves it.
+    driven = robot.fk({hinge: 0.5, follower: 99.0})["arm2"]
+    assert driven == robot.fk({hinge: 0.5})["arm2"]
+    assert driven != robot.fk({hinge: 0.0})["arm2"]
+
+    # Retyping the joint keeps the coupling; making it fixed drops it.
+    follower.spec = Revolute("y", origin=(0, 0, 0.5), limits=Limits(-2, 2))
+    assert follower.mimic == riggen.Mimic(hinge, -1.0, 0.0)
+
+    # …but limits the leader's range no longer fits inside are refused:
+    # MuJoCo would be given a `range` its equality fights.
+    with pytest.raises(riggen.InvalidDocument):
+        follower.limits = (-1, 1)
+
+    robot.export(tmp_path, format="both")
+    mjcf = (tmp_path / "pendulum.xml").read_text()
+    assert '<joint joint1="hinge2" joint2="hinge" polycoef="0 -1 0 0 0"/>' in mjcf
+    urdf = (tmp_path / "pendulum.urdf").read_text()
+    assert '<mimic joint="hinge" multiplier="-1" offset="0"/>' in urdf
+
+    follower.spec = Fixed()
+    assert follower.mimic is None
+
+    # And the rules are the document's: a chain is refused, not stored.
+    follower.spec = Revolute("y", origin=(0, 0, 0.5), limits=Limits(-2, 2))
+    follower.mimic = riggen.Mimic(hinge, -1.0, 0.0)
+    with pytest.raises(riggen.InvalidDocument):
+        hinge.mimic = riggen.Mimic(follower, 1.0, 0.0)
+    assert hinge.mimic is None
+
+
 def test_the_api_builds_the_corpus_pendulum(pendulum_api: riggen.Robot, cubes: Path):
     pendulum_api.save(cubes / "pendulum.riggen")
-    assert (cubes / "pendulum.riggen").read_text() == (FIXTURES / "pendulum.riggen").read_text()
+    # The corpus is frozen at schema 1 and `save` writes 2 (ADR-0013), so
+    # the comparison is against the document it upgrades to.
+    assert json.loads((cubes / "pendulum.riggen").read_text()) == upgraded_from_v1(FIXTURES / "pendulum.riggen")
 
 
 def test_handles_read_the_document(pendulum_api: riggen.Robot):
