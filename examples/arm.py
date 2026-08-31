@@ -8,8 +8,10 @@ revolute with limits in degrees and a little damping; every mesh is placed
 in its link frame so the joint pivots sit where the parts meet. Two named
 frames go on top — a `tcp` at the end of the forearm and a `camera_mount`
 looking off the plinth — which export as MJCF `<site>`s and URDF dummy
-links (ADR-0012) — and the forearm is coupled to the upper arm, which
-exports as a URDF `<mimic>` and an MJCF `<equality>` (ADR-0013). The
+links (ADR-0012) — the forearm is coupled to the upper arm, which exports
+as a URDF `<mimic>` and an MJCF `<equality>` (ADR-0013), and the two
+joints nothing else drives carry an actuator, so the MJCF is drivable:
+`model.nu == 2` and `data.ctrl["shoulder_joint"]` works (ADR-0014). The
 result is `assets/fixtures/arm/arm.riggen` — the SDK suite checks that
 this file's export is byte-identical to that document's — and the
 `mujoco` CI check loads what it writes.
@@ -22,7 +24,7 @@ from pathlib import Path
 from typing import Literal
 
 import riggen
-from riggen import Dynamics, Fixed, Limits, Mimic, Pose, Revolute
+from riggen import Dynamics, Fixed, Limits, Mimic, Position, Pose, Revolute, Velocity
 
 PARTS = Path(__file__).resolve().parents[1] / "assets" / "fixtures" / "arm"
 MM = 0.001
@@ -56,6 +58,11 @@ def build() -> riggen.Robot:
     # `fore_joint` has no `q` of its own — `fk` derives it, and the export
     # writes it as a `<mimic>` and an `<equality>`.
     robot.joint("fore_joint").mimic = Mimic(robot.joint("upper_joint"), multiplier=-0.5, offset=0.1)
+    # What drives the two joints that are free to be driven: a position
+    # servo on the shoulder, a velocity one on the upper arm. The forearm
+    # gets none — its `<equality>` already moves it.
+    robot.joint("shoulder_joint").actuator = Position(kp=100.0, kv=10.0)
+    robot.joint("upper_joint").actuator = Velocity(kv=8.0)
     return robot
 
 

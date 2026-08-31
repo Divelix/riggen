@@ -290,7 +290,11 @@ export oracle and the round-trip tests' contract, and a frame is not a body.
 `--fk-samples` writes as `sites` and the SDK's `frame.world(q)` returns.
 `--fk-samples` writes every movable joint's `q`, a follower's at its
 **derived** value, so the `qpos` it hands MuJoCo already satisfies the
-equality the MJCF carries.
+equality the MJCF carries. It also writes an `actuators` block — name,
+kind, driven joint, gains and the two ranges per `<actuator>` (ADR-0014),
+derived from the document beside the writer's own derivation from
+`ResolvedJoint`, so the MuJoCo acceptance compares two statements of one
+rule rather than the writer with itself.
 
 `fk` resolves mimic joints first, through `resolve_q`: a follower's `q` is
 `multiplier · q(leader) + offset` (ADR-0013) and whatever the caller put in

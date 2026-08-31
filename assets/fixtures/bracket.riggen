@@ -87,7 +87,11 @@
           "armature": 0.0
         },
         "mimic": null,
-        "actuator": null
+        "actuator": {
+          "Motor": {
+            "gear": 50.0
+          }
+        }
       }
     },
     "frames": {},

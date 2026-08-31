@@ -3347,6 +3347,22 @@ fn write_arm_sample() {
         multiplier: -0.5,
         offset: 0.1,
     });
+    // …and the two joints that are free to be driven carry an actuator
+    // each (ADR-0014), so the exported MJCF has `model.nu == 2` and the
+    // MuJoCo acceptance checks two of the three presets against the real
+    // model (the third, a `<motor>`, is on `bracket.riggen`'s hinge). The
+    // forearm follows, so it may carry none: its `<equality>` already
+    // drives it.
+    robot
+        .joints
+        .get_mut(&joint_id(&robot, "shoulder_joint"))
+        .unwrap()
+        .actuator = Some(riggen_core::ActuatorSpec::Position {
+        kp: 100.0,
+        kv: 10.0,
+    });
+    robot.joints.get_mut(&leader).unwrap().actuator =
+        Some(riggen_core::ActuatorSpec::Velocity { kv: 8.0 });
     riggen_core::validate(&robot).unwrap();
     riggen_core::save(&robot, &arm_fixture("arm.riggen")).unwrap();
 }
