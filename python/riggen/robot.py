@@ -1098,8 +1098,9 @@ def load(path: PathLike) -> Robot:
 
 def load_urdf(path: PathLike, packages: dict[str, PathLike] | None = None) -> Robot:
     """Imports a URDF; ``packages`` maps ``package://name/`` prefixes to
-    directories. What the URDF held that the document does not (mimic
-    joints, primitive visuals, …) is a :class:`riggen.RiggenWarning`."""
+    directories. What the URDF held that the document does not (primitive
+    visuals, a ``<safety_controller>``, …) is a
+    :class:`riggen.RiggenWarning`."""
     inner, warned = _riggen.Robot.load_urdf(path, packages)
     _warn(warned)
     return Robot._wrap(inner)

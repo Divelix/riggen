@@ -454,7 +454,7 @@
     }
   ],
   "snap": null,
-  "status": "imported arm.urdf: joint \"upper_joint\": <safety_controller> dropped (+1 more warnings)",
+  "status": "imported arm.urdf: joint \"upper_joint\": <safety_controller> dropped",
   "viewport_rect": [
     294.0,
     23.0,

@@ -3,9 +3,10 @@
 //! (ADR-0004) — `<inertial>` becomes `InertialSpec::Override`, a uniform
 //! `<mesh scale>` becomes `MeshAsset::scale`, a `<collision>` mesh that is
 //! not the visual becomes `CollisionPolicy::Meshes` (OPEN 1), primitives
-//! become `Primitives`. What the document cannot hold — `<mimic>`,
-//! `<safety_controller>`, a primitive visual, a non-uniform scale — is
-//! dropped with an [`ImportWarning`] that names it, never silently.
+//! become `Primitives`, `<mimic>` becomes a `Mimic` (ADR-0013). What the
+//! document cannot hold — `<safety_controller>`, a primitive visual, a
+//! non-uniform scale, a coupling `validate` refuses — is dropped with an
+//! [`ImportWarning`] that names it, never silently.
 //!
 //! `package://` is resolved through a [`PackageMap`], else by looking for
 //! the rest of the path beside the file and up its ancestors — `urdf-rs`'s
@@ -19,7 +20,7 @@ use std::path::{Path, PathBuf};
 use riggen_core::glam::{DMat3, DVec3};
 use riggen_core::{
     CollisionPolicy, Dynamics, Geom, GeomId, InertialSpec, Joint, JointId, JointKind, Limits, Link,
-    LinkId, MeshAsset, MeshId, Pose, Primitive, Robot, ValidationError, validate,
+    LinkId, MeshAsset, MeshId, Mimic, Pose, Primitive, Robot, ValidationError, validate,
 };
 
 /// `package name → directory` for `package://name/...` mesh paths.
@@ -30,9 +31,13 @@ pub struct PackageMap(pub BTreeMap<String, PathBuf>);
 /// without it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportWarning {
+    /// A `<mimic>` the document cannot hold. `reason` says which rule it
+    /// broke — a chain, a fixed leader, a leader not in the file, a reach
+    /// outside the follower's limits (ADR-0013).
     MimicDropped {
         joint: String,
         mimics: String,
+        reason: String,
     },
     SafetyControllerDropped {
         joint: String,
@@ -77,10 +82,14 @@ pub enum ImportWarning {
 impl fmt::Display for ImportWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MimicDropped { joint, mimics } => {
+            Self::MimicDropped {
+                joint,
+                mimics,
+                reason,
+            } => {
                 write!(
                     f,
-                    "joint \"{joint}\": <mimic joint=\"{mimics}\"> dropped (no mimic joints yet)"
+                    "joint \"{joint}\": <mimic joint=\"{mimics}\"> dropped, {reason}"
                 )
             }
             Self::SafetyControllerDropped { joint } => {
@@ -220,6 +229,8 @@ pub fn from_urdf(
     }
 
     let mut children = std::collections::BTreeSet::new();
+    let mut joint_ids: BTreeMap<&str, JointId> = BTreeMap::new();
+    let mut pending_mimics: Vec<(JointId, &urdf_rs::Mimic)> = Vec::new();
     for joint in &urdf.joints {
         let kind = match joint.joint_type {
             urdf_rs::JointType::Fixed => JointKind::Fixed,
@@ -244,12 +255,6 @@ pub fn from_urdf(
         let parent = link_id(&joint.parent.link)?;
         let child = link_id(&joint.child.link)?;
         children.insert(child);
-        if let Some(mimic) = &joint.mimic {
-            warnings.push(ImportWarning::MimicDropped {
-                joint: joint.name.clone(),
-                mimics: mimic.joint.clone(),
-            });
-        }
         if joint.safety_controller.is_some() {
             warnings.push(ImportWarning::SafetyControllerDropped {
                 joint: joint.name.clone(),
@@ -282,11 +287,15 @@ pub fn from_urdf(
                 axis: DVec3::from_array(*joint.axis.xyz),
                 limits,
                 dynamics,
-                // Still dropped, with the warning above; the import reads
-                // `<mimic>` in plans/mimic-joints step 3.
+                // A `<mimic>` may name a joint further down the file, so
+                // the couplings are resolved in a second pass below.
                 mimic: None,
             },
         );
+        joint_ids.insert(joint.name.as_str(), id);
+        if let Some(m) = &joint.mimic {
+            pending_mimics.push((id, m));
+        }
     }
 
     let roots: Vec<(&str, LinkId)> = urdf
@@ -304,8 +313,98 @@ pub fn from_urdf(
             ));
         }
     };
+    // The couplings, now that every joint has an id and the tree is whole
+    // (ADR-0013). URDF's defaults are multiplier 1, offset 0.
+    for (follower, m) in pending_mimics {
+        let multiplier = m.multiplier.unwrap_or(1.0);
+        let offset = m.offset.unwrap_or(0.0);
+        let refused = if !multiplier.is_finite() || !offset.is_finite() {
+            Some("its multiplier or offset is not a number".to_owned())
+        } else {
+            match joint_ids.get(m.joint.as_str()) {
+                None => Some("no joint of that name is in the file".to_owned()),
+                Some(&leader) => {
+                    robot
+                        .joints
+                        .get_mut(&follower)
+                        .expect("just inserted")
+                        .mimic = Some(Mimic {
+                        joint: leader,
+                        multiplier,
+                        offset,
+                    });
+                    None
+                }
+            }
+        };
+        if let Some(reason) = refused {
+            warnings.push(ImportWarning::MimicDropped {
+                joint: robot.joints[&follower].name.clone(),
+                mimics: m.joint.clone(),
+                reason,
+            });
+        }
+    }
+    // Whatever `validate` refuses about them is dropped with its reason
+    // rather than failing the whole import: a gripper whose fingers move
+    // independently still opens, and the user is told why.
+    for (follower, reason) in mimic_refusals(&robot) {
+        let leader = robot
+            .joints
+            .get_mut(&follower)
+            .and_then(|j| j.mimic.take())
+            .map(|m| m.joint);
+        let mimics = leader
+            .and_then(|l| robot.joints.get(&l))
+            .map(|j| j.name.clone())
+            .unwrap_or_default();
+        warnings.push(ImportWarning::MimicDropped {
+            joint: robot.joints[&follower].name.clone(),
+            mimics,
+            reason,
+        });
+    }
+
     validate(&robot).map_err(ImportError::Invalid)?;
     Ok((robot, warnings))
+}
+
+/// What `validate` refuses about a coupling, per follower. `validate` owns
+/// the rules (ADR-0013); this only phrases its verdict for the status bar.
+/// Every other error it reports is left alone and still fails the import.
+fn mimic_refusals(robot: &Robot) -> Vec<(JointId, String)> {
+    riggen_core::validation_errors(robot)
+        .into_iter()
+        .filter_map(|e| match e {
+            ValidationError::SelfMimic(j) => Some((j, "a joint cannot follow itself".to_owned())),
+            ValidationError::MimicOnFixedJoint(j) => {
+                Some((j, "a fixed joint has no value to drive".to_owned()))
+            }
+            ValidationError::ZeroMimicMultiplier(j) => {
+                Some((j, "its multiplier is zero".to_owned()))
+            }
+            ValidationError::DanglingMimicJoint { joint, .. } => {
+                Some((joint, "its leader is not a joint in this file".to_owned()))
+            }
+            ValidationError::MimicLeaderFixed { joint, .. } => {
+                Some((joint, "its leader is a fixed joint".to_owned()))
+            }
+            ValidationError::MimicChain { joint, .. } => Some((
+                joint,
+                "its leader is itself a mimic, and chains are not supported".to_owned(),
+            )),
+            ValidationError::MimicExceedsLimits {
+                joint,
+                lower,
+                upper,
+                ..
+            } => Some((
+                joint,
+                format!("it would reach {lower}..{upper}, outside its own limits"),
+            )),
+            _ => None,
+        })
+        .collect()
 }
 
 fn pose_of(p: &urdf_rs::Pose) -> Pose {
@@ -568,16 +667,28 @@ mod tests {
         assert_eq!(robot.links[&robot.root].name, "base_link");
         assert_eq!(
             warnings,
-            vec![
-                ImportWarning::SafetyControllerDropped {
-                    joint: "upper_joint".into()
-                },
-                ImportWarning::MimicDropped {
-                    joint: "fore_joint".into(),
-                    mimics: "upper_joint".into()
-                },
-            ]
+            vec![ImportWarning::SafetyControllerDropped {
+                joint: "upper_joint".into()
+            }],
+            "the file's <mimic> is kept now, so nothing is dropped for it"
         );
+        // …and it is kept as the coupling it is (ADR-0013).
+        let joint = |n: &str| robot.joints.values().find(|j| j.name == n).unwrap();
+        let upper = *robot
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "upper_joint")
+            .unwrap()
+            .0;
+        assert_eq!(
+            joint("fore_joint").mimic,
+            Some(riggen_core::Mimic {
+                joint: upper,
+                multiplier: 1.0,
+                offset: 0.0
+            })
+        );
+        assert_eq!(joint("upper_joint").mimic, None);
         let by_name = |n: &str| {
             robot
                 .links
@@ -640,15 +751,19 @@ mod tests {
         let joint_id = |robot: &Robot, name: &str| {
             *robot.joints.iter().find(|(_, j)| j.name == name).unwrap().0
         };
+        const NAMES: [&str; 3] = ["shoulder_joint", "upper_joint", "fore_joint"];
         for q in [[0.0, 0.0, 0.0], [0.5, -0.7, 1.2], [-2.0, 1.0, 3.0]] {
             let mut qi = JointState::new();
-            let mut qs = JointState::new();
-            for (name, v) in ["shoulder_joint", "upper_joint", "fore_joint"]
-                .iter()
-                .zip(q)
-            {
+            for (name, v) in NAMES.iter().zip(q) {
                 qi.set(joint_id(&imported, name), v);
-                qs.set(joint_id(&sample, name), v);
+            }
+            // The URDF carries a `<mimic>` on `fore_joint` that the import
+            // now keeps (ADR-0013), so the two documents are compared at
+            // one configuration: the imported one's, couplings resolved.
+            let qi = riggen_core::resolve_q(&imported, &qi);
+            let mut qs = JointState::new();
+            for name in NAMES {
+                qs.set(joint_id(&sample, name), qi.get(joint_id(&imported, name)));
             }
             let wi = fk(&imported, &qi);
             let ws = fk(&sample, &qs);
@@ -797,5 +912,154 @@ mod tests {
             load(Path::new("/nowhere/none.urdf"), &PackageMap::default()),
             Err(ImportError::Io { .. })
         ));
+    }
+
+    /// A three-joint chain the tests bend into each refused shape. `mimic`
+    /// is spliced into `j2` unless it is given for another joint.
+    fn coupled(mimic_on_j2: &str, extra: &str) -> String {
+        format!(
+            r#"
+<robot name="grip">
+  <link name="a"/><link name="b"/><link name="c"/><link name="d"/>
+  <joint name="j1" type="revolute">
+    <parent link="a"/><child link="b"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="j2" type="revolute">
+    <parent link="b"/><child link="c"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+    {mimic_on_j2}
+  </joint>
+  <joint name="j3" type="fixed">
+    <parent link="c"/><child link="d"/>
+    {extra}
+  </joint>
+</robot>"#
+        )
+    }
+
+    fn import(text: &str) -> (Robot, Vec<ImportWarning>) {
+        let urdf = urdf_rs::read_from_string(text).unwrap();
+        from_urdf(&urdf, &fixtures(), &PackageMap::default()).unwrap()
+    }
+
+    /// A `<mimic>` naming a joint further down the file is still resolved:
+    /// the couplings are a second pass over the whole tree (ADR-0013).
+    #[test]
+    fn a_mimic_is_kept_whatever_order_the_file_names_it_in() {
+        let (robot, warnings) = import(&coupled(
+            r#"<mimic joint="j1" multiplier="-0.5" offset="0.1"/>"#,
+            "",
+        ));
+        assert_eq!(warnings, vec![]);
+        let id = |n: &str| *robot.joints.iter().find(|(_, j)| j.name == n).unwrap().0;
+        assert_eq!(
+            robot.joints[&id("j2")].mimic,
+            Some(Mimic {
+                joint: id("j1"),
+                multiplier: -0.5,
+                offset: 0.1
+            })
+        );
+        // URDF's own defaults, when the attributes are left off.
+        let (robot, _) = import(&coupled(r#"<mimic joint="j1"/>"#, ""));
+        let m = robot
+            .joints
+            .values()
+            .find(|j| j.name == "j2")
+            .unwrap()
+            .mimic
+            .unwrap();
+        assert_eq!((m.multiplier, m.offset), (1.0, 0.0));
+    }
+
+    /// Everything `validate` refuses is dropped with a reason, and the
+    /// document still opens (ADR-0013) — the import never fails over a
+    /// coupling.
+    #[test]
+    fn a_refused_mimic_is_dropped_with_its_reason_not_an_error() {
+        let cases = [
+            (
+                r#"<mimic joint="nope"/>"#,
+                "",
+                "no joint of that name is in the file",
+            ),
+            (r#"<mimic joint="j3"/>"#, "", "its leader is a fixed joint"),
+            (r#"<mimic joint="j2"/>"#, "", "a joint cannot follow itself"),
+            (
+                r#"<mimic joint="j1" multiplier="0"/>"#,
+                "",
+                "its multiplier is zero",
+            ),
+            (
+                r#"<mimic joint="j1" multiplier="3"/>"#,
+                "",
+                "it would reach -3..3, outside its own limits",
+            ),
+            (
+                r#"<mimic joint="j1" multiplier="nan"/>"#,
+                "",
+                "its multiplier or offset is not a number",
+            ),
+        ];
+        for (mimic, extra, reason) in cases {
+            let (robot, warnings) = import(&coupled(mimic, extra));
+            assert!(
+                robot.joints.values().all(|j| j.mimic.is_none()),
+                "{mimic}: {robot:?}"
+            );
+            let dropped: Vec<&ImportWarning> = warnings
+                .iter()
+                .filter(|w| matches!(w, ImportWarning::MimicDropped { .. }))
+                .collect();
+            assert_eq!(dropped.len(), 1, "{mimic}: {warnings:?}");
+            let ImportWarning::MimicDropped {
+                joint, reason: r, ..
+            } = dropped[0]
+            else {
+                unreachable!()
+            };
+            assert_eq!(joint, "j2");
+            assert_eq!(r, reason, "{mimic}");
+            assert!(dropped[0].to_string().contains(reason));
+        }
+
+        // A chain: j2 follows j1, and j3 — made movable — follows j2.
+        let text = coupled(r#"<mimic joint="j1" multiplier="0.5"/>"#, "")
+            .replace(
+                r#"<joint name="j3" type="fixed">"#,
+                r#"<joint name="j3" type="continuous">"#,
+            )
+            .replace(
+                r#"<parent link="c"/><child link="d"/>"#,
+                r#"<parent link="c"/><child link="d"/><axis xyz="0 0 1"/><mimic joint="j2"/>"#,
+            );
+        let (robot, warnings) = import(&text);
+        let id = |n: &str| *robot.joints.iter().find(|(_, j)| j.name == n).unwrap().0;
+        assert!(robot.joints[&id("j2")].mimic.is_some(), "the leader stays");
+        assert_eq!(robot.joints[&id("j3")].mimic, None);
+        assert_eq!(
+            warnings,
+            vec![ImportWarning::MimicDropped {
+                joint: "j3".into(),
+                mimics: "j2".into(),
+                reason: "its leader is itself a mimic, and chains are not supported".into(),
+            }]
+        );
+
+        // And a `<mimic>` on a fixed joint, which has nothing to drive.
+        let text = coupled("", r#"<mimic joint="j1"/>"#);
+        let (robot, warnings) = import(&text);
+        assert!(robot.joints.values().all(|j| j.mimic.is_none()));
+        assert_eq!(
+            warnings,
+            vec![ImportWarning::MimicDropped {
+                joint: "j3".into(),
+                mimics: "j1".into(),
+                reason: "a fixed joint has no value to drive".into(),
+            }]
+        );
     }
 }
