@@ -1,13 +1,13 @@
-//! File › Export…: the modal that turns the document into MJCF / URDF
-//! (docs/02-data-model.md §`ResolvedRobot`, ADR-0008). It resolves the
-//! document when it opens and whenever an option changes, lists every
-//! `ExportError` with the link it names, and keeps the Export button
-//! disabled while any exist — the sanity checks MuJoCo fails silently on
-//! block here, in words, instead.
+//! File › Export…: the modal that turns the document into MJCF / URDF /
+//! SDF (docs/02-data-model.md §`ResolvedRobot`, ADR-0008, ADR-0016). It
+//! resolves the document when it opens and whenever an option changes,
+//! lists every `ExportError` with the link it names, and keeps the Export
+//! button disabled while any exist — the sanity checks MuJoCo fails
+//! silently on block here, in words, instead.
 
 use std::path::{Path, PathBuf};
 
-use riggen_export::{ExportOptions, Format, MeshPathStyle, ResolvedRobot};
+use riggen_export::{ExportOptions, MeshPathStyle, ResolvedRobot};
 
 use super::RiggenApp;
 use super::document::{AppDecomp, AppMeshes};
@@ -144,22 +144,23 @@ impl RiggenApp {
         let mut choose_dir = false;
         let modal = egui::Modal::new(egui::Id::new("export")).show(ctx, |ui| {
             ui.set_width(460.0);
-            ui.heading("Export to MJCF / URDF");
+            ui.heading("Export to MJCF / URDF / SDF");
             let d = &mut self.export_dialog;
             egui::Grid::new("export_grid")
                 .num_columns(2)
                 .show(ui, |ui| {
+                    // Checkboxes, not radio buttons: the three writers are
+                    // a set (ADR-0016), so any combination is askable and
+                    // "both" is no longer a whole answer.
                     ui.label("format");
                     ui.horizontal(|ui| {
-                        for (format, label) in [
-                            (Format::Mjcf, "MJCF"),
-                            (Format::Urdf, "URDF"),
-                            (Format::Both, "both"),
+                        let f = &mut d.options.format;
+                        for (on, label) in [
+                            (&mut f.mjcf, "MJCF"),
+                            (&mut f.urdf, "URDF"),
+                            (&mut f.sdf, "SDF"),
                         ] {
-                            if ui.radio(d.options.format == format, label).clicked()
-                                && d.options.format != format
-                            {
-                                d.options.format = format;
+                            if ui.checkbox(on, label).changed() {
                                 d.stale = true;
                             }
                         }
@@ -184,10 +185,12 @@ impl RiggenApp {
                     });
                     ui.end_row();
 
-                    ui.add_enabled_ui(d.options.format.writes_urdf(), |ui| {
-                        ui.label("URDF mesh paths");
+                    let mesh_paths_used =
+                        d.options.format.writes_urdf() || d.options.format.writes_sdf();
+                    ui.add_enabled_ui(mesh_paths_used, |ui| {
+                        ui.label("mesh paths");
                     });
-                    ui.add_enabled_ui(d.options.format.writes_urdf(), |ui| {
+                    ui.add_enabled_ui(mesh_paths_used, |ui| {
                         ui.horizontal(|ui| {
                             let is_package =
                                 matches!(d.options.mesh_paths, MeshPathStyle::Package(_));
@@ -258,7 +261,9 @@ impl RiggenApp {
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                let ready = d.errors.is_empty() && d.dir.is_some();
+                // Nothing ticked would write a `meshes/` folder and no
+                // file that reads it, so it is not a ready export.
+                let ready = d.errors.is_empty() && d.dir.is_some() && d.options.format.writes_any();
                 if ui.add_enabled(ready, egui::Button::new("Export")).clicked() {
                     action = Some(|app: &mut Self| {
                         app.run_export();

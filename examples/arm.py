@@ -69,7 +69,9 @@ def build() -> riggen.Robot:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", type=Path, default=Path("target/sdk-arm"))
-    parser.add_argument("--format", choices=["mjcf", "urdf", "both"], default="mjcf")
+    parser.add_argument(
+        "--format", choices=["mjcf", "urdf", "sdf", "both", "all"], default="mjcf"
+    )
     args = parser.parse_args()
     robot = build()
     for path in robot.export(args.out, format=args.format, fk_samples=True):

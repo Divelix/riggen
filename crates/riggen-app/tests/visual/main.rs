@@ -3946,7 +3946,7 @@ fn import_mjcf() {
         let dir = std::env::temp_dir().join(format!("riggen-app-mjcf-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         riggen_app::cli::run(&riggen_app::cli::ExportArgs {
-            format: riggen_export::Format::Mjcf,
+            format: riggen_export::Format::MJCF,
             out: dir.clone(),
             input: fixture("arm/arm.riggen"),
             fk_samples: false,
@@ -4112,7 +4112,7 @@ fn export_writes_the_files() {
         app.open_export_dialog();
         app.set_export_dir(&dir);
         app.set_export_options(riggen_export::ExportOptions {
-            format: riggen_export::Format::Both,
+            format: riggen_export::Format::BOTH,
             mesh_paths: riggen_export::MeshPathStyle::Relative,
             floating_base: false,
         });
@@ -4126,6 +4126,39 @@ fn export_writes_the_files() {
             assert!(dir.join(name).is_file(), "{name}");
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    });
+}
+
+/// The format control is a set of three checkboxes, not a choice
+/// (ADR-0016), so it can be emptied — and an empty one is not a ready
+/// export: it would write a `meshes/` folder and no file that reads it.
+#[test]
+fn no_format_ticked_is_not_a_ready_export() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        app.open_export_dialog();
+        app.set_export_dir(std::path::Path::new("/tmp/arm_export"));
+        // Nothing is wrong with the document: the dialog resolves clean.
+        assert!(app.export_dialog().errors.is_empty());
+        app.set_export_options(riggen_export::ExportOptions {
+            format: riggen_export::Format {
+                mjcf: false,
+                urdf: false,
+                sdf: false,
+            },
+            ..Default::default()
+        });
+        settle(harness);
+        assert!(
+            harness
+                .get_by_label("Export")
+                .accesskit_node()
+                .is_disabled()
+        );
+        // And the default the dialog opens with ticks all three.
+        assert_eq!(riggen_export::Format::default(), riggen_export::Format::ALL);
     });
 }
 

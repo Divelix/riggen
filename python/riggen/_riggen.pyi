@@ -200,7 +200,7 @@ class Robot:
         self,
         dir: PathLike,
         *,
-        format: Literal["mjcf", "urdf", "both"] = "both",
+        format: Literal["mjcf", "urdf", "sdf", "both", "all"] = "all",
         mesh_paths: str = "relative",
         floating_base: bool = False,
         fk_samples: bool = False,

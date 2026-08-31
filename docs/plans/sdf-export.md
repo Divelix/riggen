@@ -73,7 +73,7 @@ the `mujoco` job already does for MJCF.
   against a hand-written two-link SDF, so the decision is a measurement,
   not a guess. *Retires the "can CI tell us we are wrong?" unknown first —
   a writer nobody validates is a text generator.*
-- [ ] 2 — **`Format` becomes a set.** The struct, `FromStr`/`Display`, and
+- [x] 2 — **`Format` becomes a set.** The struct, `FromStr`/`Display`, and
   every caller: CLI value and `--help`, the export dialog's three
   checkboxes, `riggen-py`'s parse and error message, the SDK `Literal` and
   `_riggen.pyi`, the CLI and dialog tests, the refreshed dialog snapshot

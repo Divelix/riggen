@@ -17,22 +17,115 @@ use riggen_core::{
 };
 use riggen_mesh::{DecompParams, TriMesh};
 
-/// Which file(s) `export` writes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Format {
-    Mjcf,
-    Urdf,
-    #[default]
-    Both,
+/// Which file(s) `export` writes: a **set**, not a choice. Three writers
+/// read one `ResolvedRobot` (ADR-0016), and "both" stopped being a whole
+/// answer the moment there was a third — so the three booleans are the
+/// type, and `both` survives only as a spelling [`FromStr`] still accepts
+/// for the two it always meant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Format {
+    pub mjcf: bool,
+    pub urdf: bool,
+    pub sdf: bool,
+}
+
+/// Every writer on: what `--export all`, `robot.export(format="all")` and
+/// a freshly opened export dialog mean.
+impl Default for Format {
+    fn default() -> Self {
+        Self::ALL
+    }
 }
 
 impl Format {
+    pub const MJCF: Self = Self {
+        mjcf: true,
+        urdf: false,
+        sdf: false,
+    };
+    pub const URDF: Self = Self {
+        mjcf: false,
+        urdf: true,
+        sdf: false,
+    };
+    pub const SDF: Self = Self {
+        mjcf: false,
+        urdf: false,
+        sdf: true,
+    };
+    /// MJCF and URDF — what the old `Format::Both` was.
+    pub const BOTH: Self = Self {
+        mjcf: true,
+        urdf: true,
+        sdf: false,
+    };
+    pub const ALL: Self = Self {
+        mjcf: true,
+        urdf: true,
+        sdf: true,
+    };
+    /// Every spelling [`FromStr`] takes, in the order `--help` lists them.
+    pub const NAMES: [&'static str; 5] = ["mjcf", "urdf", "sdf", "both", "all"];
+
     pub fn writes_mjcf(self) -> bool {
-        matches!(self, Self::Mjcf | Self::Both)
+        self.mjcf
     }
 
     pub fn writes_urdf(self) -> bool {
-        matches!(self, Self::Urdf | Self::Both)
+        self.urdf
+    }
+
+    pub fn writes_sdf(self) -> bool {
+        self.sdf
+    }
+
+    /// False when every box is unticked, which the export dialog treats as
+    /// not ready: the export would be a `meshes/` folder and nothing to
+    /// read it.
+    pub fn writes_any(self) -> bool {
+        self.mjcf || self.urdf || self.sdf
+    }
+}
+
+impl std::str::FromStr for Format {
+    /// The list of spellings, for a caller to word its own message around.
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "mjcf" => Ok(Self::MJCF),
+            "urdf" => Ok(Self::URDF),
+            "sdf" => Ok(Self::SDF),
+            "both" => Ok(Self::BOTH),
+            "all" => Ok(Self::ALL),
+            _ => Err(Self::NAMES.join(", ")),
+        }
+    }
+}
+
+/// The shortest name for this set: `all`, `both`, one writer's name, or —
+/// for a combination [`Format::NAMES`] has no word for — its members joined
+/// by `+`. Every spelling [`FromStr`] takes round-trips; `mjcf+sdf` does
+/// not, because nothing can ask for it by name.
+impl fmt::Display for Format {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::ALL => f.write_str("all"),
+            Self::BOTH => f.write_str("both"),
+            _ => {
+                let names = [(self.mjcf, "mjcf"), (self.urdf, "urdf"), (self.sdf, "sdf")];
+                let on: Vec<&str> = names
+                    .into_iter()
+                    .filter(|(v, _)| *v)
+                    .map(|(_, n)| n)
+                    .collect();
+                if on.is_empty() {
+                    f.write_str("none")
+                } else {
+                    f.write_str(&on.join("+"))
+                }
+            }
+        }
     }
 }
 
@@ -637,6 +730,41 @@ mod tests {
     use riggen_core::glam::{DMat3, DQuat};
     use riggen_core::{Command, InertialSpec, MeshAsset};
     use std::f64::consts::FRAC_PI_2;
+
+    /// `Format` is a set of three writers, and the five spellings name the
+    /// sets a caller can ask for by name (ADR-0016).
+    #[test]
+    fn format_is_a_set_and_both_still_means_the_two_it_meant() {
+        assert_eq!(Format::default(), Format::ALL);
+        assert!(Format::ALL.writes_mjcf() && Format::ALL.writes_urdf() && Format::ALL.writes_sdf());
+        assert!(!Format::BOTH.writes_sdf(), "`both` is MJCF and URDF");
+        assert_eq!("both".parse::<Format>().unwrap(), Format::BOTH);
+        assert_eq!("sdf".parse::<Format>().unwrap(), Format::SDF);
+        assert_eq!(
+            "usd".parse::<Format>().unwrap_err(),
+            Format::NAMES.join(", ")
+        );
+        // The empty set is expressible, and is what the dialog refuses to
+        // export: meshes with nothing to read them.
+        let none = Format {
+            mjcf: false,
+            urdf: false,
+            sdf: false,
+        };
+        assert!(!none.writes_any());
+        assert_eq!(none.to_string(), "none");
+        assert!(Format::MJCF.writes_any());
+        // A set with no name of its own is still named, by its members.
+        assert_eq!(
+            Format {
+                mjcf: true,
+                urdf: false,
+                sdf: true
+            }
+            .to_string(),
+            "mjcf+sdf"
+        );
+    }
 
     #[test]
     fn pendulum_resolves_in_order_with_computed_inertials() {
