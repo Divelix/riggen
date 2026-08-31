@@ -222,6 +222,22 @@ const READ: &[&str] = &[
 /// the bodies inside one are not children of any body.
 const REFUSED: &[&str] = &["include", "replicate", "attach", "frame"];
 
+/// Reads `path` and builds the document; mesh files are resolved against
+/// the file's directory and its `<compiler meshdir>`.
+pub fn load(path: &Path) -> Result<(Robot, Vec<ImportWarning>), ImportError> {
+    let io = |e: std::io::Error| ImportError::Io {
+        path: path.to_owned(),
+        message: e.to_string(),
+    };
+    let text = std::fs::read_to_string(path).map_err(io)?;
+    let abs = riggen_core::absolute(path).map_err(io)?;
+    let root = crate::xml::parse(&text).map_err(|e| ImportError::Parse {
+        path: path.to_owned(),
+        message: e.to_string(),
+    })?;
+    from_mjcf(&root, &abs)
+}
+
 /// The conversion itself, for a parsed file. `path` is the model file: its
 /// directory is where a relative `meshdir` and the mesh files are looked
 /// for, and its name is what a parse error is reported against.

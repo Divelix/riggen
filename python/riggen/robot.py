@@ -1,6 +1,6 @@
 """The public API: :class:`Robot` with :class:`Link` / :class:`Joint` /
 :class:`Geom` handles, :class:`Pose`, the joint and inertial specs, and the
-:func:`load` / :func:`load_urdf` readers.
+:func:`load` / :func:`load_urdf` / :func:`load_mjcf` readers.
 
 Pure Python over ``riggen._riggen`` (docs/01-architecture.md §Python SDK).
 Every mutating property or method here is exactly one document command,
@@ -47,6 +47,7 @@ __all__ = [
     "ConvexDecomposition",
     "load",
     "load_urdf",
+    "load_mjcf",
 ]
 
 Vec3 = tuple[float, float, float]
@@ -1226,5 +1227,16 @@ def load_urdf(path: PathLike, packages: dict[str, PathLike] | None = None) -> Ro
     visuals, a ``<safety_controller>``, …) is a
     :class:`riggen.RiggenWarning`."""
     inner, warned = _riggen.Robot.load_urdf(path, packages)
+    _warn(warned)
+    return Robot._wrap(inner)
+
+
+def load_mjcf(path: PathLike) -> Robot:
+    """Imports an MJCF; mesh files are resolved against the file and its
+    ``<compiler meshdir>``. What the MJCF held that the document does not
+    (tendons, sensors, a ``<general>`` actuator, …) is a
+    :class:`riggen.RiggenWarning`; a file whose *shape* the link tree
+    cannot hold raises :class:`riggen.MjcfImportError`."""
+    inner, warned = _riggen.Robot.load_mjcf(path)
     _warn(warned)
     return Robot._wrap(inner)

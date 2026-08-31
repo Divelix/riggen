@@ -41,7 +41,7 @@ pub const FLAGS: &[Flag] = &[
         long: "--export",
         short: None,
         value: Some("FORMAT"),
-        doc: "headless export of INPUT (.riggen or .urdf): mjcf, urdf or both",
+        doc: "headless export of INPUT (.riggen, .urdf or .xml): mjcf, urdf or both",
     },
     Flag {
         long: "--out",
@@ -302,28 +302,42 @@ pub fn parse(args: &[OsString]) -> Result<Invocation, String> {
     }))
 }
 
+fn warn_all(warnings: &[impl std::fmt::Display]) {
+    for w in warnings {
+        eprintln!("warning: {w}");
+    }
+}
+
 /// Loads, resolves and writes. The `Err` is what the user reads on stderr:
 /// every resolve error, one per line.
 pub fn run(args: &ExportArgs) -> Result<Vec<PathBuf>, String> {
-    let is_urdf = args
+    let extension = args
         .input
         .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("urdf"));
-    let robot = if is_urdf {
-        let (robot, warnings) =
-            riggen_export::urdf_in::load(&args.input, &riggen_export::PackageMap::default())
-                .map_err(|e| e.to_string())?;
-        for w in &warnings {
-            eprintln!("warning: {w}");
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    // A `.urdf` or an `.xml` is imported first (02 §URDF import, §MJCF
+    // import); anything else is read as a document.
+    let robot = match extension.as_str() {
+        "urdf" => {
+            let (robot, warnings) =
+                riggen_export::urdf_in::load(&args.input, &riggen_export::PackageMap::default())
+                    .map_err(|e| e.to_string())?;
+            warn_all(&warnings);
+            robot
         }
-        robot
-    } else {
-        let (robot, warnings) = riggen_core::load(&args.input).map_err(|e| e.to_string())?;
-        for w in &warnings {
-            eprintln!("warning: {w}");
+        "xml" => {
+            let (robot, warnings) =
+                riggen_export::mjcf_in::load(&args.input).map_err(|e| e.to_string())?;
+            warn_all(&warnings);
+            robot
         }
-        robot
+        _ => {
+            let (robot, warnings) = riggen_core::load(&args.input).map_err(|e| e.to_string())?;
+            warn_all(&warnings);
+            robot
+        }
     };
     let (store, load_errors) = MeshStore::load(&robot);
     let options = ExportOptions {
@@ -608,6 +622,111 @@ mod tests {
         assert!(written.contains(&out.join("meshes/fore_hull.stl")));
         assert!(written.contains(&out.join("arm.fk.json")));
         std::fs::remove_dir_all(&out).unwrap();
+    }
+
+    /// The plan's acceptance route, in one test: export the arm to MJCF,
+    /// then export *that* `.xml` again. The second run is the import
+    /// (ADR-0015), and it has to write the same files.
+    #[test]
+    fn an_mjcf_input_is_imported_and_re_exported() {
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fixtures/arm/arm.riggen");
+        let out = std::env::temp_dir().join(format!("riggen-cli-mjcf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&out);
+        let first = run(&ExportArgs {
+            format: Format::Mjcf,
+            out: out.join("one"),
+            input: fixture,
+            fk_samples: true,
+        })
+        .unwrap();
+        let second = run(&ExportArgs {
+            format: Format::Mjcf,
+            out: out.join("two"),
+            input: out.join("one/arm.xml"),
+            fk_samples: true,
+        })
+        .unwrap();
+        let names = |written: &[PathBuf], root: &Path| {
+            written
+                .iter()
+                .map(|p| p.strip_prefix(root).unwrap().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names(&first, &out.join("one")),
+            names(&second, &out.join("two"))
+        );
+        // The MJCF is a fixed point but for one line: everything in it
+        // survived the read, and the twelve decimals it is written with are
+        // already what the document holds the second time round.
+        let one = std::fs::read_to_string(out.join("one/arm.xml")).unwrap();
+        let two = std::fs::read_to_string(out.join("two/arm.xml")).unwrap();
+        let apology = "need an <actuator>";
+        let without = |text: &str| {
+            text.lines()
+                .filter(|l| !l.contains(apology))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        assert_eq!(without(&one), without(&two));
+        // The line that does differ is the whole of what MJCF cannot hold:
+        // `effort` and `velocity` live on an `<actuator>`, and `fore_joint`
+        // — a mimic follower — may not have one (ADR-0004 §4 as amended by
+        // ADR-0014), so its two numbers were only ever in this comment.
+        assert!(
+            one.contains("joint fore_joint: effort 5 velocity 3"),
+            "{one}"
+        );
+        assert!(
+            two.contains("joint fore_joint: effort 0 velocity 0"),
+            "{two}"
+        );
+        // The FK samples are the oracle both directions share (ADR-0004).
+        // Not byte-identical: the first run's joint limits are the
+        // document's full precision and the second's are the twelve
+        // decimals the file carries, which moves the sampled `q` — and
+        // every pose with it — in the last few digits.
+        assert_close_json(
+            &std::fs::read_to_string(out.join("one/arm.fk.json")).unwrap(),
+            &std::fs::read_to_string(out.join("two/arm.fk.json")).unwrap(),
+        );
+        std::fs::remove_dir_all(&out).unwrap();
+    }
+
+    /// Two `--fk-samples` files, equal to 1e-9 — the acceptance tolerance.
+    #[track_caller]
+    fn assert_close_json(a: &str, b: &str) {
+        fn walk(a: &serde_json::Value, b: &serde_json::Value, at: &str) {
+            match (a, b) {
+                (serde_json::Value::Number(x), serde_json::Value::Number(y)) => {
+                    let (x, y) = (x.as_f64().unwrap(), y.as_f64().unwrap());
+                    assert!((x - y).abs() < 1e-9, "{at}: {x} vs {y}");
+                }
+                (serde_json::Value::Array(x), serde_json::Value::Array(y)) => {
+                    assert_eq!(x.len(), y.len(), "{at}");
+                    for (i, (x, y)) in x.iter().zip(y).enumerate() {
+                        walk(x, y, &format!("{at}[{i}]"));
+                    }
+                }
+                (serde_json::Value::Object(x), serde_json::Value::Object(y)) => {
+                    assert_eq!(
+                        x.keys().collect::<Vec<_>>(),
+                        y.keys().collect::<Vec<_>>(),
+                        "{at}"
+                    );
+                    for (k, x) in x {
+                        walk(x, &y[k], &format!("{at}.{k}"));
+                    }
+                }
+                _ => assert_eq!(a, b, "{at}"),
+            }
+        }
+        walk(
+            &serde_json::from_str(a).unwrap(),
+            &serde_json::from_str(b).unwrap(),
+            "",
+        );
     }
 
     #[test]

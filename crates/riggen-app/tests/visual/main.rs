@@ -3937,6 +3937,74 @@ fn import_urdf() {
     });
 }
 
+/// File › Import MJCF… (here through `open_path`, as a dropped `.xml`
+/// would be): the arm's own MJCF export becomes the document again, with
+/// its frames — which the URDF import cannot give back — and no warnings.
+#[test]
+fn import_mjcf() {
+    with_app(|harness| {
+        let dir = std::env::temp_dir().join(format!("riggen-app-mjcf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        riggen_app::cli::run(&riggen_app::cli::ExportArgs {
+            format: riggen_export::Format::Mjcf,
+            out: dir.clone(),
+            input: fixture("arm/arm.riggen"),
+            fk_samples: false,
+        })
+        .expect("the arm exports");
+
+        let app = harness.state_mut();
+        app.open_path(&dir.join("arm.xml"))
+            .expect("the MJCF imports");
+        app.set_show_collision(true);
+        app.fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.document.name, "arm");
+        assert_eq!(state.document.links.len(), 5, "no dummy link per frame");
+        assert_eq!(state.document.joints.len(), 4);
+        assert_eq!(state.document.file, None, "not a .riggen until saved");
+        assert_eq!(
+            state.status.as_deref(),
+            Some("imported arm.xml"),
+            "our own MJCF holds nothing the document cannot"
+        );
+        // The `<site>` → `Frame` symmetry ADR-0012 promised, which the URDF
+        // import deliberately does not have.
+        let mut frames: Vec<&str> = harness
+            .state()
+            .robot()
+            .frames
+            .values()
+            .map(|f| f.name.as_str())
+            .collect();
+        frames.sort_unstable();
+        assert_eq!(frames, ["camera_mount", "tcp"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    });
+}
+
+/// The File menu open: Import URDF… and Import MJCF… beside each other, the
+/// two routes a foreign file takes in (ADR-0015).
+#[test]
+fn file_menu() {
+    scenario("file_menu", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        settle(harness);
+
+        harness.get_by_label("File").click();
+        harness.step();
+        // A new popup area is laid out invisibly on its first frame.
+        settle(harness);
+        harness.get_by_label("Import URDF…");
+        harness.get_by_label("Import MJCF…");
+    });
+}
+
 /// File › Export… on the sample arm: format, directory, mesh path style,
 /// floating base, and "ready" with the Export button enabled.
 #[test]

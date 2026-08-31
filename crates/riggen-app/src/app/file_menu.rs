@@ -259,6 +259,10 @@ impl RiggenApp {
             ui.close();
             self.import_urdf_dialog();
         }
+        if ui.button("Import MJCF…").clicked() {
+            ui.close();
+            self.import_mjcf_dialog();
+        }
         if ui.button("Export…").clicked() {
             ui.close();
             self.open_export_dialog();

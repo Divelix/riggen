@@ -20,12 +20,16 @@ const MESH_EXTENSIONS: [&str; 2] = ["stl", "obj"];
 pub(crate) const DOCUMENT_EXTENSION: &str = "riggen";
 /// A URDF opens as a new document through `riggen_export::urdf_in`.
 pub(crate) const URDF_EXTENSION: &str = "urdf";
+/// An MJCF opens as a new document through `riggen_export::mjcf_in`
+/// (ADR-0015). MJCF has no extension of its own; `.xml` is what MuJoCo
+/// ships and what our own export writes.
+pub(crate) const MJCF_EXTENSION: &str = "xml";
 
-/// Whether opening `path` replaces the document (a `.riggen` or a `.urdf`)
-/// rather than adding a link to it.
+/// Whether opening `path` replaces the document (a `.riggen`, a `.urdf` or
+/// an `.xml`) rather than adding a link to it.
 pub(crate) fn replaces_document(path: &Path) -> bool {
     let ext = extension_of(path);
-    ext == DOCUMENT_EXTENSION || ext == URDF_EXTENSION
+    ext == DOCUMENT_EXTENSION || ext == URDF_EXTENSION || ext == MJCF_EXTENSION
 }
 
 pub(crate) fn extension_of(path: &Path) -> String {
@@ -47,6 +51,8 @@ impl RiggenApp {
             self.open_document_path(path).map(|()| None)
         } else if ext == URDF_EXTENSION {
             self.open_urdf_path(path).map(|()| None)
+        } else if ext == MJCF_EXTENSION {
+            self.open_mjcf_path(path).map(|()| None)
         } else {
             self.open_mesh_path(path).map(Some)
         };
@@ -75,9 +81,29 @@ impl RiggenApp {
     /// File › Import URDF… (and a dropped `.urdf`): the file becomes a new,
     /// untitled document; what the import dropped goes to the status bar.
     fn open_urdf_path(&mut self, path: &Path) -> Result<(), String> {
-        let (robot, warnings) =
-            riggen_export::urdf_in::load(path, &riggen_export::PackageMap::default())
-                .map_err(|e| e.to_string())?;
+        let imported = riggen_export::urdf_in::load(path, &riggen_export::PackageMap::default());
+        self.finish_import(path, imported)
+    }
+
+    /// File › Import MJCF… (and a dropped `.xml`), the same way through
+    /// `riggen_export::mjcf_in` (ADR-0015). One import vocabulary means one
+    /// status line for both.
+    fn open_mjcf_path(&mut self, path: &Path) -> Result<(), String> {
+        let imported = riggen_export::mjcf_in::load(path);
+        self.finish_import(path, imported)
+    }
+
+    /// What both imports do with their result: a new, untitled document,
+    /// and what was dropped in the status bar.
+    fn finish_import(
+        &mut self,
+        path: &Path,
+        imported: Result<
+            (riggen_core::Robot, Vec<riggen_export::ImportWarning>),
+            riggen_export::ImportError,
+        >,
+    ) -> Result<(), String> {
+        let (robot, warnings) = imported.map_err(|e| e.to_string())?;
         self.replace_document(robot, None);
         let name = path
             .file_name()
@@ -231,6 +257,7 @@ impl RiggenApp {
                 .add_filter("Riggen documents", &[DOCUMENT_EXTENSION])
                 .add_filter("Meshes (STL, OBJ)", &MESH_EXTENSIONS)
                 .add_filter("URDF", &[URDF_EXTENSION])
+                .add_filter("MJCF", &[MJCF_EXTENSION])
                 .pick_files()
             {
                 self.load_files(&paths);
@@ -241,15 +268,25 @@ impl RiggenApp {
     /// File › Import URDF…: the dialog, then the dirty check (a URDF
     /// replaces the document).
     pub(crate) fn import_urdf_dialog(&mut self) {
+        self.import_dialog("URDF", URDF_EXTENSION);
+    }
+
+    /// File › Import MJCF…, the same (ADR-0015).
+    pub(crate) fn import_mjcf_dialog(&mut self) {
+        self.import_dialog("MJCF", MJCF_EXTENSION);
+    }
+
+    fn import_dialog(&mut self, label: &str, extension: &str) {
         #[cfg(target_arch = "wasm32")]
         {
+            let _ = (label, extension);
             self.status =
                 Some("no filesystem in the browser; drop the file onto the window".into());
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(path) = rfd::FileDialog::new()
-                .add_filter("URDF", &[URDF_EXTENSION])
+                .add_filter(label, &[extension])
                 .pick_file()
             {
                 self.request_open(vec![path]);

@@ -109,7 +109,7 @@ import it back, export it again, and MuJoCo agrees with `fk` on the result.
   `ActuatorSpec`, everything else → `ActuatorDropped`. Test: the arm's
   mimic and both actuators survive the round trip; a `<general>` and an
   actuator on a site are each warned about by name.
-- [ ] 7 — **Every route in.** `mjcf_in::load`; File › Import MJCF… and a
+- [x] 7 — **Every route in.** `mjcf_in::load`; File › Import MJCF… and a
   dropped `.xml` in `app/file_io.rs`; `.xml` input in `cli.rs`;
   `Robot.load_mjcf` in `riggen-py` and `riggen.load_mjcf` in the public
   layer, with `_riggen.pyi` and an SDK test. Snapshot: the File menu with
