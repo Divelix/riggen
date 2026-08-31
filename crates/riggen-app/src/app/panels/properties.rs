@@ -10,7 +10,7 @@ use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::inertial::{Inertial, InertialError, principal_moments};
 use riggen_core::{
     CollisionPolicy, Command, FrameId, InertialSpec, JointId, JointKind, JointState, Limits,
-    LinkId, Pose, Primitive, fk,
+    LinkId, Mimic, Pose, Primitive, fk,
 };
 use riggen_mesh::{DecompParams, fit};
 
@@ -1168,6 +1168,12 @@ impl RiggenApp {
                     if kind.requires_limits() && edited.limits.is_none() {
                         edited.limits = Some(default_limits(kind));
                     }
+                    if !kind.is_movable() {
+                        // A fixed joint has no value to drive, so the
+                        // coupling goes with the kind rather than being
+                        // refused by `validate` after the fact (ADR-0013).
+                        edited.mimic = None;
+                    }
                 }
                 ui.end_row();
 
@@ -1239,6 +1245,79 @@ impl RiggenApp {
                     }
                     if new_limits != limits {
                         edited.limits = Some(new_limits);
+                    }
+                }
+
+                // A coupled degree of freedom (ADR-0013). The combo offers
+                // exactly the leaders `validate` accepts: a movable joint
+                // that is not this one and does not itself follow, so a
+                // chain cannot be built by picking one.
+                if data.kind.is_movable() {
+                    let leaders: Vec<(JointId, String)> = self
+                        .robot
+                        .joints
+                        .iter()
+                        .filter(|(id, j)| **id != joint && j.kind.is_movable() && j.mimic.is_none())
+                        .map(|(&id, j)| (id, j.name.clone()))
+                        .collect();
+                    ui.label("mimic");
+                    let mut leader = data.mimic.map(|m| m.joint);
+                    let shown = leader.map_or_else(
+                        || "none".to_owned(),
+                        |id| {
+                            self.robot
+                                .joints
+                                .get(&id)
+                                .map_or_else(|| id.to_string(), |j| j.name.clone())
+                        },
+                    );
+                    egui::ComboBox::from_id_salt(base.with("mimic"))
+                        .selected_text(shown)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut leader, None, "none");
+                            for (id, name) in &leaders {
+                                ui.selectable_value(&mut leader, Some(*id), name);
+                            }
+                        });
+                    ui.end_row();
+                    if leader != data.mimic.map(|m| m.joint) {
+                        // A fresh coupling starts at `q = q(leader)`; the
+                        // two fields below it are how it stops being that.
+                        edited.mimic = leader.map(|l| Mimic {
+                            joint: l,
+                            multiplier: data.mimic.map_or(1.0, |m| m.multiplier),
+                            offset: data.mimic.map_or(0.0, |m| m.offset),
+                        });
+                    }
+                    if let Some(mimic) = data.mimic {
+                        // The offset is in the follower's own unit and the
+                        // multiplier is a ratio, so neither is converted
+                        // to degrees the way the limits above are.
+                        let unit = if data.kind == JointKind::Prismatic {
+                            "m"
+                        } else {
+                            "rad"
+                        };
+                        if let Some(v) = number_row(
+                            ui,
+                            state,
+                            base.with("multiplier"),
+                            "multiplier",
+                            mimic.multiplier,
+                        ) && let Some(m) = &mut edited.mimic
+                        {
+                            m.multiplier = v;
+                        }
+                        if let Some(v) = number_row(
+                            ui,
+                            state,
+                            base.with("offset"),
+                            &format!("offset {unit}"),
+                            mimic.offset,
+                        ) && let Some(m) = &mut edited.mimic
+                        {
+                            m.offset = v;
+                        }
                     }
                 }
 

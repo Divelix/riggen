@@ -357,8 +357,12 @@ impl RiggenApp {
         self.sync_scene();
     }
 
+    /// What the joint is actually at — for one that follows another, the
+    /// value its leader implies (ADR-0013), which is what `fk` used and
+    /// what the viewport is showing, not the stale slot in `self.q`.
+    /// `fk::resolve_q` is the one place that rule lives.
     pub fn joint_value(&self, joint: JointId) -> f64 {
-        self.q.get(joint)
+        riggen_core::resolve_q(&self.robot, &self.q).get(joint)
     }
 
     /// Tints every instance whose link uses `material` with `color`

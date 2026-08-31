@@ -134,7 +134,7 @@ and the import-warning docstring at `robot.py:1101` loses "mimic".
   `mjEQ_JOINT` equality for every mimic the samples imply. **This is where
   the risk retires** (see Acceptance); nothing before it has asked MuJoCo
   whether `polycoef` means what we think.
-- [ ] **Step 5 — app: edit it and see it.** Properties › Joint gains a
+- [x] **Step 5 — app: edit it and see it.** Properties › Joint gains a
   Mimic section — a leader combo (movable joints, minus this one and minus
   anything that would make a chain), multiplier and offset fields,
   committed through the existing `SetJoint`. The Joints window draws a
