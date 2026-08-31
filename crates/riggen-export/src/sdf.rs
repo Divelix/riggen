@@ -7,9 +7,9 @@
 
 use std::path::Path;
 
-use riggen_core::{Pose, Primitive};
+use riggen_core::{ActuatorSpec, JointKind, Pose, Primitive};
 
-use crate::resolve::{ExportOptions, MeshPathStyle, ResolvedGeom, ResolvedRobot};
+use crate::resolve::{ExportOptions, MeshPathStyle, ResolvedGeom, ResolvedJoint, ResolvedRobot};
 use crate::xml::{Xml, num, pose6, vec3};
 
 /// The spec version we write. 1.11 is the first with `<axis><mimic>`, and
@@ -67,9 +67,125 @@ pub fn write(robot: &ResolvedRobot, options: &ExportOptions, dir: &Path) -> Stri
         }
         x.close("link");
     }
+    // A fixed base is a fixed joint to SDF's reserved `world` frame; a
+    // floating one is a model with nothing holding it, which is what MJCF
+    // spells `<freejoint/>` (ADR-0016 §3).
+    if !robot.floating_base
+        && let Some(root) = robot.links.first()
+    {
+        x.open(
+            "joint",
+            &[("name", "world_joint".into()), ("type", "fixed".into())],
+        );
+        x.text("parent", &[], "world");
+        x.text("child", &[], &root.name);
+        x.close("joint");
+    }
+    for joint in &robot.joints {
+        write_joint(&mut x, robot, joint);
+    }
+    // A named frame is SDF's own `<frame>` (ADR-0012's third spelling):
+    // `<pose>`'s default `relative_to` is the `attached_to` frame, so the
+    // pose goes out in the link frame verbatim.
+    let sites = robot
+        .links
+        .iter()
+        .flat_map(|l| l.sites.iter().map(move |s| (l, s)));
+    for (link, site) in sites {
+        x.open(
+            "frame",
+            &[
+                ("name", site.name.clone()),
+                ("attached_to", link.name.clone()),
+            ],
+        );
+        x.text("pose", &[], &pose6(&site.pose));
+        x.close("frame");
+    }
     x.close("model");
     x.close("sdf");
     x.finish()
+}
+
+fn write_joint(x: &mut Xml, robot: &ResolvedRobot, j: &ResolvedJoint) {
+    // All four kinds are SDF's own words, so none is approximated.
+    let kind = match j.kind {
+        JointKind::Fixed => "fixed",
+        JointKind::Revolute => "revolute",
+        JointKind::Continuous => "continuous",
+        JointKind::Prismatic => "prismatic",
+    };
+    x.open("joint", &[("name", j.name.clone()), ("type", kind.into())]);
+    x.text("parent", &[], &robot.links[j.parent].name);
+    x.text("child", &[], &robot.links[j.child].name);
+    // No `<pose>`: SDF already expresses a joint in the child link frame,
+    // which is riggen's joint frame (ADR-0004), so the default is the
+    // convention and writing it would be writing zeros (ADR-0016 §2).
+    if j.kind.is_movable() {
+        x.open("axis", &[]);
+        // No `expressed_in` either: `<xyz>`'s default frame is the joint
+        // frame, the same child link frame `ResolvedJoint::axis` is in.
+        x.text("xyz", &[], &vec3(j.axis));
+        if let Some(l) = &j.limits {
+            x.open("limit", &[]);
+            x.text("lower", &[], &num(l.lower));
+            x.text("upper", &[], &num(l.upper));
+            // A zero effort or velocity is the *unfilled* value (ADR-0014),
+            // and SDF's default for both is infinity while a literal 0 is
+            // a joint that can exert nothing — so it is omitted, as MJCF
+            // omits `forcerange` and `ctrlrange`.
+            if l.effort != 0.0 {
+                x.text("effort", &[], &num(l.effort));
+            }
+            if l.velocity != 0.0 {
+                x.text("velocity", &[], &num(l.velocity));
+            }
+            x.close("limit");
+        }
+        let d = &j.dynamics;
+        if d.damping != 0.0 || d.friction != 0.0 {
+            x.open("dynamics", &[]);
+            x.text("damping", &[], &num(d.damping));
+            x.text("friction", &[], &num(d.friction));
+            x.close("dynamics");
+        }
+        // SDF 1.11's own coupled DoF, and the reason we write 1.11 at all
+        // (ADR-0016 §1): `follower = multiplier·(leader − reference) +
+        // offset` is ADR-0013's rule with `reference` at zero, and all
+        // three numbers are written so the file states the whole thing.
+        if let Some(m) = &j.mimic {
+            x.open("mimic", &[("joint", robot.joints[m.joint].name.clone())]);
+            x.text("multiplier", &[], &num(m.multiplier));
+            x.text("offset", &[], &num(m.offset));
+            x.text("reference", &[], &num(0.0));
+            x.close("mimic");
+        }
+        x.close("axis");
+    }
+    if j.dynamics.armature != 0.0 {
+        x.comment(&format!(
+            "joint {}: armature {} is an MJCF property; not written",
+            j.name,
+            num(j.dynamics.armature)
+        ));
+    }
+    // SDF has no actuator either. Gazebo drives a joint through a
+    // `<plugin>` naming a C++ class, a shared library and a version of
+    // Gazebo — a simulator configuration, not a robot description — so
+    // ADR-0014's URDF reasoning applies word for word (ADR-0016 §5).
+    if let Some(a) = j.actuator {
+        let gains = match a {
+            ActuatorSpec::Position { kp, kv } => format!("kp {} kv {}", num(kp), num(kv)),
+            ActuatorSpec::Velocity { kv } => format!("kv {}", num(kv)),
+            ActuatorSpec::Motor { gear } => format!("gear {}", num(gear)),
+        };
+        x.comment(&format!(
+            "joint {}: a {} actuator ({gains}) is an MJCF property; not written",
+            j.name,
+            a.kind_name(),
+        ));
+    }
+    x.close("joint");
 }
 
 fn write_geom(
@@ -283,6 +399,64 @@ pub(crate) mod tests {
     <link name="tip">
       <pose relative_to="wheel">0 0 0.1 0 0 0</pose>
     </link>
+    <joint name="world_joint" type="fixed">
+      <parent>world</parent>
+      <child>base_link</child>
+    </joint>
+    <joint name="upper_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>upper</child>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-1</lower>
+          <upper>1</upper>
+          <effort>1</effort>
+          <velocity>1</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.1</damping>
+          <friction>0</friction>
+        </dynamics>
+      </axis>
+      <!-- joint upper_joint: a position actuator (kp 100 kv 5) is an MJCF property; not written -->
+    </joint>
+    <joint name="slider_joint" type="prismatic">
+      <parent>upper</parent>
+      <child>slider</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>-1</lower>
+          <upper>1</upper>
+          <effort>1</effort>
+          <velocity>1</velocity>
+        </limit>
+        <mimic joint="upper_joint">
+          <multiplier>-0.5</multiplier>
+          <offset>0.1</offset>
+          <reference>0</reference>
+        </mimic>
+      </axis>
+    </joint>
+    <joint name="wheel_joint" type="continuous">
+      <parent>slider</parent>
+      <child>wheel</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+      </axis>
+      <!-- joint wheel_joint: a velocity actuator (kv 2) is an MJCF property; not written -->
+    </joint>
+    <joint name="tip_joint" type="fixed">
+      <parent>wheel</parent>
+      <child>tip</child>
+    </joint>
+    <frame name="camera_mount" attached_to="base_link">
+      <pose>0 0.03 0.04 1.570796326795 0 0</pose>
+    </frame>
+    <frame name="tcp" attached_to="tip">
+      <pose>0 0 0.05 0 0 0</pose>
+    </frame>
   </model>
 </sdf>
 "#;
@@ -342,6 +516,142 @@ pub(crate) mod tests {
             names.dedup();
             assert_eq!(names.len(), count, "{names:?}");
         }
+
+        // The joints: the `world` weld first, then one per link in the
+        // resolved order, none of them carrying a `<pose>` and no `<xyz>`
+        // carrying an `expressed_in` — SDF's defaults are ADR-0004's
+        // conventions and writing them would be writing zeros (ADR-0016 §2).
+        let joints: Vec<_> = model.kids("joint").collect();
+        let names: Vec<&str> = joints.iter().map(|j| j.attr("name").unwrap()).collect();
+        assert_eq!(
+            names,
+            [
+                "world_joint",
+                "upper_joint",
+                "slider_joint",
+                "wheel_joint",
+                "tip_joint"
+            ]
+        );
+        for joint in &joints {
+            assert_eq!(joint.child("pose"), None, "{}", joint.attr("name").unwrap());
+            if let Some(axis) = joint.child("axis") {
+                assert_eq!(axis.child("xyz").unwrap().attr("expressed_in"), None);
+            }
+        }
+        // All four kinds by SDF's own names, so none is approximated.
+        let kinds: Vec<&str> = joints.iter().map(|j| j.attr("type").unwrap()).collect();
+        assert_eq!(
+            kinds,
+            ["fixed", "revolute", "prismatic", "continuous", "fixed"]
+        );
+        // A continuous joint has an axis and no `<limit>`: SDF's ±inf
+        // default is what "unlimited" means, and `0 0` would be a locked
+        // joint (ADR-0016 §3).
+        let wheel = joints[3];
+        assert!(wheel.child("axis").unwrap().child("limit").is_none());
+        // The mimic is SDF 1.11's own element, not a comment (ADR-0016 §1).
+        let mimic = joints[2]
+            .child("axis")
+            .unwrap()
+            .child("mimic")
+            .expect("the slider follows the hinge");
+        assert_eq!(mimic.attr("joint"), Some("upper_joint"));
+        assert_eq!(
+            mimic
+                .children
+                .iter()
+                .map(|c| c.tag.as_str())
+                .collect::<Vec<_>>(),
+            ["multiplier", "offset", "reference"]
+        );
+        // Two frames, each attached to its link (ADR-0012's third spelling).
+        let frames: Vec<_> = model.kids("frame").collect();
+        assert_eq!(
+            frames
+                .iter()
+                .map(|f| (f.attr("name").unwrap(), f.attr("attached_to").unwrap()))
+                .collect::<Vec<_>>(),
+            [("camera_mount", "base_link"), ("tcp", "tip")]
+        );
+        // No dummy link and no fixed joint per frame, the way URDF needs
+        // them: the five links and five joints above are all there are.
+        assert_eq!(model.kids("link").count(), 5);
+    }
+
+    /// SDF has no actuator either, and Gazebo's `<plugin>` is a simulator
+    /// configuration rather than a robot description, so ADR-0014's URDF
+    /// answer stands word for word (ADR-0016 §5).
+    #[test]
+    fn an_actuator_is_a_comment_and_no_plugin_is_invented() {
+        let mut b = every_joint_kind();
+        for j in b.robot.joints.values_mut() {
+            if j.name == "upper_joint" {
+                j.actuator = Some(ActuatorSpec::Motor { gear: 50.0 });
+            }
+        }
+        let sdf = write(
+            &b.resolve().unwrap(),
+            &ExportOptions::default(),
+            Path::new("."),
+        );
+        assert!(
+            sdf.contains(
+                "<!-- joint upper_joint: a motor actuator (gear 50) is an MJCF property; not written -->"
+            ),
+            "{sdf}"
+        );
+        for invented in ["<plugin", "JointPositionController", "<gazebo"] {
+            assert!(!sdf.contains(invented), "{invented} in\n{sdf}");
+        }
+        // The honest SDF answer is the `<limit>` it already writes.
+        assert!(sdf.contains("<effort>1</effort>"), "{sdf}");
+    }
+
+    /// A zero effort or velocity is the *unfilled* value (ADR-0014), and
+    /// SDF's default is infinity while a literal `0` is a joint that can
+    /// exert nothing — so it is left out, as MJCF leaves out `forcerange`.
+    #[test]
+    fn an_unfilled_effort_or_velocity_is_omitted_not_written_as_zero() {
+        let mut b = every_joint_kind();
+        for j in b.robot.joints.values_mut() {
+            if let Some(l) = j.limits.as_mut() {
+                l.effort = 0.0;
+                l.velocity = 3.0;
+            }
+        }
+        let sdf = write(
+            &b.resolve().unwrap(),
+            &ExportOptions::default(),
+            Path::new("."),
+        );
+        assert!(!sdf.contains("<effort>"), "{sdf}");
+        assert!(sdf.contains("<velocity>3</velocity>"), "{sdf}");
+        // The bounds themselves are still written, zero or not.
+        assert!(sdf.contains("<lower>-1</lower>"), "{sdf}");
+    }
+
+    /// `floating_base` is what MJCF spells `<freejoint/>`: in SDF it is
+    /// the absence of the weld to `world` (ADR-0016 §3).
+    #[test]
+    fn a_floating_base_is_the_world_joint_left_out() {
+        let b = every_joint_kind();
+        let fixed = write(
+            &b.resolve().unwrap(),
+            &ExportOptions::default(),
+            Path::new("."),
+        );
+        assert!(fixed.contains("<parent>world</parent>"), "{fixed}");
+        let options = ExportOptions {
+            floating_base: true,
+            ..Default::default()
+        };
+        let resolved = crate::resolve(&b.robot, &b.store, &crate::ComputeNow, &options).unwrap();
+        let floating = write(&resolved, &options, Path::new("."));
+        assert!(!floating.contains("world"), "{floating}");
+        let root = crate::xml::parse(&floating).unwrap();
+        let model = root.child("model").unwrap();
+        assert_eq!(model.kids("joint").count(), 4, "the four real joints only");
     }
 
     /// The one place SDF beats URDF: a capsule stays a capsule, so the
@@ -386,10 +696,19 @@ pub(crate) mod tests {
         ] {
             assert!(sdf.contains(block), "missing {block}\n{sdf}");
         }
-        // Nothing is apologised for: the only comment in the file is the
-        // generated-by line every writer opens with.
-        assert_eq!(sdf.matches("<!--").count(), 1, "{sdf}");
-        assert!(!sdf.contains("cylinder: URDF"), "{sdf}");
+        // No shape is apologised for. Every comment in the file is either
+        // the generated-by line or an MJCF-only property (ADR-0016 §5) —
+        // none of them is about geometry, which is the URDF writer's
+        // "capsule written as a cylinder" having no counterpart here.
+        for comment in sdf.lines().filter(|l| l.trim_start().starts_with("<!--")) {
+            assert!(
+                comment.contains("Generated by riggen") || comment.contains("is an MJCF property"),
+                "{comment}"
+            );
+        }
+        // …and the capsule did not become a second cylinder on the way out.
+        assert_eq!(sdf.matches("<cylinder>").count(), 1, "{sdf}");
+        assert_eq!(sdf.matches("<capsule>").count(), 1, "{sdf}");
         // The three of them are three named collisions on the one link.
         let root = crate::xml::parse(&sdf).unwrap();
         let tip = root

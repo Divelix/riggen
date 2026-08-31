@@ -1,14 +1,15 @@
-//! Writing the export directory (ADR-0008): `<name>.xml` and/or
-//! `<name>.urdf` beside a `meshes/` folder of binary STL in meters, every
-//! file through a `.tmp` sibling and a rename so a crash mid-write never
-//! leaves a half file behind — the same discipline as `file::save`.
+//! Writing the export directory (ADR-0008, ADR-0016): any of `<name>.xml`,
+//! `<name>.urdf` and `<name>.sdf` beside one `meshes/` folder of binary STL
+//! in meters, every file through a `.tmp` sibling and a rename so a crash
+//! mid-write never leaves a half file behind — the same discipline as
+//! `file::save`.
 
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::resolve::{ExportOptions, ResolvedRobot};
-use crate::{mjcf, urdf};
+use crate::{mjcf, sdf, urdf};
 
 /// A file that could not be written.
 #[derive(Debug)]
@@ -48,6 +49,12 @@ pub fn export(
     if options.format.writes_urdf() {
         let path = dir.join(format!("{}.urdf", robot.name));
         let text = urdf::write(robot, options, dir);
+        write_atomically(&path, text.as_bytes()).map_err(io(&path))?;
+        written.push(path);
+    }
+    if options.format.writes_sdf() {
+        let path = dir.join(format!("{}.sdf", robot.name));
+        let text = sdf::write(robot, options, dir);
         write_atomically(&path, text.as_bytes()).map_err(io(&path))?;
         written.push(path);
     }
@@ -114,10 +121,22 @@ mod tests {
         assert!(xml.starts_with("<?xml"));
         assert!(!dir.join("test.urdf").exists(), "MJCF only was asked for");
 
-        let both = export(&resolved, &ExportOptions::default(), &dir).unwrap();
-        assert_eq!(both[..2], [dir.join("test.xml"), dir.join("test.urdf")]);
+        // The default is every writer (ADR-0016): three model files, one
+        // `meshes/`, and each file is the format its extension claims.
+        let all = export(&resolved, &ExportOptions::default(), &dir).unwrap();
+        assert_eq!(
+            all[..3],
+            [
+                dir.join("test.xml"),
+                dir.join("test.urdf"),
+                dir.join("test.sdf")
+            ]
+        );
         let urdf = std::fs::read_to_string(dir.join("test.urdf")).unwrap();
         assert!(urdf.contains("<robot name=\"test\">"), "{urdf}");
+        let sdf = std::fs::read_to_string(dir.join("test.sdf")).unwrap();
+        assert!(sdf.contains("<sdf version=\"1.11\">"), "{sdf}");
+        assert!(sdf.contains("<model name=\"test\">"), "{sdf}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
