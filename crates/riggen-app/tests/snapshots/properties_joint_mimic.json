@@ -80,7 +80,7 @@
   "document": {
     "file": "arm.riggen",
     "name": "arm",
-    "dirty": false,
+    "dirty": true,
     "import_scale": 1.0,
     "links": [
       {
@@ -187,14 +187,14 @@
         ]
       }
     ],
-    "selection": null
+    "selection": "joint j16"
   },
   "ui": {
     "tool": "Select",
     "renaming": null,
     "windows": [],
-    "modal": "export",
-    "title": "arm.riggen — riggen"
+    "modal": null,
+    "title": "arm.riggen* — riggen"
   },
   "instances": [
     {
@@ -390,7 +390,7 @@
         652.0,
         329.770752
       ],
-      "active": false,
+      "active": true,
       "hovered": false
     }
   ],

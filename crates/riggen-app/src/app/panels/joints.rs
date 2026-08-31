@@ -3,8 +3,13 @@
 //! prismatic. Dragging writes `q` and re-syncs the scene every frame — a
 //! joint value is derived state, never a command and never saved
 //! (docs/01-architecture.md §The document is the only state).
+//!
+//! A joint that follows another (ADR-0013) is not draggable: its slider is
+//! disabled, sits at the value `fk::resolve_q` derives, and carries the
+//! rule underneath it. The window never computes that value itself — the
+//! viewport and the export read the same helper.
 
-use riggen_core::{JointId, JointKind, Limits};
+use riggen_core::{JointId, JointKind, Limits, Mimic};
 
 use crate::app::RiggenApp;
 
@@ -12,6 +17,9 @@ use crate::app::RiggenApp;
 pub(crate) struct JointsWindow {
     pub(crate) open: bool,
 }
+
+/// One row of the window, read off the document before it is drawn.
+type Row = (JointId, String, JointKind, Option<Limits>, Option<Mimic>);
 
 /// A slider's range and unit for a joint kind: `(lower, upper, suffix)`
 /// in the slider's unit, with the document ↔ slider conversions.
@@ -46,6 +54,13 @@ fn to_slider(kind: JointKind, q: f64) -> f64 {
     }
 }
 
+/// Six decimals, trailing zeros dropped, no `-0` — the same shape the
+/// properties panel writes a number in.
+fn num(v: f64) -> String {
+    let r = (v * 1e6).round() / 1e6;
+    format!("{}", if r == 0.0 { 0.0 } else { r })
+}
+
 fn from_slider(kind: JointKind, v: f64) -> f64 {
     match kind {
         JointKind::Prismatic => v,
@@ -62,18 +77,35 @@ impl RiggenApp {
         self.joints_window.open = open;
     }
 
+    /// `= -0.5 × upper_joint + 0.1`, the rule as the document holds it —
+    /// radians or meters, the units `Mimic` is in, not the slider's
+    /// (ADR-0013). A zero offset is left off rather than written `+ 0`.
+    fn mimic_rule(&self, m: &Mimic) -> String {
+        let leader = self
+            .robot
+            .joints
+            .get(&m.joint)
+            .map_or_else(|| m.joint.to_string(), |j| j.name.clone());
+        let rule = format!("= {} × {leader}", num(m.multiplier));
+        match m.offset {
+            0.0 => rule,
+            o if o < 0.0 => format!("{rule} - {}", num(-o)),
+            o => format!("{rule} + {}", num(o)),
+        }
+    }
+
     /// Draws the window if it is open. Called after the panels so it
     /// floats over the viewport.
     pub(crate) fn joints_window(&mut self, ctx: &egui::Context) {
         if !self.joints_window.open {
             return;
         }
-        let movable: Vec<(JointId, String, JointKind, Option<Limits>)> = self
+        let movable: Vec<Row> = self
             .robot
             .joints
             .iter()
             .filter(|(_, j)| j.kind.is_movable())
-            .map(|(&id, j)| (id, j.name.clone(), j.kind, j.limits))
+            .map(|(&id, j)| (id, j.name.clone(), j.kind, j.limits, j.mimic))
             .collect();
 
         // Top-right of the viewport, out of the way of the tree and the
@@ -98,17 +130,29 @@ impl RiggenApp {
                 egui::Grid::new("joint_sliders")
                     .num_columns(2)
                     .show(ui, |ui| {
-                        for (id, name, kind, limits) in &movable {
+                        for (id, name, kind, limits, mimic) in &movable {
                             ui.label(name);
                             let (lo, hi, suffix) = slider_range(*kind, *limits);
-                            let mut v = to_slider(*kind, self.q.get(*id));
-                            let response = ui.add(
-                                egui::Slider::new(&mut v, lo..=hi)
-                                    .suffix(suffix)
-                                    .fixed_decimals(1),
-                            );
-                            if response.changed() {
-                                changes.push((*id, from_slider(*kind, v)));
+                            // `joint_value` resolves a follower, so the
+                            // slider shows what the viewport is showing.
+                            let mut v = to_slider(*kind, self.joint_value(*id));
+                            let slider = egui::Slider::new(&mut v, lo..=hi)
+                                .suffix(suffix)
+                                .fixed_decimals(1);
+                            match mimic {
+                                None => {
+                                    if ui.add(slider).changed() {
+                                        changes.push((*id, from_slider(*kind, v)));
+                                    }
+                                }
+                                Some(m) => {
+                                    // A read-out, not a control: the value
+                                    // is its leader's to set.
+                                    ui.vertical(|ui| {
+                                        ui.add_enabled(false, slider);
+                                        ui.weak(self.mimic_rule(m));
+                                    });
+                                }
                             }
                             ui.end_row();
                         }

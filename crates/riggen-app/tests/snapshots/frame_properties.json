@@ -150,7 +150,7 @@
         "kind": "Revolute",
         "parent": "l11",
         "child": "l15",
-        "q": 0.0
+        "q": 0.1
       }
     ],
     "frames": [

@@ -1556,6 +1556,139 @@ fn joint_value_clamps_to_edited_limits() {
     });
 }
 
+/// The Joints window with a follower in it: `fore_joint` follows
+/// `upper_joint` at `-0.5 q + 0.1` (ADR-0013), so its slider is a
+/// read-out — disabled, at the derived value, with the rule under it —
+/// and only the two free joints can be dragged.
+#[test]
+fn joints_window_mimic() {
+    scenario("joints_window_mimic", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("arm/arm.riggen"))
+            .expect("open the sample arm");
+        app.set_joints_window_open(true);
+        let joint = |app: &riggen_app::RiggenApp, name: &str| {
+            *app.robot()
+                .joints
+                .iter()
+                .find(|(_, j)| j.name == name)
+                .unwrap_or_else(|| panic!("{name}"))
+                .0
+        };
+        let upper = joint(app, "upper_joint");
+        let fore = joint(app, "fore_joint");
+        app.set_joint_value(upper, 1.0);
+        app.fit_view_now();
+        settle(harness);
+
+        let app = harness.state();
+        // The slider rounds `q` to the tenth of a degree it shows, so the
+        // assertion is the rule, not the round number that went in.
+        let (upper_q, fore_q) = (app.joint_value(upper), app.joint_value(fore));
+        assert!((upper_q - 1.0).abs() < 1e-3, "{upper_q}");
+        assert!(
+            (fore_q - (-0.5 * upper_q + 0.1)).abs() < 1e-12,
+            "{fore_q} does not follow {upper_q}"
+        );
+        let state = app.debug_state();
+        let q = |name: &str| {
+            state
+                .document
+                .joints
+                .iter()
+                .find(|j| j.name == name)
+                .unwrap()
+                .q
+        };
+        assert_eq!(
+            q("fore_joint"),
+            riggen_app::debug::round(fore_q),
+            "the debug state reports the derived value, not the stale slot"
+        );
+
+        // The rule is on the screen, and the follower's slider is not a
+        // control: two of the three are draggable.
+        harness.get_by_label("= -0.5 × upper_joint + 0.1");
+        let sliders: Vec<bool> = harness
+            .get_all_by_role(egui::accesskit::Role::Slider)
+            .map(|n| n.accesskit_node().is_disabled())
+            .collect();
+        assert_eq!(sliders, vec![false, false, true], "{sliders:?}");
+    });
+}
+
+/// Properties › Joint for a follower: the Mimic section reads the rule
+/// the document holds, the leader combo offers exactly the joints
+/// `validate` would accept, and a new coefficient is one `SetJoint`
+/// (ADR-0013).
+#[test]
+fn properties_joint_mimic() {
+    scenario("properties_joint_mimic", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("open the sample arm");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        let fore = *harness
+            .state()
+            .robot()
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "fore_joint")
+            .unwrap()
+            .0;
+        harness.state_mut().select(Selection::Joint(fore));
+        settle(harness);
+
+        assert_eq!(
+            harness.get_by_label("multiplier").value().as_deref(),
+            Some("-0.5")
+        );
+        assert_eq!(
+            harness.get_by_label("offset rad").value().as_deref(),
+            Some("0.1")
+        );
+
+        // The leader combo (the second, after the kind combo) offers the
+        // movable joints that are not this one and do not themselves
+        // follow — so a chain cannot be built by picking one.
+        let offered = |harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>, name: &str| {
+            harness.query_all_by_label(name).count()
+        };
+        let before: Vec<usize> = ["shoulder_joint", "upper_joint", "fore_joint"]
+            .iter()
+            .map(|n| offered(harness, n))
+            .collect();
+        harness
+            .get_all_by_role(egui::accesskit::Role::ComboBox)
+            .nth(1)
+            .expect("the mimic combo")
+            .click();
+        harness.step();
+        let after: Vec<usize> = ["shoulder_joint", "upper_joint", "fore_joint"]
+            .iter()
+            .map(|n| offered(harness, n))
+            .collect();
+        assert_eq!(
+            after,
+            vec![before[0] + 1, before[1] + 1, before[2]],
+            "the two free joints are offered; the follower itself is not"
+        );
+        harness.key_press(egui::Key::Escape);
+        harness.step();
+
+        // Editing a coefficient commits the whole joint, once.
+        let depth = harness.state().history().undo_depth();
+        type_into(harness, "multiplier", 0, "-0.25");
+        settle(harness);
+        let app = harness.state();
+        assert_eq!(app.history().undo_depth(), depth + 1, "one SetJoint");
+        let mimic = app.robot().joints[&fore].mimic.expect("still coupled");
+        assert_eq!((mimic.multiplier, mimic.offset), (-0.25, 0.1));
+    });
+}
+
 /// The tool toolbar over the pendulum: Select active, the other four
 /// waiting. It floats in the viewport's top-left corner, which is why every
 /// other golden moved with this step.
