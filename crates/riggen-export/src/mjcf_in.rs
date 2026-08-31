@@ -1414,6 +1414,189 @@ mod tests {
         }
     }
 
+    /// The foreign corpus (ADR-0015): a file nobody wrote with our writer,
+    /// carrying every shape the import has to cope with. What it loses is
+    /// pinned warning by warning, because "nothing is dropped silently" is
+    /// only true if somebody checks.
+    #[test]
+    fn the_menagerie_style_corpus_imports_with_the_warnings_it_should() {
+        let path = crate::test_util::fixtures().join("menagerie_style.xml");
+        let (robot, warnings) = super::load(&path).unwrap();
+        let link = |n: &str| robot.links.values().find(|l| l.name == n).unwrap();
+        let joint = |n: &str| robot.joints.values().find(|j| j.name == n).unwrap();
+
+        assert_eq!(robot.name, "menagerie_style");
+        assert_eq!(robot.links.len(), 5);
+        assert_eq!(robot.links[&robot.root].name, "base_link");
+        // `<compiler angle="degree">` is MJCF's default and the opposite of
+        // ours: ±180° is ±π, and the class two levels up is where the range
+        // came from at all.
+        let pan = joint("shoulder_pan").limits.unwrap();
+        assert!((pan.lower + std::f64::consts::PI).abs() < 1e-12);
+        assert!((pan.upper - std::f64::consts::PI).abs() < 1e-12);
+        // …and `damping` / `armature` / `frictionloss` from the root class.
+        assert_eq!(
+            joint("shoulder_pan").dynamics,
+            Dynamics {
+                damping: 0.1,
+                friction: 0.02,
+                armature: 0.01
+            }
+        );
+        assert_eq!(joint("wrist_slide").kind, JointKind::Prismatic);
+        assert_eq!(
+            joint("wrist_slide").limits.map(|l| (l.lower, l.upper)),
+            Some((0.0, 0.05))
+        );
+
+        // Each body spells its rotation a different way, and all four
+        // reach the document as one `DQuat`.
+        let rot = |n: &str| joint(n).origin.r;
+        // `dot`, not `angle_between`: `acos` near 1 loses eight digits.
+        let same = |a: DQuat, b: DQuat| a.dot(b).abs() > 1.0 - 1e-12;
+        let quarter = std::f64::consts::FRAC_PI_4;
+        assert!(
+            same(rot("shoulder_pan"), DQuat::from_rotation_z(quarter)),
+            "euler=\"0 0 45\""
+        );
+        assert!(
+            same(
+                rot("shoulder_lift"),
+                DQuat::from_rotation_y(30f64.to_radians())
+            ),
+            "axisangle=\"0 1 0 30\""
+        );
+        assert!(
+            same(
+                rot("wrist_slide"),
+                DQuat::from_mat3(&DMat3::from_cols(DVec3::X, DVec3::Z, -DVec3::Y))
+            ),
+            "xyaxes=\"1 0 0 0 0 1\""
+        );
+        assert!(
+            same(
+                rot("tool_joint"),
+                DQuat::from_rotation_arc(DVec3::Z, -DVec3::Y)
+            ),
+            "zaxis=\"0 -1 0\""
+        );
+        // The `<site quat>` written by our own writer is the fifth
+        // spelling, and `xml::tests` holds it to the same rotation.
+        // The `<site euler>` too, on a frame that survived.
+        let mut frames: Vec<&str> = robot.frames.values().map(|f| f.name.as_str()).collect();
+        frames.sort_unstable();
+        assert_eq!(frames, ["mount", "tcp"]);
+
+        // `class="arm_visual"` is not our class name, so the split fell
+        // through to `contype`/`conaffinity` (ADR-0015 §6, rule 2).
+        assert_eq!(link("base_link").visuals.len(), 1);
+        assert!(
+            matches!(link("base_link").collision, CollisionPolicy::Meshes(ref g) if g.len() == 1),
+            "the collision mesh has its own `quat`, so it is not the visual"
+        );
+        assert_eq!(
+            link("shoulder").collision,
+            CollisionPolicy::None,
+            "the file said which geoms collide and this link has none"
+        );
+        // `fromto` names the capsule's two ends.
+        let CollisionPolicy::Primitives(p) = &link("upper").collision else {
+            panic!("{:?}", link("upper").collision)
+        };
+        assert_eq!(
+            p[..],
+            [Primitive::Capsule {
+                pose: Pose::from_translation(DVec3::Z * 0.05),
+                radius: 0.02,
+                length: 0.1
+            }]
+        );
+        // The mesh scale is non-uniform, and the meshes are beside the arm.
+        for asset in robot.assets.values() {
+            assert!(asset.path.exists(), "{}", asset.path.display());
+        }
+        assert_eq!(
+            joint("shoulder_pan").actuator,
+            Some(ActuatorSpec::Position {
+                kp: 120.0,
+                kv: 12.0
+            })
+        );
+        assert_eq!(joint("shoulder_pan").limits.unwrap().effort, 30.0);
+        assert_eq!(
+            joint("shoulder_lift").mimic.map(|m| m.multiplier),
+            Some(0.25)
+        );
+
+        assert_eq!(
+            warnings,
+            vec![
+                // The shoulder's mesh is scaled 1:2:1, and the document
+                // holds one number.
+                ImportWarning::NonUniformScale {
+                    link: "shoulder".to_owned(),
+                    file: "shoulder.stl".to_owned(),
+                    used: 0.002
+                },
+                // Then the `<geom>`s of one body, in document order.
+                ImportWarning::PrimitiveVisualDropped {
+                    link: "wrist".to_owned(),
+                    kind: "box"
+                },
+                ImportWarning::GeomDropped {
+                    link: "wrist".to_owned(),
+                    kind: "an ellipsoid geom".to_owned()
+                },
+                // Then the two actuators outside the three presets.
+                ImportWarning::ActuatorDropped {
+                    actuator: "lift".to_owned(),
+                    reason: "<general> is not one of the three presets".to_owned()
+                },
+                ImportWarning::ActuatorDropped {
+                    actuator: "grip".to_owned(),
+                    reason: "it drives a tendon, not a joint".to_owned()
+                },
+                // Then one line per element name, whatever the count.
+                ImportWarning::ElementDropped {
+                    element: "<camera>".to_owned(),
+                    count: 1
+                },
+                ImportWarning::ElementDropped {
+                    element: "<contact>".to_owned(),
+                    count: 1
+                },
+                ImportWarning::ElementDropped {
+                    element: "<keyframe>".to_owned(),
+                    count: 1
+                },
+                ImportWarning::ElementDropped {
+                    element: "<light>".to_owned(),
+                    count: 1
+                },
+                ImportWarning::ElementDropped {
+                    element: "<material>".to_owned(),
+                    count: 1
+                },
+                ImportWarning::ElementDropped {
+                    element: "<option>".to_owned(),
+                    count: 1
+                },
+                ImportWarning::ElementDropped {
+                    element: "<sensor>".to_owned(),
+                    count: 1
+                },
+                ImportWarning::ElementDropped {
+                    element: "<tendon>".to_owned(),
+                    count: 1
+                },
+                ImportWarning::ElementDropped {
+                    element: "<texture>".to_owned(),
+                    count: 1
+                },
+            ]
+        );
+    }
+
     #[test]
     fn a_coupling_and_an_actuator_the_document_cannot_hold_are_named() {
         let (robot, warnings) = load(

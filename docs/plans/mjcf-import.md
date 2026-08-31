@@ -114,7 +114,7 @@ import it back, export it again, and MuJoCo agrees with `fk` on the result.
   `Robot.load_mjcf` in `riggen-py` and `riggen.load_mjcf` in the public
   layer, with `_riggen.pyi` and an SDK test. Snapshot: the File menu with
   the new item.
-- [ ] 8 — **The round trip in CI, and the foreign corpus.**
+- [x] 8 — **The round trip in CI, and the foreign corpus.**
   `assets/fixtures/menagerie_style.xml` — hand-written, defaults +
   `childclass` + degrees + every orientation spelling + a `<general>` — with
   a Rust test asserting its warnings by name. The `mujoco` job gains
@@ -128,16 +128,20 @@ import it back, export it again, and MuJoCo agrees with `fk` on the result.
 `cargo test --workspace` green, and the `mujoco` CI job's new route:
 
 ```sh
-riggen --export mjcf --out target/sample assets/fixtures/arm/arm.riggen
+riggen --export mjcf --fk-samples --out target/sample assets/fixtures/arm/arm.riggen
 riggen --export mjcf --fk-samples --out target/sample-mjcf-in target/sample/arm.xml
 uv run --no-project --with mujoco --with numpy \
-  python python/tests/test_mjcf_load.py target/sample-mjcf-in
+  python python/tests/test_mjcf_load.py target/sample-mjcf-in \
+                                        target/sample-mjcf-in=target/sample
 ```
 
 loads with zero MuJoCo compiler warnings, and every body pose, site pose,
 `mjEQ_JOINT` row and `model.nu` matches `target/sample`'s own `arm.fk.json`
-to 1e-9 — the exact round trip ADR-0012 promised. Plus
-`mjcf_in::tests::menagerie_style_imports_with_the_warnings_it_should`.
+— the exact round trip ADR-0012 promised. The `MODEL=SAMPLES` form is what
+holds the re-exported model to the *original* document's FK rather than to
+its own. Plus
+`mjcf_in::tests::the_menagerie_style_corpus_imports_with_the_warnings_it_should`
+and `cli::tests::an_mjcf_input_is_imported_and_re_exported`.
 
 ## Docs to update on completion
 
@@ -208,6 +212,13 @@ to 1e-9 — the exact round trip ADR-0012 promised. Plus
   `contype`, a geom that omits it collides at MuJoCo's default.
 - **Step 5, `<geom fromto>`** names the two ends of a cylinder or capsule
   and replaces its pose; Menagerie is full of it, and it is read.
+
+- **Step 8, the acceptance tolerance.** The plan asked for 1e-9. That
+  figure lives in `cli::tests::an_mjcf_input_is_imported_and_re_exported`,
+  which compares two of *our own* `fk.json` files; `test_mjcf_load.py`
+  keeps its existing 1e-6, which is the tolerance for comparing MuJoCo's
+  own `mj_forward` against `riggen_core::fk` and is shared with the three
+  directories that were already checked.
 
 ## Open questions
 
