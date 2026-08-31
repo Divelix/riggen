@@ -18,13 +18,14 @@ it knows egui exists.
 - **RPY:** the URDF convention, `R = Rz(yaw) · Ry(pitch) · Rx(roll)`,
   radians, `rpy = (roll, pitch, yaw)`. `Pose::from_xyz_rpy` / `to_xyz_rpy`
   live in core because the properties panel (degrees, converted at the
-  edge) and the URDF writer need the same pair; extraction pins pitch to
-  `[-π/2, π/2]` and folds roll into yaw at gimbal lock.
+  edge) and the URDF and SDF writers need the same pair — SDF's `<pose>`
+  angles are URDF's `rpy`; extraction pins pitch to `[-π/2, π/2]` and folds
+  roll into yaw at gimbal lock.
 - **Joint frame = child link frame.** The joint's origin *is* the child
   link's frame, expressed in the parent link's frame. The axis is expressed
-  in that frame. This is the URDF rule, and writing it as MJCF is
-  one-to-one (below), so `ResolvedRobot` uses it and the exporters need no
-  re-rooting. Reading MJCF is not: `<joint pos>` anchors a joint anywhere
+  in that frame. This is the URDF rule, writing it as MJCF is one-to-one
+  (below), and it is also SDF's own default for a joint's pose and its
+  axis frame — so `ResolvedRobot` uses it and no writer re-roots anything. Reading MJCF is not: `<joint pos>` anchors a joint anywhere
   in the body frame, so the import moves the link frame onto the anchor
   and re-expresses the body's contents against it (§MJCF import). Our own
   writer emits no `pos`, so the round trip moves nothing.
@@ -442,6 +443,7 @@ pub struct ResolvedJoint { name, kind, parent: usize, child: usize, origin: Pose
                            mimic: Option<ResolvedMimic>, actuator: Option<ActuatorSpec> }
 pub struct ResolvedMimic { pub joint: usize, pub multiplier: f64, pub offset: f64 }  // joint indexes ResolvedRobot::joints
 pub struct ExportOptions { format: Format, mesh_paths: MeshPathStyle, floating_base: bool }
+pub struct Format { pub mjcf: bool, pub urdf: bool, pub sdf: bool }  // a set, not a choice; Default is all three
 ```
 
 `resolve` returns **every** problem it finds, so the export dialog lists
@@ -473,8 +475,8 @@ and blocks the export until the job lands, listed beside every other
 blocker (no modal, no spinner over the dialog).
 
 A `Joint::mimic` becomes a `ResolvedMimic` whose `joint` is an **index into
-`ResolvedRobot::joints`**, not a `JointId`, so both writers stay dumb
-serialisers of the vector they already have (ADR-0004 §1, ADR-0013).
+`ResolvedRobot::joints`**, not a `JointId`, so every writer stays a dumb
+serialiser of the vector it already has (ADR-0004 §1, ADR-0013).
 
 Every `Frame` becomes a `ResolvedSite` on its parent link, in `FrameId`
 order, carrying its link-frame pose unchanged; a frame on a link the tree
@@ -486,32 +488,43 @@ under §Invariants are validation errors.
 is the headless `MeshLookup` (files read and brought to meters as the
 viewport does); the app implements the trait on its own store.
 
-Each writer is then a dumb serialiser. Adding SDF later is a new writer,
-not a new resolve.
+Each writer is then a dumb serialiser, and there are three of them —
+`mjcf.rs`, `urdf.rs`, `sdf.rs` — over this one resolve. SDF cost a writer
+and no new field (ADR-0016).
+
+`ExportOptions::format` is a **set**, not a choice: `Format { mjcf, urdf,
+sdf }`, defaulting to all three, written in the export dialog as three
+checkboxes and spelled on the command line and in the SDK as `mjcf`,
+`urdf`, `sdf`, `both` (the first two, kept from when there were only two)
+or `all`. An empty set is expressible and is not a ready export — it would
+write a `meshes/` folder and no file that reads it — so the Export button
+refuses it. `MeshPathStyle` is read by the URDF and SDF writers; MJCF
+ignores it, because it has `meshdir`.
 
 ## Format mapping
 
-| Concept | URDF | MJCF |
-|---|---|---|
-| Link | `<link name>` | `<body name>` nested under its parent body |
-| Joint origin (child frame in parent frame) | `<joint><origin xyz rpy/>` | `<body pos quat>` of the child body |
-| Joint axis (child frame) | `<joint><axis xyz/>` | `<joint axis>` inside the child body; no `pos` is written, and MuJoCo's default is the body origin, which is the joint frame |
-| Fixed | `type="fixed"` | no `<joint>` element |
-| Revolute | `type="revolute"` + `<limit lower upper effort velocity/>` | `type="hinge" range="lo hi"` — no `limited` attribute is written, because `autolimits="true"` on the `<compiler>` makes a written range a limiting one |
-| Continuous | `type="continuous"` | `type="hinge"` without `range` |
-| Prismatic | `type="prismatic"` + `<limit/>` | `type="slide" range="lo hi"` |
-| Visual geom | `<visual><origin/><geometry><mesh filename/></geometry></visual>` | `<geom class="visual" mesh=… pos quat/>` with `<default class="visual">` = `type="mesh" contype="0" conaffinity="0" group="2"` |
-| Collision geom (one per resolved collision — N of them for a decomposition) | `<collision>…` | `<geom class="collision" type="mesh" mesh=… />` (mesh → MuJoCo takes the convex hull itself; primitives map directly), `<default class="collision">` = `group="3"`, translucent rgba |
-| Primitive | `<box size>` (full extents), `<cylinder radius length>`, `<sphere radius>`; a capsule becomes a cylinder plus a warning | `type="box|cylinder|sphere|capsule" size pos quat` — **`size` is half-extents / (radius, half-length)**, pinned by a test |
-| Inertial | `<inertial><origin xyz(com) rpy="0 0 0"/><mass/><inertia ixx ixy ixz iyy iyz izz/></inertial>` | `<inertial pos(com) mass fullinertia="Ixx Iyy Izz Ixy Ixz Iyz"/>` — MuJoCo does the principal-axes decomposition itself (ADR-0008) |
-| Mesh assets | `meshes/<stem>.stl`, path style per `MeshPathStyle` | `<asset><mesh name file/></asset>`, one per written **file** — a referenced mesh, plus each hull and decomposition piece; **meshes are written in meters as binary STL, no `scale`** (ADR-0008) |
-| Root | first `<link>` | `<worldbody>` child; `floating_base` in `ExportOptions` adds `<freejoint name="root"/>` |
-| Frame (`Frame`, a `ResolvedSite`) | a massless `<link name="tcp"/>` — no visual, collision or inertial — plus `<joint name="tcp_fixed" type="fixed">` with the frame pose as its `<origin xyz rpy/>`; the dummy links after every real link and the fixed joints after every real joint, so the file still reads root-first (ADR-0012) | `<site name pos quat/>` inside its body after the geoms, bare: no `size`, `group` or `rgba`, so MuJoCo's default 0.005 m sphere marks it (ADR-0012) |
-| Mimic (`ResolvedMimic`) | `<mimic joint multiplier offset/>` inside the follower's `<joint>`, after `<dynamics>` | `<equality><joint joint1="follower" joint2="leader" polycoef="offset multiplier 0 0 0"/></equality>` after `</worldbody>` — a **soft** solver constraint, not a reduction (ADR-0013) |
-| Actuator (`ActuatorSpec`) | nothing — `<transmission>` is a `ros_control` relic; a comment after the `<joint>` names the preset and its gains, like the `armature` one (ADR-0014) | one `<actuator>` block after `</equality>`: `<position kp kv>` / `<velocity kv>` / `<motor gear>`, `name` and `joint` both the **joint's own name** |
-| Effort / velocity | `<limit effort velocity/>` | the actuator's `forcerange="-effort effort"`, and its `ctrlrange` — `lower upper` for a position servo, `±velocity` for a velocity one, the normalised `-1 1` for a motor. A zero `effort` / `velocity` is the *unfilled* value, so the attribute is **omitted** and MuJoCo's unbounded default stands, never `0 0`. A joint with no actuator keeps the comment naming what was dropped (ADR-0004 §4 as amended by ADR-0014) |
-| Dynamics | `<dynamics damping friction/>` | `damping`, `frictionloss`, `armature` on the `<joint>`, written only when non-zero |
-| Angles | radians | **`<compiler angle="radian" meshdir="meshes" autolimits="true"/>` is always written** — MJCF's default is degrees |
+| Concept | URDF | MJCF | SDF (ADR-0016) |
+|---|---|---|---|
+| The file | `<robot name>` | `<mujoco model>` | `<sdf version="1.11"><model name>` — 1.11 is the first spec with `<axis><mimic>`, and `libsdformat14` (Gazebo Harmonic) reads it |
+| Link | `<link name>` | `<body name>` nested under its parent body | `<link name>`, flat |
+| Joint origin (child frame in parent frame) | `<joint><origin xyz rpy/>` | `<body pos quat>` of the child body | the **child link's** `<pose relative_to="«parent link»">`; the root link has no `<pose>`, and no `<pose>` is written on the joint at all — SDF's default for it is the child link frame, which is our joint frame |
+| Joint axis (child frame) | `<joint><axis xyz/>` | `<joint axis>` inside the child body; no `pos` is written, and MuJoCo's default is the body origin, which is the joint frame | `<axis><xyz>`, with **no `expressed_in`**: its default frame is the joint frame, the same child link frame |
+| Fixed | `type="fixed"` | no `<joint>` element | `type="fixed"` |
+| Revolute | `type="revolute"` + `<limit lower upper effort velocity/>` | `type="hinge" range="lo hi"` — no `limited` attribute is written, because `autolimits="true"` on the `<compiler>` makes a written range a limiting one | `type="revolute"` + `<axis><limit><lower><upper>` |
+| Continuous | `type="continuous"` | `type="hinge"` without `range` | `type="continuous"`, and **no `<limit>`**: SDF's ±inf default is what unlimited means, where `0 0` would be a locked joint |
+| Prismatic | `type="prismatic"` + `<limit/>` | `type="slide" range="lo hi"` | `type="prismatic"` + `<axis><limit/>` |
+| Visual geom | `<visual><origin/><geometry><mesh filename/></geometry></visual>` | `<geom class="visual" mesh=… pos quat/>` with `<default class="visual">` = `type="mesh" contype="0" conaffinity="0" group="2"` | `<visual name="«link»_visual_«i»"><pose/><geometry><mesh><uri/>` — SDF requires a name on every visual and collision and requires it unique within the link |
+| Collision geom (one per resolved collision — N of them for a decomposition) | `<collision>…` | `<geom class="collision" type="mesh" mesh=… />` (mesh → MuJoCo takes the convex hull itself; primitives map directly), `<default class="collision">` = `group="3"`, translucent rgba | `<collision name="«link»_collision_«i»">…`, one per piece; SDF has no class system and none is invented |
+| Primitive | `<box size>` (full extents), `<cylinder radius length>`, `<sphere radius>`; a capsule becomes a cylinder plus a warning | `type="box\|cylinder\|sphere\|capsule" size pos quat` — **`size` is half-extents / (radius, half-length)**, pinned by a test | `<box><size>` (full extents), `<cylinder><radius><length>`, `<sphere><radius>` and a **native `<capsule><radius><length>`**, its `length` the cylindrical part — the one place SDF beats URDF, so nothing is apologised for |
+| Inertial | `<inertial><origin xyz(com) rpy="0 0 0"/><mass/><inertia ixx ixy ixz iyy iyz izz/></inertial>` | `<inertial pos(com) mass fullinertia="Ixx Iyy Izz Ixy Ixz Iyz"/>` — MuJoCo does the principal-axes decomposition itself (ADR-0008) | `<inertial><pose>`(com)`</pose><mass/><inertia><ixx>…<izz/>` — numbers in element bodies, not attributes |
+| Mesh assets | `meshes/<stem>.stl`, path style per `MeshPathStyle` | `<asset><mesh name file/></asset>`, one per written **file** — a referenced mesh, plus each hull and decomposition piece; **meshes are written in meters as binary STL, no `scale`** (ADR-0008) | `<geometry><mesh><uri>`, the same `MeshPathStyle` with no new variant: `meshes/<stem>.stl`, `model://<name>/meshes/…` (SDF's own scheme, what `package://` is to URDF), or `file:///…` |
+| Root | first `<link>` | `<worldbody>` child; `floating_base` in `ExportOptions` adds `<freejoint name="root"/>` | first `<link>`; a **fixed** base is `<joint name="world_joint" type="fixed"><parent>world</parent>`, and `floating_base` is that joint left out |
+| Frame (`Frame`, a `ResolvedSite`) | a massless `<link name="tcp"/>` — no visual, collision or inertial — plus `<joint name="tcp_fixed" type="fixed">` with the frame pose as its `<origin xyz rpy/>`; the dummy links after every real link and the fixed joints after every real joint, so the file still reads root-first (ADR-0012) | `<site name pos quat/>` inside its body after the geoms, bare: no `size`, `group` or `rgba`, so MuJoCo's default 0.005 m sphere marks it (ADR-0012) | `<frame name attached_to="«link»"><pose/>` after the joints — `<pose>`'s default `relative_to` *is* `attached_to`, so the link-frame pose goes out unchanged, and no dummy link is needed |
+| Mimic (`ResolvedMimic`) | `<mimic joint multiplier offset/>` inside the follower's `<joint>`, after `<dynamics>` | `<equality><joint joint1="follower" joint2="leader" polycoef="offset multiplier 0 0 0"/></equality>` after `</worldbody>` — a **soft** solver constraint, not a reduction (ADR-0013) | `<axis><mimic joint="«leader»"><multiplier><offset><reference>0` — SDF 1.11's own element. Its rule is `follower = multiplier·(leader − reference) + offset`, which at `reference = 0` is URDF's exactly |
+| Actuator (`ActuatorSpec`) | nothing — `<transmission>` is a `ros_control` relic; a comment after the `<joint>` names the preset and its gains, like the `armature` one (ADR-0014) | one `<actuator>` block after `</equality>`: `<position kp kv>` / `<velocity kv>` / `<motor gear>`, `name` and `joint` both the **joint's own name** | nothing, and the same comment. Gazebo drives a joint through a `<plugin>` naming a C++ class, a shared library and a version of Gazebo — a simulator configuration, not a robot description (ADR-0016 §5) |
+| Effort / velocity | `<limit effort velocity/>` | the actuator's `forcerange="-effort effort"`, and its `ctrlrange` — `lower upper` for a position servo, `±velocity` for a velocity one, the normalised `-1 1` for a motor. A zero `effort` / `velocity` is the *unfilled* value, so the attribute is **omitted** and MuJoCo's unbounded default stands, never `0 0`. A joint with no actuator keeps the comment naming what was dropped (ADR-0004 §4 as amended by ADR-0014) | `<axis><limit><effort><velocity>`, **omitted when zero** for MJCF's reason: SDF's default is infinity and a literal `0` is a joint that can exert nothing |
+| Dynamics | `<dynamics damping friction/>` | `damping`, `frictionloss`, `armature` on the `<joint>`, written only when non-zero | `<axis><dynamics><damping><friction>`, written only when either is non-zero; `armature` is a comment, as in URDF |
+| Angles | radians | **`<compiler angle="radian" meshdir="meshes" autolimits="true"/>` is always written** — MJCF's default is degrees | radians; `<pose>` is `x y z roll pitch yaw` with URDF's own `Rz·Ry·Rx` convention, through the one `Pose::to_xyz_rpy` the URDF writer uses too |
 
 MJCF's `polycoef` is `a0 a1 a2 a3 a4` in `y − y0 = a0 + a1(x − x0) + …`,
 where `x` and `y` are the two joints' deviations from their `qpos0`. We
@@ -519,15 +532,26 @@ never write `ref`, so both references are zero and `(offset, multiplier, 0,
 0, 0)` is exactly URDF's `q_y = k·q_x + o`; the last three slots are always
 zero, because non-linear coupling is not modelled.
 
+**`pybullet` reads the SDF wrong**, by our choice and not by accident. It
+ignores `//pose/@relative_to` — it will place a child link at its parent's
+pose and report success — and reads every number as f32. The SDF is written
+for `libsdformat`, which is Gazebo, Drake and the spec itself; the answer
+for a pybullet user is the `.urdf` the same export writes (ADR-0016 §2).
+
 Quaternion order: MJCF is `w x y z`; `glam::DQuat` is `x y z w`. One helper,
 one place, tested (`xml::quat_wxyz`). Numbers are written with twelve
 decimals, trailing zeros trimmed, `-0` folded, and `pos` / `quat` are
 omitted at their defaults, so the files read like hand-written ones and the
 golden tests stay legible.
 
-`xml.rs` holds both halves. **Writing** is thirty lines of escaping, since
+`xml.rs` holds both halves. **Writing** is forty lines of escaping, since
 the output is fixed-shape and an XML crate would only add a way to emit
-something MuJoCo cannot read. **Reading** is a `quick-xml` DOM —
+something MuJoCo cannot read. It escapes an attribute value and, because
+SDF puts its numbers in element bodies, a body too: `Xml::text` writes
+`<tag>text</tag>` on one line, and `xml::pose6` is SDF's six-number
+`<pose>` over the same `Pose::to_xyz_rpy` that `urdf::origin_attrs` goes
+through — SDF's roll-pitch-yaw *is* URDF's, so there is one helper and not
+two. **Reading** is a `quick-xml` DOM —
 `xml::parse(&str) -> Result<Node, ParseError>`, tag plus attributes plus
 children — because a file we did not write decides its own escaping, CDATA
 and self-closing tags (ADR-0015 §2). Beside it, `Node::orientation`
@@ -536,8 +560,11 @@ collapses MJCF's five spellings of one rotation (`quat`, `euler`,
 MJCF's own **degrees** and intrinsic `xyz`; that is the mirror of
 `quat_wxyz` and obeys the same rule, one place and tested.
 
-**Read back differently.** The table above is the writing direction; the
-import (§MJCF import) reverses all of it except where MJCF has no room:
+**Read back differently.** The table above is the writing direction. Only
+two of the three columns are also read: **there is no SDF import**, and
+`libsdformat` is a test dependency of the CI job that validates the writer
+(ADR-0016 §6), never a runtime one. The MJCF import (§MJCF import)
+reverses its own column except where MJCF has no room:
 
 - `Limits::effort` and `velocity` return only from an `<actuator>`'s
   `forcerange` (any preset) and a **velocity** servo's `ctrlrange`. A joint

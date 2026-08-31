@@ -1,9 +1,11 @@
 //! The command line: `riggen [FILE...]` opens the window, `riggen --export
-//! mjcf|urdf|both --out DIR INPUT` is the headless export (ADR-0008) that
-//! returns before eframe starts — it is what CI's `mujoco` job runs, so it
-//! must need no display. `--help`, `--version` and `--example arm` are the
-//! rest (docs/01-architecture.md §Crates). `INPUT` is a `.riggen` document
-//! or a `.urdf` (imported through `riggen_export::urdf_in` first).
+//! mjcf|urdf|sdf|both|all --out DIR INPUT` is the headless export
+//! (ADR-0008, ADR-0016) that returns before eframe starts — it is what
+//! CI's `mujoco` and `sdf` jobs run, so it must need no display.
+//! `--help`, `--version` and `--example arm` are the rest
+//! (docs/01-architecture.md §Crates). `INPUT` is a `.riggen` document, a
+//! `.urdf` or an MJCF `.xml` (imported through `riggen_export::urdf_in` or
+//! `mjcf_in` first).
 //!
 //! Hand-rolled on purpose: half a dozen flags do not earn `clap` and its
 //! compile time. What keeps it honest is [`FLAGS`]: the parser accepts only
@@ -91,13 +93,15 @@ pub fn version() -> String {
 pub fn help() -> String {
     let mut out = String::new();
     out.push_str(&version());
-    out.push_str("\nThe robot assembler for RL researchers: meshes in, MJCF and URDF out.\n\n");
+    out.push_str(
+        "\nThe robot assembler for RL researchers: meshes in, MJCF, URDF and SDF out.\n\n",
+    );
     out.push_str("usage:\n");
     out.push_str(
         "  riggen [FILE...]        open a .riggen document, or drop meshes (.stl, .obj) as links\n",
     );
     out.push_str("  riggen --example arm    open the bundled sample arm\n");
-    out.push_str("  riggen --export mjcf|urdf|both --out DIR [--fk-samples] INPUT\n");
+    out.push_str("  riggen --export mjcf|urdf|sdf|both|all --out DIR [--fk-samples] INPUT\n");
     out.push_str(
         "                          write INPUT's export to DIR without opening a window\n\n",
     );
@@ -516,6 +520,17 @@ mod tests {
         assert!(help.contains("usage:"), "{help}");
         for name in Example::NAMES {
             assert!(help.contains(name), "example {name} missing from:\n{help}");
+        }
+        // …and every format the parser takes, in both places that spell
+        // the list: the usage form and the short `USAGE` a parse error
+        // prints. A writer added without touching these is a writer the
+        // user cannot find (this is how `sdf` was missed once).
+        let spelling = Format::NAMES.join("|");
+        for text in [&help, &USAGE.to_owned()] {
+            assert!(
+                text.contains(&format!("--export {spelling}")),
+                "{spelling:?} missing from:\n{text}"
+            );
         }
     }
 

@@ -1,6 +1,6 @@
 //! MJCF, URDF and SDF export, and MJCF and URDF import
-//! (docs/02-data-model.md §`ResolvedRobot`, §Format mapping, §URDF import;
-//! ADR-0004, ADR-0008, ADR-0016).
+//! (docs/02-data-model.md §`ResolvedRobot`, §Format mapping, §URDF import,
+//! §MJCF import; ADR-0004, ADR-0008, ADR-0016).
 //! Never depends on egui or wgpu (docs/01-architecture.md §Crates).
 //!
 //! The writers never see `Robot`: [`resolve`] turns the document plus its

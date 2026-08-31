@@ -4,8 +4,8 @@
 [![PyPI](https://img.shields.io/pypi/v/riggen)](https://pypi.org/project/riggen/)
 
 **The blazingly fast, lightweight robot assembler for RL researchers.**
-Drop meshes in, get a simulation-ready MJCF or URDF out — in a window, or
-from ten lines of Python.
+Drop meshes in, get a simulation-ready MJCF, URDF or SDF out — in a
+window, or from ten lines of Python.
 
 ![The sample arm in riggen: the link tree, the viewport with joint glyphs, the Joints window](https://raw.githubusercontent.com/Divelix/riggen/main/docs/assets/arm.png)
 
@@ -30,9 +30,10 @@ without a wheel, `pip install` builds the SDK from source with `cargo` on
    middle mouse button, zoom with the wheel, `Home` to frame everything.
 2. Drag the sliders in **Window › Joints** — the arm moves; that is the
    kinematic tree you will build for your own robot.
-3. **File › Export…**, pick MJCF, choose a directory. The dialog lists
-   anything that would stop the export (a link with no mass, a joint with
-   no axis) and writes `arm.xml` beside `meshes/*.stl` when there is
+3. **File › Export…**, tick the formats you want (all three by default),
+   choose a directory. The dialog lists anything that would stop the
+   export (a link with no mass, a joint with no axis) and writes
+   `arm.xml`, `arm.urdf` and `arm.sdf` beside `meshes/*.stl` when there is
    nothing.
 4. Load it:
 
@@ -60,10 +61,12 @@ mount — which Move and Rotate land on a picked feature the same way.
   and a material density, or from a spec you type; convex hulls, convex
   decomposition (V-HACD, so a C-bracket keeps its notch) and fitted
   boxes / cylinders / spheres for collision.
-- **Exports**: MJCF and URDF from the same document, meshes baked to
-  meters as STL — frames as `<site>`s and as the massless dummy links ROS
-  expects — so MuJoCo loads it with zero warnings and its forward
-  kinematics agree with riggen's (that is a CI job, not a hope).
+- **Exports**: MJCF, URDF and SDF from the same document, meshes baked to
+  meters as STL — a named frame becomes an MJCF `<site>`, an SDF
+  `<frame>`, and the massless dummy link ROS expects — so MuJoCo loads it
+  with zero warnings and libsdformat, the SDF spec's own parser, reads the
+  `.sdf`, and the forward kinematics of both agree with riggen's (those
+  are CI jobs, not hopes).
 - **Imports**: an existing URDF or MJCF — `package://` paths resolved
   beside the file, MuJoCo's `<default>` classes and degrees understood —
   to fix and convert it. Whatever the file held that the document cannot
@@ -77,12 +80,12 @@ mount — which Move and Rotate land on a picked feature the same way.
 usage:
   riggen [FILE...]        open a .riggen document, or drop meshes (.stl, .obj) as links
   riggen --example arm    open the bundled sample arm
-  riggen --export mjcf|urdf|both --out DIR [--fk-samples] INPUT
+  riggen --export mjcf|urdf|sdf|both|all --out DIR [--fk-samples] INPUT
                           write INPUT's export to DIR without opening a window
 
 options:
   --example NAME          open a bundled example: arm (the five-link sample robot)
-  --export FORMAT         headless export of INPUT (.riggen, .urdf or .xml): mjcf, urdf or both
+  --export FORMAT         headless export of INPUT (.riggen, .urdf or .xml): mjcf, urdf, sdf, both or all
   --out DIR               where --export writes; created if missing
   --fk-samples            with --export: also write <name>.fk.json, five sampled joint configurations
   --timing                print the time from launch to the first frame on stderr
@@ -91,10 +94,11 @@ options:
 ```
 
 `riggen --export` needs no display, so it runs in CI and in scripts: give
-it a `.riggen`, a `.urdf` or an MJCF `.xml` and it writes the model, the
-meshes and, with
+it a `.riggen`, a `.urdf` or an MJCF `.xml` and it writes the model or
+models, the meshes and, with
 `--fk-samples`, five joint configurations with every body's world pose —
-the file `python/tests/test_mjcf_load.py` checks MuJoCo against.
+the file `python/tests/test_mjcf_load.py` checks MuJoCo against and
+`python/tests/test_sdf_load.py` checks libsdformat against.
 
 `python -m riggen` is the same executable, for an environment whose
 `bin/` is not on `PATH`.
@@ -151,9 +155,10 @@ model = mujoco.MjModel.from_xml_path("out/pendulum.xml")
 
 `riggen.load(path)` reads a `.riggen`, `riggen.load_urdf(path)` an existing
 URDF (with `packages={"name": "dir"}` for `package://` paths) and
-`riggen.load_mjcf(path)` an MJCF; export writes
-`format="urdf"` or `"both"` too, and `fk_samples=True` adds the five joint
-configurations CI compares against MuJoCo. [`examples/pendulum.py`](examples/pendulum.py)
+`riggen.load_mjcf(path)` an MJCF; `format` names a set of writers —
+`"mjcf"`, `"urdf"`, `"sdf"`, `"both"` or `"all"`, the default — and
+`fk_samples=True` adds the five joint configurations CI compares against
+MuJoCo and libsdformat. [`examples/pendulum.py`](examples/pendulum.py)
 is the snippet above as a file; [`examples/arm.py`](examples/arm.py) builds
 the bundled arm from its four STLs with typed joints — its export is
 byte-identical to the app's. Everything is typed (`py.typed`) and

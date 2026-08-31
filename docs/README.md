@@ -8,7 +8,7 @@ competition, differentiators, chosen stack.
 | Doc | What it holds |
 |---|---|
 | [01-architecture](01-architecture.md) | Crate layout, layer rule, frame loop, threading, file format, testing |
-| [02-data-model](02-data-model.md) | Core types, kinematics, inertials, `ResolvedRobot`, URDF/MJCF conventions |
+| [02-data-model](02-data-model.md) | Core types, kinematics, inertials, `ResolvedRobot`, URDF/MJCF/SDF conventions |
 | [03-roadmap](03-roadmap.md) | Milestones with acceptance tests |
 | [adr/](adr/README.md) | Architecture decision records |
 

@@ -20,9 +20,9 @@ matter live.
 ├──────────────────────────────┬─────────────────────────────────┤
 │  riggen-export               │  riggen-py                      │  cdylib
 │  resolve → ResolvedRobot,    │  PyO3 abi3 extension module     │  (the wheel's
-│  MJCF + URDF writers, URDF   │  riggen._riggen over core +     │   riggen/)
-│  import, export dir, FK      │  export; never egui or wgpu     │
-│  samples, round-trip FK test │  (ADR-0009)                     │
+│  MJCF + URDF + SDF writers,  │  riggen._riggen over core +     │   riggen/)
+│  URDF + MJCF import, export  │  export; never egui or wgpu     │
+│  dir, FK samples, round trip │  (ADR-0009)                     │
 ├──────────────────────────────┴─────────────────────────────────┤
 │  riggen-core      Robot document (links, joints, frames,       │
 │                   inertial spec, collision policy), FK,        │
@@ -74,9 +74,9 @@ riggen/
 │   ├── riggen-mesh/        # TriMesh, Aabb, Ray, load_stl / load_obj / load_mesh, feature/,
 │   │                       # mass, hull (quickhull), decomp (V-HACD, ADR-0011), fit
 │   ├── riggen-core/        # ids, pose, robot, validate, fk, command, history, file, inertial
-│   ├── riggen-export/      # resolve, mesh_store, mjcf, urdf, export, fk_samples, xml (both
-│   │                       # halves: the writer and a quick-xml DOM), import (the warning
-│   │                       # and error vocabulary both imports speak), urdf_in, mjcf_in
+│   ├── riggen-export/      # resolve, mesh_store, mjcf, urdf, sdf, export, fk_samples, xml
+│   │                       # (both halves: the writer and a quick-xml DOM), import (the
+│   │                       # warning and error vocabulary both imports speak), urdf_in, mjcf_in
 │   ├── riggen-viewport/    # camera/, scene, pick_id, gpu_mesh, overlay, viewport/, shaders/
 │   ├── riggen-app/         # bin "riggen"; cdylib for the wasm build check; tests/visual,
 │       │                   # tests/cli.rs (the built binary from a shell)
@@ -102,7 +102,8 @@ riggen/
 │                           # URDF import corpus file (02 §URDF import). arm.riggen and its
 │                           # four STLs are also `include_bytes!`d for `--example arm`;
 │                           # bracket.stl (a U-channel) and bracket.riggen, the convex
-│                           # decomposition fixture and the `mujoco` job's third model;
+│                           # decomposition fixture and the `mujoco` and `sdf` jobs'
+│                           # third model;
 │                           # menagerie_style.xml, the foreign MJCF import corpus
 │                           # (02 §MJCF import) — hand-written, not ours
 ├── python/riggen/          # the wheel's Python half: __init__ (the public names,
@@ -113,9 +114,10 @@ riggen/
 │                           # from its STLs) — the SDK's worked examples (§Python SDK)
 ├── python/build_wheel.py   # the one build recipe: cargo build riggen-app → the data
 │                           # directory → maturin build (§Python distribution)
-├── python/tests/           # test_mjcf_load.py (MuJoCo load + FK) and test_wheel.py (the
-│                           # installed wheel, headless) — plain scripts; sdk/ the SDK's
-│                           # pytest suite, run on the built wheel (§Testing)
+├── python/tests/           # test_mjcf_load.py (MuJoCo load + FK), test_sdf_load.py
+│                           # (libsdformat load + FK) and test_wheel.py (the installed
+│                           # wheel, headless) — plain scripts; sdk/ the SDK's pytest
+│                           # suite, run on the built wheel (§Testing)
 ├── scratch/                # gitignored: personal notebooks on the dev build (README §Developing)
 ├── LICENSE-MIT, LICENSE-APACHE   # "MIT OR Apache-2.0"; the wheel's license-files
 ├── docs/                   # 0N design docs, adr/, ideas/, plans/, assets/arm.png (the README hero)
@@ -142,9 +144,9 @@ wgpu is felt. A dependency's default features are checked against the wasm
 build (`tobj`'s `ahash` default pulled `getrandom` in, which does not compile
 for `wasm32-unknown-unknown`; it is off).
 
-`riggen-export` is an empty `lib.rs` that already carries the "no egui/wgpu"
-rule in its doc comment; `riggen-core` keeps the same rule and depends on
-`serde` / `serde_json` and nothing else. `eframe` is built with its
+`riggen-export`'s `lib.rs` carries the "no egui/wgpu" rule in its doc
+comment and nothing else — the crate is its modules; `riggen-core` keeps
+the same rule and depends on `serde` / `serde_json` and nothing else. `eframe` is built with its
 `persistence` feature so the import-units choice (and egui's own window
 layout) survive a restart through eframe storage.
 
@@ -326,18 +328,21 @@ closes.
   (JSON)…** — the runtime route to `debug_state()` (§Testing) for a state
   reached by hand rather than by a scenario.
 - **File**: New, Open…, Save (Save As when untitled), Save As…, Import
-  URDF…, Export…, Import units, Quit; **Edit**: Undo, Redo, Delete, greyed
+  URDF…, Import MJCF…, Export…, Import units, Quit; **Edit**: Undo, Redo, Delete, greyed
   out when idle; **View**: Collision geometry (off by default, remembered
   through eframe storage). The window title is `name.riggen* — riggen`.
   Every route that would drop a dirty document — New, Open, a dropped
-  `.riggen` or `.urdf`, Import URDF…, Quit, the OS close button (refused
+  `.riggen`, `.urdf` or `.xml`, Import URDF…, Import MJCF…, Quit, the OS
+  close button (refused
   with `CancelClose` until answered) — goes through one `PendingAction`
   and the Save / Don't save / Cancel modal. **Export…** is a second modal
-  (`export_dialog.rs`): format (MJCF / URDF / both), directory (`rfd`),
-  URDF mesh path style, MJCF floating base; it resolves the document on
-  open and on every option change and lists each `ExportError` with the
-  link it names, the Export button disabled while any exist; success is
-  the status bar's `exported N files to <dir>`.
+  (`export_dialog.rs`): format — three checkboxes, MJCF / URDF / SDF, all
+  ticked by default because the format is a *set* (ADR-0016) — directory
+  (`rfd`), mesh path style (URDF and SDF), MJCF floating base; it resolves
+  the document on open and on every option change and lists each
+  `ExportError` with the link it names, the Export button disabled while
+  any exist or while no format is ticked; success is the status bar's
+  `exported N files to <dir>`.
 - **Shortcuts** (`shortcuts.rs`, run before the panels each frame): Ctrl+N
   / O / S / Shift+S fire always; Delete, F2, Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y
   yield while a `TextEdit` has focus (`TextEdit::load_state` on the focused
@@ -591,10 +596,10 @@ URDF, Import MJCF — ends in `RiggenApp::load_files` (through the dirty check w
 document is among the files) and fits the view afterwards; `sync_scene`
 loads a document's assets from their paths; a hull is computed the first
 time the collision view or a fit asks for it and cached beside the loaded
-mesh (`LoadedMesh::hull`); the export resolves in the dialog and writes on
+mesh (`LoadedMesh::hull`); the export resolves in the dialog — on open and
+again on every option change, ticking a format among them — and writes on
 the button. The meshes riggen is built against make none of this
-noticeable, and "async mesh loading via `jobs`" and "the export dialog
-re-resolves on every option change" stay backlog lines.
+noticeable, so "async mesh loading via `jobs`" stays a backlog line.
 
 ## File format
 
@@ -618,19 +623,21 @@ In the app, `save_to` marks the history depth as saved and the status bar
 and window title show `name.riggen*` until then; the unsaved-changes modal
 guards every route that would drop a dirty document (§Panels and menus).
 
-Export writes a directory (ADR-0008): `<name>.xml` and/or `<name>.urdf`
-plus `meshes/<stem>.stl` — every mesh baked to meters as binary STL,
+Export writes a directory (ADR-0008, ADR-0016): any of `<name>.xml`,
+`<name>.urdf` and `<name>.sdf`
+plus one `meshes/<stem>.stl` — every mesh baked to meters as binary STL,
 `scale` and `fix_up` applied, `<stem>_hull.stl` beside it for hulls and
 `<stem>_hull_0.stl …` for a convex decomposition (`<stem>_hull2_0 …` for a
 second parameter set on the same mesh), no `scale` attribute anywhere —
 each file through a `.tmp` sibling and a rename. A named frame needs no
-file: it is a `<site>` in the MJCF and a massless link on a `_fixed` joint
-in the URDF (ADR-0012). The URDF's `<mesh filename>` style is a dialog option
-(`MeshPathStyle`: relative, `package://<name>/`, absolute); MJCF has
-`meshdir`. `riggen --export mjcf|urdf|both [--fk-samples] --out DIR
-INPUT` does the same headlessly (`INPUT` is a `.riggen`, a `.urdf` or an
-`.xml`), returning before eframe starts, which is what CI's `mujoco` job
-runs. A `.urdf` opens as a new, untitled document through
+file: it is a `<site>` in the MJCF, a `<frame attached_to>` in the SDF and
+a massless link on a `_fixed` joint in the URDF (ADR-0012, ADR-0016). The
+mesh path style is a dialog option read by the URDF and SDF writers
+(`MeshPathStyle`: relative, `package://<name>/` — `model://<name>/` in the
+SDF — absolute); MJCF has `meshdir`. `riggen --export
+mjcf|urdf|sdf|both|all [--fk-samples] --out DIR INPUT` does the same
+headlessly (`INPUT` is a `.riggen`, a `.urdf` or an `.xml`), returning
+before eframe starts, which is what CI's `mujoco` and `sdf` jobs run. A `.urdf` opens as a new, untitled document through
 `riggen_export::urdf_in` (02 §URDF import) and an `.xml` through
 `riggen_export::mjcf_in` (02 §MJCF import, ADR-0015); both share one
 warning vocabulary, so both reach the status bar the same way.
@@ -768,7 +775,7 @@ the id counter included. No `History`: a script has no undo.
 | `fk_frames({joint: q}) -> {frame: pose}` | `fk::frames`; `fk` itself stays links only |
 | `origin_for_world(link, world) -> pose \| None` | `origin_for_world` |
 | `inertial(link) -> (mass, com, inertia rows)` | `MeshStore::load` + `compose_inertial`; `InertialError` (mesh load errors appended) |
-| `export(dir, *, format, mesh_paths, floating_base, fk_samples) -> [Path]` | `MeshStore::load` + `resolve` + `export` (+ `fk_samples::to_json`), exactly `cli::run`: every resolve error joined one per line as `cannot export: …` into `ExportError`; `format` is `"mjcf" \| "urdf" \| "both"`, `mesh_paths` `"relative" \| "absolute" \| "package://<name>"` |
+| `export(dir, *, format, mesh_paths, floating_base, fk_samples) -> [Path]` | `MeshStore::load` + `resolve` + `export` (+ `fk_samples::to_json`), exactly `cli::run`: every resolve error joined one per line as `cannot export: …` into `ExportError`; `format` names a **set** of writers — `"mjcf" \| "urdf" \| "sdf" \| "both"` (the first two) `\| "all"`, the default — and `mesh_paths` (URDF and SDF) is `"relative" \| "absolute" \| "package://<name>"` |
 | `fk_samples_json()` | `fk_samples::to_json` |
 | `Robot.load_urdf(path, packages=None) -> (robot, warnings)` | `urdf_in::load` with a `PackageMap`; `UrdfImportError`, `ImportWarning`s as strings |
 | `Robot.load_mjcf(path) -> (robot, warnings)` | `mjcf_in::load`; `MjcfImportError`, the same `ImportWarning`s as strings |
@@ -838,6 +845,21 @@ export is byte-identical to `arm.riggen`'s) are the API's worked examples and th
   poses over a 5³ joint grid against `riggen-core::fk` to 1e-9. Catches
   frame-convention bugs mechanically. The URDF import has the mirror test:
   `arm.urdf` imported has `arm.riggen`'s FK.
+- **SDF load test** (`python/tests/test_sdf_load.py`; the `sdf` CI job):
+  `libsdformat`'s `Root.load` — the spec's own parser — must accept the
+  exported SDF, raising `SDFErrorsException` on anything illegal, and then
+  FK built from **what that parser resolved** (`semantic_pose().resolve`
+  for every link and frame, `resolve_xyz` for every axis) must match the
+  `<name>.fk.json` to **1e-9**, tighter than the MJCF bar because nothing
+  in the loop is a simulator with its own integrator. The parser resolves
+  the pose graph and the axis frames; the script only walks the tree and
+  applies `q`, so everything riggen could get wrong about *where things
+  are* is the reference implementation disagreeing with ours. Every
+  `<axis><mimic>` must reproduce the sampled `q`, and a pair of joints the
+  samples show as exactly coupled must have one, so a dropped `<mimic>`
+  and a swapped multiplier fail alike; a frame the samples name and the
+  model lacks fails the file. Run over the sample's export, the export of
+  its URDF import, and `bracket.riggen`.
 - **MuJoCo load test** (`python/tests/test_mjcf_load.py`; the `mujoco` CI
   job, and locally `uv run --with mujoco --with numpy python …`):
   `mujoco.MjModel.from_xml_path` on the exported MJCF must succeed with
@@ -883,7 +905,8 @@ export is byte-identical to `arm.riggen`'s) are the API's worked examples and th
   skipped): `fk` of the arm equals `--fk-samples`' JSON to 1e-9 and
   `fk_samples_json()` is that file; `export` of `arm.riggen` and of
   `load_urdf(arm.urdf)` are byte-identical to `riggen --export both
-  --fk-samples`, warnings included; `inertial` of the arm's base is the
+  --fk-samples`, warnings included, and `--export all` is byte-identical
+  through both routes too; `inertial` of the arm's base is the
   `<inertial>` the MJCF carries; an unexportable pendulum's `export`
   raises `ExportError` with every reason. The public layer: the corpus
   pendulum built through `riggen.Robot`; every setter runs once; `fk` by
@@ -945,11 +968,15 @@ export is byte-identical to `arm.riggen`'s) are the API's worked examples and th
   `materials`, `toolbar`, `gizmo_move_link`, `gizmo_rotate_joint`,
   `glyph_revolute`, `glyph_prismatic`, `glyph_hover`, `snap_vertex`,
   `snap_circle`, `place_joint_bore`, `align_concentric`, `five_minute_arm`,
-  `dirty_title`, `unsaved_confirm`, `debug_menu`, and M3's `collision_hull`,
+  `dirty_title`, `unsaved_confirm`, `file_menu`, `debug_menu`, and M3's
+  `collision_hull`,
   `collision_primitives` (a pick through a translucent box hits the part),
   `properties_inertial`, `properties_inertial_open_mesh`,
   `properties_collision`, `export_dialog`, `export_blocked`, `import_urdf`,
   v0.2's `collision_decomposition`, `properties_collision_decomposition`,
+  the mimic and actuator set — `joints_window_mimic`,
+  `properties_joint_mimic`, `properties_joint_actuator`,
+  `properties_joint_actuator_applied` —
   and the frame set — `frames_tree`, `frame_properties`,
   `add_frame_button`, `gizmo_move_frame`,
   plus golden-less app tests including `build_pendulum_numerically` (the
@@ -1034,6 +1061,10 @@ export is byte-identical to `arm.riggen`'s) are the API's worked examples and th
   the first of those exports read back as MJCF (with `rust-cache`), then
   `python/tests/test_mjcf_load.py` on all four through `uv` (ADR-0008 §3)
   —
+  the `sdf` job — the same three documents exported as SDF, then
+  `python/tests/test_sdf_load.py` under `libsdformat`'s own Python
+  bindings, installed from `packages.osrfoundation.org` (the workflow's
+  only third-party apt repository, ADR-0016 §6) —
   and the `wheel` job: in maturin-action's manylinux 2_28 container,
   `build_wheel.py --binary-only` (`before-script-linux`) then maturin for
   the extension, a fresh `uv venv` installs the wheel, `test_wheel.py`
