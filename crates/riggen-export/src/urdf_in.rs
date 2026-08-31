@@ -6,7 +6,9 @@
 //! become `Primitives`, `<mimic>` becomes a `Mimic` (ADR-0013). What the
 //! document cannot hold — `<safety_controller>`, a primitive visual, a
 //! non-uniform scale, a coupling `validate` refuses — is dropped with an
-//! [`ImportWarning`] that names it, never silently.
+//! [`ImportWarning`] that names it, never silently. That vocabulary, and
+//! [`ImportError`], live in [`crate::import`]: MJCF speaks them too
+//! (ADR-0015 §4).
 //!
 //! `package://` is resolved through a [`PackageMap`], else by looking for
 //! the rest of the path beside the file and up its ancestors — `urdf-rs`'s
@@ -14,9 +16,9 @@
 //! have.
 
 use std::collections::BTreeMap;
-use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::import::{ImportError, ImportWarning};
 use riggen_core::glam::{DMat3, DVec3};
 use riggen_core::{
     CollisionPolicy, Dynamics, Geom, GeomId, InertialSpec, Joint, JointId, JointKind, Limits, Link,
@@ -26,155 +28,6 @@ use riggen_core::{
 /// `package name → directory` for `package://name/...` mesh paths.
 #[derive(Debug, Clone, Default)]
 pub struct PackageMap(pub BTreeMap<String, PathBuf>);
-
-/// Something the URDF held that the document does not; the import went on
-/// without it.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ImportWarning {
-    /// A `<mimic>` the document cannot hold. `reason` says which rule it
-    /// broke — a chain, a fixed leader, a leader not in the file, a reach
-    /// outside the follower's limits (ADR-0013).
-    MimicDropped {
-        joint: String,
-        mimics: String,
-        reason: String,
-    },
-    SafetyControllerDropped {
-        joint: String,
-    },
-    /// `<mesh scale>` with unequal components: the largest was used.
-    NonUniformScale {
-        link: String,
-        file: String,
-        used: f64,
-    },
-    /// A `<visual>` with a box / cylinder / sphere / capsule: visuals are
-    /// meshes here.
-    PrimitiveVisualDropped {
-        link: String,
-        kind: &'static str,
-    },
-    /// A `<collision>` primitive beside collision meshes in one link: the
-    /// document holds one policy per link, and the meshes won.
-    MixedCollisionDropped {
-        link: String,
-        kind: &'static str,
-    },
-    /// A link with geometry but no `<inertial>`: `Computed`, which needs a
-    /// material before it exports.
-    NoInertial {
-        link: String,
-    },
-    /// `package://name` matched nothing; the path beside the file was used.
-    PackageUnresolved {
-        package: String,
-        used: PathBuf,
-    },
-    /// The resolved mesh file does not exist (registered anyway; the
-    /// document opens and the status bar names it).
-    MeshNotFound {
-        link: String,
-        file: String,
-        tried: PathBuf,
-    },
-}
-
-impl fmt::Display for ImportWarning {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::MimicDropped {
-                joint,
-                mimics,
-                reason,
-            } => {
-                write!(
-                    f,
-                    "joint \"{joint}\": <mimic joint=\"{mimics}\"> dropped, {reason}"
-                )
-            }
-            Self::SafetyControllerDropped { joint } => {
-                write!(f, "joint \"{joint}\": <safety_controller> dropped")
-            }
-            Self::NonUniformScale { link, file, used } => write!(
-                f,
-                "link \"{link}\": {file} has a non-uniform scale; {used} used for every axis"
-            ),
-            Self::PrimitiveVisualDropped { link, kind } => {
-                write!(
-                    f,
-                    "link \"{link}\": a {kind} visual was dropped (visuals are meshes)"
-                )
-            }
-            Self::MixedCollisionDropped { link, kind } => write!(
-                f,
-                "link \"{link}\": a {kind} collision was dropped beside its collision meshes"
-            ),
-            Self::NoInertial { link } => write!(
-                f,
-                "link \"{link}\" has no <inertial>; assign a material so one can be computed"
-            ),
-            Self::PackageUnresolved { package, used } => {
-                write!(f, "package://{package} not found; used {}", used.display())
-            }
-            Self::MeshNotFound { link, file, tried } => write!(
-                f,
-                "link \"{link}\": {file} not found at {}",
-                tried.display()
-            ),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ImportError {
-    Io {
-        path: PathBuf,
-        message: String,
-    },
-    Parse {
-        path: PathBuf,
-        message: String,
-    },
-    /// `floating`, `planar` or `spherical`.
-    UnsupportedJoint {
-        joint: String,
-        kind: String,
-    },
-    /// A joint names a link the file does not have.
-    UnknownLink {
-        joint: String,
-        link: String,
-    },
-    /// Every link is some joint's child.
-    NoRoot,
-    /// More than one link is nobody's child.
-    MultipleRoots(Vec<String>),
-    /// The result breaks a document invariant (a bad name, a loop).
-    Invalid(ValidationError),
-}
-
-impl fmt::Display for ImportError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io { path, message } | Self::Parse { path, message } => {
-                write!(f, "{}: {message}", path.display())
-            }
-            Self::UnsupportedJoint { joint, kind } => {
-                write!(f, "joint \"{joint}\": {kind} joints are not supported")
-            }
-            Self::UnknownLink { joint, link } => {
-                write!(f, "joint \"{joint}\" refers to missing link \"{link}\"")
-            }
-            Self::NoRoot => write!(f, "no root link: every link is a child"),
-            Self::MultipleRoots(names) => {
-                write!(f, "more than one root link: {}", names.join(", "))
-            }
-            Self::Invalid(e) => write!(f, "{e}"),
-        }
-    }
-}
-
-impl std::error::Error for ImportError {}
 
 /// Reads `path` and builds the document; mesh paths are resolved against
 /// the file's directory and `packages`.

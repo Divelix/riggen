@@ -84,7 +84,7 @@ import it back, export it again, and MuJoCo agrees with `fk` on the result.
   Test: a hand-written file with nested defaults and a `childclass` on a
   body resolves each `<geom>` and `<joint>` to the attribute set MuJoCo
   would.
-- [ ] 4 — **`<worldbody>` → the link tree.** Bodies → `Link`s, the body
+- [x] 4 — **`<worldbody>` → the link tree.** Bodies → `Link`s, the body
   pose → the parent joint's `origin`, one `<joint>` → `Joint` (`hinge`
   with `range` → `Revolute`, without → `Continuous`, `slide` →
   `Prismatic`, none → `Fixed`), `range`/`damping`/`frictionloss`/
@@ -158,6 +158,38 @@ to 1e-9 — the exact round trip ADR-0012 promised. Plus
   them to what is still true.
 - `AGENTS.md` — current state, one line.
 - `README.md` — the import sentence and `--export`'s `INPUT` description.
+
+## Findings while executing
+
+- **Step 4, `<joint pos>`.** MJCF anchors a joint at `pos` in the *body*
+  frame; the document's joint frame **is** the child link frame. Neither
+  the plan nor ADR-0015 said what to do. Ignoring it changes the
+  kinematics, which ADR-0015 §5 forbids, and refusing it would refuse most
+  of Menagerie, so the import **rebases**: the child link frame is the body
+  frame moved to the anchor, the parent joint's `origin` carries the move,
+  and everything inside the body (the inertial CoM, the child bodies' poses,
+  and the geoms and sites of step 5) is re-expressed by subtracting it.
+  Our own writer emits no `pos`, so the round trip is untouched.
+- **Step 4, `<frame>`.** MuJoCo 3's grouping element is a transform wrapper
+  whose child bodies are nobody's children. Reading around it would lose
+  them silently, so it joins `<include>` / `<replicate>` / `<attach>` in
+  `ImportError::UnsupportedElement` — ADR-0015 §5's rule applied to an
+  element the ADR did not enumerate.
+- **Step 4, `<joint ref>`.** It moves a joint's zero, which the document has
+  no field for, so it is warned as an `ElementDropped` — the "an attribute
+  that changes the robot rather than decorating it" exception of ADR-0015
+  §1, on an attribute that section's list did not name.
+- **Step 4, an unlimited `slide`.** The document has no unlimited
+  `Prismatic` (`validate` requires finite limits), so one gets ±1 m and a
+  new `ImportWarning::LimitsInvented` that names it.
+- **Step 4, `Limits::effort` / `velocity` do not round-trip on an
+  unactuated joint.** MJCF keeps them on the `<actuator>` (ADR-0004 §4 as
+  amended by ADR-0014), so a joint with one gets them back from
+  `forcerange` / `ctrlrange` in step 6 and a joint without one — where the
+  writer emits only the "not written" comment — cannot. The Goal's "limits
+  round-trip exactly" is true of `lower`/`upper` and of `effort`/`velocity`
+  only where an `<actuator>` carries them; §MJCF import says so. The CI
+  acceptance is unaffected: MuJoCo sees neither number.
 
 ## Open questions
 
