@@ -92,7 +92,7 @@ the `mujoco` job already does for MJCF.
   native `<capsule>` — so the "a capsule becomes a cylinder plus a
   warning" line of the URDF writer has no counterpart here. `MeshPathStyle`
   applied to the URIs, tested at all three styles. The golden grows.
-- [ ] 6 — **Joints, frames, mimic, actuator.** `<joint type name>` with
+- [x] 6 — **Joints, frames, mimic, actuator.** `<joint type name>` with
   `<parent>` / `<child>` and **no `<pose>`**, `<axis><xyz>` with **no
   `expressed_in`** — SDF's own defaults are ADR-0004's joint frame
   (ADR-0016 §2) — `<limit lower upper>` with `effort` / `velocity` only
