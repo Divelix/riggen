@@ -232,9 +232,27 @@ release workflow is a tag push.
   `mujoco` job holds `MjModel` to an `actuators` block `--fk-samples`
   writes, `model.nu` included, so a dropped or invented actuator fails.
 
+- **2026-09-01** — MJCF import (ADR-0015). `mjcf_in::load` opens an MJCF
+  by every route a URDF already did — `riggen robot.xml`, File › Import
+  MJCF…, a dropped `.xml`, `riggen --export … robot.xml`,
+  `riggen.load_mjcf()` — over a `quick-xml` DOM that is the reading half
+  of `xml.rs`, where MJCF's five spellings of one rotation collapse to one
+  `DQuat`. `<compiler>` and the `<default>` class tree are resolved at
+  read and dropped, so the document holds numbers rather than a second
+  MJCF-shaped description of itself. Our own export round-trips: bodies,
+  joint kinds, axes, limits, dynamics, inertials, meshes, `<site>` →
+  `Frame` — the symmetry ADR-0012 promised and the URDF import cannot have
+  — `<equality>` → `Joint::mimic`, `<actuator>` → the three presets. A
+  foreign, Menagerie-shaped file imports too, with an `ImportWarning`
+  naming every element it holds that the document has no field for and an
+  `ImportError` for the shapes the link tree cannot represent at all — a
+  body with several joints among them. One warning vocabulary now serves
+  both imports. The `mujoco` job gains a fourth model: the arm exported,
+  imported and exported again, held to the *original* document's `fk.json`.
+
 Still open:
 
-- MJCF import; SDF export.
+- SDF export.
 - Web demo build if the wasm check has stayed green.
 
 ## What not to spend agent time on

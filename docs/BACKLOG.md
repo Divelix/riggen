@@ -7,14 +7,17 @@ below with the reason, so the same idea is not re-brainstormed.
 - Mimic chains (a follower whose leader also follows), rejected by `validate` today (ADR-0013): `fk::resolve_q` would grow from one pass to a topological one, no schema change
 - MJCF `<tendon><fixed>` for a coupling that really is a cable, beside the `<equality>` a mimic writes (ADR-0013)
 - A driven joint is not told apart from a free one in the viewport: no tint or badge on a follower's joint glyph (ADR-0013), nor on an actuated one (ADR-0014)
-- MJCF `<general>` (and `<adhesion>`, `<muscle>`): the escape hatch beside the three actuator presets, for a user who needs `dyntype` / `gaintype` / `biastype` — hand-edited XML until MJCF import can read one back (ADR-0014)
+- MJCF `<general>` (and `<adhesion>`, `<muscle>`): the escape hatch beside the three actuator presets, for a user who needs `dyntype` / `gaintype` / `biastype`. The import names and drops one today (ADR-0015 §1), so a round trip through riggen still costs the user their hand-edited XML (ADR-0014)
 - Actuator gains in a `<default class>` rather than on every element, and explicit `ctrllimited` / `forcelimited` beside the `autolimits="true"` we write (ADR-0014)
-- Promote `Joint::actuator` to a top-level `Robot::actuators` map keyed by what it drives, the shape MJCF has and MJCF import will want (an actuator may target a tendon or a site); an `upgrade_` step moves each `Some(spec)` into the map (ADR-0014, option F of its idea)
+- Promote `Joint::actuator` to a top-level `Robot::actuators` map keyed by what it drives, the shape MJCF has: the import warns `ActuatorDropped` on every actuator that drives a tendon or a site because the document has nowhere to put it (ADR-0015 §1); an `upgrade_` step moves each `Some(spec)` into the map (ADR-0014, option F of its idea)
 - `validate` does not check that geom poses or an `Override` inertial's numbers are finite (joint origins, joint limits, frame poses and densities are); a NaN typed into a geom pose reaches the export
 - `MoveJointFrame` re-expresses a link's visual geom poses but not `CollisionPolicy::Meshes` / `Primitives` poses, so a link with imported collision meshes or hand-placed primitives moves its collision in the world when its pivot moves
 - Things that *reference* a site now that frames exist (ADR-0012): MJCF sensors, actuators on a site, equality constraints, cameras, `<touch>`/`<force>`
 - Frames as a snap source — placing a joint or another frame onto an existing frame, and frame-relative geom poses (a frame's parent is a link, always, today)
-- MJCF import; SDF export
+- Synthesise massless intermediate links for a `<body>` with several `<joint>`s, so MuJoCo's ball and planar DoFs import instead of being refused as `ImportError::CompositeJoint` — the alternative ADR-0015 §5 turned down because a synthesised link is a link the user did not draw
+- MJCF composition: `<include>`, `<attach>`, `<replicate>` and MuJoCo 3's `<frame>` wrapper, all `ImportError::UnsupportedElement` today (ADR-0015 §5) — a resolver, and for `<frame>` a way to fold its transform into the bodies inside it
+- `.msh` meshes and an inline `<mesh vertex face>` on MJCF import: a `GeomDropped` warning and no geometry today (ADR-0015 §1)
+- MJCF `<joint ref>` moves a joint's zero and the document has no field for it, so it is warned and ignored (ADR-0015 §1); a coupling over such a joint is dropped rather than mis-imported
 - Live joint-state link from a running Python script to the GUI (file or socket)
 - Web demo build
 - Convex decomposition freezes a wasm build: `Jobs` has no thread there and runs the job inline, so a browser tab would stall for the seconds V-HACD takes. Needs a web worker (RoboCAD's `InlineEval` has the same gap) — only matters if the web demo happens

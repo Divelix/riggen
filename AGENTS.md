@@ -19,26 +19,22 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**Actuator presets done (2026-08-31, ADR-0014):** `Joint::actuator` is a
-`Position` / `Velocity` / `Motor`, written as an MJCF `<actuator>` named
-after its joint — `model.nu` is no longer zero — with the ranges from
-`Limits`; URDF gets a comment, and it amends ADR-0004 §4. Panel, whole-model
-`SetActuators`, SDK, and CI checks `MjModel` against the samples.
-**Mimic joints (ADR-0013):** `Joint::mimic` couples one joint's `q` to
-another's; `fk::resolve_q` is the one implementation, exported as a URDF
-`<mimic>` and an MJCF `<equality polycoef>`, imported back. **`.riggen` is
-schema 3**, with the upgrade chain `load` walks.
-**Named frames (ADR-0012):** `Robot::frames` live end to end — tree, glyph,
-panel, gizmo, SDK — as an MJCF `<site>` and a URDF massless dummy link, one
-namespace with the links. **Convex decomposition (ADR-0011):**
-`parry3d-f64`'s V-HACD plus the merge step it omits, N geoms computed on
-`riggen-app::jobs`. **v0.2 SDK (`v0.2.0`, ADR-0009):** one `cp310-abi3`
-wheel gives the app *and* `import riggen`; `python/build_wheel.py` is the
-recipe. **M4**: the wheel and `release.yml`. **M3**: MJCF + URDF from one
-`ResolvedRobot`, MuJoCo-clean, URDF import, inertials, collision. **M2**:
-the mouse-only arm. **M1**: the document, commands, history, `.riggen`.
-**Next:** the remaining v0.2 lines of `docs/03-roadmap.md` (MJCF import,
-SDF export).
+**MJCF import done (2026-09-01, ADR-0015):** `mjcf_in::load` opens an
+`.xml` by every route a `.urdf` does, over the reading half of `xml.rs`;
+`<compiler>` and `<default>` are resolved and dropped, our own export
+round-trips (`<site>` → `Frame`, `<equality>` → mimic, `<actuator>` →
+preset), a foreign file imports with one warning per thing the document
+cannot hold, and the shapes it cannot represent are refused by name. One
+import vocabulary for both formats.
+**v0.2 before it:** actuator presets on the joint (ADR-0014), mimic joints
+through the one `fk::resolve_q` (ADR-0013), named frames end to end
+(ADR-0012), V-HACD convex decomposition on `riggen-app::jobs` (ADR-0011),
+and the `cp310-abi3` wheel that is both the app and `import riggen`
+(ADR-0009). `.riggen` is **schema 3**, with the upgrade chain `load` walks.
+**Before that:** M3 MJCF + URDF from one `ResolvedRobot`, MuJoCo-clean,
+URDF import, inertials, collision; M2 the mouse-only arm; M1 the document,
+commands, history, `.riggen`.
+**Next:** the last v0.2 line of `docs/03-roadmap.md` (SDF export).
 
 ## Rules that are not derivable from the code
 

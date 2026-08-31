@@ -22,8 +22,12 @@ it knows egui exists.
   `[-π/2, π/2]` and folds roll into yaw at gimbal lock.
 - **Joint frame = child link frame.** The joint's origin *is* the child
   link's frame, expressed in the parent link's frame. The axis is expressed
-  in that frame. This is the URDF rule and it maps one-to-one onto MJCF
-  (below), so `ResolvedRobot` uses it and the exporters need no re-rooting.
+  in that frame. This is the URDF rule, and writing it as MJCF is
+  one-to-one (below), so `ResolvedRobot` uses it and the exporters need no
+  re-rooting. Reading MJCF is not: `<joint pos>` anchors a joint anywhere
+  in the body frame, so the import moves the link frame onto the anchor
+  and re-expresses the body's contents against it (§MJCF import). Our own
+  writer emits no `pos`, so the round trip moves nothing.
 - **Inertial frames:** the stored tensor is about the link's CoM, in link
   axes. URDF writes it that way; MJCF gets a principal-axes decomposition.
 - **Numbers are f64** in every quantity that has units — poses, masses,
@@ -519,8 +523,39 @@ Quaternion order: MJCF is `w x y z`; `glam::DQuat` is `x y z w`. One helper,
 one place, tested (`xml::quat_wxyz`). Numbers are written with twelve
 decimals, trailing zeros trimmed, `-0` folded, and `pos` / `quat` are
 omitted at their defaults, so the files read like hand-written ones and the
-golden tests stay legible. No XML crate: `xml.rs` is a 30-line escaping
-writer, since the output is fixed-shape.
+golden tests stay legible.
+
+`xml.rs` holds both halves. **Writing** is thirty lines of escaping, since
+the output is fixed-shape and an XML crate would only add a way to emit
+something MuJoCo cannot read. **Reading** is a `quick-xml` DOM —
+`xml::parse(&str) -> Result<Node, ParseError>`, tag plus attributes plus
+children — because a file we did not write decides its own escaping, CDATA
+and self-closing tags (ADR-0015 §2). Beside it, `Node::orientation`
+collapses MJCF's five spellings of one rotation (`quat`, `euler`,
+`axisangle`, `xyaxes`, `zaxis`) under an `AngleConvention` that defaults to
+MJCF's own **degrees** and intrinsic `xyz`; that is the mirror of
+`quat_wxyz` and obeys the same rule, one place and tested.
+
+**Read back differently.** The table above is the writing direction; the
+import (§MJCF import) reverses all of it except where MJCF has no room:
+
+- `Limits::effort` and `velocity` return only from an `<actuator>`'s
+  `forcerange` (any preset) and a **velocity** servo's `ctrlrange`. A joint
+  with no actuator carries them only in the apologetic comment, which is
+  text; a position servo's `ctrlrange` is the joint's position range and
+  says nothing about rate.
+- `ExportOptions::floating_base` is not a document field, so a
+  `<freejoint>` comes back as a warning and the robot imports fixed to the
+  world.
+- A `<default>` class tree is resolved at import and dropped (ADR-0015 §3),
+  so re-exporting a foreign file writes explicit attributes and our own two
+  classes rather than the twenty it had.
+- `CollisionPolicy::ConvexHull` and `ConvexDecomposition` are *parameters*
+  and were never geometry (ADR-0011), so the hulls they produced come back
+  as `CollisionPolicy::Meshes` of the same N files.
+- A URDF frame is **not** read back as a `Frame` (ADR-0012) while an MJCF
+  `<site>` is: nothing tells our exported dummy link from a real unweighed
+  one, and a `<site>` is unambiguous.
 
 ## URDF import (`riggen-export::urdf_in`)
 
@@ -564,6 +599,104 @@ beside `Io` and `Parse` for a file that cannot be read or understood. The import
 document is untitled until saved. `assets/fixtures/arm/arm.urdf` is the
 corpus file: the arm with every one of the above in it, whose FK matches
 `arm.riggen`'s and whose MJCF export the `mujoco` CI job loads too.
+`ImportWarning` and `ImportError` are not this module's: they live in
+`riggen-export::import` and MJCF speaks them too (§MJCF import,
+ADR-0015 §4).
+
+## MJCF import (`riggen-export::mjcf_in`)
+
+`mjcf_in::load(path) -> Result<(Robot, Vec<ImportWarning>), ImportError>`
+over `xml::parse`. MJCF is a MuJoCo *scene* rather than a robot
+description, so the import reads the subset the document has fields for,
+names everything else, and refuses the handful of shapes the document
+cannot represent at all — ADR-0015 fixes which is which.
+
+**Read before any body is**, because they change what every number after
+them means: `<compiler angle eulerseq meshdir assetdir autolimits>` into a
+`Compiler`, and the `<default>` class tree into a `Defaults` — flattened,
+so each class already carries its ancestors and applying it to an element
+is one lookup and a merge. An element's class is the one it names, else the
+`childclass` in force, else `main`; an element that spells its own rotation
+drops the class's, whichever of the five spellings each used. Neither
+survives the read: the document holds resolved numbers, exactly as
+`resolve` hands the writers resolved numbers (ADR-0004 §1).
+
+**The tree.** `<worldbody>`'s single `<body>` is the root link and the
+nesting is the tree. One `<joint>` becomes the edge above its body —
+`hinge` with a range is `Revolute` and without it `Continuous`, `slide` is
+`Prismatic`, no element at all is `Fixed` with an invented
+`<link>_joint` name — and `range` / `damping` / `frictionloss` /
+`armature` fill `Limits` and `Dynamics`. A range is a limit when `limited`
+says so, else when `autolimits` is on and the range is not `0 0`; hinge
+ranges are converted out of `<compiler angle>`, slide ranges are lengths.
+MJCF anchors a joint at `<joint pos>` in the **body** frame while the
+document's joint frame *is* the child link frame (§Conventions), so the
+link frame is moved onto the anchor: the parent joint's `origin` carries
+the move and everything inside the body — the inertial CoM, the geom and
+site poses, the child bodies' own poses — is re-expressed by subtracting
+it. `<inertial>` becomes an `InertialSpec::Override`: `fullinertia` is
+already in body axes about the CoM and is read straight back, `diaginertia`
+is rotated by the element's own orientation.
+
+**Geometry.** `<asset><mesh name file scale>` becomes a `MeshAsset` under
+`meshdir` (else `assetdir`), registered once per file and scale; an unnamed
+mesh is known by its file's stem, as in MuJoCo. `<geom type="mesh">`
+becomes a `Geom`, the primitives come back with MJCF's half-extents undone
+— and with `fromto`, which names a cylinder's or capsule's two ends and
+replaces its pose. Which side a geom falls on is decided once per link:
+our own `class="visual"` / `"collision"` if any geom uses them, else
+`contype == 0 && conaffinity == 0` is a visual, else every geom is a
+visual. A link whose file made that distinction and has nothing colliding
+is `CollisionPolicy::None`; one whose file never made it is `SameAsVisual`,
+so geometry is never silently lost. Collision meshes that repeat the
+visuals are `SameAsVisual`, any other set is `Meshes`, primitives are
+`Primitives`. Every `<site>` becomes a `Frame` on its body (ADR-0012's
+promised symmetry), placed after the whole tree is read because frames and
+links are one namespace and a link further down may take the name.
+
+**The two blocks after `</worldbody>`.** `<equality><joint polycoef>` is
+`y − y0 = a0 + a1(x − x0) + …`, so it is a `Joint::mimic` exactly when the
+last three coefficients are zero, the constraint is active, and neither
+joint moved its zero with a `<joint ref>` (ADR-0013).
+`<position kp kv>` / `<velocity kv>` / `<motor gear>` driving a joint
+become the three `ActuatorSpec` presets (ADR-0014), and their `forcerange`
+and `ctrlrange` are where `Limits::effort` and `Limits::velocity` come
+back from. What `validate` then refuses is dropped with its reason rather
+than failing the import — couplings first, so an actuator is not taken
+down by an `<equality>` that is itself about to go.
+
+**Nothing is dropped silently.** Beside the shared `MimicDropped`,
+`NonUniformScale`, `PrimitiveVisualDropped`, `MixedCollisionDropped`,
+`NoInertial` and `MeshNotFound`, the MJCF variants are `ImportWarning::{
+ElementDropped, GeomDropped, FreeJointDropped, ActuatorDropped,
+FrameDropped, MassFromGeomIgnored, LimitsInvented }`. Every element the
+import does not read is counted and named once per tag — `<tendon> × 3`,
+not three warnings — and so is a robot-changing attribute like `<joint
+ref>`; the decorating ones (`solref`, `friction`, `rgba`, `group`, …) are
+not warned about, because one line each would bury the ones that matter.
+`LimitsInvented` is the document's own gap: it has no unlimited
+`Prismatic`, so an unranged `slide` gets ±1 m and is told so.
+
+**The shapes it refuses** are `ImportError::{ CompositeJoint, JointOnRoot,
+UnsupportedElement }` beside the URDF import's `UnsupportedJoint`,
+`MultipleRoots`, `NoRoot`, `Io`, `Parse` and `Invalid`: several `<joint>`s
+in one `<body>` (MuJoCo's ball or planar DoF against a tree whose joints
+are its edges), a joint on the root body (whose link has no parent joint),
+`type="ball"` and a `type="free"` anywhere but the root, and `<include>` /
+`<replicate>` / `<attach>` / `<frame>` / `<compiler
+coordinate="global">`. Each of those would change the robot if imported
+anyway, which is the line ADR-0015 §5 draws. A `<freejoint>` on the root
+is a *warning*, not a refusal: it costs an `ExportOptions` field, not a
+document one.
+
+The imported document is untitled until saved.
+`assets/fixtures/menagerie_style.xml` is the corpus file — degrees, a
+`<default>` tree with a `childclass` and class names that are not ours, all
+five orientation spellings, a `fromto` capsule, a non-uniform mesh scale, a
+`<general>` and a tendon actuator, and nine elements the document has no
+field for — and its test pins the result warning by warning. The round trip
+itself is the `mujoco` CI job's fourth model: the arm exported, imported
+and exported again, held to the *original* document's `fk.json`.
 
 ## Schema
 

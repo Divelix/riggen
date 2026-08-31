@@ -50,7 +50,9 @@ glyph inside a part that is the wanted behaviour. The viewport never sees a
 `mass_properties`: a link's computed inertial is a function of its meshes,
 which core reaches through the `MeshLookup` trait (02 §Inertials) rather
 than storing — no geometry is in the document. `riggen-export` depends on
-both plus `urdf-rs`. Nothing below `riggen-app` knows about selection,
+both plus `urdf-rs` (the URDF parser) and `quick-xml` (the MJCF one,
+already in the tree under `urdf-rs`). Nothing below `riggen-app` knows
+about selection,
 hover, or gizmos.
 
 ## Cargo workspace
@@ -72,7 +74,9 @@ riggen/
 │   ├── riggen-mesh/        # TriMesh, Aabb, Ray, load_stl / load_obj / load_mesh, feature/,
 │   │                       # mass, hull (quickhull), decomp (V-HACD, ADR-0011), fit
 │   ├── riggen-core/        # ids, pose, robot, validate, fk, command, history, file, inertial
-│   ├── riggen-export/      # resolve, mesh_store, mjcf, urdf, urdf_in, export, fk_samples, xml
+│   ├── riggen-export/      # resolve, mesh_store, mjcf, urdf, export, fk_samples, xml (both
+│   │                       # halves: the writer and a quick-xml DOM), import (the warning
+│   │                       # and error vocabulary both imports speak), urdf_in, mjcf_in
 │   ├── riggen-viewport/    # camera/, scene, pick_id, gpu_mesh, overlay, viewport/, shaders/
 │   ├── riggen-app/         # bin "riggen"; cdylib for the wasm build check; tests/visual,
 │       │                   # tests/cli.rs (the built binary from a shell)
@@ -98,7 +102,9 @@ riggen/
 │                           # URDF import corpus file (02 §URDF import). arm.riggen and its
 │                           # four STLs are also `include_bytes!`d for `--example arm`;
 │                           # bracket.stl (a U-channel) and bracket.riggen, the convex
-│                           # decomposition fixture and the `mujoco` job's third model
+│                           # decomposition fixture and the `mujoco` job's third model;
+│                           # menagerie_style.xml, the foreign MJCF import corpus
+│                           # (02 §MJCF import) — hand-written, not ours
 ├── python/riggen/          # the wheel's Python half: __init__ (the public names,
 │                           # __version__), robot.py (the API), show.py (the window,
 │                           # binary_path), errors.py, __main__ (execs the bundled
@@ -581,7 +587,7 @@ taken over a half-computed collision view.
 
 **What still runs on the UI thread:** mesh loading, convex hulls and
 export. Every route in — CLI arguments, drag-and-drop, File › Open, Import
-URDF — ends in `RiggenApp::load_files` (through the dirty check when a
+URDF, Import MJCF — ends in `RiggenApp::load_files` (through the dirty check when a
 document is among the files) and fits the view afterwards; `sync_scene`
 loads a document's assets from their paths; a hull is computed the first
 time the collision view or a fit asks for it and cached beside the loaded
@@ -622,10 +628,12 @@ file: it is a `<site>` in the MJCF and a massless link on a `_fixed` joint
 in the URDF (ADR-0012). The URDF's `<mesh filename>` style is a dialog option
 (`MeshPathStyle`: relative, `package://<name>/`, absolute); MJCF has
 `meshdir`. `riggen --export mjcf|urdf|both [--fk-samples] --out DIR
-INPUT` does the same headlessly (`INPUT` is a `.riggen` or a `.urdf`),
-returning before eframe starts, which is what CI's `mujoco` job runs. A
-`.urdf` opens as a new, untitled document through `riggen_export::urdf_in`
-(02 §URDF import); the import's warnings go to the status bar.
+INPUT` does the same headlessly (`INPUT` is a `.riggen`, a `.urdf` or an
+`.xml`), returning before eframe starts, which is what CI's `mujoco` job
+runs. A `.urdf` opens as a new, untitled document through
+`riggen_export::urdf_in` (02 §URDF import) and an `.xml` through
+`riggen_export::mjcf_in` (02 §MJCF import, ADR-0015); both share one
+warning vocabulary, so both reach the status bar the same way.
 
 ## Python distribution (ADR-0002, ADR-0009)
 
@@ -763,6 +771,7 @@ the id counter included. No `History`: a script has no undo.
 | `export(dir, *, format, mesh_paths, floating_base, fk_samples) -> [Path]` | `MeshStore::load` + `resolve` + `export` (+ `fk_samples::to_json`), exactly `cli::run`: every resolve error joined one per line as `cannot export: …` into `ExportError`; `format` is `"mjcf" \| "urdf" \| "both"`, `mesh_paths` `"relative" \| "absolute" \| "package://<name>"` |
 | `fk_samples_json()` | `fk_samples::to_json` |
 | `Robot.load_urdf(path, packages=None) -> (robot, warnings)` | `urdf_in::load` with a `PackageMap`; `UrdfImportError`, `ImportWarning`s as strings |
+| `Robot.load_mjcf(path) -> (robot, warnings)` | `mjcf_in::load`; `MjcfImportError`, the same `ImportWarning`s as strings |
 
 **Exceptions** live in Python (`python/riggen/errors.py`) and Rust raises
 them by name (`errors.rs`), so `except riggen.EditError` is a plain Python
@@ -770,8 +779,8 @@ class: `RiggenError` ← `EditError` ← one subclass per `EditError` variant
 (`InvalidDocument`, `UnknownId`, `UnknownMaterial`, `WouldCreateCycle`,
 `CannotRemoveRoot`, `CannotReparentRoot`, `MaterialInUse`,
 `MovableJointOnRootPath`), and beside it `ValidationError`, `FileError`,
-`ExportError`, `UrdfImportError`, `InertialError`. The message is the Rust
-`Display`.
+`ExportError`, `UrdfImportError`, `MjcfImportError`, `InertialError`. The
+message is the Rust `Display`.
 
 **`show()`** (`python/riggen/show.py`): the GUI is never entered from
 inside a Python call (ADR-0002, ADR-0009). `riggen.show(robot, *,
@@ -794,7 +803,7 @@ over that table — no logic of its own beyond spelling:
 
 | `riggen` | Over `_riggen` |
 |---|---|
-| `Robot(name)`, `load(path)`, `load_urdf(path, packages)` | `Robot`, `Robot.load`, `Robot.load_urdf`; the warnings become `RiggenWarning`s through `warnings.warn` |
+| `Robot(name)`, `load(path)`, `load_urdf(path, packages)`, `load_mjcf(path)` | `Robot`, `Robot.load`, `Robot.load_urdf`, `Robot.load_mjcf`; the warnings become `RiggenWarning`s through `warnings.warn` |
 | `robot.root`, `.links`, `.joints`, `.link(name)`, `.joint(name)` (`KeyError`), `.materials` | handles by id; `Material(density, color)` |
 | `robot.add_link(name, parent, spec, *, mesh, scale, fix_up, material, joint_name)` = `link.add_link(name, spec, …)` | `add_link` with `spec.to_doc(joint_name or f"{name}_joint")` |
 | `link.name`, `.material`, `.collision`, `.inertial_spec` (get/set) | `rename_link`, `set_link_material`, `set_collision`, `set_inertial` — one edit per assignment |
@@ -837,9 +846,13 @@ export is byte-identical to `arm.riggen`'s) are the API's worked examples and th
   export wrote with `--fk-samples` to 1e-6 at five joint configurations (a
   site the samples name and the model lacks fails the file, which is what a
   dropped `<site>` looks like) — for the
-  sample's export, the export of its URDF import, and
+  sample's export, the export of its URDF import,
   `assets/fixtures/bracket.riggen`, the decomposition acceptance
-  (ADR-0011). Every `mjEQ_JOINT` equality — a mimic joint (ADR-0013) —
+  (ADR-0011), and the arm's export imported back and exported again, the
+  MJCF round trip (ADR-0015). An argument may be `MODEL_DIR=SAMPLES_DIR`,
+  and the round trip uses it to hold that second model to the *original*
+  document's `fk.json`: agreeing with its own samples would not catch an
+  import that lost something. Every `mjEQ_JOINT` equality — a mimic joint (ADR-0013) —
   must reproduce the sampled `qpos` through its `polycoef`, and a pair of
   joints the samples show as exactly coupled must have one, so a swapped
   coefficient order and a dropped `<equality>` both fail. The `.fk.json`'s
@@ -874,7 +887,9 @@ export is byte-identical to `arm.riggen`'s) are the API's worked examples and th
   `<inertial>` the MJCF carries; an unexportable pendulum's `export`
   raises `ExportError` with every reason. The public layer: the corpus
   pendulum built through `riggen.Robot`; every setter runs once; `fk` by
-  name and handle; `load` / `load_urdf` warn; `examples/arm.py` exports
+  name and handle; `load` / `load_urdf` / `load_mjcf` warn, and
+  `load_mjcf` of the arm's own MJCF export writes the same directory the
+  CLI does from that `.xml`; `examples/arm.py` exports
   byte-identical to `arm.riggen`'s export and `examples/pendulum.py` to
   the corpus file's; both examples run from the command line; every name
   in `riggen.__all__` and every public method and property has a
@@ -1015,8 +1030,10 @@ export is byte-identical to `arm.riggen`'s) are the API's worked examples and th
 - CI (`ci.yml`): `cargo fmt --check`, `clippy -D warnings`, `cargo test`, a
   `wasm32-unknown-unknown` **build** of `riggen-app` (build check only; the
   web build is not a product in v1), the `mujoco` job — the app's
-  `--export` of `arm.riggen` and of `arm.urdf` (with `rust-cache`), then
-  `python/tests/test_mjcf_load.py` on both through `uv` (ADR-0008 §3) —
+  `--export` of `arm.riggen`, of `arm.urdf`, of `bracket.riggen` and of
+  the first of those exports read back as MJCF (with `rust-cache`), then
+  `python/tests/test_mjcf_load.py` on all four through `uv` (ADR-0008 §3)
+  —
   and the `wheel` job: in maturin-action's manylinux 2_28 container,
   `build_wheel.py --binary-only` (`before-script-linux`) then maturin for
   the extension, a fresh `uv venv` installs the wheel, `test_wheel.py`
