@@ -8,6 +8,7 @@
 
 mod export;
 pub mod fk_samples;
+pub mod import;
 pub mod mesh_store;
 pub mod mjcf;
 pub mod mjcf_in;
@@ -19,9 +20,10 @@ pub mod urdf_in;
 pub mod xml;
 
 pub use export::{ExportIoError, export};
+pub use import::{ImportError, ImportWarning};
 pub use mesh_store::MeshStore;
 pub use resolve::{
     ComputeNow, DecompMiss, DecompSource, ExportError, ExportOptions, Format, MeshPathStyle,
     ResolvedGeom, ResolvedJoint, ResolvedLink, ResolvedMimic, ResolvedRobot, ResolvedSite, resolve,
 };
-pub use urdf_in::{ImportError, ImportWarning, PackageMap};
+pub use urdf_in::PackageMap;
