@@ -95,7 +95,7 @@ def test_load_of_a_missing_file_is_a_file_error(tmp_path: Path):
 def test_json_round_trip_and_copy(pendulum: Robot):
     text = pendulum.to_json()
     doc = json.loads(text)
-    assert doc["schema_version"] == 2 and doc["robot"]["next_id"] == 7
+    assert doc["schema_version"] == 3 and doc["robot"]["next_id"] == 7
     again = Robot.from_json(text)
     assert again.to_json() == text
     twin = pendulum.copy()

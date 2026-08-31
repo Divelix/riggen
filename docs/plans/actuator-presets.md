@@ -113,7 +113,7 @@ the properties panel's actuator section.
       every movable joint" button committing `SetActuators`, which skips
       mimic followers rather than building a document `validate` refuses.
       Snapshot tests per preset and for the applied model (ADR-0003).
-- [ ] **Step 5 — the SDK, both layers.** `ActuatorDoc` in `riggen-py`'s
+- [x] **Step 5 — the SDK, both layers.** *(taken before step 3, see below)* `ActuatorDoc` in `riggen-py`'s
       `JointDoc` / `JointInput` (passed through `JointSpec.to_doc` as `mimic`
       is, since an actuator belongs to the joint and not to its kind);
       `Position` / `Velocity` / `Motor` dataclasses and the `Joint.actuator`
@@ -154,6 +154,14 @@ to 1e-6 — over both the `.riggen` and the URDF route.
   a line (`<general>`, actuators on a site, gains in a `<default class>`).
 
 ## Open questions
+
+**Steps 3 and 5 swapped.** `examples/arm.py` builds the arm through the SDK
+and `test_arm_example_exports_the_fixture_byte_for_byte` compares its export
+with `arm.riggen`'s, so the moment step 3 gives the fixture actuators the
+example must set them too — which needs step 5's API. The SDK went first;
+step 3 updates the example in its own commit. (Step 5 also carried the
+schema-3 fixes the SDK suite needed after step 1: `conftest.upgraded_from_v1`
+and one `schema_version` assertion.)
 
 **Step 1, settled while writing it:** the plan called the gain error
 `NonFiniteActuator`, but it also had to cover a negative `kp` — a name that

@@ -140,6 +140,52 @@ def test_a_mimic_couples_two_joints_all_the_way_to_the_export(pendulum_api: rigg
     assert hinge.mimic is None
 
 
+def test_an_actuator_drives_a_joint_all_the_way_to_the_mjcf(pendulum_api: riggen.Robot, tmp_path: Path):
+    """`Joint.actuator` is one of the three presets, and it is what makes
+    the exported model drivable — `model.nu` stops being zero (ADR-0014).
+    URDF has no actuator element and says so in a comment."""
+    robot = pendulum_api
+    hinge = robot.joint("hinge")
+    assert hinge.actuator is None
+    hinge.actuator = riggen.Position(kp=120.0, kv=8.0)
+    assert hinge.actuator == riggen.Position(120.0, 8.0)
+
+    robot.export(tmp_path, format="both")
+    mjcf = (tmp_path / "pendulum.xml").read_text()
+    # `ctrlrange` is the hinge's own ±π/2; `forcerange` its effort of 10.
+    assert (
+        '<position name="hinge" joint="hinge" kp="120" kv="8" '
+        'ctrlrange="-1.570796326795 1.570796326795" forcerange="-10 10"/>'
+    ) in mjcf
+    # …and the apology it replaces is gone.
+    assert "need an <actuator>" not in mjcf
+    urdf = (tmp_path / "pendulum.urdf").read_text()
+    assert "a position actuator (kp 120 kv 8) is an MJCF property; not written" in urdf
+    assert "transmission" not in urdf
+
+    # The other two presets, and their defaults, which are MuJoCo's own.
+    assert riggen.Velocity().to_doc() == {"Velocity": {"kv": 1.0}}
+    assert riggen.Motor().to_doc() == {"Motor": {"gear": 1.0}}
+    hinge.actuator = riggen.Motor(gear=50.0)
+    robot.export(tmp_path, format="mjcf")
+    assert '<motor name="hinge" joint="hinge" gear="50" ctrlrange="-1 1" forcerange="-10 10"/>' in (
+        tmp_path / "pendulum.xml"
+    ).read_text()
+
+    # Retyping keeps it; a fixed joint has nothing to drive.
+    hinge.spec = Revolute("y", origin=(0, 0, 0.5), limits=Limits(-2, 2))
+    assert hinge.actuator == riggen.Motor(50.0)
+    hinge.spec = Fixed(origin=(0, 0, 0.5))
+    assert hinge.actuator is None
+
+    # And the rules are the document's: a gear of zero cannot move anything.
+    hinge.spec = Revolute("y", origin=(0, 0, 0.5), limits=Limits(-2, 2))
+    with pytest.raises(riggen.InvalidDocument):
+        hinge.actuator = riggen.Motor(gear=0.0)
+    assert hinge.actuator is None
+    hinge.actuator = None
+
+
 def test_the_api_builds_the_corpus_pendulum(pendulum_api: riggen.Robot, cubes: Path):
     pendulum_api.save(cubes / "pendulum.riggen")
     # The corpus is frozen at schema 1 and `save` writes 2 (ADR-0013), so
