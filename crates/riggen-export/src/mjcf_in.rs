@@ -15,12 +15,13 @@
 //! (ADR-0004 §1, ADR-0015 §3). Re-exporting an imported foreign file
 //! therefore produces a flat, class-free MJCF of the same model.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::{
-    Dynamics, InertialSpec, Joint, JointId, JointKind, Limits, Link, LinkId, Pose, Robot, validate,
+    CollisionPolicy, Dynamics, Frame, FrameId, Geom, GeomId, InertialSpec, Joint, JointId,
+    JointKind, Limits, Link, LinkId, MeshAsset, MeshId, Pose, Primitive, Robot, validate,
 };
 
 use crate::import::{ImportError, ImportWarning};
@@ -244,6 +245,9 @@ pub fn from_mjcf(root: &Node, path: &Path) -> Result<(Robot, Vec<ImportWarning>)
         warnings: Vec::new(),
         dropped: BTreeMap::new(),
         joint_ids: BTreeMap::new(),
+        assets: BTreeMap::new(),
+        registered: BTreeMap::new(),
+        sites: Vec::new(),
         unnamed: 0,
     };
     im.robot.links.clear();
@@ -274,7 +278,6 @@ fn refuse(node: &Node) -> Result<(), ImportError> {
 /// One import in progress.
 struct Import {
     path: PathBuf,
-    #[allow(dead_code, reason = "the meshes arrive in the next step")]
     base_dir: PathBuf,
     compiler: Compiler,
     defaults: Defaults,
@@ -286,11 +289,21 @@ struct Import {
     /// joints that may be anywhere in the file.
     #[allow(dead_code, reason = "the blocks after </worldbody> arrive in step 6")]
     joint_ids: BTreeMap<String, JointId>,
+    /// `<asset><mesh>` by name: the file it points at, and its scale.
+    assets: BTreeMap<String, (Option<String>, [f64; 3])>,
+    /// (resolved path, scale) → the asset already registered for it, so a
+    /// mesh used by both a visual and a collision is one `MeshAsset`.
+    registered: BTreeMap<(PathBuf, u64), MeshId>,
+    /// `<site>`s, held until the whole tree is read: a frame shares the
+    /// links' namespace (ADR-0012), and a link further down the file may
+    /// be the one that takes the name.
+    sites: Vec<(LinkId, String, Pose)>,
     unnamed: usize,
 }
 
 impl Import {
     fn run(&mut self, root: &Node) -> Result<(), ImportError> {
+        self.read_assets(root)?;
         let world = root.child("worldbody").ok_or(ImportError::NoRoot)?;
         let bodies: Vec<&Node> = world.kids("body").collect();
         match bodies[..] {
@@ -305,6 +318,7 @@ impl Import {
                 ));
             }
         }
+        self.place_frames();
         count_dropped(root, &mut self.dropped);
         for (element, count) in std::mem::take(&mut self.dropped) {
             self.warnings
@@ -374,8 +388,23 @@ impl Import {
 
         let mut link = Link::new(name.clone());
         link.inertial = self.inertial(node, &name, anchor)?;
+        let (visuals, collision) = self.geoms(node, &name, &childclass, anchor)?;
+        link.visuals = visuals;
+        link.collision = collision;
         let id: LinkId = self.robot.next_id.alloc();
         self.robot.links.insert(id, link);
+
+        // A `<site>` is a `Frame` (ADR-0012's promised symmetry), but not
+        // until every link has claimed its name.
+        for site in node.kids("site") {
+            let site = self.resolved(site, &childclass)?;
+            let pose = self.pose(&site)?;
+            self.sites.push((
+                id,
+                site.attr("name").unwrap_or_default().to_owned(),
+                Pose::new(pose.t - anchor, pose.r),
+            ));
+        }
 
         match parent {
             None => {
@@ -577,6 +606,307 @@ impl Import {
         })
     }
 
+    /// `<asset><mesh>`, by the name the geoms will use. MuJoCo names an
+    /// unnamed mesh after its file's stem, and so do we.
+    fn read_assets(&mut self, root: &Node) -> Result<(), ImportError> {
+        for asset in root.kids("asset") {
+            for m in asset.kids("mesh") {
+                let m = self.resolved(m, MAIN_CLASS)?;
+                let file = m.attr("file").map(str::to_owned);
+                let name = match (m.attr("name"), &file) {
+                    (Some(n), _) => n.to_owned(),
+                    (None, Some(f)) => Path::new(f)
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned(),
+                    (None, None) => continue,
+                };
+                let scale = self.nums::<3>(&m, "scale")?.unwrap_or([1.0; 3]);
+                self.assets.insert(name, (file, scale));
+            }
+        }
+        Ok(())
+    }
+
+    /// The link's visual geoms and its collision policy.
+    ///
+    /// Which side a geom falls on is ADR-0015 §6: our own two class names
+    /// first, then MuJoCo's own idiom for a decorative geom
+    /// (`contype`/`conaffinity` both zero), then everything is a visual —
+    /// never a silent loss of geometry.
+    fn geoms(
+        &mut self,
+        body: &Node,
+        link: &str,
+        childclass: &str,
+        anchor: DVec3,
+    ) -> Result<(Vec<Geom>, CollisionPolicy), ImportError> {
+        let resolved: Vec<Node> = body
+            .kids("geom")
+            .map(|g| self.resolved(g, childclass))
+            .collect::<Result<_, _>>()?;
+        let class_of = |g: &Node| g.attr("class").unwrap_or(childclass).to_owned();
+        // Which *rule* applies is decided once for the link, not per geom:
+        // in a file that uses `contype`, a geom that omits it is a
+        // colliding one at MuJoCo's own default, not an undecided one.
+        let by_class = resolved
+            .iter()
+            .any(|g| matches!(class_of(g).as_str(), "visual" | "collision"));
+        let by_contype = resolved
+            .iter()
+            .any(|g| g.attrs.contains_key("contype") || g.attrs.contains_key("conaffinity"));
+        let sides: Vec<bool> = resolved
+            .iter()
+            .map(|g| match class_of(g).as_str() {
+                "visual" => Ok(true),
+                "collision" => Ok(false),
+                _ if by_contype => Ok(self.num(g, "contype")?.unwrap_or(1.0) == 0.0
+                    && self.num(g, "conaffinity")?.unwrap_or(1.0) == 0.0),
+                _ => Ok(true),
+            })
+            .collect::<Result<_, ImportError>>()?;
+        // Whether this link's file said which of its geoms collide at all.
+        let distinguished = by_class || by_contype;
+
+        let mut visuals: Vec<Geom> = Vec::new();
+        let mut visual_keys: Vec<(MeshId, Pose)> = Vec::new();
+        let mut meshes: Vec<(Geom, (MeshId, Pose))> = Vec::new();
+        let mut primitives: Vec<(Primitive, &'static str)> = Vec::new();
+        for (g, visual) in resolved.iter().zip(sides) {
+            let p = self.pose(g)?;
+            let pose = Pose::new(p.t - anchor, p.r);
+            // MJCF's own default, which a `<default>` class usually replaces.
+            let kind = g.attr("type").unwrap_or("sphere").to_owned();
+            if kind == "mesh" {
+                let Some(name) = g.attr("mesh").map(str::to_owned) else {
+                    self.drop_geom(link, "a <geom type=\"mesh\"> naming no mesh");
+                    continue;
+                };
+                let Some(mesh) = self.mesh_id(&name, link)? else {
+                    continue;
+                };
+                let color = self.nums::<4>(g, "rgba")?.map(|c| c.map(|v| v as f32));
+                let id: GeomId = self.robot.next_id.alloc();
+                let geom = Geom {
+                    id,
+                    mesh,
+                    pose,
+                    color: color.filter(|_| visual),
+                };
+                if visual {
+                    visual_keys.push((mesh, pose));
+                    visuals.push(geom);
+                } else {
+                    meshes.push((geom, (mesh, pose)));
+                }
+                continue;
+            }
+            if g.attrs.contains_key("mesh") {
+                // MuJoCo would size the primitive from the mesh; fitting a
+                // shape to geometry is the app's own tool, not an import.
+                self.drop_geom(link, &format!("{} {kind} fitted to a mesh", article(&kind)));
+                continue;
+            }
+            let Some((primitive, kind)) = self.primitive(g, &kind, pose, anchor)? else {
+                self.drop_geom(link, &format!("{} {kind} geom", article(&kind)));
+                continue;
+            };
+            if visual {
+                self.warnings.push(ImportWarning::PrimitiveVisualDropped {
+                    link: link.to_owned(),
+                    kind,
+                });
+            } else {
+                primitives.push((primitive, kind));
+            }
+        }
+
+        let policy = if !meshes.is_empty() {
+            for (_, kind) in &primitives {
+                self.warnings.push(ImportWarning::MixedCollisionDropped {
+                    link: link.to_owned(),
+                    kind,
+                });
+            }
+            let keys: Vec<(MeshId, Pose)> = meshes.iter().map(|(_, k)| *k).collect();
+            if keys.len() == visual_keys.len() && keys.iter().all(|k| visual_keys.contains(k)) {
+                CollisionPolicy::SameAsVisual
+            } else {
+                CollisionPolicy::Meshes(meshes.into_iter().map(|(g, _)| g).collect())
+            }
+        } else if !primitives.is_empty() {
+            CollisionPolicy::Primitives(primitives.into_iter().map(|(p, _)| p).collect())
+        } else if visuals.is_empty() || distinguished {
+            // The file named which geoms collide, and this link has none.
+            CollisionPolicy::None
+        } else {
+            // ADR-0015 §6's last step, for a file that never distinguished.
+            CollisionPolicy::SameAsVisual
+        };
+        Ok((visuals, policy))
+    }
+
+    /// `size` undone from MJCF's half-extents, and `fromto` — which names
+    /// the two ends of a cylinder or capsule and replaces its pose.
+    fn primitive(
+        &self,
+        g: &Node,
+        kind: &str,
+        pose: Pose,
+        anchor: DVec3,
+    ) -> Result<Option<(Primitive, &'static str)>, ImportError> {
+        // MuJoCo pads `size` to three numbers, so a sphere may carry three.
+        let size = self.numbers(g, "size")?.unwrap_or_default();
+        let s = |i: usize| size.get(i).copied().unwrap_or(0.0);
+        let (pose, length) = match self.nums::<6>(g, "fromto")? {
+            Some([x1, y1, z1, x2, y2, z2]) => {
+                let (a, b) = (DVec3::new(x1, y1, z1), DVec3::new(x2, y2, z2));
+                let d = b - a;
+                let r = if d.length_squared() > 0.0 {
+                    DQuat::from_rotation_arc(DVec3::Z, d.normalize())
+                } else {
+                    DQuat::IDENTITY
+                };
+                (Pose::new((a + b) * 0.5 - anchor, r), d.length())
+            }
+            None => (pose, s(1) * 2.0),
+        };
+        Ok(Some(match kind {
+            "box" => (
+                Primitive::Box {
+                    pose,
+                    size: DVec3::new(s(0), s(1), s(2)) * 2.0,
+                },
+                "box",
+            ),
+            "sphere" => (Primitive::Sphere { pose, radius: s(0) }, "sphere"),
+            "cylinder" => (
+                Primitive::Cylinder {
+                    pose,
+                    radius: s(0),
+                    length,
+                },
+                "cylinder",
+            ),
+            "capsule" => (
+                Primitive::Capsule {
+                    pose,
+                    radius: s(0),
+                    length,
+                },
+                "capsule",
+            ),
+            _ => return Ok(None),
+        }))
+    }
+
+    /// The asset a `<geom mesh>` names, registered once per file and scale.
+    fn mesh_id(&mut self, name: &str, link: &str) -> Result<Option<MeshId>, ImportError> {
+        let Some((file, scale)) = self.assets.get(name).cloned() else {
+            self.drop_geom(link, &format!("a mesh \"{name}\" no <asset> declares"));
+            return Ok(None);
+        };
+        let Some(file) = file else {
+            self.drop_geom(link, &format!("the inline <mesh \"{name}\">"));
+            return Ok(None);
+        };
+        if file.to_ascii_lowercase().ends_with(".msh") {
+            self.drop_geom(link, &format!("\"{file}\", a MuJoCo binary mesh"));
+            return Ok(None);
+        }
+        let [x, y, z] = scale;
+        let largest = x.max(y).max(z);
+        let used = if largest.is_finite() && largest > 0.0 {
+            largest
+        } else {
+            1.0
+        };
+        let p = Path::new(&file);
+        let path = if p.is_absolute() {
+            p.to_owned()
+        } else {
+            self.base_dir.join(&self.compiler.meshdir).join(p)
+        };
+        // The one way a path enters the document: absolute and lexically
+        // normalised, so `meshdir="."` is not part of it forever
+        // (docs/01-architecture.md §File format).
+        let path = riggen_core::absolute(&path).unwrap_or(path);
+        let key = (path.clone(), used.to_bits());
+        if let Some(&id) = self.registered.get(&key) {
+            return Ok(Some(id));
+        }
+        // `used != x` also catches a scale that is zero, negative or not a
+        // number, where 1 is the only thing left to use.
+        if used != x || (x - y).abs() > 1e-12 || (x - z).abs() > 1e-12 {
+            self.warnings.push(ImportWarning::NonUniformScale {
+                link: link.to_owned(),
+                file: file.clone(),
+                used,
+            });
+        }
+        let content_hash = match riggen_core::hash_file(&path) {
+            Ok(h) => h,
+            Err(_) => {
+                self.warnings.push(ImportWarning::MeshNotFound {
+                    link: link.to_owned(),
+                    file,
+                    tried: path.clone(),
+                });
+                0
+            }
+        };
+        let id = self.robot.add_asset(MeshAsset {
+            path,
+            content_hash,
+            scale: used,
+            fix_up: None,
+        });
+        self.registered.insert(key, id);
+        Ok(Some(id))
+    }
+
+    /// Every `<site>` that can become a `Frame`, now that the links have
+    /// claimed their names. Frames and links are one namespace (ADR-0012),
+    /// and so is the `<frame>_fixed` joint the URDF writer will need.
+    fn place_frames(&mut self) {
+        let mut taken: BTreeSet<String> =
+            self.robot.links.values().map(|l| l.name.clone()).collect();
+        let joints: BTreeSet<String> = self.robot.joints.values().map(|j| j.name.clone()).collect();
+        for (parent, name, pose) in std::mem::take(&mut self.sites) {
+            let reason = if name.is_empty() {
+                Some("it has no name".to_owned())
+            } else if !taken.insert(name.clone()) {
+                Some("a link or frame of that name is already in the file".to_owned())
+            } else if joints.contains(&format!("{name}_fixed")) {
+                Some(format!("a joint is already called \"{name}_fixed\""))
+            } else {
+                None
+            };
+            match reason {
+                Some(reason) => self.warnings.push(ImportWarning::FrameDropped {
+                    site: if name.is_empty() {
+                        "<unnamed>".to_owned()
+                    } else {
+                        name
+                    },
+                    reason,
+                }),
+                None => {
+                    let id: FrameId = self.robot.next_id.alloc();
+                    self.robot.frames.insert(id, Frame { name, parent, pose });
+                }
+            }
+        }
+    }
+
+    fn drop_geom(&mut self, link: &str, kind: &str) {
+        self.warnings.push(ImportWarning::GeomDropped {
+            link: link.to_owned(),
+            kind: kind.to_owned(),
+        });
+    }
+
     fn pose(&self, node: &Node) -> Result<Pose, ImportError> {
         Ok(Pose::new(
             self.vec3(node, "pos")?.unwrap_or(DVec3::ZERO),
@@ -602,6 +932,10 @@ impl Import {
         name: &str,
     ) -> Result<Option<[f64; N]>, ImportError> {
         node.nums::<N>(name).map_err(|m| self.parse_err(m))
+    }
+
+    fn numbers(&self, node: &Node, name: &str) -> Result<Option<Vec<f64>>, ImportError> {
+        node.numbers(name).map_err(|m| self.parse_err(m))
     }
 
     fn vec3(&self, node: &Node, name: &str) -> Result<Option<DVec3>, ImportError> {
@@ -630,6 +964,15 @@ impl Import {
     }
 }
 
+/// "a" or "an", so a warning about an ellipsoid reads like a sentence.
+fn article(word: &str) -> &'static str {
+    if word.starts_with(['a', 'e', 'i', 'o', 'u']) {
+        "an"
+    } else {
+        "a"
+    }
+}
+
 /// The name a `<joint>` carries, or the one it is given: MJCF lets an
 /// element go unnamed, the document does not.
 fn joint_name(j: &Node, body: &str) -> String {
@@ -653,8 +996,31 @@ fn count_dropped(node: &Node, out: &mut BTreeMap<String, usize>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::resolve::{ResolvedGeom, ResolvedRobot};
     use crate::xml::parse;
+    use crate::{ComputeNow, ExportOptions, Format, MeshStore, export, resolve};
     use riggen_core::{JointState, fk};
+
+    /// Writes `robot`'s MJCF and its meshes into a scratch directory and
+    /// reads the `.xml` back — the acceptance route, in one function.
+    fn round_trip(robot: &Robot, store: &MeshStore, tag: &str) -> (Robot, Vec<ImportWarning>) {
+        let dir = std::env::temp_dir().join(format!("riggen-mjcf-in-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let files = export(&resolved(robot, store), &options(), &dir).unwrap();
+        let text = std::fs::read_to_string(&files[0]).unwrap();
+        from_mjcf(&parse(&text).unwrap(), &files[0]).unwrap()
+    }
+
+    fn options() -> ExportOptions {
+        ExportOptions {
+            format: Format::Mjcf,
+            ..Default::default()
+        }
+    }
+
+    fn resolved(robot: &Robot, store: &MeshStore) -> ResolvedRobot {
+        resolve(robot, store, &ComputeNow, &options()).unwrap()
+    }
 
     /// Nested classes, a `childclass` on the body, and a `<compiler>` that
     /// disagrees with every default.
@@ -697,16 +1063,22 @@ mod tests {
 
     /// A model with `body` as the whole of its `<worldbody>`.
     fn model(body: &str) -> String {
+        // MuJoCo refuses a `class` no `<default>` declares, and so do we,
+        // so the wrapper declares the two the tests reach for.
+        let cube = crate::test_util::fixtures().join("cube_binary.stl");
         format!(
-            r#"<mujoco model="m"><compiler angle="radian"/><worldbody>{body}</worldbody></mujoco>"#
+            r#"<mujoco model="m"><compiler angle="radian"/>
+                 <default><default class="visual"/><default class="collision"/></default>
+                 <asset><mesh name="m" file="{}"/></asset>
+                 <worldbody>{body}</worldbody></mujoco>"#,
+            cube.display()
         )
     }
 
     #[test]
     fn every_joint_kind_comes_back_as_the_same_tree_and_the_same_fk() {
         let b = crate::test_util::every_joint_kind();
-        let xml = crate::mjcf::write(&b.resolve().unwrap(), &crate::ExportOptions::default());
-        let (robot, warnings) = load(&xml).unwrap();
+        let (robot, warnings) = round_trip(&b.robot, &b.store, "every-joint-kind");
         assert_eq!(
             warnings,
             vec![],
@@ -791,6 +1163,328 @@ mod tests {
                 assert!(pose.r.dot(p.r).abs() > 1.0 - 1e-12, "{name} at q={q}");
             }
         }
+    }
+
+    #[test]
+    fn the_arms_own_export_comes_back_with_the_same_geometry() {
+        let (arm, _) = riggen_core::load(&crate::test_util::fixtures().join("arm/arm.riggen"))
+            .expect("the sample document");
+        let (store, errors) = MeshStore::load(&arm);
+        assert!(errors.is_empty(), "{errors:?}");
+        let (back, warnings) = round_trip(&arm, &store, "arm");
+        assert_eq!(warnings, vec![], "our own MJCF holds nothing unreadable");
+
+        // Every frame is back as a frame, which is the symmetry ADR-0012
+        // promised and the URDF import deliberately does not have.
+        let names = |r: &Robot| {
+            let mut n: Vec<String> = r.frames.values().map(|f| f.name.clone()).collect();
+            n.sort();
+            n
+        };
+        assert!(!arm.frames.is_empty(), "the fixture has frames to lose");
+        assert_eq!(names(&back), names(&arm));
+
+        // The real question is not what the document looks like — a hull
+        // policy comes back as the meshes it produced — but whether the
+        // *geometry* is the same. So: resolve both and compare.
+        let (back_store, errors) = MeshStore::load(&back);
+        assert!(errors.is_empty(), "{errors:?}");
+        same_geometry(&resolved(&arm, &store), &resolved(&back, &back_store));
+    }
+
+    #[test]
+    fn a_decomposition_comes_back_as_the_collision_meshes_it_produced() {
+        let (bracket, _) = riggen_core::load(&crate::test_util::fixtures().join("bracket.riggen"))
+            .expect("the sample document");
+        let (store, errors) = MeshStore::load(&bracket);
+        assert!(errors.is_empty(), "{errors:?}");
+        let pieces = resolved(&bracket, &store)
+            .links
+            .iter()
+            .map(|l| l.collisions.len())
+            .max()
+            .unwrap_or(0);
+        assert!(pieces > 1, "the fixture decomposes into several pieces");
+
+        let (back, warnings) = round_trip(&bracket, &store, "bracket");
+        assert_eq!(warnings, vec![]);
+        // The parameters are gone — they were parameters, never geometry
+        // (ADR-0011) — and what is left is the N meshes they produced.
+        let link = back.links.values().find(|l| !l.visuals.is_empty()).unwrap();
+        match &link.collision {
+            CollisionPolicy::Meshes(geoms) => assert_eq!(geoms.len(), pieces),
+            other => panic!("{other:?}"),
+        }
+        let (back_store, errors) = MeshStore::load(&back);
+        assert!(errors.is_empty(), "{errors:?}");
+        same_geometry(&resolved(&bracket, &store), &resolved(&back, &back_store));
+    }
+
+    #[track_caller]
+    fn same_geometry(want: &ResolvedRobot, got: &ResolvedRobot) {
+        assert_eq!(want.links.len(), got.links.len());
+        for (a, b) in want.links.iter().zip(&got.links) {
+            assert_eq!(a.name, b.name);
+            for (side, x, y) in [
+                ("visual", &a.visuals, &b.visuals),
+                ("collision", &a.collisions, &b.collisions),
+            ] {
+                assert_eq!(x.len(), y.len(), "{} {side}", a.name);
+                for (g, h) in x.iter().zip(y) {
+                    match (g, h) {
+                        (
+                            ResolvedGeom::Mesh {
+                                name: n, pose: p, ..
+                            },
+                            ResolvedGeom::Mesh {
+                                name: m, pose: q, ..
+                            },
+                        ) => {
+                            assert_eq!(n, m, "{} {side}", a.name);
+                            assert_close(*p, *q, &format!("{} {side} {n}", a.name));
+                        }
+                        (ResolvedGeom::Primitive(p), ResolvedGeom::Primitive(q)) => {
+                            assert_eq!(format!("{p:?}"), format!("{q:?}"), "{}", a.name)
+                        }
+                        _ => panic!("{} {side}: {g:?} became {h:?}", a.name),
+                    }
+                }
+            }
+            assert_eq!(a.sites.len(), b.sites.len(), "{} sites", a.name);
+            for (s, t) in a.sites.iter().zip(&b.sites) {
+                assert_eq!(s.name, t.name);
+                assert_close(s.pose, t.pose, &s.name);
+            }
+        }
+    }
+
+    #[track_caller]
+    fn assert_close(a: Pose, b: Pose, what: &str) {
+        // The quaternion made a round trip through twelve decimals, so this
+        // is a tolerance and not an equality.
+        assert!((a.t - b.t).length() < 1e-11, "{what}: {a:?} vs {b:?}");
+        assert!(a.r.dot(b.r).abs() > 1.0 - 1e-11, "{what}: {a:?} vs {b:?}");
+    }
+
+    #[test]
+    fn the_visual_collision_split_falls_back_the_way_adr_0015_says() {
+        // 1. Our own class names decide when they are there.
+        let (robot, _) = load(&model(
+            r#"<body name="a">
+                 <geom class="visual" type="mesh" mesh="m"/>
+                 <geom class="collision" type="mesh" mesh="m" pos="0 0 1"/>
+               </body>"#,
+        ))
+        .unwrap();
+        let link = robot.links.values().next().unwrap();
+        assert_eq!(link.visuals.len(), 1);
+        assert!(matches!(link.collision, CollisionPolicy::Meshes(ref g) if g.len() == 1));
+
+        // 2. Failing those, MuJoCo's own idiom for a decorative geom.
+        let (robot, _) = load(&model(
+            r#"<body name="a">
+                 <geom type="mesh" mesh="m" contype="0" conaffinity="0"/>
+                 <geom type="box" size="1 1 1"/>
+               </body>"#,
+        ))
+        .unwrap();
+        let link = robot.links.values().next().unwrap();
+        assert_eq!(link.visuals.len(), 1);
+        assert!(matches!(
+            link.collision,
+            CollisionPolicy::Primitives(ref p) if matches!(p[..], [Primitive::Box { .. }])
+        ));
+
+        // 3. Failing both, every geom is a visual and the link collides
+        // with itself — never a silent loss of geometry.
+        let (robot, _) = load(&model(
+            r#"<body name="a"><geom type="mesh" mesh="m"/></body>"#,
+        ))
+        .unwrap();
+        let link = robot.links.values().next().unwrap();
+        assert_eq!(link.visuals.len(), 1);
+        assert_eq!(link.collision, CollisionPolicy::SameAsVisual);
+
+        // …and a link whose file *did* distinguish, with nothing on the
+        // collision side, collides with nothing.
+        let (robot, _) = load(&model(
+            r#"<body name="a"><geom class="visual" type="mesh" mesh="m"/></body>"#,
+        ))
+        .unwrap();
+        assert_eq!(
+            robot.links.values().next().unwrap().collision,
+            CollisionPolicy::None
+        );
+    }
+
+    #[test]
+    fn primitive_sizes_are_undone_and_the_rest_is_named() {
+        let (robot, warnings) = load(&model(
+            r#"<body name="a">
+                 <geom class="collision" type="box" size="0.05 0.1 0.15" pos="0 0 1"/>
+                 <geom class="collision" type="cylinder" size="0.02 0.25"/>
+                 <geom class="collision" type="sphere" size="0.03 0 0"/>
+                 <geom class="collision" type="capsule" size="0.04" fromto="0 0 0 0 0 0.6"/>
+                 <geom class="collision" type="ellipsoid" size="1 2 3"/>
+                 <geom class="visual" type="box" size="1 1 1"/>
+               </body>"#,
+        ))
+        .unwrap();
+        let CollisionPolicy::Primitives(p) = &robot.links.values().next().unwrap().collision else {
+            panic!("{:?}", robot.links.values().next().unwrap().collision);
+        };
+        // MJCF `size` is half of what the document holds — the classic
+        // mistake, pinned here in the other direction too.
+        assert_eq!(
+            p[0],
+            Primitive::Box {
+                pose: Pose::from_translation(DVec3::Z),
+                size: DVec3::new(0.1, 0.2, 0.3)
+            }
+        );
+        assert_eq!(
+            p[1],
+            Primitive::Cylinder {
+                pose: Pose::IDENTITY,
+                radius: 0.02,
+                length: 0.5
+            }
+        );
+        assert_eq!(
+            p[2],
+            Primitive::Sphere {
+                pose: Pose::IDENTITY,
+                radius: 0.03
+            }
+        );
+        // `fromto` names the two ends and replaces the pose with the
+        // midpoint and the rotation onto that direction.
+        assert_eq!(
+            p[3],
+            Primitive::Capsule {
+                pose: Pose::from_translation(DVec3::Z * 0.3),
+                radius: 0.04,
+                length: 0.6
+            }
+        );
+        assert_eq!(p.len(), 4);
+        assert_eq!(
+            warnings,
+            vec![
+                ImportWarning::NoInertial {
+                    link: "a".to_owned()
+                },
+                ImportWarning::GeomDropped {
+                    link: "a".to_owned(),
+                    kind: "an ellipsoid geom".to_owned()
+                },
+                ImportWarning::PrimitiveVisualDropped {
+                    link: "a".to_owned(),
+                    kind: "box"
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_mesh_asset_is_found_through_meshdir_and_named_when_it_is_not() {
+        let dir = riggen_core::absolute(&crate::test_util::fixtures().join("arm")).unwrap();
+        let text = r#"<mujoco model="m">
+                 <compiler angle="radian" meshdir="."/>
+                 <default><default class="collision"/></default>
+                 <asset>
+                   <mesh name="base" file="base.stl" scale="0.001 0.001 0.001"/>
+                   <mesh file="upper.stl"/>
+                   <mesh name="lumpy" file="base.stl" scale="1 2 3"/>
+                   <mesh name="binary" file="thing.msh"/>
+                   <mesh name="gone" file="nowhere.stl"/>
+                 </asset>
+                 <worldbody><body name="a">
+                   <geom class="collision" type="mesh" mesh="base"/>
+                   <geom class="collision" type="mesh" mesh="upper"/>
+                   <geom class="collision" type="mesh" mesh="lumpy"/>
+                   <geom class="collision" type="mesh" mesh="binary"/>
+                   <geom class="collision" type="mesh" mesh="gone"/>
+                   <geom class="collision" type="mesh" mesh="never_declared"/>
+                 </body></worldbody>
+               </mujoco>"#;
+        let (robot, warnings) = from_mjcf(&parse(text).unwrap(), &dir.join("m.xml")).unwrap();
+        // An unnamed `<mesh>` is known by its file's stem, as in MuJoCo.
+        let CollisionPolicy::Meshes(geoms) = &robot.links.values().next().unwrap().collision else {
+            panic!()
+        };
+        assert_eq!(geoms.len(), 4, "the .msh and the undeclared one are gone");
+        let asset = |g: &Geom| &robot.assets[&g.mesh];
+        assert_eq!(asset(&geoms[0]).path, dir.join("base.stl"));
+        assert_eq!(asset(&geoms[0]).scale, 0.001);
+        assert_ne!(asset(&geoms[0]).content_hash, 0, "the file was read");
+        assert_eq!(asset(&geoms[1]).path, dir.join("upper.stl"));
+        assert_eq!(asset(&geoms[2]).scale, 3.0, "the largest component");
+        assert_eq!(asset(&geoms[3]).content_hash, 0, "nothing to hash");
+        assert_eq!(
+            warnings,
+            vec![
+                ImportWarning::NoInertial {
+                    link: "a".to_owned()
+                },
+                ImportWarning::NonUniformScale {
+                    link: "a".to_owned(),
+                    file: "base.stl".to_owned(),
+                    used: 3.0
+                },
+                ImportWarning::GeomDropped {
+                    link: "a".to_owned(),
+                    kind: "\"thing.msh\", a MuJoCo binary mesh".to_owned()
+                },
+                ImportWarning::MeshNotFound {
+                    link: "a".to_owned(),
+                    file: "nowhere.stl".to_owned(),
+                    tried: dir.join("nowhere.stl")
+                },
+                ImportWarning::GeomDropped {
+                    link: "a".to_owned(),
+                    kind: "a mesh \"never_declared\" no <asset> declares".to_owned()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_site_becomes_a_frame_unless_the_name_is_taken() {
+        let (robot, warnings) = load(&model(
+            r#"<body name="a">
+                 <site name="tcp" pos="0 0 0.05"/>
+                 <site pos="1 0 0"/>
+                 <site name="b"/>
+                 <site name="tcp"/>
+                 <body name="b"><joint name="j" range="-1 1"/></body>
+               </body>"#,
+        ))
+        .unwrap();
+        assert_eq!(robot.frames.len(), 1);
+        let frame = robot.frames.values().next().unwrap();
+        assert_eq!(frame.name, "tcp");
+        assert_eq!(frame.pose, Pose::from_translation(DVec3::Z * 0.05));
+        assert_eq!(frame.parent, robot.root);
+        assert_eq!(
+            warnings,
+            vec![
+                ImportWarning::FrameDropped {
+                    site: "<unnamed>".to_owned(),
+                    reason: "it has no name".to_owned()
+                },
+                // A link further down the file took the name, which is why
+                // the sites wait for the whole tree (ADR-0012).
+                ImportWarning::FrameDropped {
+                    site: "b".to_owned(),
+                    reason: "a link or frame of that name is already in the file".to_owned()
+                },
+                ImportWarning::FrameDropped {
+                    site: "tcp".to_owned(),
+                    reason: "a link or frame of that name is already in the file".to_owned()
+                },
+            ]
+        );
     }
 
     #[test]
@@ -941,6 +1635,12 @@ mod tests {
                 ImportWarning::MassFromGeomIgnored {
                     link: "a".to_owned()
                 },
+                // No class and no `contype`, so it is a visual — and
+                // visuals are meshes in the document (ADR-0015 §6).
+                ImportWarning::PrimitiveVisualDropped {
+                    link: "a".to_owned(),
+                    kind: "box"
+                },
                 ImportWarning::LimitsInvented {
                     joint: "s".to_owned(),
                     lower: -1.0,
@@ -968,11 +1668,11 @@ mod tests {
         );
         // Every warning says what and why, for the status bar.
         assert_eq!(
-            warnings[3].to_string(),
+            warnings[4].to_string(),
             "joint \"s\" has no range and the document has no unlimited prismatic; -1..1 used"
         );
         assert_eq!(
-            warnings[7].to_string(),
+            warnings[8].to_string(),
             "<sensor> × 1: nothing in the document holds it; not read"
         );
     }
