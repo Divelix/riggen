@@ -1,8 +1,10 @@
 //! The two halves of XML, in one file.
 //!
-//! **Writing** is thirty lines: the output of both writers is fixed-shape,
-//! so an XML crate would only add a dependency and a way to emit something
-//! MuJoCo cannot read. Escaping is the whole job.
+//! **Writing** is forty lines: the output of all three writers is
+//! fixed-shape, so an XML crate would only add a dependency and a way to
+//! emit something MuJoCo cannot read. Escaping is the whole job — of an
+//! attribute value, and, since SDF puts its numbers in element bodies, of
+//! a body too ([`Xml::text`], [`pose6`] — ADR-0016 §3).
 //!
 //! **Reading** is not, because the file was written by somebody else:
 //! [`parse`] is a read-only DOM over `quick-xml` (ADR-0015 §2), and beside
@@ -14,6 +16,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::Write as _;
 
+use riggen_core::Pose;
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 
 #[derive(Default)]
@@ -43,6 +46,19 @@ impl Xml {
     /// `<tag a="b"/>`.
     pub fn empty(&mut self, tag: &str, attrs: &[(&str, String)]) {
         self.line(tag, attrs, "/>");
+    }
+
+    /// `<tag a="b">text</tag>` on one line. SDF puts its numbers in
+    /// element bodies where MJCF and URDF use attributes — `<mass>2.7</mass>`,
+    /// `<pose>x y z r p y</pose>` — so the body is escaped exactly as an
+    /// attribute value is (ADR-0016 §3).
+    pub fn text(&mut self, tag: &str, attrs: &[(&str, String)], text: &str) {
+        self.indent();
+        let _ = write!(self.out, "<{tag}");
+        for (k, v) in attrs {
+            let _ = write!(self.out, " {k}=\"{}\"", escape(v));
+        }
+        let _ = writeln!(self.out, ">{}</{tag}>", escape(text));
     }
 
     pub fn close(&mut self, tag: &str) {
@@ -115,6 +131,15 @@ pub fn quat_wxyz(q: DQuat) -> [f64; 4] {
 pub fn quat(q: DQuat) -> String {
     let [w, x, y, z] = quat_wxyz(q);
     format!("{} {} {} {}", num(w), num(x), num(y), num(z))
+}
+
+/// SDF's `<pose>`: `x y z roll pitch yaw`, six numbers in one element
+/// body. The angles come out of [`Pose::to_xyz_rpy`] — the same helper
+/// `urdf::origin_attrs` uses, because SDF's RPY *is* URDF's, `Rz·Ry·Rx`
+/// about fixed axes (ADR-0016 §2).
+pub fn pose6(pose: &Pose) -> String {
+    let (xyz, rpy) = pose.to_xyz_rpy();
+    format!("{} {}", vec3(xyz), vec3(rpy))
 }
 
 // ---------------------------------------------------------------------------
@@ -722,6 +747,59 @@ mod tests {
         assert_eq!(
             xml.finish(),
             "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<a k=\"x&lt;y\">\n  <!-- effort 10 - - not written -->\n  <b/>\n</a>\n"
+        );
+    }
+
+    /// The body of an element is escaped like an attribute value, and
+    /// comes back through the reading half unchanged in meaning — the
+    /// text node itself is dropped, as [`Node`] documents.
+    #[test]
+    fn a_text_element_escapes_its_body_and_closes_on_one_line() {
+        let mut x = Xml::new();
+        x.open("sdf", &[("version", "1.11".into())]);
+        x.text("mass", &[], &num(2.7));
+        x.text("uri", &[], "meshes/a<b>&\"c\".stl");
+        x.text("multiplier", &[("note", "a&b".into())], &num(-0.5));
+        x.text("empty", &[], "");
+        x.close("sdf");
+        let out = x.finish();
+        assert_eq!(
+            out,
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
+             <sdf version=\"1.11\">\n\
+             \x20 <mass>2.7</mass>\n\
+             \x20 <uri>meshes/a&lt;b&gt;&amp;&quot;c&quot;.stl</uri>\n\
+             \x20 <multiplier note=\"a&amp;b\">-0.5</multiplier>\n\
+             \x20 <empty></empty>\n\
+             </sdf>\n"
+        );
+        // Still XML, and the escaping survives a parser that is not ours.
+        let root = parse(&out).unwrap();
+        assert_eq!(root.attr("version"), Some("1.11"));
+        assert_eq!(root.children.len(), 4);
+    }
+
+    /// SDF's six-number `<pose>` is URDF's `xyz` and `rpy` in one string,
+    /// through the one helper both go through — so a pose that survives
+    /// the URDF round trip survives this one.
+    #[test]
+    fn pose6_is_xyz_then_rpy_with_the_same_number_rules() {
+        assert_eq!(pose6(&Pose::IDENTITY), "0 0 0 0 0 0");
+        let p = Pose {
+            t: DVec3::new(0.0, 0.03, 0.04),
+            r: DQuat::from_rotation_x(FRAC_PI_2),
+        };
+        assert_eq!(pose6(&p), "0 0.03 0.04 1.570796326795 0 0");
+        // The `-0` folding and the twelve-decimal trim `num` does apply
+        // inside the body exactly as they do inside an attribute.
+        let (xyz, rpy) = p.to_xyz_rpy();
+        assert_eq!(pose6(&p), format!("{} {}", vec3(xyz), vec3(rpy)));
+        assert_eq!(
+            pose6(&Pose {
+                t: DVec3::new(-0.0, 1e-15, 1.0),
+                r: DQuat::IDENTITY,
+            }),
+            "0 0 1 0 0 0"
         );
     }
 

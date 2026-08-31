@@ -80,7 +80,7 @@ the `mujoco` job already does for MJCF.
   (shown to the human, per ADR-0003). No SDF is written yet and no
   existing output changes — the shared-type churn lands alone and
   revertible.
-- [ ] 3 — **`xml.rs`: text elements and `pose6`.** `Xml::text`,
+- [x] 3 — **`xml.rs`: text elements and `pose6`.** `Xml::text`,
   `xml::pose6`, unit tests including escaping inside a body and the
   `-0` folding `num` already does.
 - [ ] 4 — **`sdf::write`: model, links, inertials.** `<sdf><model
