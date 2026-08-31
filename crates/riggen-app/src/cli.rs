@@ -17,7 +17,7 @@ use riggen_export::{ExportOptions, Format, MeshStore};
 
 /// The one-line reminder under every parse error.
 pub const USAGE: &str = "usage: riggen [FILE...] | riggen --example arm | \
-riggen --export mjcf|urdf|both --out DIR [--fk-samples] INPUT\ntry `riggen --help`";
+riggen --export mjcf|urdf|sdf|both|all --out DIR [--fk-samples] INPUT\ntry `riggen --help`";
 
 /// One command-line flag: its spelling, an optional short form, the name
 /// of the value it takes (if any) and the help line.
@@ -41,7 +41,7 @@ pub const FLAGS: &[Flag] = &[
         long: "--export",
         short: None,
         value: Some("FORMAT"),
-        doc: "headless export of INPUT (.riggen, .urdf or .xml): mjcf, urdf or both",
+        doc: "headless export of INPUT (.riggen, .urdf or .xml): mjcf, urdf, sdf, both or all",
     },
     Flag {
         long: "--out",
@@ -240,13 +240,13 @@ pub fn parse(args: &[OsString]) -> Result<Invocation, String> {
             Some("--help" | "-h") => return Ok(Invocation::Help),
             Some("--version" | "-V") => return Ok(Invocation::Version),
             Some("--export") => {
-                format = Some(match it.next().and_then(|v| v.to_str()) {
-                    Some("mjcf") => Format::Mjcf,
-                    Some("urdf") => Format::Urdf,
-                    Some("both") => Format::Both,
-                    other => {
+                let value = it.next().and_then(|v| v.to_str());
+                format = Some(match value.map(str::parse::<Format>) {
+                    Some(Ok(format)) => format,
+                    _ => {
                         return Err(format!(
-                            "--export expects mjcf, urdf or both, got {other:?}\n{USAGE}"
+                            "--export expects one of {}, got {value:?}\n{USAGE}",
+                            Format::NAMES.join(", ")
                         ));
                     }
                 });
@@ -402,7 +402,7 @@ mod tests {
         assert_eq!(
             parsed,
             Invocation::Export(ExportArgs {
-                format: Format::Mjcf,
+                format: Format::MJCF,
                 out: "target/x".into(),
                 input: "r.riggen".into(),
                 fk_samples: false,
@@ -420,8 +420,31 @@ mod tests {
         .unwrap() else {
             panic!("export form")
         };
-        assert_eq!(parsed.format, Format::Both);
+        assert_eq!(parsed.format, Format::BOTH);
         assert!(parsed.fk_samples);
+
+        // Every spelling `--help` offers, and the set each names. `both`
+        // survives from when there were two writers (ADR-0016 §Consequences).
+        for (spelling, expected) in [
+            ("mjcf", Format::MJCF),
+            ("urdf", Format::URDF),
+            ("sdf", Format::SDF),
+            ("both", Format::BOTH),
+            ("all", Format::ALL),
+        ] {
+            assert!(Format::NAMES.contains(&spelling));
+            let Invocation::Export(parsed) =
+                parse(&args(&["--export", spelling, "--out", "o", "r"])).unwrap()
+            else {
+                panic!("export form")
+            };
+            assert_eq!(parsed.format, expected, "--export {spelling}");
+            // `Display` names the set back with the same word.
+            assert_eq!(expected.to_string(), spelling);
+        }
+        // The unknown one lists them all rather than the two it used to.
+        let err = parse(&args(&["--export", "usd", "--out", "o", "r"])).unwrap_err();
+        assert!(err.contains("mjcf, urdf, sdf, both, all"), "{err}");
     }
 
     #[test]
@@ -519,7 +542,7 @@ mod tests {
     fn parse_reports_each_mistake_with_the_usage() {
         for bad in [
             vec!["--export"],
-            vec!["--export", "sdf", "--out", "o", "r"],
+            vec!["--export", "usd", "--out", "o", "r"],
             vec!["--export", "mjcf", "r"],
             vec!["--export", "mjcf", "--out", "o"],
             vec!["--export", "mjcf", "--out", "o", "r", "s"],
@@ -576,7 +599,7 @@ mod tests {
         let out = std::env::temp_dir().join(format!("riggen-cli-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&out);
         let written = run(&ExportArgs {
-            format: Format::Mjcf,
+            format: Format::MJCF,
             out: out.clone(),
             input: fixture,
             fk_samples: true,
@@ -612,7 +635,7 @@ mod tests {
         let out = std::env::temp_dir().join(format!("riggen-cli-urdf-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&out);
         let written = run(&ExportArgs {
-            format: Format::Mjcf,
+            format: Format::MJCF,
             out: out.clone(),
             input: fixture,
             fk_samples: true,
@@ -634,14 +657,14 @@ mod tests {
         let out = std::env::temp_dir().join(format!("riggen-cli-mjcf-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&out);
         let first = run(&ExportArgs {
-            format: Format::Mjcf,
+            format: Format::MJCF,
             out: out.join("one"),
             input: fixture,
             fk_samples: true,
         })
         .unwrap();
         let second = run(&ExportArgs {
-            format: Format::Mjcf,
+            format: Format::MJCF,
             out: out.join("two"),
             input: out.join("one/arm.xml"),
             fk_samples: true,
@@ -732,7 +755,7 @@ mod tests {
     #[test]
     fn a_missing_input_is_an_error_not_a_panic() {
         let err = run(&ExportArgs {
-            format: Format::Mjcf,
+            format: Format::MJCF,
             out: std::env::temp_dir(),
             input: "/nowhere/none.riggen".into(),
             fk_samples: false,

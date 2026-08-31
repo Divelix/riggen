@@ -1178,17 +1178,20 @@ class Robot:
         self,
         dir: PathLike,
         *,
-        format: Literal["mjcf", "urdf", "both"] = "both",
+        format: Literal["mjcf", "urdf", "sdf", "both", "all"] = "all",
         mesh_paths: str = "relative",
         floating_base: bool = False,
         fk_samples: bool = False,
     ) -> list[Path]:
-        """Writes ``<name>.xml`` (MJCF) and/or ``<name>.urdf`` into ``dir``
-        beside ``meshes/`` (binary STL in meters); with ``fk_samples``,
-        ``<name>.fk.json`` too. ``mesh_paths`` (URDF only) is
-        ``"relative"``, ``"absolute"`` or ``"package://<name>"``. Returns
-        every path written; raises :class:`riggen.ExportError` listing every
-        reason the document cannot be exported."""
+        """Writes ``<name>.xml`` (MJCF), ``<name>.urdf`` and/or
+        ``<name>.sdf`` into ``dir`` beside ``meshes/`` (binary STL in
+        meters); with ``fk_samples``, ``<name>.fk.json`` too. ``format``
+        names a **set** of writers: ``"mjcf"``, ``"urdf"``, ``"sdf"``,
+        ``"both"`` (the first two, kept from when there were only two) or
+        ``"all"``. ``mesh_paths`` (URDF and SDF) is ``"relative"``,
+        ``"absolute"`` or ``"package://<name>"``. Returns every path
+        written; raises :class:`riggen.ExportError` listing every reason
+        the document cannot be exported."""
         return self._inner.export(dir, format=format, mesh_paths=mesh_paths, floating_base=floating_base, fk_samples=fk_samples)
 
     def to_json(self) -> str:

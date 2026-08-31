@@ -138,14 +138,8 @@ fn join_export_errors(errors: &[ExportError]) -> String {
 }
 
 fn format_from(name: &str) -> PyResult<Format> {
-    match name {
-        "mjcf" => Ok(Format::Mjcf),
-        "urdf" => Ok(Format::Urdf),
-        "both" => Ok(Format::Both),
-        other => Err(PyValueError::new_err(format!(
-            "format: {other:?} is not \"mjcf\", \"urdf\" or \"both\""
-        ))),
-    }
+    name.parse()
+        .map_err(|names| PyValueError::new_err(format!("format: {name:?} is not one of {names}")))
 }
 
 fn mesh_paths_from(style: &str) -> PyResult<MeshPathStyle> {
@@ -736,14 +730,15 @@ impl PyRobot {
 
     // ---- export and import ------------------------------------------------
 
-    /// Writes the export directory (ADR-0008): `<name>.xml` and/or
-    /// `<name>.urdf` beside `meshes/` in meters; with `fk_samples`,
-    /// `<name>.fk.json` too. `format` is `"mjcf"`, `"urdf"` or `"both"`;
-    /// `mesh_paths` (URDF only) `"relative"`, `"absolute"` or
+    /// Writes the export directory (ADR-0008): `<name>.xml`, `<name>.urdf`
+    /// and/or `<name>.sdf` beside `meshes/` in meters; with `fk_samples`,
+    /// `<name>.fk.json` too. `format` names a **set** of writers —
+    /// `"mjcf"`, `"urdf"`, `"sdf"`, `"both"` (the first two) or `"all"`;
+    /// `mesh_paths` (URDF and SDF) `"relative"`, `"absolute"` or
     /// `"package://<name>"`. Returns every path written. Raises
     /// `riggen.ExportError` listing every reason the document cannot be
     /// exported, exactly as `riggen --export` prints them.
-    #[pyo3(signature = (dir, *, format = "both", mesh_paths = "relative", floating_base = false, fk_samples = false))]
+    #[pyo3(signature = (dir, *, format = "all", mesh_paths = "relative", floating_base = false, fk_samples = false))]
     fn export(
         &self,
         py: Python<'_>,

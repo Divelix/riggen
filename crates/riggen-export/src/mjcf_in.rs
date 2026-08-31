@@ -1227,7 +1227,7 @@ mod tests {
 
     fn options() -> ExportOptions {
         ExportOptions {
-            format: Format::Mjcf,
+            format: Format::MJCF,
             ..Default::default()
         }
     }

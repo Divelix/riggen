@@ -102,8 +102,10 @@ def test_export_options_reach_the_writers(arm: Robot, tmp_path: Path):
     # has a cube and a material.
     with pytest.raises(errors.ExportError, match='link "base_link" moves but has no mass'):
         arm.export(tmp_path / "float", format="mjcf", floating_base=True)
+    # `format` names a set of writers, not a choice (ADR-0016); USD is not
+    # one of them and is not going to be.
     with pytest.raises(ValueError, match="format"):
-        arm.export(tmp_path / "x", format="sdf")
+        arm.export(tmp_path / "x", format="usd")
     with pytest.raises(ValueError, match="mesh_paths"):
         arm.export(tmp_path / "x", mesh_paths="package://")
 

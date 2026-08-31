@@ -92,7 +92,7 @@ mod tests {
         let resolved = b.resolve().unwrap();
         let dir = scratch("basic");
         let options = ExportOptions {
-            format: Format::Mjcf,
+            format: Format::MJCF,
             ..Default::default()
         };
         let written = export(&resolved, &options, &dir).unwrap();
