@@ -12,8 +12,8 @@ use std::sync::Arc;
 use riggen_core::glam::DVec3;
 use riggen_core::inertial::{self, Inertial, InertialError, MeshLookup};
 use riggen_core::{
-    CollisionPolicy, Dynamics, Geom, JointId, JointKind, Limits, LinkId, MeshId, Pose, Primitive,
-    Robot, ValidationError, validation_errors,
+    ActuatorSpec, CollisionPolicy, Dynamics, Geom, JointId, JointKind, Limits, LinkId, MeshId,
+    Pose, Primitive, Robot, ValidationError, validation_errors,
 };
 use riggen_mesh::{DecompParams, TriMesh};
 
@@ -236,6 +236,9 @@ pub struct ResolvedJoint {
     pub dynamics: Dynamics,
     /// This joint follows another one (ADR-0013).
     pub mimic: Option<ResolvedMimic>,
+    /// What drives this joint in MJCF (ADR-0014). Copied through: the
+    /// preset is already the numbers a writer needs.
+    pub actuator: Option<ActuatorSpec>,
 }
 
 /// `q(this) = multiplier * q(joints[joint]) + offset` (ADR-0013). The
@@ -347,6 +350,7 @@ pub fn resolve(
                     multiplier: m.multiplier,
                     offset: m.offset,
                 }),
+                actuator: joint.actuator,
             });
         }
 

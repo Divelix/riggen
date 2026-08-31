@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use riggen_core::{JointKind, Pose, Primitive};
+use riggen_core::{ActuatorSpec, JointKind, Pose, Primitive};
 
 use crate::resolve::{ExportOptions, MeshPathStyle, ResolvedGeom, ResolvedJoint, ResolvedRobot};
 use crate::xml::{Xml, num, vec3};
@@ -132,6 +132,23 @@ fn write_joint(x: &mut Xml, robot: &ResolvedRobot, j: &ResolvedJoint) {
             "joint {}: armature {} is an MJCF property; not written",
             j.name,
             num(d.armature)
+        ));
+    }
+    // URDF has no actuator: `<transmission>` is a `ros_control` relic
+    // superseded by `ros2_control` xacro tags, and inventing one is the
+    // fragile-exporter behaviour we exist to remove (ADR-0014). The
+    // `<limit effort velocity/>` above is the honest URDF answer; the
+    // comment names what MJCF got instead, like the `armature` one.
+    if let Some(a) = j.actuator {
+        let gains = match a {
+            ActuatorSpec::Position { kp, kv } => format!("kp {} kv {}", num(kp), num(kv)),
+            ActuatorSpec::Velocity { kv } => format!("kv {}", num(kv)),
+            ActuatorSpec::Motor { gear } => format!("gear {}", num(gear)),
+        };
+        x.comment(&format!(
+            "joint {}: a {} actuator ({gains}) is an MJCF property; not written",
+            j.name,
+            a.kind_name(),
         ));
     }
     x.close("joint");
@@ -306,6 +323,7 @@ mod tests {
     <axis xyz="0 1 0"/>
     <limit lower="-1" upper="1" effort="1" velocity="1"/>
     <dynamics damping="0.1" friction="0"/>
+    <!-- joint upper_joint: a position actuator (kp 100 kv 5) is an MJCF property; not written -->
   </joint>
   <joint name="slider_joint" type="prismatic">
     <origin xyz="0 0 0.1" rpy="0 0 0"/>
@@ -320,6 +338,7 @@ mod tests {
     <parent link="slider"/>
     <child link="wheel"/>
     <axis xyz="0 0 1"/>
+    <!-- joint wheel_joint: a velocity actuator (kv 2) is an MJCF property; not written -->
   </joint>
   <joint name="tip_joint" type="fixed">
     <origin xyz="0 0 0.1" rpy="0 0 0"/>
@@ -338,6 +357,36 @@ mod tests {
   </joint>
 </robot>
 "#;
+
+    /// URDF has no actuator element and we invent none (ADR-0014): the
+    /// third preset, and the promise that no `<transmission>` appears.
+    #[test]
+    fn a_motor_is_a_comment_naming_what_mjcf_got() {
+        let mut b = every_joint_kind();
+        for j in b.robot.joints.values_mut() {
+            if j.name == "upper_joint" {
+                j.actuator = Some(riggen_core::ActuatorSpec::Motor { gear: 50.0 });
+            }
+        }
+        let urdf = write(
+            &b.resolve().unwrap(),
+            &ExportOptions::default(),
+            Path::new("."),
+        );
+        assert!(
+            urdf.contains(
+                "<!-- joint upper_joint: a motor actuator (gear 50) is an MJCF property; not written -->"
+            ),
+            "{urdf}"
+        );
+        assert!(!urdf.contains("transmission"), "{urdf}");
+        // The honest URDF answer is still the `<limit>` it always wrote.
+        assert!(
+            urdf.contains(r#"<limit lower="-1" upper="1" effort="1" velocity="1"/>"#),
+            "{urdf}"
+        );
+        urdf_rs::read_from_string(&urdf).unwrap();
+    }
 
     #[test]
     fn golden_urdf_for_every_joint_kind() {

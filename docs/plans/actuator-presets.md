@@ -91,7 +91,7 @@ the properties panel's actuator section.
       deleted. Tests: a v2 fixture opens and re-saves as v3, `pendulum.riggen`
       (v1) still walks the whole chain, and each new `ValidationError` has a
       test naming it.
-- [ ] **Step 2 — the writers.** `ResolvedJoint::actuator`; an `<actuator>`
+- [x] **Step 2 — the writers.** `ResolvedJoint::actuator`; an `<actuator>`
       block after `</equality>` with one element per actuated joint, named
       after its joint; `ctrlrange` from `lower upper` (`Position`), from
       `±velocity` (`Velocity`), `-1 1` (`Motor`); `forcerange` `±effort`,

@@ -423,7 +423,7 @@ pub struct ResolvedLink {
 pub struct ResolvedSite { pub name: String, pub pose: Pose }  // frame in the link frame
 pub enum ResolvedGeom { Mesh { name, mesh: Arc<TriMesh>, pose }, Primitive(Primitive) }
 pub struct ResolvedJoint { name, kind, parent: usize, child: usize, origin: Pose, axis: DVec3, limits, dynamics,
-                           mimic: Option<ResolvedMimic> }
+                           mimic: Option<ResolvedMimic>, actuator: Option<ActuatorSpec> }
 pub struct ResolvedMimic { pub joint: usize, pub multiplier: f64, pub offset: f64 }  // joint indexes ResolvedRobot::joints
 pub struct ExportOptions { format: Format, mesh_paths: MeshPathStyle, floating_base: bool }
 ```
@@ -492,7 +492,8 @@ not a new resolve.
 | Root | first `<link>` | `<worldbody>` child; `floating_base` in `ExportOptions` adds `<freejoint name="root"/>` |
 | Frame (`Frame`, a `ResolvedSite`) | a massless `<link name="tcp"/>` — no visual, collision or inertial — plus `<joint name="tcp_fixed" type="fixed">` with the frame pose as its `<origin xyz rpy/>`; the dummy links after every real link and the fixed joints after every real joint, so the file still reads root-first (ADR-0012) | `<site name pos quat/>` inside its body after the geoms, bare: no `size`, `group` or `rgba`, so MuJoCo's default 0.005 m sphere marks it (ADR-0012) |
 | Mimic (`ResolvedMimic`) | `<mimic joint multiplier offset/>` inside the follower's `<joint>`, after `<dynamics>` | `<equality><joint joint1="follower" joint2="leader" polycoef="offset multiplier 0 0 0"/></equality>` after `</worldbody>` — a **soft** solver constraint, not a reduction (ADR-0013) |
-| Effort / velocity | `<limit effort velocity/>` | `<actuator>` `forcerange`/`ctrlrange` — post-MVP, not silently dropped: a comment after the `<joint>` names the values |
+| Actuator (`ActuatorSpec`) | nothing — `<transmission>` is a `ros_control` relic; a comment after the `<joint>` names the preset and its gains, like the `armature` one (ADR-0014) | one `<actuator>` block after `</equality>`: `<position kp kv>` / `<velocity kv>` / `<motor gear>`, `name` and `joint` both the **joint's own name** |
+| Effort / velocity | `<limit effort velocity/>` | the actuator's `forcerange="-effort effort"`, and its `ctrlrange` — `lower upper` for a position servo, `±velocity` for a velocity one, the normalised `-1 1` for a motor. A zero `effort` / `velocity` is the *unfilled* value, so the attribute is **omitted** and MuJoCo's unbounded default stands, never `0 0`. A joint with no actuator keeps the comment naming what was dropped (ADR-0004 §4 as amended by ADR-0014) |
 | Dynamics | `<dynamics damping friction/>` | `damping`, `frictionloss`, `armature` on the `<joint>`, written only when non-zero |
 | Angles | radians | **`<compiler angle="radian" meshdir="meshes" autolimits="true"/>` is always written** — MJCF's default is degrees |
 

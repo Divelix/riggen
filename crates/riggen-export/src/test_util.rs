@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{
-    CollisionPolicy, Command, Frame, FrameId, Geom, Joint, JointKind, Limits, Link, LinkId,
-    MeshAsset, MeshId, Pose, Primitive, Robot,
+    ActuatorSpec, CollisionPolicy, Command, Frame, FrameId, Geom, Joint, JointKind, Limits, Link,
+    LinkId, MeshAsset, MeshId, Pose, Primitive, Robot,
 };
 use riggen_mesh::TriMesh;
 
@@ -122,9 +122,12 @@ impl Builder {
 /// base ─(revolute)─ upper ─(prismatic)─ slider ─(continuous)─ wheel
 /// ─(fixed)─ tip: every joint kind on one chain, an aluminium cube per
 /// link, one primitive collision, a rotated geom, two named frames —
-/// one on the root, one on the leaf, one of them rotated — and one mimic:
-/// the slider follows the hinge at `-0.5 q + 0.1` (ADR-0013), a reach of
-/// -0.4..0.6 inside its own ±1.
+/// one on the root, one on the leaf, one of them rotated — one mimic (the
+/// slider follows the hinge at `-0.5 q + 0.1`, ADR-0013, a reach of
+/// -0.4..0.6 inside its own ±1) — and two actuators (ADR-0014): a position
+/// servo on the hinge and a velocity one on the limitless wheel. The
+/// slider follows, so it may carry none, and the golden keeps the
+/// "need an <actuator>" comment beside the two that have one.
 pub(crate) fn every_joint_kind() -> Builder {
     let mut b = Builder::new();
     let cube = b.mesh("cube", TriMesh::cube(0.05));
@@ -154,6 +157,14 @@ pub(crate) fn every_joint_kind() -> Builder {
                 multiplier: -0.5,
                 offset: 0.1,
             });
+        }
+        if j.child == upper {
+            j.actuator = Some(ActuatorSpec::Position { kp: 100.0, kv: 5.0 });
+        }
+        if j.child == wheel {
+            // `Continuous`: no limits, so no `ctrlrange` and no
+            // `forcerange` — MuJoCo's unbounded defaults stand.
+            j.actuator = Some(ActuatorSpec::Velocity { kv: 2.0 });
         }
     }
     b.robot.links.get_mut(&wheel).unwrap().visuals[0].pose = Pose::new(
