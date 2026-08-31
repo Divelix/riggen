@@ -79,10 +79,19 @@ pub struct Joint {
     pub limits: Option<Limits>, // required for Revolute/Prismatic, absent for Continuous
     pub dynamics: Dynamics,     // damping, friction, armature (MJCF); defaults zero
     pub mimic: Option<Mimic>,   // this joint follows another one (ADR-0013); schema 2
+    pub actuator: Option<ActuatorSpec>, // what drives it in MJCF (ADR-0014); schema 3
 }
 
 /// q(this) = multiplier * q(joint) + offset — URDF's <mimic> (ADR-0013).
 pub struct Mimic { pub joint: JointId, pub multiplier: f64, pub offset: f64 }
+
+/// One <actuator> in the MJCF, named after its joint (ADR-0014). MJCF-only:
+/// URDF keeps <limit effort velocity/> and a comment naming what it lost.
+pub enum ActuatorSpec {
+    Position { kp: f64, kv: f64 },   // <position kp kv ctrlrange forcerange>
+    Velocity { kv: f64 },            // <velocity kv ctrlrange forcerange>
+    Motor    { gear: f64 },          // <motor gear ctrlrange forcerange>
+}
 
 pub enum JointKind { Fixed, Revolute, Continuous, Prismatic }
 
@@ -542,7 +551,7 @@ corpus file: the arm with every one of the above in it, whose FK matches
 
 ## Schema
 
-`{ "schema_version": 2, "robot": Robot }`. `Robot` derives
+`{ "schema_version": 3, "robot": Robot }`. `Robot` derives
 `serde::{Serialize, Deserialize}` with `#[serde(deny_unknown_fields)]` on
 every struct (the envelope too) so a typo in a hand-edited file fails loudly
 with the field's name, and `#[serde(default)]` only on fields added in a
@@ -557,13 +566,15 @@ document. `assets/fixtures/pendulum.riggen` (base + arm from the cube
 fixtures, one revolute hinge, produced by `save` itself) is the first corpus
 file and is frozen at **schema 1**: it is what the upgrade chain reads, and
 `file::tests::corpus_pendulum_opens` keeps it opening forever and re-saving
-as a v2 document that round-trips. The byte-for-byte fixtures are the v2
+as a v3 document that round-trips. The byte-for-byte fixtures are the v3
 ones, `bracket.riggen` and `arm/arm.riggen`.
 
-**Schema 2** adds `Joint::mimic` (ADR-0013). Its `upgrade_v1_to_v2` step is
-empty — a v1 file simply has no `mimic` key and `#[serde(default)]` fills in
-the `None` a v1 document meant — and it exists as the first link of the
-chain the next bump joins.
+**Schema 2** adds `Joint::mimic` (ADR-0013) and **schema 3** adds
+`Joint::actuator` (ADR-0014). Both `upgrade_` steps are empty for the same
+reason — an older file simply has no such key and `#[serde(default)]` fills
+in the `None` it meant — and they are the chain `load` walks;
+`file::tests::a_v2_file_opens_as_v3_with_no_actuators` pins the second, from
+a v2 document made by stripping the key back out of the committed fixture.
 
 `CollisionPolicy::ConvexDecomposition`'s `resolution` and `concavity` are so
 far the only fields added after their variant existed, and they are the

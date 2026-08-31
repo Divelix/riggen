@@ -1,4 +1,4 @@
-//! The `.riggen` file: `{ "schema_version": 2, "robot": Robot }` as JSON
+//! The `.riggen` file: `{ "schema_version": 3, "robot": Robot }` as JSON
 //! (docs/01-architecture.md §File format, docs/02-data-model.md §Schema).
 //!
 //! Mesh paths are **absolute in memory and relative to the file on disk**
@@ -25,9 +25,9 @@ use crate::ids::MeshId;
 use crate::robot::Robot;
 use crate::validate::{ValidationError, validate};
 
-/// The version this build writes and the newest it reads. 2 since
-/// `Joint::mimic` (ADR-0013).
-pub const SCHEMA_VERSION: u32 = 2;
+/// The version this build writes and the newest it reads. 3 since
+/// `Joint::actuator` (ADR-0014).
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// The oldest version [`load`] still accepts, upgrading it on the way in.
 pub const OLDEST_SCHEMA_VERSION: u32 = 1;
@@ -222,6 +222,7 @@ pub fn load(path: &Path) -> Result<(Robot, Vec<Warning>), FileError> {
     for from in header.schema_version..SCHEMA_VERSION {
         match from {
             1 => upgrade_v1_to_v2(&mut robot),
+            2 => upgrade_v2_to_v3(&mut robot),
             _ => unreachable!("no upgrade step from schema {from}"),
         }
     }
@@ -264,6 +265,11 @@ pub fn load(path: &Path) -> Result<(Robot, Vec<Warning>), FileError> {
 /// meant, so the step is a no-op on the parsed document. It exists as the
 /// first link of the chain [`load`] walks; the next bump joins it here.
 fn upgrade_v1_to_v2(_robot: &mut Robot) {}
+
+/// v2 → v3: `Joint::actuator` (ADR-0014), the same shape of bump and the
+/// same empty step — a v2 file has no `actuator` key and `None` is what it
+/// meant: nothing drove its joints.
+fn upgrade_v2_to_v3(_robot: &mut Robot) {}
 
 /// `target` expressed relative to `dir`, with `..` where needed and forward
 /// slashes. Both must be absolute. A target on another Windows drive has no
@@ -431,7 +437,7 @@ mod tests {
         save(&robot, &file).unwrap();
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(
-            text.starts_with("{\n  \"schema_version\": 2,\n  \"robot\": {"),
+            text.starts_with("{\n  \"schema_version\": 3,\n  \"robot\": {"),
             "{text}"
         );
         assert!(text.contains("\"path\": \"base.stl\""), "{text}");
@@ -497,7 +503,7 @@ mod tests {
             std::fs::write(
                 &file,
                 text.replacen(
-                    "\"schema_version\": 2",
+                    "\"schema_version\": 3",
                     &format!("\"schema_version\": {bogus}"),
                     1,
                 ),
@@ -508,7 +514,7 @@ mod tests {
                 matches!(err, FileError::UnsupportedVersion { found, .. } if found == bogus),
                 "{err:?}"
             );
-            assert!(err.to_string().contains("1–2"), "{err}");
+            assert!(err.to_string().contains("1–3"), "{err}");
         }
         std::fs::write(&file, &text).unwrap();
         // A hand-edited file that breaks an invariant.
@@ -555,7 +561,7 @@ mod tests {
         // Two named frames, saved and read back with the rest (ADR-0012);
         // `frames` is a v1 field that finally holds something, so the
         // schema does not move.
-        assert_eq!(SCHEMA_VERSION, 2, "the mimic joint is schema 2 (ADR-0013)");
+        assert_eq!(SCHEMA_VERSION, 3, "the actuator is schema 3 (ADR-0014)");
         assert_eq!(robot.frames.len(), 2);
         let frame = |n: &str| robot.frames.values().find(|f| f.name == n).unwrap();
         assert_eq!(frame("tcp").pose.t, DVec3::new(0.0, 0.0, 0.08));
@@ -664,16 +670,21 @@ mod tests {
         // It is the **v1** corpus and stays one forever: the upgrade chain
         // needs a real old document to read (§Schema, ADR-0013). So this
         // one cannot also be the byte-for-byte fixture — `bracket.riggen`
-        // and `arm/arm.riggen` are, at v2.
+        // and `arm/arm.riggen` are, at v3.
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(text.contains("\"schema_version\": 1"), "{text}");
         assert!(!text.contains("mimic"), "a v1 file has no mimic key");
+        assert!(!text.contains("actuator"), "nor an actuator key");
         assert!(
             robot.joints.values().all(|j| j.mimic.is_none()),
             "upgrade_v1_to_v2 fills mimic in as None"
         );
+        assert!(
+            robot.joints.values().all(|j| j.actuator.is_none()),
+            "and upgrade_v2_to_v3 fills actuator in as None"
+        );
 
-        // Re-saving it writes v2, and that round-trips to the same document.
+        // Re-saving it writes v3, and that round-trips to the same document.
         let dir = scratch("corpus");
         let again = dir.join("pendulum.riggen");
         // Relative paths only survive a same-directory save; copy the meshes.
@@ -686,9 +697,38 @@ mod tests {
         }
         save(&relocated, &again).unwrap();
         let upgraded = std::fs::read_to_string(&again).unwrap();
-        assert!(upgraded.contains("\"schema_version\": 2"), "{upgraded}");
+        assert!(upgraded.contains("\"schema_version\": 3"), "{upgraded}");
         assert!(upgraded.contains("\"mimic\": null"), "{upgraded}");
+        assert!(upgraded.contains("\"actuator\": null"), "{upgraded}");
         assert_eq!(load(&again).unwrap().0, relocated);
+    }
+
+    /// A v2 document — one written before `Joint::actuator` existed
+    /// (ADR-0014) — opens with `None` on every joint and re-saves as v3.
+    /// Built by stripping the key back out of the committed v3 fixture, so
+    /// it is a whole real document rather than a fragment (§Schema).
+    #[test]
+    fn a_v2_file_opens_as_v3_with_no_actuators() {
+        let dir = scratch("v2");
+        std::fs::copy(fixtures().join("bracket.stl"), dir.join("bracket.stl")).unwrap();
+        let text = std::fs::read_to_string(fixtures().join("bracket.riggen")).unwrap();
+        let old = text
+            .replace("\"schema_version\": 3", "\"schema_version\": 2")
+            .replace(",\n        \"actuator\": null", "");
+        assert!(!old.contains("actuator"), "{old}");
+        assert_ne!(old, text);
+        let file = dir.join("bracket.riggen");
+        std::fs::write(&file, &old).unwrap();
+
+        let (robot, warnings) = load(&file).unwrap();
+        assert_eq!(warnings, vec![]);
+        assert!(robot.joints.values().all(|j| j.actuator.is_none()));
+        save(&robot, &file).unwrap();
+        let upgraded = std::fs::read_to_string(&file).unwrap();
+        assert!(upgraded.contains("\"schema_version\": 3"), "{upgraded}");
+        assert!(upgraded.contains("\"actuator\": null"), "{upgraded}");
+        assert_eq!(load(&file).unwrap().0, robot);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A `.riggen` written before `ConvexDecomposition` grew `resolution`

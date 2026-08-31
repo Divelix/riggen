@@ -101,6 +101,10 @@ pub struct Joint {
     /// Added in schema 2, hence the `default`: a v1 file has no such key.
     #[serde(default)]
     pub mimic: Option<Mimic>,
+    /// What drives this joint in MJCF (ADR-0014). Added in schema 3, hence
+    /// the `default`: a v2 file has no such key.
+    #[serde(default)]
+    pub actuator: Option<ActuatorSpec>,
 }
 
 /// A coupled degree of freedom: `q(this) = multiplier * q(joint) + offset`
@@ -117,6 +121,32 @@ pub struct Mimic {
     pub offset: f64,
 }
 
+/// The actuator a movable joint carries, as one of the three presets an RL
+/// user reaches for (ADR-0014). MJCF-only: it is written as an `<actuator>`
+/// element named after its joint, with `ctrlrange` from the joint's limits
+/// and `forcerange` from `Limits::effort`. URDF has no actuator and says so
+/// in a comment.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum ActuatorSpec {
+    /// `<position kp kv>`: a servo tracking a target angle / offset.
+    Position { kp: f64, kv: f64 },
+    /// `<velocity kv>`: a servo tracking a target rate.
+    Velocity { kv: f64 },
+    /// `<motor gear>`: direct force / torque, `ctrl` normalised to `-1 1`.
+    Motor { gear: f64 },
+}
+
+impl ActuatorSpec {
+    /// The MJCF element name, and what the panel's combo labels it.
+    pub fn kind_name(self) -> &'static str {
+        match self {
+            Self::Position { .. } => "position",
+            Self::Velocity { .. } => "velocity",
+            Self::Motor { .. } => "motor",
+        }
+    }
+}
+
 impl Joint {
     /// A `Fixed` joint at identity from `parent` to `child`.
     pub fn fixed(name: impl Into<String>, parent: LinkId, child: LinkId) -> Self {
@@ -130,6 +160,7 @@ impl Joint {
             limits: None,
             dynamics: Dynamics::default(),
             mimic: None,
+            actuator: None,
         }
     }
 }

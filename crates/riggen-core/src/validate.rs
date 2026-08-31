@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::ids::{FrameId, GeomId, JointId, LinkId, MeshId};
-use crate::robot::Robot;
+use crate::robot::{ActuatorSpec, Robot};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationError {
@@ -119,6 +119,26 @@ pub enum ValidationError {
         lower: f64,
         upper: f64,
     },
+    // ---- actuators (ADR-0014) --------------------------------------------
+    /// A `Fixed` joint carries an actuator: MJCF writes no `<joint>` for it,
+    /// so there is nothing for the `<actuator>` to drive.
+    ActuatorOnFixedJoint(JointId),
+    /// An actuator on a joint that mimics another. The follower is already
+    /// driven by the `<equality>` the mimic writes (ADR-0013); actuating it
+    /// too sets the two against each other.
+    ActuatorOnMimicFollower {
+        joint: JointId,
+        leader: JointId,
+    },
+    /// A gain MuJoCo cannot use: a negative `kp` / `kv`, or a zero `gear`.
+    /// `what` names the gain and its value. (A *non-finite* one is
+    /// [`NonFinite`], as for every other number in the document.)
+    ///
+    /// [`NonFinite`]: ValidationError::NonFinite
+    InvalidActuatorGain {
+        joint: JointId,
+        what: String,
+    },
 }
 
 impl fmt::Display for ValidationError {
@@ -203,6 +223,17 @@ impl fmt::Display for ValidationError {
                 f,
                 "joint {joint} following {leader} reaches {lower}..{upper}, outside its own limits"
             ),
+            Self::ActuatorOnFixedJoint(j) => write!(
+                f,
+                "fixed joint {j} cannot carry an actuator: it has no degree of freedom to drive"
+            ),
+            Self::ActuatorOnMimicFollower { joint, leader } => write!(
+                f,
+                "joint {joint} cannot carry an actuator: it follows {leader}, which already drives it"
+            ),
+            Self::InvalidActuatorGain { joint, what } => {
+                write!(f, "actuator of joint {joint} has {what}")
+            }
         }
     }
 }
@@ -236,6 +267,7 @@ pub fn validation_errors(robot: &Robot) -> Vec<ValidationError> {
     check_names(robot, &mut errors);
     check_joints(robot, &mut errors);
     check_mimics(robot, &mut errors);
+    check_actuators(robot, &mut errors);
     errors
 }
 
@@ -534,12 +566,59 @@ fn check_mimics(robot: &Robot, errors: &mut Vec<ValidationError>) {
     }
 }
 
+/// Actuators (ADR-0014): only a movable joint that is not already driven by
+/// a mimic may carry one, and its gains must be numbers MuJoCo can use.
+fn check_actuators(robot: &Robot, errors: &mut Vec<ValidationError>) {
+    for (&jid, joint) in &robot.joints {
+        let Some(actuator) = joint.actuator else {
+            continue;
+        };
+        if !joint.kind.is_movable() {
+            errors.push(ValidationError::ActuatorOnFixedJoint(jid));
+            continue;
+        }
+        if let Some(mimic) = joint.mimic {
+            errors.push(ValidationError::ActuatorOnMimicFollower {
+                joint: jid,
+                leader: mimic.joint,
+            });
+            continue;
+        }
+        // `(name, value, is usable)`. `kp` / `kv` may be zero — a position
+        // servo with no damping is ordinary — but never negative, which
+        // would push the joint away from its target; a `gear` may be
+        // negative (it reverses the joint) but never zero, which is an
+        // actuator that cannot move it at all.
+        let gains: [Option<(&str, f64, bool)>; 2] = match actuator {
+            ActuatorSpec::Position { kp, kv } => {
+                [Some(("kp", kp, kp >= 0.0)), Some(("kv", kv, kv >= 0.0))]
+            }
+            ActuatorSpec::Velocity { kv } => [Some(("kv", kv, kv >= 0.0)), None],
+            ActuatorSpec::Motor { gear } => [Some(("gear", gear, gear != 0.0)), None],
+        };
+        for (name, value, usable) in gains.into_iter().flatten() {
+            if !value.is_finite() {
+                errors.push(ValidationError::NonFinite {
+                    what: format!("{name} of the actuator of joint {jid}"),
+                });
+            } else if !usable {
+                errors.push(ValidationError::InvalidActuatorGain {
+                    joint: jid,
+                    what: format!("{name} {value}"),
+                });
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ids::Id;
     use crate::pose::Pose;
-    use crate::robot::{Frame, Geom, Joint, JointKind, Limits, Link, MeshAsset, Mimic};
+    use crate::robot::{
+        ActuatorSpec, Frame, Geom, Joint, JointKind, Limits, Link, MeshAsset, Mimic,
+    };
     use riggen_mesh::glam::{DVec3, dvec3};
     use std::path::PathBuf;
 
@@ -1126,5 +1205,100 @@ mod tests {
                 upper: f64::INFINITY
             })
         );
+    }
+
+    // ---- actuators (ADR-0014) --------------------------------------------
+
+    fn actuate(robot: &mut Robot, joint: JointId, actuator: ActuatorSpec) {
+        robot.joints.get_mut(&joint).unwrap().actuator = Some(actuator);
+    }
+
+    #[test]
+    fn an_actuator_needs_a_movable_joint_that_nothing_else_drives() {
+        let (mut robot, [j0, _, _]) = movable_chain();
+        actuate(
+            &mut robot,
+            j0,
+            ActuatorSpec::Position { kp: 100.0, kv: 5.0 },
+        );
+        assert_eq!(validate(&robot), Ok(()), "the ordinary case");
+
+        // A `Fixed` joint has no `<joint>` in the MJCF to drive.
+        robot.joints.get_mut(&j0).unwrap().kind = JointKind::Fixed;
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::ActuatorOnFixedJoint(j0))
+        );
+
+        // A mimic follower is already driven by its `<equality>`.
+        let (mut robot, [j0, j1, _]) = movable_chain();
+        mimic(&mut robot, j1, j0, 0.5, 0.0);
+        actuate(&mut robot, j1, ActuatorSpec::Motor { gear: 1.0 });
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::ActuatorOnMimicFollower {
+                joint: j1,
+                leader: j0
+            })
+        );
+        // The leader may carry one: that is how a coupled pair is driven.
+        robot.joints.get_mut(&j1).unwrap().actuator = None;
+        actuate(&mut robot, j0, ActuatorSpec::Motor { gear: 1.0 });
+        assert_eq!(validate(&robot), Ok(()));
+    }
+
+    #[test]
+    fn actuator_gains_must_be_numbers_mujoco_can_use() {
+        let (mut robot, [j0, _, _]) = movable_chain();
+        // Zero gains are ordinary for a servo…
+        actuate(&mut robot, j0, ActuatorSpec::Position { kp: 0.0, kv: 0.0 });
+        assert_eq!(validate(&robot), Ok(()));
+        // …but a negative one pushes the joint away from its target.
+        actuate(&mut robot, j0, ActuatorSpec::Position { kp: -1.0, kv: 5.0 });
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::InvalidActuatorGain {
+                joint: j0,
+                what: "kp -1".into()
+            })
+        );
+        actuate(&mut robot, j0, ActuatorSpec::Velocity { kv: -0.5 });
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::InvalidActuatorGain {
+                joint: j0,
+                what: "kv -0.5".into()
+            })
+        );
+        // A negative `gear` merely reverses the joint; a zero one is an
+        // actuator that cannot move it.
+        actuate(&mut robot, j0, ActuatorSpec::Motor { gear: -50.0 });
+        assert_eq!(validate(&robot), Ok(()));
+        actuate(&mut robot, j0, ActuatorSpec::Motor { gear: 0.0 });
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::InvalidActuatorGain {
+                joint: j0,
+                what: "gear 0".into()
+            })
+        );
+        for actuator in [
+            ActuatorSpec::Position {
+                kp: f64::NAN,
+                kv: 1.0,
+            },
+            ActuatorSpec::Velocity { kv: f64::INFINITY },
+            ActuatorSpec::Motor {
+                gear: f64::NEG_INFINITY,
+            },
+        ] {
+            actuate(&mut robot, j0, actuator);
+            let err = validate(&robot).unwrap_err();
+            assert!(
+                matches!(&err, ValidationError::NonFinite { what }
+                    if what.contains(&format!("actuator of joint {j0}"))),
+                "{err}"
+            );
+        }
     }
 }
