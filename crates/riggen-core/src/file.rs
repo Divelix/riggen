@@ -597,7 +597,24 @@ mod tests {
             .unwrap()
             .0;
         assert!((world[&fore].t - DVec3::new(0.0, 0.0, 0.195)).length() < 1e-12);
-        // …and the TCP rides it, 80 mm further out.
+        // …and the TCP rides it, 80 mm further out — but no longer
+        // straight up: `fore_joint` follows `upper_joint` at
+        // `-0.5 q + 0.1` (ADR-0013), so the forearm sits at 0.1 rad about
+        // Y even in the rest configuration, and the sample's whole point
+        // is that the coupling is visible in the numbers.
+        let fore_joint = *robot
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "fore_joint")
+            .unwrap()
+            .0;
+        let mimic = robot.joints[&fore_joint].mimic.expect("the coupling");
+        assert_eq!(robot.joints[&mimic.joint].name, "upper_joint");
+        assert_eq!((mimic.multiplier, mimic.offset), (-0.5, 0.1));
+        assert_eq!(
+            crate::resolve_q(&robot, &crate::JointState::default()).get(fore_joint),
+            0.1
+        );
         let tcp = *robot
             .frames
             .iter()
@@ -605,7 +622,8 @@ mod tests {
             .unwrap()
             .0;
         let world_frames = crate::frames(&robot, &crate::JointState::default());
-        assert!((world_frames[&tcp].t - DVec3::new(0.0, 0.0, 0.275)).length() < 1e-12);
+        let swung = DVec3::new(0.08 * 0.1_f64.sin(), 0.0, 0.195 + 0.08 * 0.1_f64.cos());
+        assert!((world_frames[&tcp].t - swung).length() < 1e-12);
 
         let dir = scratch("corpus-arm");
         for mesh in ["base.stl", "shoulder.stl", "upper.stl", "fore.stl"] {

@@ -130,7 +130,7 @@
     <child link="fore"/>
     <axis xyz="0 1 0"/>
     <dynamics damping="0.05" friction="0"/>
-    <mimic joint="upper_joint" multiplier="1" offset="0"/>
+    <mimic joint="upper_joint" multiplier="-0.5" offset="0.1"/>
   </joint>
 
   <joint name="tcp_fixed" type="fixed">

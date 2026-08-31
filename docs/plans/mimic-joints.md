@@ -125,7 +125,7 @@ and the import-warning docstring at `robot.py:1101` loses "mimic".
 - [x] **Step 3 — import: URDF `<mimic>` becomes a `Mimic`.** `urdf_in`
   reads it; `MimicDropped` narrows to a `reason` and keeps its inline test
   coverage for the chain / fixed-leader / unknown-leader cases.
-- [ ] **Step 4 — the corpus, and MuJoCo proves it.** `assets/fixtures/arm`
+- [x] **Step 4 — the corpus, and MuJoCo proves it.** `assets/fixtures/arm`
   gains a non-degenerate mimic on `fore_joint` — `multiplier="-0.5"
   offset="0.1"`, replacing the `multiplier="1" offset="0"` that was there
   only to warn on — in **both** `arm.urdf` and `arm.riggen`, so the pair
