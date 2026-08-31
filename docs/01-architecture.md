@@ -590,7 +590,7 @@ re-resolves on every option change" stay backlog lines.
 
 ## File format
 
-`robot.riggen` is JSON: `{ "schema_version": 1, "robot": Robot }`
+`robot.riggen` is JSON: `{ "schema_version": 2, "robot": Robot }`
 (02 §Schema). Mesh paths are **absolute in memory and relative to the
 `.riggen` file on disk**, forward slashes: `riggen_core::save` rebases
 them on the way out and `load` resolves them on the way in, so nothing

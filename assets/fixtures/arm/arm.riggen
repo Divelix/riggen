@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "robot": {
     "name": "arm",
     "links": {
@@ -164,7 +164,8 @@
           "damping": 0.0,
           "friction": 0.0,
           "armature": 0.0
-        }
+        },
+        "mimic": null
       },
       "j8": {
         "name": "shoulder_joint",
@@ -199,7 +200,8 @@
           "damping": 0.05,
           "friction": 0.0,
           "armature": 0.0
-        }
+        },
+        "mimic": null
       },
       "j12": {
         "name": "upper_joint",
@@ -234,7 +236,8 @@
           "damping": 0.05,
           "friction": 0.0,
           "armature": 0.0
-        }
+        },
+        "mimic": null
       },
       "j16": {
         "name": "fore_joint",
@@ -269,7 +272,8 @@
           "damping": 0.05,
           "friction": 0.0,
           "armature": 0.0
-        }
+        },
+        "mimic": null
       }
     },
     "frames": {

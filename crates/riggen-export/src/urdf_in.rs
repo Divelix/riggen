@@ -282,6 +282,9 @@ pub fn from_urdf(
                 axis: DVec3::from_array(*joint.axis.xyz),
                 limits,
                 dynamics,
+                // Still dropped, with the warning above; the import reads
+                // `<mimic>` in plans/mimic-joints step 3.
+                mimic: None,
             },
         );
     }

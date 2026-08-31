@@ -1,4 +1,4 @@
-//! The `.riggen` file: `{ "schema_version": 1, "robot": Robot }` as JSON
+//! The `.riggen` file: `{ "schema_version": 2, "robot": Robot }` as JSON
 //! (docs/01-architecture.md §File format, docs/02-data-model.md §Schema).
 //!
 //! Mesh paths are **absolute in memory and relative to the file on disk**
@@ -10,7 +10,10 @@
 //!
 //! A schema bump comes with an `upgrade_vN_to_vN+1` step and a corpus file
 //! under `assets/fixtures/` that must open forever; `pendulum.riggen` is
-//! the first.
+//! the first, and it stays at schema 1 so the upgrade chain has something
+//! old to read. [`load`] accepts every version from
+//! [`OLDEST_SCHEMA_VERSION`] up and walks the chain to [`SCHEMA_VERSION`];
+//! [`save`] always writes the newest.
 
 use std::fmt;
 use std::io;
@@ -22,14 +25,18 @@ use crate::ids::MeshId;
 use crate::robot::Robot;
 use crate::validate::{ValidationError, validate};
 
-/// The version this build writes and the newest it reads.
-pub const SCHEMA_VERSION: u32 = 1;
+/// The version this build writes and the newest it reads. 2 since
+/// `Joint::mimic` (ADR-0013).
+pub const SCHEMA_VERSION: u32 = 2;
+
+/// The oldest version [`load`] still accepts, upgrading it on the way in.
+pub const OLDEST_SCHEMA_VERSION: u32 = 1;
 
 /// The file envelope. `deny_unknown_fields` here too: a stray top-level key
 /// is as much a typo as one inside `robot`.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct FileV1 {
+struct File {
     schema_version: u32,
     robot: Robot,
 }
@@ -72,7 +79,7 @@ impl fmt::Display for FileError {
             Self::Json { path, source } => write!(f, "{}: {source}", path.display()),
             Self::UnsupportedVersion { path, found } => write!(
                 f,
-                "{}: schema version {found} is newer than the {SCHEMA_VERSION} this build reads",
+                "{}: schema version {found} is not one of the {OLDEST_SCHEMA_VERSION}–{SCHEMA_VERSION} this build reads",
                 path.display()
             ),
             Self::Invalid { path, source } => write!(f, "{}: {source}", path.display()),
@@ -173,7 +180,7 @@ pub fn save(robot: &Robot, path: &Path) -> Result<(), FileError> {
         asset.path = relative_to(dir, &abs);
     }
 
-    let file = FileV1 {
+    let file = File {
         schema_version: SCHEMA_VERSION,
         robot: on_disk,
     };
@@ -201,14 +208,23 @@ pub fn load(path: &Path) -> Result<(Robot, Vec<Warning>), FileError> {
         source,
     };
     let header: Header = serde_json::from_str(&text).map_err(json)?;
-    if header.schema_version != SCHEMA_VERSION {
+    if !(OLDEST_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&header.schema_version) {
         return Err(FileError::UnsupportedVersion {
             path: path.to_owned(),
             found: header.schema_version,
         });
     }
-    let file: FileV1 = serde_json::from_str(&text).map_err(json)?;
+    // Every version so far parses into today's `Robot` — the fields added
+    // since carry `#[serde(default)]` — so the chain runs on the parsed
+    // document rather than on the JSON.
+    let file: File = serde_json::from_str(&text).map_err(json)?;
     let mut robot = file.robot;
+    for from in header.schema_version..SCHEMA_VERSION {
+        match from {
+            1 => upgrade_v1_to_v2(&mut robot),
+            _ => unreachable!("no upgrade step from schema {from}"),
+        }
+    }
 
     let path_abs = absolute(path).map_err(|source| FileError::Io {
         path: path.to_owned(),
@@ -242,6 +258,12 @@ pub fn load(path: &Path) -> Result<(Robot, Vec<Warning>), FileError> {
     }
     Ok((robot, warnings))
 }
+
+/// v1 → v2: `Joint::mimic` (ADR-0013). A v1 file simply has no `mimic`
+/// key and serde's default fills in `None`, which is what a v1 document
+/// meant, so the step is a no-op on the parsed document. It exists as the
+/// first link of the chain [`load`] walks; the next bump joins it here.
+fn upgrade_v1_to_v2(_robot: &mut Robot) {}
 
 /// `target` expressed relative to `dir`, with `..` where needed and forward
 /// slashes. Both must be absolute. A target on another Windows drive has no
@@ -409,7 +431,7 @@ mod tests {
         save(&robot, &file).unwrap();
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(
-            text.starts_with("{\n  \"schema_version\": 1,\n  \"robot\": {"),
+            text.starts_with("{\n  \"schema_version\": 2,\n  \"robot\": {"),
             "{text}"
         );
         assert!(text.contains("\"path\": \"base.stl\""), "{text}");
@@ -471,15 +493,24 @@ mod tests {
         let (robot, file) = pendulum_in(&dir);
         save(&robot, &file).unwrap();
         let text = std::fs::read_to_string(&file).unwrap();
-        std::fs::write(
-            &file,
-            text.replacen("\"schema_version\": 1", "\"schema_version\": 2", 1),
-        )
-        .unwrap();
-        assert!(matches!(
-            load(&file),
-            Err(FileError::UnsupportedVersion { found: 2, .. })
-        ));
+        for bogus in [0, SCHEMA_VERSION + 1] {
+            std::fs::write(
+                &file,
+                text.replacen(
+                    "\"schema_version\": 2",
+                    &format!("\"schema_version\": {bogus}"),
+                    1,
+                ),
+            )
+            .unwrap();
+            let err = load(&file).unwrap_err();
+            assert!(
+                matches!(err, FileError::UnsupportedVersion { found, .. } if found == bogus),
+                "{err:?}"
+            );
+            assert!(err.to_string().contains("1–2"), "{err}");
+        }
+        std::fs::write(&file, &text).unwrap();
         // A hand-edited file that breaks an invariant.
         std::fs::write(
             &file,
@@ -524,7 +555,7 @@ mod tests {
         // Two named frames, saved and read back with the rest (ADR-0012);
         // `frames` is a v1 field that finally holds something, so the
         // schema does not move.
-        assert_eq!(SCHEMA_VERSION, 1, "frames need no schema bump");
+        assert_eq!(SCHEMA_VERSION, 2, "the mimic joint is schema 2 (ADR-0013)");
         assert_eq!(robot.frames.len(), 2);
         let frame = |n: &str| robot.frames.values().find(|f| f.name == n).unwrap();
         assert_eq!(frame("tcp").pose.t, DVec3::new(0.0, 0.0, 0.08));
@@ -612,8 +643,19 @@ mod tests {
             assert!(asset.path.is_absolute());
             assert!(asset.path.exists(), "{}", asset.path.display());
         }
-        // Saving it again reproduces the committed bytes: the fixture is
-        // what `save` writes, so a format drift shows up here.
+        // It is the **v1** corpus and stays one forever: the upgrade chain
+        // needs a real old document to read (§Schema, ADR-0013). So this
+        // one cannot also be the byte-for-byte fixture — `bracket.riggen`
+        // and `arm/arm.riggen` are, at v2.
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("\"schema_version\": 1"), "{text}");
+        assert!(!text.contains("mimic"), "a v1 file has no mimic key");
+        assert!(
+            robot.joints.values().all(|j| j.mimic.is_none()),
+            "upgrade_v1_to_v2 fills mimic in as None"
+        );
+
+        // Re-saving it writes v2, and that round-trips to the same document.
         let dir = scratch("corpus");
         let again = dir.join("pendulum.riggen");
         // Relative paths only survive a same-directory save; copy the meshes.
@@ -625,10 +667,10 @@ mod tests {
             asset.path = dir.join(asset.path.file_name().unwrap());
         }
         save(&relocated, &again).unwrap();
-        assert_eq!(
-            std::fs::read_to_string(&again).unwrap(),
-            std::fs::read_to_string(&file).unwrap()
-        );
+        let upgraded = std::fs::read_to_string(&again).unwrap();
+        assert!(upgraded.contains("\"schema_version\": 2"), "{upgraded}");
+        assert!(upgraded.contains("\"mimic\": null"), "{upgraded}");
+        assert_eq!(load(&again).unwrap().0, relocated);
     }
 
     /// A `.riggen` written before `ConvexDecomposition` grew `resolution`

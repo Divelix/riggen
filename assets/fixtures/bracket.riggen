@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "robot": {
     "name": "bracket",
     "links": {
@@ -85,7 +85,8 @@
           "damping": 0.0,
           "friction": 0.0,
           "armature": 0.0
-        }
+        },
+        "mimic": null
       }
     },
     "frames": {},

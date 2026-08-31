@@ -83,6 +83,42 @@ pub enum ValidationError {
     NonFinite {
         what: String,
     },
+    // ---- mimic joints (ADR-0013) -----------------------------------------
+    /// A mimic's `joint` names no joint.
+    DanglingMimicJoint {
+        joint: JointId,
+        leader: JointId,
+    },
+    /// A joint mimics itself.
+    SelfMimic(JointId),
+    /// A `Fixed` joint carries a mimic: it has no degree of freedom to
+    /// drive, and MJCF writes no `<joint>` for it to couple.
+    MimicOnFixedJoint(JointId),
+    /// A mimic whose leader is `Fixed`, so there is nothing to follow.
+    MimicLeaderFixed {
+        joint: JointId,
+        leader: JointId,
+    },
+    /// A mimic whose leader itself mimics. Chains are out of scope
+    /// (ADR-0013): consumer support for them is a lottery and MuJoCo wants
+    /// them flattened against the free joint anyway.
+    MimicChain {
+        joint: JointId,
+        leader: JointId,
+    },
+    /// A mimic with a zero `multiplier`: the follower would be pinned to a
+    /// constant, which is a `Fixed` joint spelled the hard way.
+    ZeroMimicMultiplier(JointId),
+    /// The leader's range mapped through `(multiplier, offset)` does not
+    /// fit inside the follower's own limits; `lower` / `upper` are that
+    /// mapped reach. MJCF would give the follower a `range` its equality
+    /// constraint fights (ADR-0013).
+    MimicExceedsLimits {
+        joint: JointId,
+        leader: JointId,
+        lower: f64,
+        upper: f64,
+    },
 }
 
 impl fmt::Display for ValidationError {
@@ -140,6 +176,33 @@ impl fmt::Display for ValidationError {
                 upper,
             } => write!(f, "joint {joint} limits are unordered: {lower} > {upper}"),
             Self::NonFinite { what } => write!(f, "{what} is not a finite number"),
+            Self::DanglingMimicJoint { joint, leader } => {
+                write!(f, "joint {joint} mimics missing joint {leader}")
+            }
+            Self::SelfMimic(j) => write!(f, "joint {j} mimics itself"),
+            Self::MimicOnFixedJoint(j) => {
+                write!(f, "fixed joint {j} cannot mimic: it has no value to drive")
+            }
+            Self::MimicLeaderFixed { joint, leader } => write!(
+                f,
+                "joint {joint} mimics fixed joint {leader}, which has no value to follow"
+            ),
+            Self::MimicChain { joint, leader } => write!(
+                f,
+                "joint {joint} mimics {leader}, which is itself a mimic: mimic chains are not supported"
+            ),
+            Self::ZeroMimicMultiplier(j) => {
+                write!(f, "joint {j} has a zero mimic multiplier")
+            }
+            Self::MimicExceedsLimits {
+                joint,
+                leader,
+                lower,
+                upper,
+            } => write!(
+                f,
+                "joint {joint} following {leader} reaches {lower}..{upper}, outside its own limits"
+            ),
         }
     }
 }
@@ -172,6 +235,7 @@ pub fn validation_errors(robot: &Robot) -> Vec<ValidationError> {
     check_references(robot, &mut errors);
     check_names(robot, &mut errors);
     check_joints(robot, &mut errors);
+    check_mimics(robot, &mut errors);
     errors
 }
 
@@ -401,12 +465,81 @@ fn check_joints(robot: &Robot, errors: &mut Vec<ValidationError>) {
     }
 }
 
+/// Mimic joints (ADR-0013): the leader must exist, move, and not itself
+/// mimic; the rule must be a real linear map; and the reach it gives the
+/// follower must fit the limits the follower will be exported with.
+fn check_mimics(robot: &Robot, errors: &mut Vec<ValidationError>) {
+    for (&jid, joint) in &robot.joints {
+        let Some(mimic) = joint.mimic else { continue };
+        if !mimic.multiplier.is_finite() || !mimic.offset.is_finite() {
+            errors.push(ValidationError::NonFinite {
+                what: format!("mimic of joint {jid}"),
+            });
+            continue;
+        }
+        if mimic.multiplier == 0.0 {
+            errors.push(ValidationError::ZeroMimicMultiplier(jid));
+            continue;
+        }
+        if !joint.kind.is_movable() {
+            errors.push(ValidationError::MimicOnFixedJoint(jid));
+            continue;
+        }
+        if mimic.joint == jid {
+            errors.push(ValidationError::SelfMimic(jid));
+            continue;
+        }
+        let Some(leader) = robot.joints.get(&mimic.joint) else {
+            errors.push(ValidationError::DanglingMimicJoint {
+                joint: jid,
+                leader: mimic.joint,
+            });
+            continue;
+        };
+        if !leader.kind.is_movable() {
+            errors.push(ValidationError::MimicLeaderFixed {
+                joint: jid,
+                leader: mimic.joint,
+            });
+            continue;
+        }
+        if leader.mimic.is_some() {
+            errors.push(ValidationError::MimicChain {
+                joint: jid,
+                leader: mimic.joint,
+            });
+            continue;
+        }
+        // A `Continuous` follower has no range to leave, so the check is
+        // vacuous; a `Continuous` leader has an unbounded one, which no
+        // bounded follower can contain.
+        let Some(own) = joint.limits else { continue };
+        let (lo, hi) = match leader.limits {
+            Some(l) => (l.lower, l.upper),
+            None => (f64::NEG_INFINITY, f64::INFINITY),
+        };
+        let ends = [
+            mimic.multiplier * lo + mimic.offset,
+            mimic.multiplier * hi + mimic.offset,
+        ];
+        let (lower, upper) = (ends[0].min(ends[1]), ends[0].max(ends[1]));
+        if lower < own.lower || upper > own.upper {
+            errors.push(ValidationError::MimicExceedsLimits {
+                joint: jid,
+                leader: mimic.joint,
+                lower,
+                upper,
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ids::Id;
     use crate::pose::Pose;
-    use crate::robot::{Frame, Geom, Joint, JointKind, Limits, Link, MeshAsset};
+    use crate::robot::{Frame, Geom, Joint, JointKind, Limits, Link, MeshAsset, Mimic};
     use riggen_mesh::glam::{DVec3, dvec3};
     use std::path::PathBuf;
 
@@ -824,6 +957,174 @@ mod tests {
                 ValidationError::DuplicateLinkName("base_link".into()),
                 ValidationError::MissingLimits(arm_j),
             ]
+        );
+    }
+
+    // ---- mimic joints (ADR-0013) -----------------------------------------
+
+    /// base ─j0─ a ─j1─ b ─j2─ c, every joint revolute about Z with ±3
+    /// limits, so any of them may lead or follow.
+    fn movable_chain() -> (Robot, [JointId; 3]) {
+        let mut robot = Robot::new("r");
+        let root = robot.root;
+        let (a, j0) = add_link(&mut robot, root, "a");
+        let (b, j1) = add_link(&mut robot, a, "b");
+        let (_, j2) = add_link(&mut robot, b, "c");
+        for j in [j0, j1, j2] {
+            let joint = robot.joints.get_mut(&j).unwrap();
+            joint.kind = JointKind::Revolute;
+            joint.axis = DVec3::Z;
+            joint.limits = Some(Limits {
+                lower: -3.0,
+                upper: 3.0,
+                effort: 0.0,
+                velocity: 0.0,
+            });
+        }
+        assert_eq!(validate(&robot), Ok(()));
+        (robot, [j0, j1, j2])
+    }
+
+    fn mimic(robot: &mut Robot, follower: JointId, leader: JointId, multiplier: f64, offset: f64) {
+        robot.joints.get_mut(&follower).unwrap().mimic = Some(Mimic {
+            joint: leader,
+            multiplier,
+            offset,
+        });
+    }
+
+    #[test]
+    fn a_mimic_leader_must_exist_be_movable_and_not_be_the_follower() {
+        let (mut robot, [j0, j1, _]) = movable_chain();
+        mimic(&mut robot, j1, j0, -0.5, 0.1);
+        assert_eq!(validate(&robot), Ok(()), "the ordinary case");
+
+        let ghost = JointId::from_raw(999);
+        mimic(&mut robot, j1, ghost, 1.0, 0.0);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::DanglingMimicJoint {
+                joint: j1,
+                leader: ghost
+            })
+        );
+
+        mimic(&mut robot, j1, j1, 1.0, 0.0);
+        assert_eq!(validate(&robot), Err(ValidationError::SelfMimic(j1)));
+
+        mimic(&mut robot, j1, j0, 1.0, 0.0);
+        robot.joints.get_mut(&j0).unwrap().kind = JointKind::Fixed;
+        robot.joints.get_mut(&j0).unwrap().limits = None;
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::MimicLeaderFixed {
+                joint: j1,
+                leader: j0
+            })
+        );
+    }
+
+    #[test]
+    fn a_fixed_joint_cannot_follow_anything() {
+        let (mut robot, [j0, j1, _]) = movable_chain();
+        mimic(&mut robot, j1, j0, 1.0, 0.0);
+        let follower = robot.joints.get_mut(&j1).unwrap();
+        follower.kind = JointKind::Fixed;
+        follower.limits = None;
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::MimicOnFixedJoint(j1))
+        );
+    }
+
+    /// A follower whose leader follows: rejected outright, not resolved
+    /// (ADR-0013).
+    #[test]
+    fn mimic_chains_are_rejected() {
+        let (mut robot, [j0, j1, j2]) = movable_chain();
+        mimic(&mut robot, j1, j0, 0.5, 0.0);
+        mimic(&mut robot, j2, j1, 0.5, 0.0);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::MimicChain {
+                joint: j2,
+                leader: j1
+            })
+        );
+    }
+
+    #[test]
+    fn a_mimic_rule_must_be_a_real_non_degenerate_line() {
+        let (mut robot, [j0, j1, _]) = movable_chain();
+        mimic(&mut robot, j1, j0, 0.0, 0.0);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::ZeroMimicMultiplier(j1))
+        );
+        for (multiplier, offset) in [(f64::NAN, 0.0), (f64::INFINITY, 0.0), (1.0, f64::NAN)] {
+            mimic(&mut robot, j1, j0, multiplier, offset);
+            let err = validate(&robot).unwrap_err();
+            assert!(
+                matches!(&err, ValidationError::NonFinite { what } if what.contains("mimic")),
+                "{err:?}"
+            );
+        }
+    }
+
+    /// The leader's whole range, mapped, has to fit the range the follower
+    /// is exported with, or MJCF's `range` fights the equality (ADR-0013).
+    #[test]
+    fn a_followers_reach_must_fit_its_own_limits() {
+        let (mut robot, [j0, j1, _]) = movable_chain();
+        for multiplier in [2.0, -2.0] {
+            mimic(&mut robot, j1, j0, multiplier, 0.0);
+            assert_eq!(
+                validate(&robot),
+                Err(ValidationError::MimicExceedsLimits {
+                    joint: j1,
+                    leader: j0,
+                    lower: -6.0,
+                    upper: 6.0
+                }),
+                "a negative multiplier flips the interval, it does not excuse it"
+            );
+        }
+        // Shifted off one end: ±3 through (1, 0.5) reaches 3.5.
+        mimic(&mut robot, j1, j0, 1.0, 0.5);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::MimicExceedsLimits {
+                joint: j1,
+                leader: j0,
+                lower: -2.5,
+                upper: 3.5
+            })
+        );
+        mimic(&mut robot, j1, j0, 0.5, 1.0);
+        assert_eq!(validate(&robot), Ok(()), "-0.5..2.5 fits inside ±3");
+
+        // A `Continuous` follower has no range to leave…
+        let follower = robot.joints.get_mut(&j1).unwrap();
+        follower.kind = JointKind::Continuous;
+        follower.limits = None;
+        mimic(&mut robot, j1, j0, 10.0, 0.0);
+        assert_eq!(validate(&robot), Ok(()));
+
+        // …but a `Continuous` leader has an unbounded one, which no
+        // bounded follower can hold.
+        let (mut robot, [j0, j1, _]) = movable_chain();
+        let leader = robot.joints.get_mut(&j0).unwrap();
+        leader.kind = JointKind::Continuous;
+        leader.limits = None;
+        mimic(&mut robot, j1, j0, 1.0, 0.0);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::MimicExceedsLimits {
+                joint: j1,
+                leader: j0,
+                lower: f64::NEG_INFINITY,
+                upper: f64::INFINITY
+            })
         );
     }
 }

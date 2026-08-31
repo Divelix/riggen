@@ -4,7 +4,6 @@ One line per raw idea. Picking one up means `/idea` (needs thinking) or
 `/plan` (obvious); the line is removed then. Rejected ideas keep one line
 below with the reason, so the same idea is not re-brainstormed.
 
-- Mimic joints; actuator presets for MJCF
 - `validate` does not check that geom poses or an `Override` inertial's numbers are finite (joint origins, joint limits, frame poses and densities are); a NaN typed into a geom pose reaches the export
 - `MoveJointFrame` re-expresses a link's visual geom poses but not `CollisionPolicy::Meshes` / `Primitives` poses, so a link with imported collision meshes or hand-placed primitives moves its collision in the world when its pivot moves
 - Things that *reference* a site now that frames exist (ADR-0012): MJCF sensors, actuators on a site, equality constraints, cameras, `<touch>`/`<force>`

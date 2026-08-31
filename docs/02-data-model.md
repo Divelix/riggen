@@ -78,7 +78,11 @@ pub struct Joint {
     pub axis: DVec3,            // unit, in child frame; ignored for Fixed
     pub limits: Option<Limits>, // required for Revolute/Prismatic, absent for Continuous
     pub dynamics: Dynamics,     // damping, friction, armature (MJCF); defaults zero
+    pub mimic: Option<Mimic>,   // this joint follows another one (ADR-0013); schema 2
 }
+
+/// q(this) = multiplier * q(joint) + offset — URDF's <mimic> (ADR-0013).
+pub struct Mimic { pub joint: JointId, pub multiplier: f64, pub offset: f64 }
 
 pub enum JointKind { Fixed, Revolute, Continuous, Prismatic }
 
@@ -138,6 +142,16 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
   origins, joint limits, frame poses and material densities are finite, and
   densities are non-negative. Geom poses and an `Override` inertial's
   numbers are **not** checked — a backlog line, not a rule.
+- A `Mimic`'s leader exists, is movable, is not the follower itself and does
+  not itself mimic — **chains are rejected** (ADR-0013), as is a mimic on a
+  `Fixed` joint. `multiplier` is finite and non-zero, `offset` is finite,
+  and the leader's range mapped through `(multiplier, offset)` fits inside
+  the follower's own limits, so MJCF's `range` and the equality constraint
+  cannot fight (`DanglingMimicJoint`, `SelfMimic`, `MimicOnFixedJoint`,
+  `MimicLeaderFixed`, `MimicChain`, `ZeroMimicMultiplier`,
+  `MimicExceedsLimits`). A `Continuous` follower has no range to leave, so
+  the last check is vacuous; a `Continuous` leader has an unbounded one,
+  which no bounded follower can hold.
 
 ## Commands and history
 
@@ -233,6 +247,8 @@ save. `EditError` is `Invalid(ValidationError)`, `UnknownId { kind, id }`,
 ```rust
 pub struct JointState(pub BTreeMap<JointId, f64>);   // q per movable joint; derived, never saved; absent reads as 0
 
+/// `q` with every mimic joint's value replaced by the one its leader implies.
+pub fn resolve_q(robot: &Robot, q: &JointState) -> JointState;
 /// World pose of every link reachable from the root for the given joint values.
 pub fn fk(robot: &Robot, q: &JointState) -> BTreeMap<LinkId, Pose>;
 /// World pose of every named frame: `world(frame.parent) ∘ frame.pose`.
@@ -256,6 +272,14 @@ reads.
 export oracle and the round-trip tests' contract, and a frame is not a body.
 `frames` is the separate one pass over the same result, and it is what
 `--fk-samples` writes as `sites` and the SDK's `frame.world(q)` returns.
+
+`fk` resolves mimic joints first, through `resolve_q`: a follower's `q` is
+`multiplier · q(leader) + offset` (ADR-0013) and whatever the caller put in
+the follower's own slot is ignored, not an error — it is derived state.
+`resolve_q` is the **single implementation** of that rule; the Joints window
+and `--fk-samples` read it too, so the number the viewport draws and the
+number the export writes cannot drift apart. One pass suffices, not a fixed
+point, because `validate` rejects a leader that itself mimics.
 
 `origin_for_world` is the inverse of one step of it: `world(link) =
 world(parent) ∘ origin` at `q = 0`, so the origin wanted is
@@ -484,19 +508,28 @@ corpus file: the arm with every one of the above in it, whose FK matches
 
 ## Schema
 
-`{ "schema_version": 1, "robot": Robot }`. `Robot` derives
+`{ "schema_version": 2, "robot": Robot }`. `Robot` derives
 `serde::{Serialize, Deserialize}` with `#[serde(deny_unknown_fields)]` on
 every struct (the envelope too) so a typo in a hand-edited file fails loudly
 with the field's name, and `#[serde(default)]` only on fields added in a
 later version, alongside its `upgrade_` step and corpus fixture. `load`
-reads the version first, tolerant of everything else, so a newer file is
-reported as `FileError::UnsupportedVersion` rather than as an unknown
-field, and validates the document after resolving paths — a hand-edited
+reads the version first, tolerant of everything else, so a file outside
+`OLDEST_SCHEMA_VERSION..=SCHEMA_VERSION` is reported as
+`FileError::UnsupportedVersion` rather than as an unknown field; it then
+walks the `upgrade_vN_to_vN+1` chain from the version it found up to
+`SCHEMA_VERSION`, and validates the document after resolving paths — a hand-edited
 file that breaks an invariant is `FileError::Invalid`, not a half-open
 document. `assets/fixtures/pendulum.riggen` (base + arm from the cube
 fixtures, one revolute hinge, produced by `save` itself) is the first corpus
-file; `file::tests::corpus_pendulum_opens` keeps it opening and re-saving
-byte-for-byte forever.
+file and is frozen at **schema 1**: it is what the upgrade chain reads, and
+`file::tests::corpus_pendulum_opens` keeps it opening forever and re-saving
+as a v2 document that round-trips. The byte-for-byte fixtures are the v2
+ones, `bracket.riggen` and `arm/arm.riggen`.
+
+**Schema 2** adds `Joint::mimic` (ADR-0013). Its `upgrade_v1_to_v2` step is
+empty — a v1 file simply has no `mimic` key and `#[serde(default)]` fills in
+the `None` a v1 document meant — and it exists as the first link of the
+chain the next bump joins.
 
 `CollisionPolicy::ConvexDecomposition`'s `resolution` and `concavity` are so
 far the only fields added after their variant existed, and they are the

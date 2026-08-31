@@ -266,6 +266,15 @@ impl Command {
                 for l in doomed {
                     robot.links.remove(&l);
                 }
+                // A survivor that followed one of the removed joints keeps
+                // moving, freely: deleting a link is not the moment to
+                // refuse an edit somewhere else in the tree (ADR-0013).
+                let survivors: Vec<JointId> = robot.joints.keys().copied().collect();
+                for joint in robot.joints.values_mut() {
+                    if joint.mimic.is_some_and(|m| !survivors.contains(&m.joint)) {
+                        joint.mimic = None;
+                    }
+                }
             }
             Command::RenameLink(link, name) => link_mut(robot, link)?.name = name,
             Command::RenameJoint(joint, name) => joint_mut(robot, joint)?.name = name,
@@ -429,7 +438,7 @@ mod tests {
     use super::*;
     use crate::fk::{JointState, fk, frames};
     use crate::ids::FrameId;
-    use crate::robot::{Frame, JointKind, Limits};
+    use crate::robot::{Frame, JointKind, Limits, Mimic};
     use riggen_mesh::glam::{DQuat, DVec3};
     use std::collections::BTreeMap;
     use std::f64::consts::FRAC_PI_2;
@@ -1277,5 +1286,51 @@ mod tests {
         );
         assert_eq!(robot, snapshot);
         assert_eq!(robot.joints[&robot.parent_joint(hand).unwrap()].parent, arm);
+    }
+
+    /// A follower whose leader is deleted keeps moving — freely. Removing
+    /// a link is not the moment to refuse an edit elsewhere in the tree;
+    /// turning a leader `Fixed` is (ADR-0013).
+    #[test]
+    fn removing_a_leaders_subtree_frees_its_followers() {
+        let (mut robot, [arm, _, _, tail]) = arm();
+        let shoulder = robot.parent_joint(arm).unwrap();
+        let tail_joint = robot.parent_joint(tail).unwrap();
+        let follower = robot.joints.get_mut(&tail_joint).unwrap();
+        follower.kind = JointKind::Revolute;
+        follower.axis = DVec3::Z;
+        follower.limits = Some(Limits {
+            lower: -1.0,
+            upper: 1.0,
+            effort: 0.0,
+            velocity: 0.0,
+        });
+        follower.mimic = Some(Mimic {
+            joint: shoulder,
+            multiplier: 1.0,
+            offset: 0.0,
+        });
+        assert_eq!(validate(&robot), Ok(()));
+
+        // Turning the leader into a `Fixed` joint is refused, naming the
+        // follower — the document never half-holds a broken coupling.
+        let mut demoted = robot.joints[&shoulder].clone();
+        demoted.kind = JointKind::Fixed;
+        demoted.limits = None;
+        let err = apply(&mut robot, Command::SetJoint(shoulder, demoted)).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                EditError::Invalid(ValidationError::MimicLeaderFixed { joint, leader })
+                    if joint == tail_joint && leader == shoulder
+            ),
+            "{err:?}"
+        );
+        assert_eq!(robot.joints[&shoulder].kind, JointKind::Revolute);
+
+        // Deleting it is not: the follower is simply freed.
+        apply(&mut robot, Command::RemoveLink(arm)).unwrap();
+        assert_eq!(robot.joints[&tail_joint].mimic, None);
+        assert_eq!(validate(&robot), Ok(()));
     }
 }

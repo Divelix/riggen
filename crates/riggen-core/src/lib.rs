@@ -18,14 +18,14 @@ pub mod validate;
 
 pub use command::{Command, Created, EditError};
 pub use file::{FileError, Warning, absolute, content_hash, hash_file, load, save};
-pub use fk::{JointState, fk, frames, motion, origin_for_world};
+pub use fk::{JointState, fk, frames, motion, origin_for_world, resolve_q};
 pub use history::History;
 pub use ids::{FrameId, GeomId, Id, IdGen, JointId, LinkId, MeshId};
 pub use inertial::{Inertial, InertialError, LinkInertial, MeshLookup, compose_inertial};
 pub use pose::Pose;
 pub use robot::{
     CollisionPolicy, Dynamics, Frame, Geom, InertialSpec, Joint, JointKind, Limits, Link, Material,
-    MeshAsset, Primitive, Robot,
+    MeshAsset, Mimic, Primitive, Robot,
 };
 pub use validate::{ValidationError, validate, validation_errors};
 
