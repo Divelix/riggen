@@ -101,7 +101,7 @@ the `mujoco` job already does for MJCF.
   non-floating base, `<frame attached_to>` for every `ResolvedSite`, the
   native `<mimic>` and the actuator comment. The golden is complete;
   `export.rs`'s directory test writes all three files.
-- [ ] 7 — **CI and the acceptance.** An `sdf` job that adds the OSRF apt
+- [x] 7 — **CI and the acceptance.** An `sdf` job that adds the OSRF apt
   repository, installs `gz-jetty-sdformat-python`, exports the arm with
   `--fk-samples`, and runs `python/tests/test_sdf_load.py` — the mirror of
   `test_mjcf_load.py`: `Root.load()` raises on any error, every link's and

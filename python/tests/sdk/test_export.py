@@ -91,6 +91,30 @@ def test_export_is_byte_identical_to_the_cli(arm: Robot, cli: Path, tmp_path: Pa
     assert tree(tmp_path / "sdk") == tree(tmp_path / "cli")
 
 
+def test_all_three_writers_are_reachable_from_the_sdk(arm: Robot, cli: Path, tmp_path: Path):
+    """`format` is a set of writers (ADR-0016), and `all` is the default."""
+    run_cli(cli, "--export", "all", "--out", tmp_path / "cli", ARM)
+    written = arm.export(tmp_path / "sdk", format="all")
+    assert [p.name for p in written][:3] == ["arm.xml", "arm.urdf", "arm.sdf"]
+    assert tree(tmp_path / "sdk") == tree(tmp_path / "cli")
+    # `all` is what `export` does when asked for nothing in particular.
+    arm.export(tmp_path / "default")
+    assert tree(tmp_path / "sdk") == tree(tmp_path / "default")
+    # SDF alone writes the one file, and it is SDF 1.11 with the mimic the
+    # other two also carry (ADR-0016 §1).
+    only = arm.export(tmp_path / "sdf", format="sdf")
+    assert [p.name for p in only][0] == "arm.sdf"
+    assert not (tmp_path / "sdf" / "arm.urdf").exists()
+    sdf = (tmp_path / "sdf" / "arm.sdf").read_text()
+    assert '<sdf version="1.11">' in sdf
+    assert '<mimic joint="upper_joint">' in sdf
+    # `model://` is what `package://` is to URDF — one control, one meaning.
+    arm.export(tmp_path / "sdf_pkg", format="sdf", mesh_paths="package://arm_description")
+    assert "<uri>model://arm_description/meshes/base.stl</uri>" in (
+        tmp_path / "sdf_pkg" / "arm.sdf"
+    ).read_text()
+
+
 def test_export_options_reach_the_writers(arm: Robot, tmp_path: Path):
     arm.export(tmp_path / "pkg", format="urdf", mesh_paths="package://arm_description")
     urdf = (tmp_path / "pkg" / "arm.urdf").read_text()
