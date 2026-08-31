@@ -50,10 +50,33 @@ pub fn motion(kind: JointKind, axis: DVec3, q: f64) -> Pose {
     }
 }
 
+/// `q` with every mimic joint's value replaced by the one its leader
+/// implies: `q(follower) = multiplier * q(leader) + offset` (ADR-0013).
+///
+/// This is the **single implementation** of that rule — [`fk`], the Joints
+/// window and `--fk-samples` all read it, so the derived number cannot
+/// drift between what the viewport shows and what the export writes. A
+/// follower's own entry in `q` is ignored rather than an error: it is
+/// derived state the caller need not know about.
+///
+/// One pass, not a fixed point: `validate` rejects a leader that itself
+/// mimics, so every leader's value is already the caller's.
+pub fn resolve_q(robot: &Robot, q: &JointState) -> JointState {
+    let mut out = q.clone();
+    for (&jid, joint) in &robot.joints {
+        if let Some(mimic) = joint.mimic {
+            out.set(jid, mimic.multiplier * q.get(mimic.joint) + mimic.offset);
+        }
+    }
+    out
+}
+
 /// World pose of every link reachable from the root for the given joint
-/// values. A link the tree does not reach (only possible in a document
-/// `validate` rejects) is simply absent from the result.
+/// values, mimic joints resolved through [`resolve_q`]. A link the tree
+/// does not reach (only possible in a document `validate` rejects) is
+/// simply absent from the result.
 pub fn fk(robot: &Robot, q: &JointState) -> BTreeMap<LinkId, Pose> {
+    let q = &resolve_q(robot, q);
     // parent link → its child joints, so the walk does not rescan `joints`
     // at every node.
     let mut children: BTreeMap<LinkId, Vec<JointId>> = BTreeMap::new();
@@ -170,6 +193,7 @@ mod tests {
                     None
                 },
                 dynamics: Default::default(),
+                mimic: None,
             },
         );
     }
@@ -404,5 +428,50 @@ mod tests {
         assert_vec_eq(f[&tcp].t, DVec3::new(1.0, 0.5, 0.0));
         assert_vec_eq(f[&base].t, DVec3::Z * 0.1);
         assert_rot_eq(f[&base].r, DQuat::IDENTITY);
+    }
+
+    /// A follower's pose is the one its leader implies, at every
+    /// configuration, and whatever the caller put in its own slot
+    /// (ADR-0013).
+    #[test]
+    fn a_mimic_joint_follows_its_leader_through_fk() {
+        let (mut robot, links, joints) = chain(false);
+        let (leader, follower) = (joints[0], joints[1]);
+        robot.joints.get_mut(&follower).unwrap().mimic = Some(crate::robot::Mimic {
+            joint: leader,
+            multiplier: -0.5,
+            offset: 0.1,
+        });
+        assert_eq!(crate::validate(&robot), Ok(()));
+
+        // The same tree without the coupling, driven by hand.
+        let mut free = robot.clone();
+        free.joints.get_mut(&follower).unwrap().mimic = None;
+
+        for driver in [0.0, 0.5, -1.2] {
+            let mut q = JointState::new();
+            q.set(leader, driver);
+            // A stale value in the follower's own slot is ignored, not an
+            // error: it is derived state.
+            q.set(follower, 99.0);
+            q.set(joints[2], 0.25);
+
+            let derived = -0.5 * driver + 0.1;
+            assert!((resolve_q(&robot, &q).get(follower) - derived).abs() < EPS);
+
+            let mut by_hand = q.clone();
+            by_hand.set(follower, derived);
+            let coupled = fk(&robot, &q);
+            let expected = fk(&free, &by_hand);
+            for link in links {
+                assert_pose_eq(&coupled[&link], &expected[&link]);
+            }
+            // …and it really moved: the follower is not stuck at zero.
+            if driver != 0.0 {
+                let mut still = q.clone();
+                still.set(follower, 0.0);
+                assert_ne!(coupled[&links[2]].t, fk(&free, &still)[&links[2]].t);
+            }
+        }
     }
 }

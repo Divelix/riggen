@@ -97,6 +97,24 @@ pub struct Joint {
     /// Required for `Revolute` / `Prismatic`, absent for `Continuous`.
     pub limits: Option<Limits>,
     pub dynamics: Dynamics,
+    /// This joint follows another one instead of moving freely (ADR-0013).
+    /// Added in schema 2, hence the `default`: a v1 file has no such key.
+    #[serde(default)]
+    pub mimic: Option<Mimic>,
+}
+
+/// A coupled degree of freedom: `q(this) = multiplier * q(joint) + offset`
+/// — URDF's `<mimic>`, MJCF's `<equality><joint polycoef>` (ADR-0013).
+///
+/// `joint` is the **leader**: a movable joint, not this one, that does not
+/// itself mimic. Chains are rejected by `validate`, so resolving a
+/// follower's `q` is one pass and never recursive.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Mimic {
+    pub joint: JointId,
+    pub multiplier: f64,
+    pub offset: f64,
 }
 
 impl Joint {
@@ -111,6 +129,7 @@ impl Joint {
             axis: DVec3::Z,
             limits: None,
             dynamics: Dynamics::default(),
+            mimic: None,
         }
     }
 }
