@@ -158,7 +158,7 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
 ```rust
 pub enum Command {
     AddLink { link: Box<Link>, parent: LinkId, joint: Joint }, // allocates the link and joint ids, sets joint.parent/child
-    RemoveLink(LinkId),                                        // the whole subtree; root refused
+    RemoveLink(LinkId),                                        // the whole subtree, its frames, and any mimic that followed it; root refused
     RenameLink(LinkId, String), RenameJoint(JointId, String),
     AddGeom(LinkId, Geom), RemoveGeom(LinkId, GeomId), SetGeomPose(LinkId, GeomId, Pose),
     SetJoint(JointId, Joint),                                  // one gesture = one SetJoint; parent/child in the value are ignored
@@ -208,6 +208,13 @@ wants the world pose kept computes the new pose through `fk` first. A frame
 needs no removal command of its own for `RemoveLink`, which already takes
 the frames of the subtree it removes, and `MoveJointFrame` re-expresses the
 frames of the link whose joint frame moved.
+
+`RemoveLink` also **clears the `mimic` of any joint that followed one of
+the joints it removes** (ADR-0013): deleting a subtree must not fail
+because of a coupling elsewhere in the tree, so the follower is freed
+rather than the deletion refused. Turning a leader `Fixed` through
+`SetJoint` *is* refused, by `validate`, naming the follower — that edit is
+about the coupling's own leader.
 
 The Python SDK's edit methods are these commands, one call each, applied
 the same way but with no history (`riggen._riggen.Robot`, 01 §Python SDK).
@@ -517,8 +524,8 @@ URDF…, a dropped `.urdf`, or `riggen --export … robot.urdf` on stderr).
 `ImportWarning::MimicDropped` now carries a `reason`, and only for a
 coupling the document cannot hold: a leader that is not a joint in the file
 or is `fixed`, a joint following itself, a `<mimic>` on a `fixed` joint, a
-chain, a zero or non-finite multiplier, and a reach outside the follower's
-own limits. `validate` owns those rules — the import runs it and phrases
+chain, a zero multiplier, a multiplier or offset that is not a number, and
+a reach outside the follower's own limits. `validate` owns those rules — the import runs it and phrases
 its verdict — so a refused coupling is dropped and the file still opens; it
 never turns into an `ImportError`.
 
@@ -564,5 +571,8 @@ worked example of the rule: all three fields carry `#[serde(default = …)]`
 taken from `riggen_mesh::DecompParams::default()`, a v1 file carrying only
 `{"ConvexDecomposition": {"max_hulls": 4}}` opens with the algorithm's
 defaults filled in (`file::tests::a_v1_file_with_only_max_hulls_reads_with_the_defaults`),
-and `schema_version` stays 1 — nothing that reads an old file needs to
-change, so nothing is an upgrade step.
+and `schema_version` did not move for them — nothing that reads an old file
+needed to change, so there was no upgrade step. That is still the rule for
+a field a *variant* gains; `Joint::mimic` bumped the version because it is
+a field on a struct every document has. Such a file remains readable: it
+declares schema 1 and comes in through the chain above.

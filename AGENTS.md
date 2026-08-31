@@ -19,24 +19,23 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**Named frames done (2026-08-31, ADR-0012):** `Robot::frames` is live —
-tree row, glyph, properties panel, gizmo and snap ladder, four commands,
-`fk::frames`, the SDK's `Frame` handle; an MJCF `<site>` and a URDF
-massless dummy link on a fixed joint, with frames and links in one
-namespace and MuJoCo checking every site pose in CI.
-**Convex decomposition (2026-08-31, ADR-0011):** `parry3d-f64`'s pure-Rust
-V-HACD behind `riggen_mesh::decompose` plus the merge step parry omits;
-`resolve` turns the policy into N geoms through a `DecompSource`, computed
-on `riggen-app::jobs`, the first job thread.
-**v0.2 SDK (2026-08-30, `v0.2.0`, ADR-0009):** `pip install riggen` gives
-the app *and* `import riggen` — one `cp310-abi3` wheel per platform over
-`crates/riggen-py` with the binary as wheel data, `python/build_wheel.py`
-the one recipe, `python/riggen/` the API. **M4**: the wheel and
-`release.yml`.
-**M3**: MJCF + URDF from one `ResolvedRobot`, MuJoCo-clean, URDF import,
-inertials, collision. **M2**: the mouse-only arm. **M1**: the document,
-commands, history, `.riggen` v1. **Next:** the remaining v0.2 lines of
-`docs/03-roadmap.md` (mimic joints, actuator presets, MJCF import).
+**Mimic joints done (2026-08-31, ADR-0013):** `Joint::mimic` couples one
+joint's `q` to another's; `fk::resolve_q` is the one implementation,
+`validate` refuses chains and what MuJoCo would mis-simulate, and it writes
+as a URDF `<mimic>` and an MJCF `<equality polycoef>` — checked against the
+sampled `qpos` in CI — and imports back. **`.riggen` is schema 2**, with
+the upgrade chain `load` walks.
+**Named frames (ADR-0012):** `Robot::frames` live end to end — tree, glyph,
+panel, gizmo, SDK — as an MJCF `<site>` and a URDF massless dummy link, one
+namespace with the links. **Convex decomposition (ADR-0011):**
+`parry3d-f64`'s V-HACD plus the merge step it omits, N geoms computed on
+`riggen-app::jobs`. **v0.2 SDK (`v0.2.0`, ADR-0009):** one `cp310-abi3`
+wheel gives the app *and* `import riggen`; `python/build_wheel.py` is the
+recipe. **M4**: the wheel and `release.yml`. **M3**: MJCF + URDF from one
+`ResolvedRobot`, MuJoCo-clean, URDF import, inertials, collision. **M2**:
+the mouse-only arm. **M1**: the document, commands, history, `.riggen`.
+**Next:** the remaining v0.2 lines of `docs/03-roadmap.md` (actuator
+presets, MJCF import).
 
 ## Rules that are not derivable from the code
 

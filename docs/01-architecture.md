@@ -159,6 +159,8 @@ pub struct RiggenApp {
     decomp: HashMap<(MeshId, DecompParams), DecompState>, // convex pieces it produced; the document holds the
                                                         // parameters and never the pieces (ADR-0011)
     q: JointState, selection: Selection,                // None | Link(LinkId) | Joint(JointId) | Frame(FrameId)
+                                                        // a mimic joint's slot in `q` is ignored: `joint_value`
+                                                        // answers with `fk::resolve_q`'s derived one (ADR-0013)
     tool: Tool, gizmo_state: GizmoState,               // Select | Move | Rotate | PlaceJoint | Align; the gizmo and its drag
     preview_world: Option<(LinkId, Pose)>,             // a link's pose while a gizmo drag previews it
     hovered_joint, glyph_hover, snap_candidate,        // resolved every frame from the pointer
@@ -720,7 +722,8 @@ is the same dict the `.riggen` file spells (02 §Schema) — `{"t": [x, y, z],
 through `serde_json::Value` (`doc.rs`), with one difference: **ids are
 ints**. The file writes `"l5"`, Python sees `5`; the keys that hold an id
 are fixed by the schema (`id` a geom, `mesh` a mesh, `parent` / `child` a
-link), so the rule is by key and a link *named* `"l5"` is untouched. A
+link, `joint` a mimic's leader), so the rule is by key and a link *named*
+`"l5"` is untouched. A
 malformed value is a `ValueError` naming the field (`joint: missing field
 \`axis\``); a wrong Python type is a `TypeError`.
 
@@ -753,7 +756,7 @@ the id counter included. No `History`: a script has no undo.
 | `set_asset(mesh, doc)` | `SetAsset`; the path absolutised, the hash recomputed |
 | `set_inertial(link, doc)`, `set_collision(link, doc)` | `SetInertial`, `SetCollision` |
 | `validate() -> list[str]`, `check()` | `validation_errors`; `check` raises `ValidationError`. Empty for any document the edit methods, `load` or `from_json` let through — they validate |
-| `fk({joint: q}) -> {link: pose}` | `fk` with a `JointState`; a missing joint is at zero, an unknown one `UnknownId` |
+| `fk({joint: q}) -> {link: pose}` | `fk` with a `JointState`; a missing joint is at zero, an unknown one `UnknownId`, a mimic joint's own entry ignored — `fk::resolve_q` derives it (ADR-0013) |
 | `fk_frames({joint: q}) -> {frame: pose}` | `fk::frames`; `fk` itself stays links only |
 | `origin_for_world(link, world) -> pose \| None` | `origin_for_world` |
 | `inertial(link) -> (mass, com, inertia rows)` | `MeshStore::load` + `compose_inertial`; `InertialError` (mesh load errors appended) |
@@ -835,7 +838,10 @@ export is byte-identical to `arm.riggen`'s) are the API's worked examples and th
   dropped `<site>` looks like) — for the
   sample's export, the export of its URDF import, and
   `assets/fixtures/bracket.riggen`, the decomposition acceptance
-  (ADR-0011). The script also fails any body whose `<stem>_hull_N` pieces
+  (ADR-0011). Every `mjEQ_JOINT` equality — a mimic joint (ADR-0013) —
+  must reproduce the sampled `qpos` through its `polycoef`, and a pair of
+  joints the samples show as exactly coupled must have one, so a swapped
+  coefficient order and a dropped `<equality>` both fail. The script also fails any body whose `<stem>_hull_N` pieces
   do not number at least two and run 0..N: MuJoCo hulls a collision mesh
   itself, so one piece would mean the policy bought nothing. It reads that
   off the model, not off the fixture.
