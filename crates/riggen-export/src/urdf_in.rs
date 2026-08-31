@@ -18,11 +18,11 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::import::{ImportError, ImportWarning};
+use crate::import::{ImportError, ImportWarning, mimic_refusals};
 use riggen_core::glam::{DMat3, DVec3};
 use riggen_core::{
     CollisionPolicy, Dynamics, Geom, GeomId, InertialSpec, Joint, JointId, JointKind, Limits, Link,
-    LinkId, MeshAsset, MeshId, Mimic, Pose, Primitive, Robot, ValidationError, validate,
+    LinkId, MeshAsset, MeshId, Mimic, Pose, Primitive, Robot, validate,
 };
 
 /// `package name → directory` for `package://name/...` mesh paths.
@@ -222,44 +222,6 @@ pub fn from_urdf(
 
     validate(&robot).map_err(ImportError::Invalid)?;
     Ok((robot, warnings))
-}
-
-/// What `validate` refuses about a coupling, per follower. `validate` owns
-/// the rules (ADR-0013); this only phrases its verdict for the status bar.
-/// Every other error it reports is left alone and still fails the import.
-fn mimic_refusals(robot: &Robot) -> Vec<(JointId, String)> {
-    riggen_core::validation_errors(robot)
-        .into_iter()
-        .filter_map(|e| match e {
-            ValidationError::SelfMimic(j) => Some((j, "a joint cannot follow itself".to_owned())),
-            ValidationError::MimicOnFixedJoint(j) => {
-                Some((j, "a fixed joint has no value to drive".to_owned()))
-            }
-            ValidationError::ZeroMimicMultiplier(j) => {
-                Some((j, "its multiplier is zero".to_owned()))
-            }
-            ValidationError::DanglingMimicJoint { joint, .. } => {
-                Some((joint, "its leader is not a joint in this file".to_owned()))
-            }
-            ValidationError::MimicLeaderFixed { joint, .. } => {
-                Some((joint, "its leader is a fixed joint".to_owned()))
-            }
-            ValidationError::MimicChain { joint, .. } => Some((
-                joint,
-                "its leader is itself a mimic, and chains are not supported".to_owned(),
-            )),
-            ValidationError::MimicExceedsLimits {
-                joint,
-                lower,
-                upper,
-                ..
-            } => Some((
-                joint,
-                format!("it would reach {lower}..{upper}, outside its own limits"),
-            )),
-            _ => None,
-        })
-        .collect()
 }
 
 fn pose_of(p: &urdf_rs::Pose) -> Pose {

@@ -12,7 +12,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use riggen_core::ValidationError;
+use riggen_core::{JointId, Robot, ValidationError};
 
 /// Something the URDF held that the document does not; the import went on
 /// without it.
@@ -275,3 +275,42 @@ impl fmt::Display for ImportError {
 }
 
 impl std::error::Error for ImportError {}
+
+/// What `validate` refuses about a coupling, per follower. `validate` owns
+/// the rules (ADR-0013); this only phrases its verdict for the status bar.
+/// Every other error it reports is left alone and still fails the import.
+/// Both imports phrase it the same way (ADR-0015 §4).
+pub(crate) fn mimic_refusals(robot: &Robot) -> Vec<(JointId, String)> {
+    riggen_core::validation_errors(robot)
+        .into_iter()
+        .filter_map(|e| match e {
+            ValidationError::SelfMimic(j) => Some((j, "a joint cannot follow itself".to_owned())),
+            ValidationError::MimicOnFixedJoint(j) => {
+                Some((j, "a fixed joint has no value to drive".to_owned()))
+            }
+            ValidationError::ZeroMimicMultiplier(j) => {
+                Some((j, "its multiplier is zero".to_owned()))
+            }
+            ValidationError::DanglingMimicJoint { joint, .. } => {
+                Some((joint, "its leader is not a joint in this file".to_owned()))
+            }
+            ValidationError::MimicLeaderFixed { joint, .. } => {
+                Some((joint, "its leader is a fixed joint".to_owned()))
+            }
+            ValidationError::MimicChain { joint, .. } => Some((
+                joint,
+                "its leader is itself a mimic, and chains are not supported".to_owned(),
+            )),
+            ValidationError::MimicExceedsLimits {
+                joint,
+                lower,
+                upper,
+                ..
+            } => Some((
+                joint,
+                format!("it would reach {lower}..{upper}, outside its own limits"),
+            )),
+            _ => None,
+        })
+        .collect()
+}

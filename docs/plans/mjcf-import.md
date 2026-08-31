@@ -102,7 +102,7 @@ import it back, export it again, and MuJoCo agrees with `fk` on the result.
   `Frame` on its body (ADR-0012). Test: the arm's own export comes back
   with the same geoms, and `bracket`'s decomposition comes back as N
   collision meshes.
-- [ ] 6 — **`<equality>` and `<actuator>`.** `<joint polycoef="o m 0 0 0">`
+- [x] 6 — **`<equality>` and `<actuator>`.** `<joint polycoef="o m 0 0 0">`
   → `Joint::mimic` (a non-zero `a2..a4`, a `ref`, or a coupling `validate`
   refuses → `MimicDropped` with the reason, as the URDF import phrases it);
   `<position kp kv>` / `<velocity kv>` / `<motor gear>` on a joint →
@@ -189,7 +189,15 @@ to 1e-9 — the exact round trip ADR-0012 promised. Plus
   writer emits only the "not written" comment — cannot. The Goal's "limits
   round-trip exactly" is true of `lower`/`upper` and of `effort`/`velocity`
   only where an `<actuator>` carries them; §MJCF import says so. The CI
-  acceptance is unaffected: MuJoCo sees neither number.
+  acceptance is unaffected: MuJoCo sees neither number. Step 6 narrowed it
+  further: `effort` comes back from `forcerange` on any preset, but
+  `velocity` only from a **velocity** servo's `ctrlrange` — a position
+  servo's `ctrlrange` is the joint's position range and says nothing about
+  rate.
+- **Step 6, the order of the two refusal passes.** `mimic_refusals` runs
+  before `actuator_refusals`: an actuator on a mimic follower is refused
+  because the `<equality>` drives it, so a coupling that is itself dropped
+  must not take an actuator down with it.
 
 - **Step 5, `CollisionPolicy::None` vs `SameAsVisual`.** ADR-0015 §6's
   third step (everything is a visual, the link is `SameAsVisual`) is for a
