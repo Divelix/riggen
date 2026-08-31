@@ -112,12 +112,16 @@ the properties panel's actuator section.
       (ADR-0014). The third preset, a `<motor>`, went on
       `bracket.riggen`'s hinge, which the same CI job exports, so all
       three are checked against MuJoCo.*
-- [ ] **Step 4 — the panel.** Properties › Joint gains an actuator section
+- [x] **Step 4 — the panel.** Properties › Joint gains an actuator section
       (combo none / position / velocity / motor, then its gain fields), and
       — in that same section, beside the thing it copies — the "apply to
       every movable joint" button committing `SetActuators`, which skips
       mimic followers rather than building a document `validate` refuses.
       Snapshot tests per preset and for the applied model (ADR-0003).
+      *Two goldens rather than three: `properties_joint_actuator` pictures
+      the position rows and `properties_joint_actuator_applied` the motor
+      row after the whole-model apply; `velocity` is asserted in the same
+      scenario without a third picture that would differ in one row.*
 - [x] **Step 5 — the SDK, both layers.** *(taken before step 3, see below)* `ActuatorDoc` in `riggen-py`'s
       `JointDoc` / `JointInput` (passed through `JointSpec.to_doc` as `mimic`
       is, since an actuator belongs to the joint and not to its kind);

@@ -1309,6 +1309,21 @@ fn properties_joint() {
 }
 
 /// Replaces a field's text and commits it with Enter.
+/// The id of the joint named `name` in the open document.
+fn joint_named(
+    harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+    name: &str,
+) -> riggen_core::JointId {
+    *harness
+        .state()
+        .robot()
+        .joints
+        .iter()
+        .find(|(_, j)| j.name == name)
+        .unwrap_or_else(|| panic!("no joint {name:?}"))
+        .0
+}
+
 fn type_into(
     harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
     node_label: &str,
@@ -1686,6 +1701,110 @@ fn properties_joint_mimic() {
         assert_eq!(app.history().undo_depth(), depth + 1, "one SetJoint");
         let mimic = app.robot().joints[&fore].mimic.expect("still coupled");
         assert_eq!((mimic.multiplier, mimic.offset), (-0.25, 0.1));
+    });
+}
+
+/// Properties › Joint for a driven joint: the actuator section reads the
+/// preset the document holds — the sample arm's shoulder is a position
+/// servo — and its gains are ordinary fields (ADR-0014). Editing one is
+/// one `SetJoint`.
+#[test]
+fn properties_joint_actuator() {
+    scenario("properties_joint_actuator", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("open the sample arm");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        let shoulder = joint_named(harness, "shoulder_joint");
+        harness.state_mut().select(Selection::Joint(shoulder));
+        settle(harness);
+
+        assert_eq!(harness.get_by_label("kp").value().as_deref(), Some("100"));
+        assert_eq!(harness.get_by_label("kv").value().as_deref(), Some("10"));
+
+        let depth = harness.state().history().undo_depth();
+        type_into(harness, "kp", 0, "150");
+        settle(harness);
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth + 1,
+            "one SetJoint"
+        );
+        assert_eq!(
+            harness.state().robot().joints[&shoulder].actuator,
+            Some(riggen_core::ActuatorSpec::Position {
+                kp: 150.0,
+                kv: 10.0
+            })
+        );
+    });
+}
+
+/// The same section's other half: the combo retypes the actuator (and the
+/// gain rows change with it), and one button gives the whole arm the same
+/// one — skipping the forearm, which follows and is already driven
+/// (ADR-0014). The picture is the applied model.
+#[test]
+fn properties_joint_actuator_applied_to_the_model() {
+    scenario("properties_joint_actuator_applied", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("open the sample arm");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        let shoulder = joint_named(harness, "shoulder_joint");
+        let upper = joint_named(harness, "upper_joint");
+        let fore = joint_named(harness, "fore_joint");
+        harness.state_mut().select(Selection::Joint(shoulder));
+        settle(harness);
+
+        // The kind combo is the first, the mimic leader the second, the
+        // actuator the third. Picking a kind starts it at MuJoCo's own
+        // defaults; the gain rows follow the kind.
+        let pick = |harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>, kind: &str| {
+            harness
+                .get_all_by_role(egui::accesskit::Role::ComboBox)
+                .nth(2)
+                .expect("the actuator combo")
+                .click();
+            harness.step();
+            // A limits row is labelled "velocity" too, so the popup item
+            // is picked by role as well as by label.
+            harness
+                .get_by_role_and_label(egui::accesskit::Role::Button, kind)
+                .click();
+            settle(harness);
+        };
+        pick(harness, "velocity");
+        assert_eq!(
+            harness.state().robot().joints[&shoulder].actuator,
+            Some(riggen_core::ActuatorSpec::Velocity { kv: 1.0 })
+        );
+        assert_eq!(harness.get_by_label("kv").value().as_deref(), Some("1"));
+        assert_eq!(harness.query_all_by_label("kp").count(), 0, "not a servo");
+
+        pick(harness, "motor");
+        assert_eq!(harness.get_by_label("gear").value().as_deref(), Some("1"));
+        type_into(harness, "gear", 0, "50");
+        settle(harness);
+
+        let depth = harness.state().history().undo_depth();
+        click_widget(harness, "Apply to every movable joint");
+        settle(harness);
+        let app = harness.state();
+        assert_eq!(app.history().undo_depth(), depth + 1, "one SetActuators");
+        let motor = Some(riggen_core::ActuatorSpec::Motor { gear: 50.0 });
+        assert_eq!(app.robot().joints[&shoulder].actuator, motor);
+        assert_eq!(app.robot().joints[&upper].actuator, motor);
+        assert_eq!(
+            app.robot().joints[&fore].actuator,
+            None,
+            "the forearm follows: its equality already drives it"
+        );
+        assert_eq!(riggen_core::validate(app.robot()), Ok(()));
     });
 }
 

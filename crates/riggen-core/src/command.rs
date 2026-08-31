@@ -13,7 +13,8 @@ use crate::pose::Pose;
 use riggen_mesh::glam::{DMat3, DVec3};
 
 use crate::robot::{
-    CollisionPolicy, Frame, Geom, InertialSpec, Joint, Link, Material, MeshAsset, Robot,
+    ActuatorSpec, CollisionPolicy, Frame, Geom, InertialSpec, Joint, Link, Material, MeshAsset,
+    Robot,
 };
 use crate::validate::{ValidationError, validate};
 
@@ -100,6 +101,19 @@ pub enum Command {
     SetFrame(FrameId, Frame),
     /// The tree's inline rename, beside `RenameLink` / `RenameJoint`.
     RenameFrame(FrameId, String),
+    /// Gives **every movable joint** the same actuator, or takes it away
+    /// (ADR-0014): the uniform case is the common one, and clicking seven
+    /// joints is the tedium we exist to remove. One gesture, one command,
+    /// one undo.
+    ///
+    /// A mimic follower is skipped rather than refused — it is already
+    /// driven by its `<equality>`, and "apply to the whole model" must not
+    /// fail because of a coupling elsewhere in the tree, the same way
+    /// `RemoveLink` does not (ADR-0013). The per-joint edit is
+    /// [`SetJoint`], which carries `actuator` like `mimic`.
+    ///
+    /// [`SetJoint`]: Command::SetJoint
+    SetActuators(Option<ActuatorSpec>),
 }
 
 /// What a command created, for the caller that selects it afterwards.
@@ -428,6 +442,15 @@ impl Command {
             Command::RenameFrame(id, name) => {
                 robot.frames.get_mut(&id).ok_or_else(|| unknown(id))?.name = name;
             }
+            Command::SetActuators(actuator) => {
+                for joint in robot.joints.values_mut() {
+                    if joint.kind.is_movable() && joint.mimic.is_none() {
+                        joint.actuator = actuator;
+                    } else {
+                        joint.actuator = None;
+                    }
+                }
+            }
         }
         Ok(None)
     }
@@ -438,7 +461,7 @@ mod tests {
     use super::*;
     use crate::fk::{JointState, fk, frames};
     use crate::ids::FrameId;
-    use crate::robot::{Frame, JointKind, Limits, Mimic};
+    use crate::robot::{ActuatorSpec, Frame, JointKind, Limits, Mimic};
     use riggen_mesh::glam::{DQuat, DVec3};
     use std::collections::BTreeMap;
     use std::f64::consts::FRAC_PI_2;
@@ -1332,5 +1355,51 @@ mod tests {
         apply(&mut robot, Command::RemoveLink(arm)).unwrap();
         assert_eq!(robot.joints[&tail_joint].mimic, None);
         assert_eq!(validate(&robot), Ok(()));
+    }
+
+    /// "Apply to every movable joint" is one command and one undo, and it
+    /// skips what `validate` would refuse rather than failing (ADR-0014).
+    #[test]
+    fn set_actuators_gives_every_free_movable_joint_the_same_one() {
+        let (mut robot, [arm, _, _, tail]) = arm();
+        let shoulder = robot.parent_joint(arm).unwrap();
+        let tail_joint = robot.parent_joint(tail).unwrap();
+        for j in [shoulder, tail_joint] {
+            let joint = robot.joints.get_mut(&j).unwrap();
+            joint.kind = JointKind::Revolute;
+            joint.axis = DVec3::Z;
+            joint.limits = Some(Limits {
+                lower: -1.0,
+                upper: 1.0,
+                effort: 0.0,
+                velocity: 0.0,
+            });
+        }
+        robot.joints.get_mut(&tail_joint).unwrap().mimic = Some(Mimic {
+            joint: shoulder,
+            multiplier: 1.0,
+            offset: 0.0,
+        });
+        assert_eq!(validate(&robot), Ok(()));
+
+        let motor = ActuatorSpec::Motor { gear: 50.0 };
+        apply(&mut robot, Command::SetActuators(Some(motor))).unwrap();
+        assert_eq!(robot.joints[&shoulder].actuator, Some(motor));
+        assert_eq!(
+            robot.joints[&tail_joint].actuator, None,
+            "a follower is already driven by its equality"
+        );
+        assert!(
+            robot
+                .joints
+                .values()
+                .filter(|j| !j.kind.is_movable())
+                .all(|j| j.actuator.is_none()),
+            "a fixed joint has nothing to actuate"
+        );
+        assert_eq!(validate(&robot), Ok(()));
+
+        apply(&mut robot, Command::SetActuators(None)).unwrap();
+        assert!(robot.joints.values().all(|j| j.actuator.is_none()));
     }
 }
