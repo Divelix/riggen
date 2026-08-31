@@ -20,3 +20,4 @@ Consequences, Alternatives considered.
 | [0012](0012-frames-as-mjcf-sites-and-urdf-dummy-links.md) | A frame is an MJCF `<site>` and a URDF massless dummy link; the import does not reverse the second; frames and links share one namespace | Accepted |
 | [0013](0013-mimic-joints-as-urdf-mimic-and-mjcf-equality.md) | A mimic joint is URDF's `<mimic>` and an MJCF `<equality><joint polycoef>`; no chains; a removed leader frees its followers | Accepted |
 | [0014](0014-actuators-on-the-joint-mjcf-only-three-presets.md) | An actuator lives on its joint, is MJCF-only, is named after the joint, and comes in three presets; amends 0004 §4 | Accepted |
+| [0015](0015-mjcf-import-subset-and-one-import-vocabulary.md) | MJCF import reads the subset the document can hold; `<default>` is resolved, not stored; one import vocabulary with URDF | Accepted |
