@@ -1,12 +1,12 @@
 # Backlog
 
 One line per raw idea. Picking one up means `/idea` (needs thinking) or
-`/plan` (obvious); the line is removed then. Rejected ideas keep one line
+`/plan` (obvious); the line is removed then — as is a line a roadmap cycle
+has committed to, which now lives in `docs/03-roadmap.md` instead. Rejected ideas keep one line
 below with the reason, so the same idea is not re-brainstormed.
 
 - Mimic chains (a follower whose leader also follows), rejected by `validate` today (ADR-0013): `fk::resolve_q` would grow from one pass to a topological one, no schema change
 - MJCF `<tendon><fixed>` for a coupling that really is a cable, beside the `<equality>` a mimic writes (ADR-0013)
-- A driven joint is not told apart from a free one in the viewport: no tint or badge on a follower's joint glyph (ADR-0013), nor on an actuated one (ADR-0014)
 - MJCF `<general>` (and `<adhesion>`, `<muscle>`): the escape hatch beside the three actuator presets, for a user who needs `dyntype` / `gaintype` / `biastype`. The import names and drops one today (ADR-0015 §1), so a round trip through riggen still costs the user their hand-edited XML (ADR-0014)
 - Actuator gains in a `<default class>` rather than on every element, and explicit `ctrllimited` / `forcelimited` beside the `autolimits="true"` we write (ADR-0014)
 - Promote `Joint::actuator` to a top-level `Robot::actuators` map keyed by what it drives, the shape MJCF has: the import warns `ActuatorDropped` on every actuator that drives a tendon or a site because the document has nowhere to put it (ADR-0015 §1); an `upgrade_` step moves each `Some(spec)` into the map (ADR-0014, option F of its idea)
@@ -19,7 +19,7 @@ below with the reason, so the same idea is not re-brainstormed.
 - `.msh` meshes and an inline `<mesh vertex face>` on MJCF import: a `GeomDropped` warning and no geometry today (ADR-0015 §1)
 - MJCF `<joint ref>` moves a joint's zero and the document has no field for it, so it is warned and ignored (ADR-0015 §1); a coupling over such a joint is dropped rather than mis-imported
 - Live joint-state link from a running Python script to the GUI (file or socket)
-- A web worker for `jobs`, so a convex decomposition does not freeze the browser tab: `Jobs` has no thread on wasm and runs the job inline, and the demo asks before starting one rather than fixing it (ADR-0017, plans/web-demo step 6; RoboCAD's `InlineEval` has the same gap)
+- A web worker for `jobs`, so a convex decomposition does not freeze the browser tab: `Jobs` has no thread on wasm and runs the job inline, and the demo asks before starting one rather than fixing it (ADR-0017, 01 §Jobs and threads; RoboCAD's `InlineEval` has the same gap)
 - A WebGL2 fallback for the demo, for browsers without WebGPU: needs a second picking mechanism, because the ID-buffer readback is `copy_texture_to_buffer` on an `R32Uint` target and wgpu's GL backend will not do it (ADR-0017 §7)
 - Touch and a narrow-screen layout for the demo: it is a desktop-browser UI today, and a phone gets the desktop panels
 - A directory drop on the web, with real relative mesh paths: a plain drop gives only file names, so two `base.stl` in one gesture collide (ADR-0017 §Consequences)
@@ -30,13 +30,6 @@ below with the reason, so the same idea is not re-brainstormed.
 - Manual split planes for collision geometry: cut a part by hand where V-HACD's automatic split is wrong (the convex-decomposition idea's option E, not taken — ADR-0011 chose the algorithm; this is the escape hatch for the parts it gets wrong)
 - Async mesh loading via `jobs` (M0 loads synchronously on the UI thread; the thread itself exists since ADR-0011)
 - Per-drop import-units dialog for mixed-unit batches (M1 has one app-wide setting, ADR-0006)
-- Open the Joints window automatically when a document has a movable joint (M1 hides it under Window › Joints; the by-hand run missed it)
-- Drag feedback in the link tree: a ghost of the row at the cursor and a grab cursor while reparenting (only the drop target highlights today)
-- `Reparent { keep_world_pose }` at the current `q`, not the zero configuration (needs `JointState` in the command; a drag with non-zero sliders jumps)
-- Clicking empty viewport space with a *joint* selected in the tree does not clear the selection
-- Rename a material from the materials table (the name is the key; links reference it by name)
-- Snapping *during* a gizmo drag: the handles honour the snap ladder, not just the align tool (M2 keeps the two apart — align is the mouse-only route; the by-hand M2 run asked for it, wanting a joint to land on a parent bore's centre or a corner vertex)
-- A depth-tested overlay, so a joint glyph behind a part reads as behind it (M2 draws every overlay on top)
 - Publish the workspace to crates.io so `cargo install riggen` installs the app: publish `riggen-mesh`, `-core`, `-export`, `-viewport`, rename `riggen-app` to `riggen` over the 0.0.1 reservation, `cargo publish --workspace` in `release.yml` (plans/m4-distribution OPEN 1; the README says `cargo install --git` until then)
 - A 30-second screencast for the README, recorded after the GUI polish and before the announced release (plans/m4-distribution OPEN 2; the README ships with the hero PNG)
 - macOS code signing / notarization, if the clean-VM run of the wheel hits Gatekeeper (pip-installed files carry no quarantine attribute, so an unsigned binary should run from a terminal — unverified until the human's macOS run)
@@ -44,11 +37,6 @@ below with the reason, so the same idea is not re-brainstormed.
 ### From the M2 exit gate (the by-hand arm build, 2026-08-29)
 
 - A joint gizmo drag previews nothing: the glyph stays on the old pivot until the release commits (`preview_world` covers a link drag only — the glyph should be built from the dragged pose)
-- Place joint with a *link* selected, and Align with a *joint* selected, do nothing and say nothing (each tool wants the other kind of selection; say so in the status bar, or grey the button)
-- Orbit on left-drag instead of middle-drag (LMB-drag does nothing today; needs a rule that keeps click-to-select working — an idea, not a plan)
-- Keyboard shortcuts for the tools (M2 ships the toolbar only)
-- Turn a rotate gizmo with the mouse wheel: a fine adjustment that needs no drag
-- Properties numbers as drag/scroll fields, Blender-style — wheel to step, drag to scrub with the pointer wrapping at the screen edge (M1 ships text fields with a draft buffer)
 - A ViewCube in the viewport corner with the persp/ortho toggle on it (robocad has one; M0 ships the axes triad and a text label)
 - WASD fly mode, and draw the orbit pivot while the camera moves (rerun's viewer is the reference; M0 ships turntable orbit only)
 
@@ -59,9 +47,7 @@ and `arm.urdf` imported) load in MuJoCo with zero warnings, agree with our
 FK, and swing under gravity for 10 s without a NaN; the interactive
 `mujoco.viewer` look is the human's. What was annoying on the way:
 
-- Properties › Inertial's tensor fields are 56 px wide and show six decimals: a kg·m² value like 2.86e-5 reads as `0.000029` and is clipped — the readout uses scientific notation, the editable fields should too, or be wider
 - Interpenetrating shells (the fixture parts are a box plus a shaft, not a boolean) count the overlap twice in `mass_properties`; a note in the Inertial readout ("N geoms, overlaps counted twice") would save a puzzled minute
-- `CollisionPolicy::Meshes` is read-only in the panel: per-geom collision editing (pose, remove, add a file)
 - No `PackageMap` UI: `package://` on import is resolved beside the file or up the tree; a "packages" table in Import URDF… for the cases that heuristic misses
 - An imported link without `<inertial>` has no material and `Computed` cannot run until one is assigned — a default material for imports, or a one-click "assign PLA to every link"
 - The export dialog re-resolves (hulls included) on every option change; fine for the arm, and `riggen-app::jobs` now exists to move it off the UI thread for the first big mesh (decomposition already goes through it; hulls stay synchronous and cached per `MeshId`)

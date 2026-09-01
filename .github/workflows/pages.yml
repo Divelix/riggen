@@ -1,5 +1,5 @@
 # The web demo at https://divelix.github.io/riggen/ (ADR-0017,
-# plans/web-demo step 7).
+# docs/01-architecture.md §The web build).
 #
 # Deploys on every push to `main`, because `main` is always green
 # (.agents/rules/git.md) and the demo is meant to be what riggen is now,

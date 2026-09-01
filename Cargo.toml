@@ -36,7 +36,8 @@ strip = true
 lto = "thin"
 codegen-units = 1
 
-# The web demo (ADR-0017, plans/web-demo step 7). What the browser pays for
+# The web demo (ADR-0017, 01-architecture §The web build). What the browser
+# pays for
 # is the *download*, not the last few percent of throughput: `opt-level = "s"`
 # and fat LTO over the whole graph trade a little speed for a much smaller
 # `.wasm`, and the viewport still holds 60 fps (the demo's own status bar

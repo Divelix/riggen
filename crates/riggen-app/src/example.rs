@@ -1,6 +1,6 @@
 //! The sample robot compiled into the build.
 //!
-//! Target-independent on purpose (docs/plans/web-demo.md step 4): the
+//! Target-independent on purpose (ADR-0017): the
 //! desktop's `--example arm` unpacks these bytes to a temp directory and
 //! opens the file, and the web demo hands the very same bytes to
 //! `RiggenApp::load_dropped` as if they had been dropped on the page. One

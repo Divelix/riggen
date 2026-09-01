@@ -5,7 +5,7 @@ the scariest remaining unknown first. A milestone's "out" list is as binding
 as its "in" list. Calibration: RoboCAD went from empty to 58k lines in three
 weeks; this roadmap is smaller than that.
 
-Spine: M0 → M1 → M2 → M3 → M4, then v0.2.
+Spine: M0 → M1 → M2 → M3 → M4, then v0.2 → v0.3.
 
 ---
 
@@ -163,140 +163,92 @@ release workflow is a tag push.
 
 ## v0.2 — Python SDK and the harder mesh work
 
-**Status: every line done, 2026-09-02; the cycle is `/close-cycle`'s to
-close and the tag is the human's.** What landed:
+*Goal: a robot you can build from ten lines of Python, and the mesh work
+the window could not do.*
 
-- **2026-08-30, tag `v0.2.0`** — the Python SDK (ADR-0009): `import
-  riggen` beside the app in one wheel, `python/riggen/` the API over the
-  `riggen._riggen` extension. 01-architecture §Python distribution and
-  §Python SDK have the shape; the by-hand notebook run passed.
-- **2026-08-30** — the viewport pointer (ADR-0010): with Move or Rotate
-  active the viewport orbits, pans, zooms, tints and selects as it does
-  with no tool, everywhere but on a gizmo handle. Closed the M2 exit
-  gate's largest line.
-- **2026-08-31** — convex decomposition (ADR-0011). Not the CoACD port or
-  bundled binary this line guessed at: `parry3d-f64` has V-HACD in pure
-  Rust at f64, so `riggen_mesh::decompose` is a module beside the
-  quickhull and the wasm check stayed green. `CollisionPolicy::
-  ConvexDecomposition { max_hulls, resolution, concavity }` resolves to N
-  collision geoms and `<stem>_hull_N.stl` in both writers, computed once
-  per `(MeshId, params)` on `riggen-app::jobs` — the first job thread,
-  which 01 §Jobs and threads had specified since M3 — offered in the
-  properties panel and as `riggen.ConvexDecomposition`. parry implements
-  V-HACD's split half and not its merge half, so `decomp::merge` is ours
-  and `max_hulls` is a real ceiling. The `mujoco` job loads a decomposed
-  model as its third.
+- `riggen-py` (PyO3 over core + export): `Robot`, `Link`, `Joint`, `fk`,
+  `validate`, `export_mjcf`, `export_urdf`, `load_urdf`; `riggen.show()`.
+- Convex decomposition (CoACD port or a bundled binary — decide with an ADR).
+- Named frames / MJCF sites; mimic joints; actuator presets.
+- MJCF import; SDF export.
+- Web demo build if the wasm check has stayed green.
 
-- **2026-08-31** — named frames (ADR-0012). `Robot::frames`, in the schema
-  since M1 and always empty, is live: a frame is created in the tree
-  ("+ Frame"), posed with the same gizmo and snap ladder that place a joint,
-  edited in the properties panel and read and written from the SDK. It
-  exports as an MJCF `<site>` and — URDF having no such element — a massless
-  dummy link on a fixed joint, the ROS convention; the import deliberately
-  does not reverse the second, because nothing tells our dummy from a real
-  unweighed link. Frames and links share one namespace, checked in
-  `validate`, since URDF spells both `<link>`. The `mujoco` job compares
-  every site pose from `mj_forward` against `fk::frames` at five
-  configurations, over both the `.riggen` and the URDF route.
+**Status: done 2026-09-02, tag `v0.2.1`.** The risk — that "sim-ready" was
+a claim rather than a feature — was retired piece by piece: `model.nu`
+stopped being zero (ADR-0014), the pose graph is checked by the spec's own
+parser (ADR-0016), and a foreign MJCF opens (ADR-0015). Decisions:
+ADR-0009 (one wheel: the abi3 extension plus the binary as data),
+ADR-0010 (the gizmo shares the viewport pointer), ADR-0011 (V-HACD from
+`parry3d-f64`; the merge step is ours), ADR-0012 (frames as sites and
+dummy links), ADR-0013 (mimics through one `fk::resolve_q`), ADR-0014
+(three actuator presets, amending ADR-0004 §4), ADR-0015 (the MJCF import
+subset and one import vocabulary), ADR-0016 (SDF 1.11 conventions),
+ADR-0017 (web IO: one `FileSource` in, downloads out).
 
-- **2026-08-31** — mimic joints (ADR-0013). `Joint::mimic` couples one
-  joint's `q` to another's, `q = multiplier · q(leader) + offset`, and
-  `fk::resolve_q` is the one place that rule lives, read by `fk`, the
-  Joints window and `--fk-samples` alike. `validate` refuses the seven
-  shapes that would export to a model MuJoCo loads and simulates wrongly —
-  chains among them. It writes as URDF's native `<mimic>` and as an MJCF
-  `<equality><joint polycoef>`, a *soft* solver constraint rather than a
-  reduction, and — closing the `ImportWarning::MimicDropped` dead end that
-  shipped in M3 — the URDF import keeps it, dropping with a reason only
-  what the document cannot hold. The first schema bump: `.riggen` is
-  version 2, `load` walks an `upgrade_vN_to_vN+1` chain and
-  `pendulum.riggen` is frozen at 1 as the file it reads. The `mujoco` job
-  checks every `mjEQ_JOINT` against the sampled `qpos`, so a swapped
-  `polycoef` order or a dropped `<equality>` fails.
+Two guesses this section made that the work overturned, kept because the
+next cycle will make the same kind: convex decomposition needed **no**
+CoACD port or bundled binary — `parry3d-f64` has V-HACD in pure Rust at
+f64 — and the web demo was **not** merely "a build if the wasm check has
+stayed green", but the seam that made `riggen-core` and `riggen-export`
+runnable with no filesystem under them.
 
-- **2026-08-31** — actuator presets (ADR-0014). `Joint::actuator` holds
-  one of `Position { kp, kv }`, `Velocity { kv }` or `Motor { gear }`, and
-  the MJCF writer turns it into an `<actuator>` element named after its
-  joint, `ctrlrange` from the joint's limits (or the normalised `-1 1` of a
-  motor) and `forcerange` from `Limits::effort`, each attribute omitted
-  where the number is the unfilled zero. `model.nu` stops being zero and
-  `data.ctrl["shoulder_joint"]` works, which is what "sim-ready is a
-  feature, not a claim" was missing. It **amends ADR-0004 §4**: the
-  apologetic "need an `<actuator>`" comment survives only on a joint that
-  has none. URDF invents no `<transmission>` and names the preset in a
-  comment instead, beside the `armature` one. `validate` refuses an
-  actuator on a fixed joint, on a mimic follower (already driven by its
-  `<equality>`), and any gain MuJoCo cannot use. The panel edits one per
-  joint and `SetActuators` gives the whole model the same one in a single
-  undo; the SDK has `Position` / `Velocity` / `Motor`. `.riggen` is schema
-  3 — the second bump, an empty step on the chain ADR-0013 built — and the
-  `mujoco` job holds `MjModel` to an `actuators` block `--fk-samples`
-  writes, `model.nu` included, so a dropped or invented actuator fails.
+A measurement this file is the only record of. **The wasm bundle** at the
+first deploy: 10.40 MB raw, **3.35 MB gzipped**, which is what a visitor
+downloads — confirmed at 3.42 MB over the wire, so GitHub Pages does
+compress `application/wasm`. The `web` profile (`opt-level = "s"`, fat
+LTO) is worth 0.32 MB gzipped over `--release`; `wasm-opt` is *not* used,
+because `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
+~0.12 MB **back on** the gzipped one.
 
-- **2026-09-01** — MJCF import (ADR-0015). `mjcf_in::load` opens an MJCF
-  by every route a URDF already did — `riggen robot.xml`, File › Import
-  MJCF…, a dropped `.xml`, `riggen --export … robot.xml`,
-  `riggen.load_mjcf()` — over a `quick-xml` DOM that is the reading half
-  of `xml.rs`, where MJCF's five spellings of one rotation collapse to one
-  `DQuat`. `<compiler>` and the `<default>` class tree are resolved at
-  read and dropped, so the document holds numbers rather than a second
-  MJCF-shaped description of itself. Our own export round-trips: bodies,
-  joint kinds, axes, limits, dynamics, inertials, meshes, `<site>` →
-  `Frame` — the symmetry ADR-0012 promised and the URDF import cannot have
-  — `<equality>` → `Joint::mimic`, `<actuator>` → the three presets. A
-  foreign, Menagerie-shaped file imports too, with an `ImportWarning`
-  naming every element it holds that the document has no field for and an
-  `ImportError` for the shapes the link tree cannot represent at all — a
-  body with several joints among them. One warning vocabulary now serves
-  both imports. The `mujoco` job gains a fourth model: the arm exported,
-  imported and exported again, held to the *original* document's `fk.json`.
+**Out:** physics, a second renderer, and anything in §What not to spend
+agent time on; a web worker for `jobs`, a WebGL2 fallback and a touch
+layout, all backlog lines the demo's non-goals left behind.
 
-- **2026-09-01** — SDF export (ADR-0016). `sdf.rs` is the third dumb
-  serialiser of one `ResolvedRobot`, and the one that apologises least: a
-  capsule stays a capsule, a `Frame` is SDF's own `<frame attached_to>`
-  rather than a dummy link, and a mimic is `<axis><mimic>`, which is why
-  the file declares spec **1.11**. It costs no arithmetic, because SDF's
-  defaults are riggen's conventions: a link's `<pose relative_to="«parent»">`
-  *is* `ResolvedJoint::origin`, a joint carries no `<pose>` because SDF
-  already expresses one in the child link frame (ADR-0004), and `<xyz>`
-  carries no `expressed_in` because its default is that same frame. Only
-  the actuator still becomes a comment — Gazebo's `<plugin>` names a C++
-  class and a version of Gazebo, so ADR-0014's URDF reasoning holds word
-  for word. `Format` stopped being a three-valued enum and became a set of
-  three booleans, spelled `mjcf|urdf|sdf|both|all` on the command line and
-  in the SDK and three checkboxes in the dialog. The `sdf` CI job holds the
-  file to **libsdformat itself**: the spec's own parser raises on anything
-  illegal and resolves the pose graph, and FK over what it resolved matches
-  `fk` to 1e-9 — a tighter bar than the `mujoco` job's, because nothing in
-  that loop is a simulator. `pybullet` is not in CI and reads our SDF
-  wrong, measured and stated: it ignores `relative_to` in silence, and its
-  users want the `.urdf` the same export writes.
+**Accept:** `pip install riggen` gives both the app and `import riggen`;
+MuJoCo and libsdformat load what the exporters write and agree with `fk`;
+an MJCF round-trips; and the public demo loads with a clean console, its
+slider swings the arm, and its Export is byte-identical to the CLI's.
 
-- **2026-09-02** — the web demo (ADR-0017), at
-  [divelix.github.io/riggen](https://divelix.github.io/riggen/). Not a
-  thinner web riggen: the browser runs the *same* `riggen_core::load_from`,
-  the same URDF and MJCF imports and the same three writers, over one
-  read-only `FileSource` seam — `Disk` on the desktop, the drop gesture's
-  files in a page. Bytes in (`load_mesh_bytes`, `load_from`, a `DroppedSet`
-  that resolves a mesh reference by file name), bytes out (`export_files`
-  under `export`, and Save / Export / Debug › Save state as downloads, the
-  export a stored zip). The sample arm is in the viewport on load, out of
-  the same `include_bytes!` `--example arm` unpacks. WebGPU only, with a
-  plain-English page for a browser that has none, and V-HACD asks before it
-  freezes the tab, because `jobs` has no thread there. `pages.yml` deploys
-  on every push to `main`; the `wasm` CI job builds the same bundle, so a
-  break shows up in CI first.
+---
 
-  A third measurement this file is the only record of. **The wasm bundle**
-  at the deploy: 10.40 MB raw, **3.35 MB gzipped**, which is what a visitor
-  downloads. The `web` profile (`opt-level = "s"`, fat LTO) is worth 0.32 MB
-  gzipped over `--release`, and `wasm-opt` is *not* used: `-O2`, `-Os` and
-  `-Oz` each take ~1 MB off the raw file and put ~0.12 MB **back on** the
-  gzipped one, so it costs CI minutes to make the download bigger.
+## v0.3 — the hand-feel debt
 
-**Accept:** the public URL loads with a clean console, the arm's slider
-swings it, a dropped set of meshes opens, and the zip Export hands the
-browser is byte-identical to `riggen --export all` over the same files.
+*Goal: the window stops costing the user a puzzled minute. Nothing new is
+exported; what is already there answers the mouse and the keyboard the way
+a CAD tool does.*
+
+Three exit gates (M2, M3, M4) and the by-hand runs have each ended with a
+list of small frictions, and none has been paid down since M2. The public
+demo now puts this UI in front of people who have read no docs, which is
+what turns that debt from a private annoyance into the first impression.
+
+- **The viewport answers the mouse.** Orbit on left-drag with click-to-select
+  still working (an idea first: the rule is the hard part); keyboard
+  shortcuts for the five tools; the rotate gizmo on the wheel; snapping
+  *during* a gizmo drag, not only in the Align tool.
+- **The overlay tells the truth.** A depth-tested overlay, so a glyph behind
+  a part reads as behind it; a badge or tint on a joint glyph that is driven
+  (ADR-0013) or actuated (ADR-0014), which today look like free joints.
+- **Numbers are editable.** Properties fields as drag/scroll scrubbers
+  (Blender-style, wheel to step); the inertial tensor readable — 2.86e-5
+  must not render as a clipped `0.000029`.
+- **The panels stop hiding things.** The Joints window opens itself when a
+  document has a movable joint; a tool that wants the other kind of
+  selection says so instead of doing nothing; clicking empty space with a
+  joint selected clears it; per-geom collision editing; a material can be
+  renamed.
+- **The tree says what a drag will do.** A ghost row at the cursor and a
+  grab cursor while reparenting; `Reparent { keep_world_pose }` at the
+  current `q` rather than the zero configuration.
+
+**Out:** any new format, importer or writer; distribution (crates.io, the
+screencast, notarization); the demo's four gaps (web worker, WebGL2, touch,
+directory drop) — all still backlog lines. No new ADR is expected unless
+the left-drag rule needs one; §What not to spend agent time on stands.
+
+**Accept:** the M2 arm build, run by hand again end to end, produces no new
+entry for this list — and the agent's own snapshot suite covers every
+visible change (ADR-0003).
 
 ## What not to spend agent time on
 

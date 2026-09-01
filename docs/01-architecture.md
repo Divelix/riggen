@@ -799,7 +799,7 @@ the id counter included. No `History`: a script has no undo.
 | `Robot(name)` | `Robot::new` |
 | `Robot.load(path) -> (robot, warnings)` | `file::load`; `Warning`s as strings |
 | `robot.save(path)` | `file::save` (paths rebased, unreferenced assets dropped) |
-| `robot.to_json()` / `Robot.from_json(text)` | the v1 envelope, paths as held (absolute); `from_json` validates |
+| `robot.to_json()` / `Robot.from_json(text)` | the current-schema envelope (3), paths as held (absolute); `from_json` validates and refuses any other version — it walks no upgrade chain, unlike `file::load` |
 | `robot.copy()` | `Robot::clone` |
 | `robot.name`, `.root`, `.next_id` | the fields; `next_id` is `IdGen::peek` |
 | `robot.links()`, `.joints()`, `.frames()`, `.assets()`, `.materials()` | `{id: doc}` dicts, materials by name |
@@ -1151,9 +1151,9 @@ measured size is in 03 §v0.2.
     at all. The `visual-debug` skill is the how-to for all of this.
   - A scenario prints `SKIPPING` when no wgpu adapter exists. That is an
     environment failure, not a pass; CI installs `mesa-vulkan-drivers`.
-- CI (`ci.yml`): `cargo fmt --check`, `clippy -D warnings`, `cargo test`, a
-  `wasm32-unknown-unknown` **build** of `riggen-app` (build check only; the
-  web build is not a product in v1), the `mujoco` job — the app's
+- CI (`ci.yml`): `cargo fmt --check`, `clippy -D warnings`, `cargo test`, the
+  `wasm` job — `web/build.sh`, the whole wasm-bindgen bundle the demo is
+  served from (§The web build), not a build check — the `mujoco` job — the app's
   `--export` of `arm.riggen`, of `arm.urdf`, of `bracket.riggen` and of
   the first of those exports read back as MJCF (with `rust-cache`), then
   `python/tests/test_mjcf_load.py` on all four through `uv` (ADR-0008 §3)

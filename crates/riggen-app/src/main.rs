@@ -88,7 +88,7 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-// wasm32 ships as a cdylib loaded by a host page (see `lib.rs`); the bin
-// target still needs to compile for the workspace-wide wasm build check.
+// wasm32 ships as a cdylib loaded by `web/index.html` (see `lib.rs`); the
+// bin target still has to compile for that target, so it gets an empty main.
 #[cfg(target_arch = "wasm32")]
 fn main() {}

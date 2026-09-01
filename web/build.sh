@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build the web demo into `web/dist/` (docs/plans/web-demo.md step 1).
+# Build the web demo into `web/dist/` (docs/01-architecture.md §The web
+# build, ADR-0017).
 #
 #   web/build.sh            release, the bundle that is deployed
 #   web/build.sh --dev      an unoptimized build, for a fast local loop
