@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::{
-    ActuatorSpec, CollisionPolicy, Dynamics, Frame, FrameId, Geom, GeomId, InertialSpec, Joint,
-    JointId, JointKind, Limits, Link, LinkId, MeshAsset, MeshId, Mimic, Pose, Primitive, Robot,
-    ValidationError, validate,
+    ActuatorSpec, CollisionPolicy, Dynamics, FileSource, Frame, FrameId, Geom, GeomId,
+    InertialSpec, Joint, JointId, JointKind, Limits, Link, LinkId, MeshAsset, MeshId, Mimic, Pose,
+    Primitive, Robot, ValidationError, validate,
 };
 
 use crate::import::{ImportError, ImportWarning, mimic_refusals};
@@ -222,26 +222,38 @@ const READ: &[&str] = &[
 /// the bodies inside one are not children of any body.
 const REFUSED: &[&str] = &["include", "replicate", "attach", "frame"];
 
-/// Reads `path` and builds the document; mesh files are resolved against
-/// the file's directory and its `<compiler meshdir>`.
-pub fn load(path: &Path) -> Result<(Robot, Vec<ImportWarning>), ImportError> {
+/// Reads `path` through `source` and builds the document; mesh files are
+/// resolved against the file's directory and its `<compiler meshdir>`, and
+/// hashed through the same `source` — the filesystem natively
+/// ([`riggen_core::Disk`]), the drop gesture's files in a browser
+/// (ADR-0017).
+pub fn load(
+    path: &Path,
+    source: &dyn FileSource,
+) -> Result<(Robot, Vec<ImportWarning>), ImportError> {
     let io = |e: std::io::Error| ImportError::Io {
         path: path.to_owned(),
         message: e.to_string(),
     };
-    let text = std::fs::read_to_string(path).map_err(io)?;
-    let abs = riggen_core::absolute(path).map_err(io)?;
-    let root = crate::xml::parse(&text).map_err(|e| ImportError::Parse {
+    let parse = |m: String| ImportError::Parse {
         path: path.to_owned(),
-        message: e.to_string(),
-    })?;
-    from_mjcf(&root, &abs)
+        message: m,
+    };
+    let bytes = source.read(path).map_err(io)?;
+    let text = String::from_utf8(bytes).map_err(|e| parse(e.to_string()))?;
+    let abs = riggen_core::absolute(path).map_err(io)?;
+    let root = crate::xml::parse(&text).map_err(|e| parse(e.to_string()))?;
+    from_mjcf(&root, &abs, source)
 }
 
 /// The conversion itself, for a parsed file. `path` is the model file: its
 /// directory is where a relative `meshdir` and the mesh files are looked
 /// for, and its name is what a parse error is reported against.
-pub fn from_mjcf(root: &Node, path: &Path) -> Result<(Robot, Vec<ImportWarning>), ImportError> {
+pub fn from_mjcf(
+    root: &Node,
+    path: &Path,
+    source: &dyn FileSource,
+) -> Result<(Robot, Vec<ImportWarning>), ImportError> {
     if root.tag != "mujoco" {
         return Err(ImportError::Parse {
             path: path.to_owned(),
@@ -255,6 +267,7 @@ pub fn from_mjcf(root: &Node, path: &Path) -> Result<(Robot, Vec<ImportWarning>)
     };
     let mut im = Import {
         path: path.to_owned(),
+        source,
         base_dir: path.parent().unwrap_or(Path::new(".")).to_owned(),
         compiler: Compiler::read(root).map_err(parse_err)?,
         defaults: Defaults::read(root).map_err(parse_err)?,
@@ -294,8 +307,10 @@ fn refuse(node: &Node) -> Result<(), ImportError> {
 }
 
 /// One import in progress.
-struct Import {
+struct Import<'a> {
     path: PathBuf,
+    /// Where mesh bytes come from, for the hash of every registered asset.
+    source: &'a dyn FileSource,
     base_dir: PathBuf,
     compiler: Compiler,
     defaults: Defaults,
@@ -322,7 +337,7 @@ struct Import {
     unnamed: usize,
 }
 
-impl Import {
+impl Import<'_> {
     fn run(&mut self, root: &Node) -> Result<(), ImportError> {
         self.read_assets(root)?;
         let world = root.child("worldbody").ok_or(ImportError::NoRoot)?;
@@ -870,7 +885,7 @@ impl Import {
                 used,
             });
         }
-        let content_hash = match riggen_core::hash_file(&path) {
+        let content_hash = match self.source.hash(&path) {
             Ok(h) => h,
             Err(_) => {
                 self.warnings.push(ImportWarning::MeshNotFound {
@@ -1213,7 +1228,7 @@ mod tests {
     use crate::resolve::{ResolvedGeom, ResolvedRobot};
     use crate::xml::parse;
     use crate::{ComputeNow, ExportOptions, Format, MeshStore, export, resolve};
-    use riggen_core::{JointState, fk};
+    use riggen_core::{Disk, JointState, fk};
 
     /// Writes `robot`'s MJCF and its meshes into a scratch directory and
     /// reads the `.xml` back — the acceptance route, in one function.
@@ -1222,7 +1237,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let files = export(&resolved(robot, store), &options(), &dir).unwrap();
         let text = std::fs::read_to_string(&files[0]).unwrap();
-        from_mjcf(&parse(&text).unwrap(), &files[0]).unwrap()
+        from_mjcf(&parse(&text).unwrap(), &files[0], &Disk).unwrap()
     }
 
     fn options() -> ExportOptions {
@@ -1272,7 +1287,7 @@ mod tests {
     }
 
     fn load(text: &str) -> Result<(Robot, Vec<ImportWarning>), ImportError> {
-        from_mjcf(&parse(text).unwrap(), Path::new("/nowhere/m.xml"))
+        from_mjcf(&parse(text).unwrap(), Path::new("/nowhere/m.xml"), &Disk)
     }
 
     /// A model with `body` as the whole of its `<worldbody>`.
@@ -1421,7 +1436,7 @@ mod tests {
     #[test]
     fn the_menagerie_style_corpus_imports_with_the_warnings_it_should() {
         let path = crate::test_util::fixtures().join("menagerie_style.xml");
-        let (robot, warnings) = super::load(&path).unwrap();
+        let (robot, warnings) = super::load(&path, &Disk).unwrap();
         let link = |n: &str| robot.links.values().find(|l| l.name == n).unwrap();
         let joint = |n: &str| robot.joints.values().find(|j| j.name == n).unwrap();
 
@@ -1721,7 +1736,7 @@ mod tests {
     fn the_arms_own_export_comes_back_with_the_same_geometry() {
         let (arm, _) = riggen_core::load(&crate::test_util::fixtures().join("arm/arm.riggen"))
             .expect("the sample document");
-        let (store, errors) = MeshStore::load(&arm);
+        let (store, errors) = MeshStore::load(&arm, &Disk);
         assert!(errors.is_empty(), "{errors:?}");
         let (back, warnings) = round_trip(&arm, &store, "arm");
         assert_eq!(warnings, vec![], "our own MJCF holds nothing unreadable");
@@ -1739,7 +1754,7 @@ mod tests {
         // The real question is not what the document looks like — a hull
         // policy comes back as the meshes it produced — but whether the
         // *geometry* is the same. So: resolve both and compare.
-        let (back_store, errors) = MeshStore::load(&back);
+        let (back_store, errors) = MeshStore::load(&back, &Disk);
         assert!(errors.is_empty(), "{errors:?}");
         same_geometry(&resolved(&arm, &store), &resolved(&back, &back_store));
     }
@@ -1748,7 +1763,7 @@ mod tests {
     fn a_decomposition_comes_back_as_the_collision_meshes_it_produced() {
         let (bracket, _) = riggen_core::load(&crate::test_util::fixtures().join("bracket.riggen"))
             .expect("the sample document");
-        let (store, errors) = MeshStore::load(&bracket);
+        let (store, errors) = MeshStore::load(&bracket, &Disk);
         assert!(errors.is_empty(), "{errors:?}");
         let pieces = resolved(&bracket, &store)
             .links
@@ -1767,7 +1782,7 @@ mod tests {
             CollisionPolicy::Meshes(geoms) => assert_eq!(geoms.len(), pieces),
             other => panic!("{other:?}"),
         }
-        let (back_store, errors) = MeshStore::load(&back);
+        let (back_store, errors) = MeshStore::load(&back, &Disk);
         assert!(errors.is_empty(), "{errors:?}");
         same_geometry(&resolved(&bracket, &store), &resolved(&back, &back_store));
     }
@@ -1960,7 +1975,8 @@ mod tests {
                    <geom class="collision" type="mesh" mesh="never_declared"/>
                  </body></worldbody>
                </mujoco>"#;
-        let (robot, warnings) = from_mjcf(&parse(text).unwrap(), &dir.join("m.xml")).unwrap();
+        let (robot, warnings) =
+            from_mjcf(&parse(text).unwrap(), &dir.join("m.xml"), &Disk).unwrap();
         // An unnamed `<mesh>` is known by its file's stem, as in MuJoCo.
         let CollisionPolicy::Meshes(geoms) = &robot.links.values().next().unwrap().collision else {
             panic!()

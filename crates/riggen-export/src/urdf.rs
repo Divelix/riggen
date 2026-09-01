@@ -228,6 +228,7 @@ mod tests {
     use super::*;
     use crate::MeshStore;
     use crate::test_util::{every_joint_kind, fixtures};
+    use riggen_core::Disk;
     use riggen_core::glam::{DMat3, DMat4, DVec3};
     use riggen_core::{JointState, fk};
     use std::collections::BTreeMap;
@@ -537,7 +538,7 @@ mod tests {
     #[test]
     fn round_trip_fk_agrees_on_a_grid() {
         let (robot, _) = riggen_core::load(&fixtures().join("arm/arm.riggen")).unwrap();
-        let (store, errors) = MeshStore::load(&robot);
+        let (store, errors) = MeshStore::load(&robot, &Disk);
         assert!(errors.is_empty(), "{errors:?}");
         let resolved = crate::resolve(
             &robot,

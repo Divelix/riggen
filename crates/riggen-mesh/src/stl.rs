@@ -55,7 +55,7 @@ pub fn write_binary(mesh: &TriMesh) -> Vec<u8> {
 }
 
 /// [`load_stl`] on bytes already in memory; `path` is only for messages.
-pub(crate) fn parse_stl(bytes: &[u8], path: &Path) -> Result<TriMesh, MeshError> {
+pub fn parse_stl(bytes: &[u8], path: &Path) -> Result<TriMesh, MeshError> {
     let ascii_error = if bytes.starts_with(b"solid") {
         match parse_ascii(bytes) {
             Ok(triangles) => return finish(triangles, path),

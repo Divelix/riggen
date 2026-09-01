@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use riggen_core::glam::{DMat4, DQuat, DVec3};
 use riggen_core::inertial::MeshLookup;
-use riggen_core::{MeshAsset, MeshId, Robot};
+use riggen_core::{FileSource, MeshAsset, MeshId, Robot};
 use riggen_mesh::TriMesh;
 
 use crate::resolve::ExportError;
@@ -17,24 +17,31 @@ use crate::resolve::ExportError;
 pub struct MeshStore(pub BTreeMap<MeshId, Arc<TriMesh>>);
 
 impl MeshStore {
-    /// Loads every asset `robot` references. Assets that fail to load are
-    /// reported and skipped, so `resolve` can still name every other
-    /// problem in the same pass.
-    pub fn load(robot: &Robot) -> (Self, Vec<ExportError>) {
+    /// Loads every asset `robot` references, through `source` — the
+    /// filesystem natively, the drop gesture's files in a browser
+    /// (ADR-0017). Assets that fail to load are reported and skipped, so
+    /// `resolve` can still name every other problem in the same pass.
+    pub fn load(robot: &Robot, source: &dyn FileSource) -> (Self, Vec<ExportError>) {
         let mut store = BTreeMap::new();
         let mut errors = Vec::new();
         for id in robot.referenced_assets() {
             let Some(asset) = robot.assets.get(&id) else {
                 continue; // `validate` reports the dangling reference
             };
-            match riggen_mesh::load_mesh(&asset.path) {
+            let loaded = source
+                .read(&asset.path)
+                .map_err(|e| e.to_string())
+                .and_then(|bytes| {
+                    riggen_mesh::load_mesh_bytes(&asset.path, &bytes).map_err(|e| e.to_string())
+                });
+            match loaded {
                 Ok(mesh) => {
                     store.insert(id, Arc::new(to_document_units(mesh, asset)));
                 }
-                Err(e) => errors.push(ExportError::UnloadableMesh {
+                Err(reason) => errors.push(ExportError::UnloadableMesh {
                     mesh: id,
                     path: asset.path.clone(),
-                    reason: e.to_string(),
+                    reason,
                 }),
             }
         }

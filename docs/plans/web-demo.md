@@ -93,13 +93,19 @@ wasm-bindgen bundle on every push and GitHub Pages serves it from `main`.
   clear-to-red WebGPU page fails there too, so it is the environment and not
   riggen. The canvas is read with `toDataURL`, since `Page.captureScreenshot`
   does not composite a WebGPU canvas.
-- [ ] **Step 2 — Bytes in: the mesh and document readers.**
+- [x] **Step 2 — Bytes in: the mesh and document readers.**
   `riggen_mesh::load_mesh_bytes`; `riggen_core::file::{FileSource, Disk,
   load_from}`; `MeshStore::load`, `urdf_in::load` and `mjcf_in::load` take
   the source. Native behaviour byte-for-byte unchanged. *Test:* an in-memory
   `FileSource` built from `assets/fixtures/` opens `arm.riggen`, `arm.urdf`
   and `menagerie_style.xml` with no disk access, and each result equals the
-  on-disk load.
+  on-disk load. *Done, with two shape changes:* the trait is taken as `&dyn
+  FileSource`, not `&impl` — `mjcf_in::Import` holds one for the whole
+  conversion, and a generic parameter there buys nothing; and a
+  `MemorySource` joins `Disk` in `riggen_core::file` rather than being
+  duplicated as a test helper per crate — the browser's source is that
+  shape anyway (step 4). The importers keep their path-shaped `load`: the
+  source resolves the path, so no text-taking twin is needed.
 - [ ] **Step 3 — Bytes out: `export_files`.** The pure file list under
   `export()`. *Test:* `export_files` and `export` agree on names and bytes
   for the arm, all three formats and the `meshes/` folder.

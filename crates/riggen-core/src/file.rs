@@ -87,6 +87,20 @@ impl fmt::Display for FileError {
     }
 }
 
+impl FileError {
+    /// The same error against a different path — [`load`] uses it to quote
+    /// the path it was given rather than its absolute form.
+    fn at(self, path: &Path) -> Self {
+        let path = path.to_owned();
+        match self {
+            Self::Io { source, .. } => Self::Io { path, source },
+            Self::Json { source, .. } => Self::Json { path, source },
+            Self::UnsupportedVersion { found, .. } => Self::UnsupportedVersion { path, found },
+            Self::Invalid { source, .. } => Self::Invalid { path, source },
+        }
+    }
+}
+
 impl std::error::Error for FileError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -154,7 +168,73 @@ pub fn content_hash(bytes: &[u8]) -> u64 {
 
 /// [`content_hash`] of a file's bytes; what `MeshAsset::content_hash` holds.
 pub fn hash_file(path: &Path) -> io::Result<u64> {
-    std::fs::read(path).map(|bytes| content_hash(&bytes))
+    Disk.hash(path)
+}
+
+/// Where the bytes behind a path come from (ADR-0017).
+///
+/// On the desktop that is the filesystem, [`Disk`]. In a browser there is
+/// no filesystem to reach for: the bytes arrive with the drop gesture and
+/// the paths in the document are resolved against *that* set instead. Every
+/// reader in the workspace — the `.riggen` loader here, `MeshStore`, the
+/// URDF and MJCF imports — reads through this one trait, so both worlds run
+/// the same reader rather than a second, thinner web version of it
+/// (docs/01-architecture.md §File format).
+pub trait FileSource {
+    fn read(&self, path: &Path) -> io::Result<Vec<u8>>;
+
+    /// Whether `path` is readable. Only a probe — the URDF import walks
+    /// candidate directories looking for a `package://` mesh — so a source
+    /// with a cheaper answer than a full read should say so.
+    fn exists(&self, path: &Path) -> bool {
+        self.read(path).is_ok()
+    }
+
+    /// [`content_hash`] of what [`FileSource::read`] returns.
+    fn hash(&self, path: &Path) -> io::Result<u64> {
+        self.read(path).map(|bytes| content_hash(&bytes))
+    }
+}
+
+/// The filesystem: what every native path takes.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Disk;
+
+impl FileSource for Disk {
+    fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        std::fs::read(path)
+    }
+
+    fn exists(&self, path: &Path) -> bool {
+        path.is_file()
+    }
+}
+
+/// Bytes held in memory, keyed by the exact path asked for. The browser's
+/// source is built on this shape (a drop gesture's files), and it is what
+/// the tests use to prove a reader never touches the disk.
+#[derive(Debug, Clone, Default)]
+pub struct MemorySource(pub std::collections::BTreeMap<PathBuf, Vec<u8>>);
+
+impl MemorySource {
+    pub fn insert(&mut self, path: impl Into<PathBuf>, bytes: Vec<u8>) {
+        self.0.insert(path.into(), bytes);
+    }
+}
+
+impl FileSource for MemorySource {
+    fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        self.0.get(path).cloned().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("{} is not in this file set", path.display()),
+            )
+        })
+    }
+
+    fn exists(&self, path: &Path) -> bool {
+        self.0.contains_key(path)
+    }
 }
 
 /// Writes `robot` to `path`, mesh paths rebased relative to it, assets no
@@ -195,29 +275,48 @@ pub fn save(robot: &Robot, path: &Path) -> Result<(), FileError> {
     std::fs::rename(&tmp, &path_abs).map_err(io)
 }
 
-/// Reads `path`, resolves mesh paths against its directory, validates, and
-/// checks every mesh file against its recorded hash. Warnings are in
-/// `MeshId` order.
+/// Reads `path` from the filesystem and hands it to [`load_from`].
 pub fn load(path: &Path) -> Result<(Robot, Vec<Warning>), FileError> {
-    let text = std::fs::read_to_string(path).map_err(|source| FileError::Io {
-        path: path.to_owned(),
-        source,
-    })?;
-    let json = |source| FileError::Json {
+    let io = |source| FileError::Io {
         path: path.to_owned(),
         source,
     };
-    let header: Header = serde_json::from_str(&text).map_err(json)?;
+    let text = std::fs::read_to_string(path).map_err(io)?;
+    let path_abs = absolute(path).map_err(io)?;
+    // Errors name the path the caller gave, not the absolutised one: that
+    // is the spelling the user typed and the one every message has quoted
+    // since M1.
+    load_from(&text, &path_abs, &Disk).map_err(|e| e.at(path))
+}
+
+/// Parses a `.riggen` document, resolves its mesh paths against `base`'s
+/// directory, validates, and checks every mesh against its recorded hash
+/// through `source`. Warnings are in `MeshId` order.
+///
+/// `base` is where the document *is* — its directory is what relative mesh
+/// paths are relative to, and its name is what an error quotes. It must be
+/// absolute and needs no filesystem behind it: in a browser it is the
+/// dropped file under a synthetic root (ADR-0017).
+pub fn load_from(
+    text: &str,
+    base: &Path,
+    source: &dyn FileSource,
+) -> Result<(Robot, Vec<Warning>), FileError> {
+    let json = |source| FileError::Json {
+        path: base.to_owned(),
+        source,
+    };
+    let header: Header = serde_json::from_str(text).map_err(json)?;
     if !(OLDEST_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&header.schema_version) {
         return Err(FileError::UnsupportedVersion {
-            path: path.to_owned(),
+            path: base.to_owned(),
             found: header.schema_version,
         });
     }
     // Every version so far parses into today's `Robot` — the fields added
     // since carry `#[serde(default)]` — so the chain runs on the parsed
     // document rather than on the JSON.
-    let file: File = serde_json::from_str(&text).map_err(json)?;
+    let file: File = serde_json::from_str(text).map_err(json)?;
     let mut robot = file.robot;
     for from in header.schema_version..SCHEMA_VERSION {
         match from {
@@ -227,22 +326,18 @@ pub fn load(path: &Path) -> Result<(Robot, Vec<Warning>), FileError> {
         }
     }
 
-    let path_abs = absolute(path).map_err(|source| FileError::Io {
-        path: path.to_owned(),
-        source,
-    })?;
-    let dir = path_abs.parent().unwrap_or(Path::new("/"));
+    let dir = base.parent().unwrap_or(Path::new("/"));
     for asset in robot.assets.values_mut() {
         asset.path = resolve_against(dir, &asset.path);
     }
     validate(&robot).map_err(|source| FileError::Invalid {
-        path: path.to_owned(),
+        path: base.to_owned(),
         source,
     })?;
 
     let mut warnings = Vec::new();
     for (&mesh, asset) in &robot.assets {
-        match hash_file(&asset.path) {
+        match source.hash(&asset.path) {
             Ok(found) if found == asset.content_hash => {}
             Ok(found) => warnings.push(Warning::HashMismatch {
                 mesh,
@@ -976,6 +1071,66 @@ mod tests {
         assert_eq!(
             absolute(Path::new("sub/../x.stl")).unwrap(),
             normalized(&here).join("x.stl")
+        );
+    }
+
+    /// The whole point of [`FileSource`] (ADR-0017): the same document
+    /// opened from a set of bytes that has no directory behind it, and the
+    /// result identical to the on-disk load once the meshes' directory is
+    /// accounted for. The synthetic root does not exist, so any read that
+    /// slipped through to the filesystem would fail and show up as a
+    /// `MeshUnreadable` warning.
+    #[test]
+    fn load_from_memory_matches_load_from_disk() {
+        let dir = fixtures().join("arm");
+        let root = Path::new("/dropped");
+        assert!(!root.exists(), "the synthetic root must not exist");
+
+        let mut memory = MemorySource::default();
+        for name in [
+            "arm.riggen",
+            "base.stl",
+            "shoulder.stl",
+            "upper.stl",
+            "fore.stl",
+        ] {
+            memory.insert(root.join(name), std::fs::read(dir.join(name)).unwrap());
+        }
+        let text = String::from_utf8(memory.read(&root.join("arm.riggen")).unwrap()).unwrap();
+        let (from_memory, memory_warnings) =
+            load_from(&text, &root.join("arm.riggen"), &memory).unwrap();
+        assert_eq!(memory_warnings, Vec::new());
+
+        let (mut from_disk, disk_warnings) = load(&dir.join("arm.riggen")).unwrap();
+        assert_eq!(disk_warnings, Vec::new());
+        // The one thing that legitimately differs: where the meshes are.
+        for asset in from_disk.assets.values_mut() {
+            asset.path = root.join(asset.path.file_name().unwrap());
+        }
+        assert_eq!(
+            serde_json::to_value(&from_memory).unwrap(),
+            serde_json::to_value(&from_disk).unwrap()
+        );
+    }
+
+    /// A mesh the set does not carry is a warning, not an error: the
+    /// document still opens, exactly as a moved file on disk does.
+    #[test]
+    fn load_from_warns_for_every_mesh_the_set_is_missing() {
+        let dir = fixtures().join("arm");
+        let root = Path::new("/dropped");
+        let mut memory = MemorySource::default();
+        memory.insert(
+            root.join("arm.riggen"),
+            std::fs::read(dir.join("arm.riggen")).unwrap(),
+        );
+        let text = String::from_utf8(memory.read(&root.join("arm.riggen")).unwrap()).unwrap();
+        let (_, warnings) = load_from(&text, &root.join("arm.riggen"), &memory).unwrap();
+        assert_eq!(warnings.len(), 4, "{warnings:?}");
+        assert!(
+            warnings
+                .iter()
+                .all(|w| matches!(w, Warning::MeshUnreadable { .. }))
         );
     }
 }

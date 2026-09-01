@@ -16,9 +16,9 @@ use std::collections::BTreeMap;
 use pyo3::exceptions::{PyOSError, PyValueError};
 use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{
-    CollisionPolicy, Command, Created, EditError, Frame, FrameId, Geom, GeomId, Id, InertialSpec,
-    Joint, JointId, JointState, Link, LinkId, Material, MeshAsset, MeshId, Pose, Robot,
-    compose_inertial, validation_errors,
+    CollisionPolicy, Command, Created, Disk, EditError, Frame, FrameId, Geom, GeomId, Id,
+    InertialSpec, Joint, JointId, JointState, Link, LinkId, Material, MeshAsset, MeshId, Pose,
+    Robot, compose_inertial, validation_errors,
 };
 use riggen_export::{ExportError, ExportOptions, Format, MeshPathStyle, MeshStore, PackageMap};
 use serde::{Deserialize, Serialize};
@@ -707,7 +707,7 @@ impl PyRobot {
     #[allow(clippy::type_complexity)]
     fn inertial(&self, py: Python<'_>, link: u32) -> PyResult<(f64, [f64; 3], [[f64; 3]; 3])> {
         let id = self.require_link(py, link)?;
-        let (store, load_errors) = MeshStore::load(&self.inner);
+        let (store, load_errors) = MeshStore::load(&self.inner, &Disk);
         let link = &self.inner.links[&id];
         let composed = compose_inertial(link, &store, &self.inner.materials).map_err(|e| {
             let mut message = e.to_string();
@@ -753,7 +753,7 @@ impl PyRobot {
             mesh_paths: mesh_paths_from(mesh_paths)?,
             floating_base,
         };
-        let (store, load_errors) = MeshStore::load(&self.inner);
+        let (store, load_errors) = MeshStore::load(&self.inner, &Disk);
         let resolved =
             match riggen_export::resolve(&self.inner, &store, &riggen_export::ComputeNow, &options)
             {
@@ -794,7 +794,7 @@ impl PyRobot {
         packages: Option<BTreeMap<String, PathBuf>>,
     ) -> PyResult<(Self, Vec<String>)> {
         let packages = PackageMap(packages.unwrap_or_default());
-        let (inner, warnings) = riggen_export::urdf_in::load(&path, &packages)
+        let (inner, warnings) = riggen_export::urdf_in::load(&path, &packages, &Disk)
             .map_err(|e| raise(py, "UrdfImportError", e.to_string()))?;
         let warnings = warnings.iter().map(ToString::to_string).collect();
         Ok((Self { inner }, warnings))
@@ -806,7 +806,7 @@ impl PyRobot {
     /// document does not. Raises `riggen.MjcfImportError`.
     #[staticmethod]
     fn load_mjcf(py: Python<'_>, path: PathBuf) -> PyResult<(Self, Vec<String>)> {
-        let (inner, warnings) = riggen_export::mjcf_in::load(&path)
+        let (inner, warnings) = riggen_export::mjcf_in::load(&path, &Disk)
             .map_err(|e| raise(py, "MjcfImportError", e.to_string()))?;
         let warnings = warnings.iter().map(ToString::to_string).collect();
         Ok((Self { inner }, warnings))
