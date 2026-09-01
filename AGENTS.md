@@ -19,23 +19,22 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**SDF export done (2026-09-01, ADR-0016):** `sdf.rs` is a third writer
-over the same `ResolvedRobot` and no new field — SDF 1.11, links posed
-`relative_to` their parent, native `<capsule>`, `<frame>` and
-`<axis><mimic>`, only the actuator still a comment. `Format` is a set
-(`mjcf|urdf|sdf|both|all`); the `sdf` CI job holds the file to libsdformat
-itself at 1e-9. **MJCF import before it (ADR-0015):** an `.xml` opens by
-every route a `.urdf` does, over the reading half of `xml.rs`; one import
-vocabulary for both formats. **v0.2 before that:** actuator presets
-(ADR-0014), mimic joints through the one `fk::resolve_q` (ADR-0013), named
-frames (ADR-0012), V-HACD decomposition on `riggen-app::jobs` (ADR-0011),
-and the `cp310-abi3` wheel that is both the app and `import riggen`
-(ADR-0009). `.riggen` is **schema 3**, with the upgrade chain `load` walks.
-**Before that:** M3 the writers from one `ResolvedRobot`, URDF import,
-inertials, collision; M2 the mouse-only arm; M1 the document, commands,
-history, `.riggen`.
-**Next:** `/close-cycle` for v0.2 — every plan is retired and only the
-conditional web-demo line is left in `docs/03-roadmap.md`.
+**Web demo done (2026-09-02, ADR-0017):** riggen runs in a browser at
+[divelix.github.io/riggen](https://divelix.github.io/riggen/), on the same
+readers and writers as the desktop — one `FileSource` seam (`Disk`, or a
+drop gesture's files by *name*), `export_files` under `export`, downloads
+instead of a filesystem. WebGPU only; V-HACD asks before freezing the tab.
+**v0.2 before it:** SDF export (ADR-0016) and MJCF import (ADR-0015) — a
+third writer and a second reader over the same `ResolvedRobot` and one
+import vocabulary; actuator presets (ADR-0014), mimics through the one
+`fk::resolve_q` (ADR-0013), named frames (ADR-0012), V-HACD on
+`riggen-app::jobs` (ADR-0011), the `cp310-abi3` wheel that is both the app
+and `import riggen` (ADR-0009). `.riggen` is **schema 3**, with the upgrade
+chain `load` walks. **Before that:** M3 the writers from one
+`ResolvedRobot`, URDF import, inertials, collision; M2 the mouse-only arm;
+M1 the document, commands, history, `.riggen`.
+**Next:** `/close-cycle` for v0.2 — nothing is left open in the roadmap.
+Pages needs one by-hand switch: Settings › Pages › Source: GitHub Actions.
 
 ## Rules that are not derivable from the code
 
@@ -48,8 +47,8 @@ conditional web-demo line is left in `docs/03-roadmap.md`.
 - Every UI change that can be seen gets a snapshot test (ADR-0003). When a
   snapshot changes, show the human the image.
 - The agent looks at the UI itself — `visual-debug` skill (scratch capture,
-  `debug_state()` JSON, Debug menu). Never ask the human to describe the
-  screen.
+  `debug_state()` JSON, Debug menu); for the web build, a headed-Chromium
+  CDP driver (01 §Testing). Never ask the human to describe the screen.
 - Update this file's "Current state" when a milestone lands; keep it under
   ~15 lines — the roadmap holds the detail.
 - Backlog line → `/idea` (brainstorm, `docs/ideas/`) → `/plan` (todo,

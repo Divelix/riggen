@@ -11,7 +11,8 @@ matter live.
 ┌────────────────────────────────────────────────────────────────┐
 │  riggen-app       eframe shell, panels, gizmos, drag-drop,     │  binary
 │                   selection, snapping, export dialog, the CLI  │  (the wheel's
-│                   (--export, --example, --version), snapshots  │   scripts/)
+│                   (--export, --example, --version), snapshots, │   scripts/)
+│                   and the wasm cdylib the web demo loads       │  + cdylib
 ├────────────────────────────────────────────────────────────────┤
 │  riggen-viewport  wgpu renderer via egui_wgpu callbacks:       │
 │                   instances, camera, ID-buffer picking,        │
@@ -55,12 +56,20 @@ already in the tree under `urdf-rs`). Nothing below `riggen-app` knows
 about selection,
 hover, or gizmos.
 
+No layer reaches the filesystem directly either. Every reader takes a
+`riggen_core::FileSource` — `read`, plus `exists` and `hash` over it —
+whose implementations are `Disk` (`std::fs`) and `MemorySource` (bytes by
+path), and `riggen-app` adds `DroppedSet`, the files of one browser drop
+resolved by name (ADR-0017). That is what lets the same `riggen-core` and
+`riggen-export` run in a page with no filesystem behind them (§File format).
+
 ## Cargo workspace
 
 ```
 riggen/
 ├── Cargo.toml              # [workspace], resolver 3, edition 2024, every dep version;
-│                           # [profile.release] strip + thin LTO: the wheel's binary
+│                           # [profile.release] strip + thin LTO: the wheel's binary;
+│                           # [profile.web] opt-level "s" + fat LTO: the wasm download
 ├── pyproject.toml          # the `riggen` wheel: maturin `bindings = "pyo3"` over
 │                           # crates/riggen-py, python-source = python/, the binary from
 │                           # riggen._riggen.data/ (ignored; the build fills it), version
@@ -69,7 +78,11 @@ riggen/
 ├── .cargo/config.toml      # one rustflag, wasm32 only: getrandom's backend (ADR-0007)
 ├── rust-toolchain.toml     # stable + rustfmt, clippy, wasm32-unknown-unknown
 ├── kittest.toml            # snapshot thresholds (ADR-0003); found by walking up from the crate
-├── .github/workflows/      # ci.yml (§Testing) and release.yml (§Python distribution)
+├── .github/workflows/      # ci.yml (§Testing), release.yml (§Python distribution),
+│                           # pages.yml (the web demo, §The web build)
+├── web/                    # the demo's page: index.html, main.js (the WebGPU probe,
+│                           # the canvas, the panic sheet), build.sh → web/dist/
+│                           # (gitignored: the wasm-bindgen bundle plus the page)
 ├── crates/
 │   ├── riggen-mesh/        # TriMesh, Aabb, Ray, load_stl / load_obj / load_mesh, feature/,
 │   │                       # mass, hull (quickhull), decomp (V-HACD, ADR-0011), fit
@@ -78,8 +91,12 @@ riggen/
 │   │                       # (both halves: the writer and a quick-xml DOM), import (the
 │   │                       # warning and error vocabulary both imports speak), urdf_in, mjcf_in
 │   ├── riggen-viewport/    # camera/, scene, pick_id, gpu_mesh, overlay, viewport/, shaders/
-│   ├── riggen-app/         # bin "riggen"; cdylib for the wasm build check; tests/visual,
+│   ├── riggen-app/         # bin "riggen"; the cdylib the web demo loads; tests/visual,
 │       │                   # tests/cli.rs (the built binary from a shell)
+│       ├── src/example.rs  # the bundled sample arm's bytes: --example arm unpacks
+│       │                   # them, the web build opens them as a drop (ADR-0017)
+│       ├── src/download.rs # the browser's way out: a stored zip and a Blob
+│       │                   # download (ADR-0017 §6); wasm and cfg(test) only
 │       ├── build.rs        # RIGGEN_GIT_HASH / RIGGEN_BUILD_DATE for `--version`
 │       ├── src/jobs.rs     # the job thread: Jobs, Job, JobKey, JobResult (§Jobs and threads)
 │       ├── src/cli.rs      # the flag table, --help, --version, --example, `riggen
@@ -342,7 +359,11 @@ closes.
   the document on open and on every option change and lists each
   `ExportError` with the link it names, the Export button disabled while
   any exist or while no format is ticked; success is the status bar's
-  `exported N files to <dir>`.
+  `exported N files to <dir>`. In a browser there is no dialog and no
+  directory to choose: Open and the two Imports point at the drop gesture
+  instead, the export row reads `download   <name>.zip`, and Save, Save As,
+  Export and Debug › Save state each hand the browser a file (§The web
+  build, ADR-0017).
 - **Shortcuts** (`shortcuts.rs`, run before the panels each frame): Ctrl+N
   / O / S / Shift+S fire always; Delete, F2, Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y
   yield while a `TextEdit` has focus (`TextEdit::load_state` on the focused
@@ -590,11 +611,21 @@ and do not have; `drain_jobs` moves results into `RiggenApp::decomp`;
 `decompositions_pending()` is part of `settled()`, so a snapshot is never
 taken over a half-computed collision view.
 
+On wasm the run is inline and stops the page for seconds, so it is
+*consented to* rather than merely allowed: `RiggenApp::decomp_consent`
+starts false in a browser, `request_decompositions` returns while it is,
+and the properties panel says the tab will stop responding and offers the
+button that answers. Asked once per session, not once per link. A document
+that wants a decomposition while the answer is outstanding is **not**
+`decompositions_pending` — nothing is running (ADR-0011, ADR-0017).
+
 **What still runs on the UI thread:** mesh loading, convex hulls and
 export. Every route in — CLI arguments, drag-and-drop, File › Open, Import
-URDF, Import MJCF — ends in `RiggenApp::load_files` (through the dirty check when a
-document is among the files) and fits the view afterwards; `sync_scene`
-loads a document's assets from their paths; a hull is computed the first
+URDF, Import MJCF — ends in `RiggenApp::load_files`, or in
+`load_dropped` for the bytes of a browser drop, through the dirty check
+when a document is among the files, and fits the view afterwards;
+`sync_scene` loads a document's assets through `RiggenApp::files`
+(§File format); a hull is computed the first
 time the collision view or a fit asks for it and cached beside the loaded
 mesh (`LoadedMesh::hull`); the export resolves in the dialog — on open and
 again on every option change, ticking a format among them — and writes on
@@ -607,10 +638,13 @@ noticeable, so "async mesh loading via `jobs`" stays a backlog line.
 (02 §Schema). Mesh paths are **absolute in memory and relative to the
 `.riggen` file on disk**, forward slashes: `riggen_core::save` rebases
 them on the way out and `load` resolves them on the way in, so nothing
-outside `file.rs` ever meets a relative path. `riggen_core::absolute`
-(absolute + lexical normalization) is the one way a path enters the
-document — `std::path::absolute` alone keeps `a/../b`, and two spellings of
-one file would compare unequal. Every asset carries an FNV-1a 64 hash of
+outside `file.rs` ever meets a relative path. On disk `riggen_core::absolute`
+(absolute + lexical normalization) is what a path passes through on the way
+in — `std::path::absolute` alone keeps `a/../b`, and two spellings of one
+file would compare unequal. In a browser there is no working directory to
+be absolute against, so a dropped file is given the synthetic `/dropped/`
+(ADR-0017); either way what the document holds is absolute and normalized,
+and nothing downstream learns a second kind of path. Every asset carries an FNV-1a 64 hash of
 its mesh bytes, taken at registration; `load` recomputes it and reports a
 mismatch or an unreadable file as a `Warning` (shown in the status bar),
 never an error — the document opens, the user is told. Geometry is never
@@ -618,6 +652,19 @@ embedded; assets no geom references are dropped on save; the write goes
 through `<name>.riggen.tmp` and a rename so a crash leaves the old file. A
 schema bump comes with an `upgrade_vN_to_vN+1` and a corpus test that keeps
 every old version opening forever (RoboCAD's rule).
+
+Reading and writing are split from the filesystem, one function deep
+(ADR-0017). `load(path)` reads the bytes and calls `load_from(text, base,
+source)`; `save(robot, path)` writes what `to_json(robot, base)` returned,
+through a temp file and a rename. `base` is where the document *is* — its
+directory is what relative mesh paths are relative to, and it needs no
+filesystem behind it. The same split runs through `MeshStore::load`,
+`urdf_in::load`, `mjcf_in::load` and `riggen_mesh::load_mesh_bytes`, and
+through `riggen_export::export_files(robot, options, dir)`, the export
+directory as `(path, contents)` with `export()` the atomic writer over it.
+So the desktop and the browser run the *same* readers and writers, with
+`Disk` or a `DroppedSet` under them, and the browser is not a thinner
+riggen.
 
 In the app, `save_to` marks the history depth as saved and the status bar
 and window title show `name.riggen*` until then; the unsaved-changes modal
@@ -835,6 +882,36 @@ over that table — no logic of its own beyond spelling:
 export is byte-identical to `arm.riggen`'s) are the API's worked examples and the
 `wheel` job's MuJoCo input.
 
+## The web build
+
+The same app, in a browser, at
+[divelix.github.io/riggen](https://divelix.github.io/riggen/). `riggen-app`
+is a `cdylib` whose `WebHandle` starts eframe on a full-window canvas and
+opens the bundled sample arm; `web/index.html` and `web/main.js` are the
+page around it and `web/build.sh` produces `web/dist/` — cargo at
+`[profile.web]`, then a `wasm-bindgen-cli` pinned to `Cargo.lock`'s own
+`wasm-bindgen`, because the two halves of that ABI have to agree.
+
+**WebGPU only** (ADR-0017 §7). The viewport's picking reads an `R32Uint`
+target back with `copy_texture_to_buffer`, which wgpu's GL backend will not
+do, so `main.js` asks for a real adapter before it starts anything and
+otherwise writes a page naming the browsers that have one. It also polls
+`WebHandle::has_panicked`: a panic poisons eframe's runner and the canvas
+then simply stops repainting, which reads as a hang.
+
+**No filesystem.** Files arrive as the bytes of one drop gesture, read
+asynchronously into an inbox the frame loop drains, and are resolved by
+**file name** against that gesture's own set (`DroppedSet`, ADR-0017 §3).
+A gesture carrying a document replaces the set; meshes alone join it. Out
+is a download: the `.riggen` text, the export directory as one stored zip,
+the debug state's JSON. There is no dialog and no path, so a document
+opened in a browser is untitled and Save behaves as Save As.
+
+`pages.yml` builds and deploys on every push to `main` — `main` is always
+green, and the demo should be what riggen is now — and the `wasm` CI job
+builds the same bundle on every push, so a break shows up in CI first. The
+measured size is in 03 §v0.2.
+
 ## Testing
 
 - `riggen-mesh`, `riggen-core`, `riggen-export`: plain unit tests; no GPU,
@@ -948,6 +1025,24 @@ export is byte-identical to `arm.riggen`'s) are the API's worked examples and th
   load — not the number the user sees: the real window's clock starts in
   `main` (`riggen --timing` prints it) and holds the OS window and the
   wgpu device too; see 03 §M4 for the measured figure.
+- **The web bundle** (the `wasm` CI job): `web/build.sh` on every push, so
+  the bundle `pages.yml` deploys is built and checked for its three files
+  before it is deployed. A break that only shows under wasm-bindgen breaks
+  here first. The `FileSource` seam under it is covered by plain unit
+  tests: `arm.riggen`, `arm.urdf` and `menagerie_style.xml` opened out of
+  an in-memory set rooted at a directory that **does not exist** — so any
+  read that leaked to the filesystem would fail — and compared field for
+  field against the on-disk load; `export_files` against what `export`
+  wrote; the export zip's entry names, stored method and bytes.
+  What only a real browser can answer — WebGPU comes up, the pick readback
+  works, a drop opens, a download lands — is the by-hand half, and the
+  agent runs it rather than asking the human what the screen says: a
+  headless-Chromium CDP driver loads the page, collects the console,
+  clicks, drops files built from `fetch`, and reads the canvas back with
+  `toDataURL` (`Page.captureScreenshot` does not composite a WebGPU
+  canvas). It has to run **headed** on a display: headless Chromium's GPU
+  process fails `requestDevice`, which a minimal clear-to-red WebGPU page
+  confirms is the environment and not riggen.
 - **Visual snapshots** (`riggen-app/tests/visual`, ADR-0003): `egui_kittest`
   drives the real `eframe::App` headlessly through wgpu (CPU adapter via
   lavapipe, so local and CI agree) and diffs PNGs. This is how an agent sees
@@ -978,7 +1073,9 @@ export is byte-identical to `arm.riggen`'s) are the API's worked examples and th
   `properties_joint_mimic`, `properties_joint_actuator`,
   `properties_joint_actuator_applied` —
   and the frame set — `frames_tree`, `frame_properties`,
-  `add_frame_button`, `gizmo_move_frame`,
+  `add_frame_button`, `gizmo_move_frame` — and `decomp_needs_consent`, the
+  browser's half of the Collision block, which a native runner renders by
+  turning `set_decomp_consent` off,
   plus golden-less app tests including `build_pendulum_numerically` (the
   M1 acceptance in executable form), `example_arm_opens_from_the_bundle`,
   `startup_first_frame_under_budget`, and the pointer-sharing set behind

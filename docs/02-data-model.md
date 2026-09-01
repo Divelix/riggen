@@ -586,8 +586,10 @@ reverses its own column except where MJCF has no room:
 
 ## URDF import (`riggen-export::urdf_in`)
 
-`urdf_in::load(path, &PackageMap) -> Result<(Robot, Vec<ImportWarning>),
-ImportError>` over `urdf-rs`. Links and joints map directly (URDF's
+`urdf_in::load(path, &PackageMap, &dyn FileSource) -> Result<(Robot,
+Vec<ImportWarning>), ImportError>` over `urdf-rs`. The source is where the
+file's own bytes and every mesh's come from: `riggen_core::Disk` natively,
+the files of one browser drop otherwise (ADR-0017). Links and joints map directly (URDF's
 joint-frame convention is ours, ADR-0004); `<inertial>` becomes
 `InertialSpec::Override` (the tensor rotated from the inertial frame into
 link axes); a `<mesh scale>` becomes `MeshAsset::scale` (uniform only — a
@@ -603,7 +605,11 @@ to read, which is also why nothing is dropped and no warning appears
 `package://name/rest`
 resolves through the map, else `rest` beside the file, else `name/rest`
 under an ancestor of the file's directory — `urdf-rs`'s own resolution
-shells out to `rospack`. Nothing is dropped silently: `ImportWarning::{
+shells out to `rospack`. Those candidates are probed through the same
+source, so in a browser "beside the file" means "in the same drop", where
+paths are matched by file name and directories are ignored (ADR-0017 §3);
+a mesh the set does not carry is the `MeshNotFound` a moved file already
+was. Nothing is dropped silently: `ImportWarning::{
 MimicDropped, SafetyControllerDropped, NonUniformScale,
 PrimitiveVisualDropped, MixedCollisionDropped, NoInertial,
 PackageUnresolved, MeshNotFound }` reach the status bar (File › Import
@@ -632,8 +638,11 @@ ADR-0015 §4).
 
 ## MJCF import (`riggen-export::mjcf_in`)
 
-`mjcf_in::load(path) -> Result<(Robot, Vec<ImportWarning>), ImportError>`
-over `xml::parse`. MJCF is a MuJoCo *scene* rather than a robot
+`mjcf_in::load(path, &dyn FileSource) -> Result<(Robot,
+Vec<ImportWarning>), ImportError>` over `xml::parse`. The source reads the
+model file and hashes every mesh — the filesystem natively, one browser
+drop otherwise, where `<compiler meshdir>` still composes a path and the
+lookup still ends at a file name (ADR-0017 §3). MJCF is a MuJoCo *scene* rather than a robot
 description, so the import reads the subset the document has fields for,
 names everything else, and refuses the handful of shapes the document
 cannot represent at all — ADR-0015 fixes which is which.
