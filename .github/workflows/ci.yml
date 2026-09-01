@@ -49,7 +49,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
       - run: cargo test --workspace
 
-  # The web demo (docs/plans/web-demo.md, ADR-0017). Not a build check any
+  # The web demo (ADR-0017, 01-architecture §The web build). Not a build check any
   # more: this job produces the *same* bundle `pages.yml` deploys, so a page
   # that only breaks under wasm-bindgen breaks here first. `web/build.sh`
   # installs the `wasm-bindgen-cli` pinned to `Cargo.lock`'s `wasm-bindgen`

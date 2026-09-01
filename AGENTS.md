@@ -19,22 +19,23 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**Web demo done (2026-09-02, ADR-0017):** riggen runs in a browser at
-[divelix.github.io/riggen](https://divelix.github.io/riggen/), on the same
-readers and writers as the desktop — one `FileSource` seam (`Disk`, or a
-drop gesture's files by *name*), `export_files` under `export`, downloads
-instead of a filesystem. WebGPU only; V-HACD asks before freezing the tab.
-**v0.2 before it:** SDF export (ADR-0016) and MJCF import (ADR-0015) — a
-third writer and a second reader over the same `ResolvedRobot` and one
-import vocabulary; actuator presets (ADR-0014), mimics through the one
-`fk::resolve_q` (ADR-0013), named frames (ADR-0012), V-HACD on
-`riggen-app::jobs` (ADR-0011), the `cp310-abi3` wheel that is both the app
-and `import riggen` (ADR-0009). `.riggen` is **schema 3**, with the upgrade
-chain `load` walks. **Before that:** M3 the writers from one
-`ResolvedRobot`, URDF import, inertials, collision; M2 the mouse-only arm;
-M1 the document, commands, history, `.riggen`.
-**Next:** `/close-cycle` for v0.2 — nothing is left open in the roadmap.
-Pages needs one by-hand switch: Settings › Pages › Source: GitHub Actions.
+**v0.2 closed 2026-09-02, tag `v0.2.1`.** The cycle that made "sim-ready" a
+feature rather than a claim: the Python SDK in the one wheel (ADR-0009),
+V-HACD collision (ADR-0011), frames (ADR-0012), mimics (ADR-0013),
+actuator presets (ADR-0014), MJCF import (ADR-0015), SDF export
+(ADR-0016), and the web demo at
+[divelix.github.io/riggen](https://divelix.github.io/riggen/) over one
+`FileSource` seam (ADR-0017). `.riggen` is **schema 3**, with the upgrade
+chain `load` walks; three writers and two importers share one
+`ResolvedRobot` and one warning vocabulary.
+**Before that:** M4 the wheel; M3 the writers, URDF import, inertials,
+collision; M2 the mouse-only arm; M1 the document, commands, history,
+`.riggen`; M0 the viewport.
+**Next: v0.3 — the hand-feel debt** (`docs/03-roadmap.md`). No new format
+and no new distribution: the viewport answers the mouse and keyboard, the
+overlay tells the truth about depth and driven joints, numbers scrub, and
+the panels stop hiding things. Start with `/idea` for the left-drag orbit
+rule — it is the one line that needs a decision before a plan.
 
 ## Rules that are not derivable from the code
 

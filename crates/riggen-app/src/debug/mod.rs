@@ -603,7 +603,7 @@ impl RiggenApp {
     ///
     /// A document that wants one while the browser's consent is withheld
     /// is *not* pending: nothing is running, and nothing will until the
-    /// question is answered (ADR-0011, plans/web-demo step 6).
+    /// question is answered (ADR-0011, ADR-0017).
     pub fn decompositions_pending(&self) -> bool {
         self.decomp_consent
             && self.wanted_decompositions().iter().any(|key| {

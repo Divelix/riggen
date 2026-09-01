@@ -4625,7 +4625,7 @@ fn startup_first_frame_under_budget() {
 }
 
 /// A drop gesture's bytes open exactly as the same files on disk do
-/// (ADR-0017, plans/web-demo step 4). This is the browser's only way in,
+/// (ADR-0017). This is the browser's only way in,
 /// so it is asserted against a real app rather than reasoned about.
 #[test]
 fn dropped_bytes_open_the_sample_arm() {
@@ -4758,8 +4758,7 @@ fn a_mesh_drop_joins_the_open_document() {
     });
 }
 
-/// The browser's half of the Collision block (plans/web-demo step 6,
-/// ADR-0011): `jobs` has no thread on wasm, so a V-HACD run freezes the
+/// The browser's half of the Collision block (ADR-0011, ADR-0017): `jobs` has no thread on wasm, so a V-HACD run freezes the
 /// tab, and the panel says so and asks once before starting one. Rendered
 /// on a native runner by turning the consent off by hand — otherwise this
 /// screen would only ever exist in a browser, where the snapshot suite

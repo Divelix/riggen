@@ -4,7 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# `rlib` for the tests and the bin, `cdylib` for the wasm build check.
+# `rlib` for the tests and the bin, `cdylib` for the wasm bundle the web
+# demo loads (ADR-0017).
 [lib]
 crate-type = ["cdylib", "rlib"]
 
