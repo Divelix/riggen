@@ -34,6 +34,9 @@ serde.workspace = true
 serde_json.workspace = true
 web-time.workspace = true
 transform-gizmo-egui.workspace = true
+# File › Export… as one download in the browser, and the native test that
+# reads the archive back (ADR-0017 §6).
+zip.workspace = true
 
 # Native file dialogs (File › Open). Not built for wasm: the browser has no
 # filesystem to reach for.
@@ -54,5 +57,17 @@ pollster.workspace = true
 getrandom = { version = "0.3", features = ["wasm_js"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
+# `Uint8Array` and `Array`: the shape a `Blob` is built from.
+js-sys = "0.3"
+# The download: a `Blob`, an object URL, and a synthetic click on an
+# `<a download>` — the only way out of a page (ADR-0017 §6). `console` is
+# where a file the browser failed to read is reported.
+web-sys = { version = "0.3", features = [
+    "Blob",
+    "BlobPropertyBag",
+    "HtmlAnchorElement",
+    "HtmlCanvasElement",
+    "Url",
+    "console",
+] }
 console_error_panic_hook = "0.1"

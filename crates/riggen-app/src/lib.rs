@@ -5,6 +5,11 @@ mod app;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod cli;
 pub mod debug;
+// Downloads are the browser's only way out (ADR-0017 §6), so the module is
+// built for wasm — and for `cargo test`, because the test that reads the
+// archive back with a zip reader is native.
+#[cfg(any(target_arch = "wasm32", test))]
+mod download;
 pub mod example;
 pub mod jobs;
 

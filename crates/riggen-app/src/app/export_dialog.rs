@@ -26,6 +26,13 @@ pub struct ExportDialog {
     stale: bool,
 }
 
+/// The directory the browser's export pretends to write into: it prefixes
+/// every path `export_files` returns, is stripped again to make the zip's
+/// entry names, and is what `MeshPathStyle::Absolute` would write. No such
+/// directory exists (ADR-0017 §6).
+#[cfg(target_arch = "wasm32")]
+const DOWNLOAD_ROOT: &str = "/export";
+
 impl RiggenApp {
     /// File › Export…: opens the modal with the last options, the
     /// directory beside the document when it has one, and a fresh resolve.
@@ -91,14 +98,21 @@ impl RiggenApp {
     /// The Export button: writes the files and closes the modal. `false`
     /// when nothing was written (errors, no directory, an I/O failure) —
     /// the status bar says why.
+    ///
+    /// In a browser there is no directory to write into: the same
+    /// [`riggen_export::export_files`] list becomes one stored zip and the
+    /// browser is offered it as a download (ADR-0017 §6).
     pub fn run_export(&mut self) -> bool {
         if self.export_dialog.stale {
             self.resolve_for_export();
         }
+        #[cfg(not(target_arch = "wasm32"))]
         let Some(dir) = self.export_dialog.dir.clone() else {
             self.status = Some("choose an export directory".into());
             return false;
         };
+        #[cfg(target_arch = "wasm32")]
+        let dir = std::path::PathBuf::from(DOWNLOAD_ROOT);
         let Some(resolved) = self.export_dialog.resolved.as_ref() else {
             self.status = Some(format!(
                 "cannot export: {}",
@@ -114,20 +128,44 @@ impl RiggenApp {
         if let MeshPathStyle::Package(name) = &mut options.mesh_paths {
             *name = self.export_dialog.package.clone();
         }
-        match riggen_export::export(resolved, &options, &dir) {
-            Ok(written) => {
-                self.status = Some(format!(
-                    "exported {} file{} to {}",
-                    written.len(),
-                    if written.len() == 1 { "" } else { "s" },
-                    dir.display()
-                ));
-                self.export_dialog.open = false;
-                true
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            match riggen_export::export(resolved, &options, &dir) {
+                Ok(written) => {
+                    self.status = Some(format!(
+                        "exported {} file{} to {}",
+                        written.len(),
+                        if written.len() == 1 { "" } else { "s" },
+                        dir.display()
+                    ));
+                    self.export_dialog.open = false;
+                    true
+                }
+                Err(err) => {
+                    self.status = Some(err.to_string());
+                    false
+                }
             }
-            Err(err) => {
-                self.status = Some(err.to_string());
-                false
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let files = riggen_export::export_files(resolved, &options, &dir);
+            let archive = crate::download::stored_zip(&files, &dir);
+            let name = format!("{}.zip", resolved.name);
+            match crate::download::offer(&name, &archive, crate::download::ZIP) {
+                Ok(()) => {
+                    self.status = Some(format!(
+                        "downloading {name}: {} file{}",
+                        files.len(),
+                        if files.len() == 1 { "" } else { "s" }
+                    ));
+                    self.export_dialog.open = false;
+                    true
+                }
+                Err(err) => {
+                    self.status = Some(format!("could not download {name}: {err}"));
+                    false
+                }
             }
         }
     }
@@ -167,22 +205,30 @@ impl RiggenApp {
                     });
                     ui.end_row();
 
-                    ui.label("directory");
-                    ui.horizontal(|ui| {
-                        let shown = d
-                            .dir
-                            .as_ref()
-                            .map(|p| p.display().to_string())
-                            .unwrap_or_default();
-                        ui.add(egui::Label::new(if shown.is_empty() {
-                            egui::RichText::new("(none chosen)").weak()
-                        } else {
-                            egui::RichText::new(shown)
-                        }));
-                        if ui.button("Choose…").clicked() {
-                            choose_dir = true;
-                        }
-                    });
+                    // In a browser the export is a download, so there is
+                    // nothing to choose and the row says where it goes
+                    // (ADR-0017 §6).
+                    if cfg!(target_arch = "wasm32") {
+                        ui.label("download");
+                        ui.weak(format!("{}.zip", self.robot.name));
+                    } else {
+                        ui.label("directory");
+                        ui.horizontal(|ui| {
+                            let shown = d
+                                .dir
+                                .as_ref()
+                                .map(|p| p.display().to_string())
+                                .unwrap_or_default();
+                            ui.add(egui::Label::new(if shown.is_empty() {
+                                egui::RichText::new("(none chosen)").weak()
+                            } else {
+                                egui::RichText::new(shown)
+                            }));
+                            if ui.button("Choose…").clicked() {
+                                choose_dir = true;
+                            }
+                        });
+                    }
                     ui.end_row();
 
                     let mesh_paths_used =
@@ -263,7 +309,8 @@ impl RiggenApp {
             ui.horizontal(|ui| {
                 // Nothing ticked would write a `meshes/` folder and no
                 // file that reads it, so it is not a ready export.
-                let ready = d.errors.is_empty() && d.dir.is_some() && d.options.format.writes_any();
+                let has_destination = d.dir.is_some() || cfg!(target_arch = "wasm32");
+                let ready = d.errors.is_empty() && has_destination && d.options.format.writes_any();
                 if ui.add_enabled(ready, egui::Button::new("Export")).clicked() {
                     action = Some(|app: &mut Self| {
                         app.run_export();
@@ -286,9 +333,11 @@ impl RiggenApp {
     }
 
     fn choose_export_dir(&mut self) {
+        // Unreachable in a browser — the modal shows no "Choose…" button
+        // there — but the arm has to exist for the build.
         #[cfg(target_arch = "wasm32")]
         {
-            self.status = Some("no filesystem in the browser".into());
+            self.status = Some(format!("the export downloads as {}.zip", self.robot.name));
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
