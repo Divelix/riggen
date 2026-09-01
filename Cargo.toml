@@ -106,6 +106,14 @@ quick-xml = "0.36"
 # still links libpython and `cargo clippy --workspace` sees the crate.
 pyo3 = { version = "0.29", features = ["abi3-py310"] }
 
+# Writing the export directory as one file, which is what a browser
+# download is (ADR-0017 §6). `default-features = false`: no compression, no
+# encryption, no time crate — a stored zip is a header, the bytes and a
+# central directory, and the crate is here for the CRC-32 and the offsets,
+# not for an algorithm. Not gated to wasm: the acceptance test that reads
+# the archive back is native.
+zip = { version = "8", default-features = false }
+
 # Only to block on `Instance::enumerate_adapters` in the "is there a GPU at
 # all?" probe of the snapshot harness — `egui_kittest` panics rather than
 # reporting that itself.

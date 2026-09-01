@@ -245,19 +245,31 @@ pub fn save(robot: &Robot, path: &Path) -> Result<(), FileError> {
         path: path.to_owned(),
         source,
     };
+    let path_abs = absolute(path).map_err(io)?;
+    let json = to_json(robot, &path_abs).map_err(|e| e.at(path))?;
+    let tmp = path_abs.with_extension("riggen.tmp");
+    std::fs::write(&tmp, json).map_err(io)?;
+    std::fs::rename(&tmp, &path_abs).map_err(io)
+}
+
+/// The document as the text [`save`] would write: validated, assets no geom
+/// references dropped, mesh paths rebased relative to `base`'s directory.
+///
+/// `base` is where the document *would* live. It must be absolute and needs
+/// no filesystem behind it — in a browser it is the name the download will
+/// carry, under a synthetic root (ADR-0017).
+pub fn to_json(robot: &Robot, base: &Path) -> Result<String, FileError> {
     validate(robot).map_err(|source| FileError::Invalid {
-        path: path.to_owned(),
+        path: base.to_owned(),
         source,
     })?;
-    let path_abs = absolute(path).map_err(io)?;
-    let dir = path_abs.parent().unwrap_or(Path::new("/"));
+    let dir = base.parent().unwrap_or(Path::new("/"));
 
     let mut on_disk = robot.clone();
     let referenced = robot.referenced_assets();
     on_disk.assets.retain(|id, _| referenced.contains(id));
     for asset in on_disk.assets.values_mut() {
-        let abs = absolute(&asset.path).map_err(io)?;
-        asset.path = relative_to(dir, &abs);
+        asset.path = relative_to(dir, &normalized(&asset.path));
     }
 
     let file = File {
@@ -265,14 +277,11 @@ pub fn save(robot: &Robot, path: &Path) -> Result<(), FileError> {
         robot: on_disk,
     };
     let mut json = serde_json::to_string_pretty(&file).map_err(|source| FileError::Json {
-        path: path.to_owned(),
+        path: base.to_owned(),
         source,
     })?;
     json.push('\n');
-
-    let tmp = path_abs.with_extension("riggen.tmp");
-    std::fs::write(&tmp, json).map_err(io)?;
-    std::fs::rename(&tmp, &path_abs).map_err(io)
+    Ok(json)
 }
 
 /// Reads `path` from the filesystem and hands it to [`load_from`].

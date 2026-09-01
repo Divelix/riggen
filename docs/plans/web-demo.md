@@ -130,11 +130,18 @@ wasm-bindgen bundle on every push and GitHub Pages serves it from `main`.
   meshes; and egui 0.36's `DroppedFile` reads asynchronously on the web
   (`bytes_async`, not a `bytes` field), so a gesture is read by one spawned
   future into an inbox the frame loop drains.
-- [ ] **Step 5 — Downloads out.** Save / Save As → a `.riggen` download;
+- [x] **Step 5 — Downloads out.** Save / Save As → a `.riggen` download;
   Export → the export directory as one stored (uncompressed) zip; Debug ›
   Save state → a `.json`. The "no filesystem in the browser" strings become
   what will actually happen. *Test (native):* the zip's central directory and
   entry bytes over a fixture; the wording is checked in the Chrome pass.
+  *Done.* The `zip` crate is **not** gated to wasm as OPEN 1 sketched: the
+  test that reads the archive back is native, so `stored_zip` is built for
+  `cfg(any(target_arch = "wasm32", test))`. `riggen_core::to_json` lands
+  here rather than in step 2 — it is a writer. Chrome: the export
+  downloaded `arm.zip`, and unzipping it gives files byte-identical to
+  `riggen --export all --out … assets/fixtures/arm/arm.riggen`, which is
+  the plan's acceptance 3, met for all three formats and all four meshes.
 - [ ] **Step 6 — The decomposition freeze, consented to.** In the web build
   the properties panel says a V-HACD run will freeze the tab for a few
   seconds and asks once before starting it (`jobs` has no thread on wasm — 01
@@ -190,9 +197,10 @@ The milestone's own check, run against the deployed page:
 All four were put to the human on 2026-09-01, before step 1, and all four
 were answered with the agent's recommendation. Nothing here is open.
 
-- **OPEN 1 — the zip. RESOLVED: the `zip` crate**, wasm-only,
-  `default-features = false`, stored, no compression. A hand-rolled CRC-32
-  and central directory is a liability for no gain. Step 5.
+- **OPEN 1 — the zip. RESOLVED: the `zip` crate**, `default-features =
+  false`, stored, no compression. A hand-rolled CRC-32 and central directory
+  is a liability for no gain. Step 5 — where "wasm-only" turned out to be
+  wrong: the acceptance test that reads the archive back is native.
 - **OPEN 2 — decomposition on the web. RESOLVED: confirm, then freeze.** A
   demo that hides a v0.2 headline feature undersells it, and the freeze is
   seconds. Step 6.

@@ -19,7 +19,7 @@ pub mod validate;
 pub use command::{Command, Created, EditError};
 pub use file::{
     Disk, FileError, FileSource, MemorySource, Warning, absolute, content_hash, hash_file, load,
-    load_from, save,
+    load_from, save, to_json,
 };
 pub use fk::{JointState, fk, frames, motion, origin_for_world, resolve_q};
 pub use history::History;

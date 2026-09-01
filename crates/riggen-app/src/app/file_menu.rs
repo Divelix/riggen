@@ -23,6 +23,11 @@ pub enum PendingAction {
     Quit,
 }
 
+/// What a `.riggen` download is served as. It is JSON, and a browser that
+/// is told so shows it rather than warning about an unknown type.
+#[cfg(target_arch = "wasm32")]
+const APPLICATION_JSON: &str = crate::download::JSON;
+
 /// The import-units choices in the File menu: `(label, scale)`.
 pub(crate) const IMPORT_UNITS: [(&str, f64); 4] =
     [("mm", 0.001), ("cm", 0.01), ("m", 1.0), ("in", 0.0254)];
@@ -148,10 +153,32 @@ impl RiggenApp {
 
     /// File › Save As…: the dialog, then [`Self::save_to`].
     pub fn save_as_dialog(&mut self) -> bool {
+        // No filesystem to save into, so Save As *is* the download, and
+        // so is Save: a document opened from bytes is untitled for good
+        // (ADR-0017 §5, §6).
         #[cfg(target_arch = "wasm32")]
         {
-            self.status = Some("no filesystem in the browser".into());
-            false
+            let name = format!("{}.{DOCUMENT_EXTENSION}", self.robot.name);
+            let base = super::file_io::DroppedSet::path_of(Path::new(&name));
+            match riggen_core::to_json(&self.robot, &base) {
+                Ok(json) => {
+                    match crate::download::offer(&name, json.as_bytes(), APPLICATION_JSON) {
+                        Ok(()) => {
+                            self.history.mark_saved();
+                            self.status = Some(format!("downloading {name}"));
+                            true
+                        }
+                        Err(err) => {
+                            self.status = Some(format!("could not download {name}: {err}"));
+                            false
+                        }
+                    }
+                }
+                Err(err) => {
+                    self.status = Some(err.to_string());
+                    false
+                }
+            }
         }
         #[cfg(not(target_arch = "wasm32"))]
         {

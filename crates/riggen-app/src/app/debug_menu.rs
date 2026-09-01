@@ -71,8 +71,17 @@ impl RiggenApp {
         });
     }
 
+    /// The browser has nowhere to write, so the state is offered as a
+    /// download instead (ADR-0017 §6).
     #[cfg(target_arch = "wasm32")]
     fn save_debug_state(&mut self) {
-        self.status = Some("no filesystem in the browser".into());
+        let json = self.debug_state_json();
+        let name = "debug-state.json";
+        self.status = Some(
+            match crate::download::offer(name, json.as_bytes(), crate::download::JSON) {
+                Ok(()) => format!("downloading {name}"),
+                Err(err) => format!("could not download the debug state: {err}"),
+            },
+        );
     }
 }
