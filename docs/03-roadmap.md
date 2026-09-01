@@ -163,7 +163,8 @@ release workflow is a tag push.
 
 ## v0.2 — Python SDK and the harder mesh work
 
-**Status: in progress.** Done so far:
+**Status: every line done, 2026-09-02; the cycle is `/close-cycle`'s to
+close and the tag is the human's.** What landed:
 
 - **2026-08-30, tag `v0.2.0`** — the Python SDK (ADR-0009): `import
   riggen` beside the app in one wheel, `python/riggen/` the API over the

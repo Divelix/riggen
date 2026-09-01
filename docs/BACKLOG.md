@@ -23,6 +23,7 @@ below with the reason, so the same idea is not re-brainstormed.
 - A WebGL2 fallback for the demo, for browsers without WebGPU: needs a second picking mechanism, because the ID-buffer readback is `copy_texture_to_buffer` on an `R32Uint` target and wgpu's GL backend will not do it (ADR-0017 §7)
 - Touch and a narrow-screen layout for the demo: it is a desktop-browser UI today, and a phone gets the desktop panels
 - A directory drop on the web, with real relative mesh paths: a plain drop gives only file names, so two `base.stl` in one gesture collide (ADR-0017 §Consequences)
+- A document surviving a reload of the demo page: eframe's `persistence` keeps the UI layout and the import-units choice, as on native, and the document is lost — the meshes would have to be kept too, so it is browser storage rather than a serde change
 - Ground grid at z = 0 in the viewport (new; robocad never had one — M0 ships the gradient background only)
 - MSAA for the offscreen colour pass (new; robocad had none)
 - Meshes over 2^20 triangles: decimate at load or widen the pick id (loaders reject them today)
