@@ -26,8 +26,50 @@ impl fmt::Display for ExportIoError {
 
 impl std::error::Error for ExportIoError {}
 
+/// The export directory as bytes, without touching a filesystem: `(path,
+/// contents)` for every file, model files first, then meshes in stem
+/// order. [`export`] is this plus the writing, and the browser's Export is
+/// this plus a zip (ADR-0017).
+///
+/// `dir` is where the files *would* go. Nothing is read from it or created
+/// in it — it only prefixes the paths and settles what
+/// [`MeshPathStyle::Absolute`](crate::MeshPathStyle) writes into the model
+/// files, so a virtual root is a perfectly good answer.
+pub fn export_files(
+    robot: &ResolvedRobot,
+    options: &ExportOptions,
+    dir: &Path,
+) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    if options.format.writes_mjcf() {
+        let path = dir.join(format!("{}.xml", robot.name));
+        files.push((path, mjcf::write(robot, options).into_bytes()));
+    }
+    if options.format.writes_urdf() {
+        let path = dir.join(format!("{}.urdf", robot.name));
+        files.push((path, urdf::write(robot, options, dir).into_bytes()));
+    }
+    if options.format.writes_sdf() {
+        let path = dir.join(format!("{}.sdf", robot.name));
+        files.push((path, sdf::write(robot, options, dir).into_bytes()));
+    }
+    let meshes = dir.join("meshes");
+    for (stem, mesh) in &robot.meshes {
+        files.push((
+            meshes.join(format!("{stem}.stl")),
+            riggen_mesh::write_binary(mesh),
+        ));
+    }
+    files
+}
+
 /// Writes `robot` into `dir` (created if missing) and returns every path
 /// written, model files first, then meshes in stem order.
+///
+/// The list comes from [`export_files`]; what is added here is the part
+/// that only means something on a real filesystem — creating `meshes/`,
+/// and the `.tmp`-sibling-and-rename that keeps a crash mid-write from
+/// leaving half a file behind.
 pub fn export(
     robot: &ResolvedRobot,
     options: &ExportOptions,
@@ -40,27 +82,10 @@ pub fn export(
     let meshes = dir.join("meshes");
     std::fs::create_dir_all(&meshes).map_err(io(&meshes))?;
 
-    let mut written = Vec::new();
-    if options.format.writes_mjcf() {
-        let path = dir.join(format!("{}.xml", robot.name));
-        write_atomically(&path, mjcf::write(robot, options).as_bytes()).map_err(io(&path))?;
-        written.push(path);
-    }
-    if options.format.writes_urdf() {
-        let path = dir.join(format!("{}.urdf", robot.name));
-        let text = urdf::write(robot, options, dir);
-        write_atomically(&path, text.as_bytes()).map_err(io(&path))?;
-        written.push(path);
-    }
-    if options.format.writes_sdf() {
-        let path = dir.join(format!("{}.sdf", robot.name));
-        let text = sdf::write(robot, options, dir);
-        write_atomically(&path, text.as_bytes()).map_err(io(&path))?;
-        written.push(path);
-    }
-    for (stem, mesh) in &robot.meshes {
-        let path = meshes.join(format!("{stem}.stl"));
-        write_atomically(&path, &riggen_mesh::write_binary(mesh)).map_err(io(&path))?;
+    let files = export_files(robot, options, dir);
+    let mut written = Vec::with_capacity(files.len());
+    for (path, bytes) in files {
+        write_atomically(&path, &bytes).map_err(io(&path))?;
         written.push(path);
     }
     Ok(written)
@@ -179,5 +204,68 @@ mod tests {
             "{aabb:?}"
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The seam of step 3 (ADR-0017): whatever `export` puts on disk,
+    /// `export_files` already had in hand — the same names in the same
+    /// order and byte-for-byte the same contents. The sample arm, all
+    /// three formats, and every mesh under `meshes/`.
+    #[test]
+    fn export_files_and_export_agree_on_the_arm() {
+        let (robot, warnings) =
+            riggen_core::load(&crate::test_util::fixtures().join("arm/arm.riggen")).unwrap();
+        assert_eq!(warnings, Vec::new());
+        let (store, errors) = crate::MeshStore::load(&robot, &riggen_core::Disk);
+        assert_eq!(errors, Vec::new());
+        let options = ExportOptions::default();
+        let resolved = crate::resolve(&robot, &store, &crate::ComputeNow, &options).unwrap();
+
+        let dir = scratch("agree");
+        let written = export(&resolved, &options, &dir).unwrap();
+        let files = export_files(&resolved, &options, &dir);
+
+        assert_eq!(files.len(), 3 + resolved.meshes.len());
+        assert_eq!(
+            written,
+            files.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>()
+        );
+        for (path, bytes) in &files {
+            assert_eq!(&std::fs::read(path).unwrap(), bytes, "{}", path.display());
+        }
+        // `.tmp`-and-rename is the only thing the writer adds, and it
+        // leaves nothing of its own behind.
+        assert!(
+            !files
+                .iter()
+                .any(|(p, _)| p.to_string_lossy().contains(".tmp")),
+            "{files:?}"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A directory that does not exist is still a perfectly good prefix:
+    /// nothing is read from `dir` and nothing is created in it, which is
+    /// what lets the browser hand it a virtual root.
+    #[test]
+    fn export_files_touches_no_filesystem() {
+        let mut b = Builder::new();
+        let cube = b.mesh("cube", TriMesh::cube(0.05));
+        let root = b.robot.root;
+        b.link("arm", root, JointKind::Revolute, Some(cube));
+        let resolved = b.resolve().unwrap();
+
+        let dir = Path::new("/nowhere/export");
+        assert!(!dir.exists());
+        let files = export_files(&resolved, &ExportOptions::default(), dir);
+        assert_eq!(
+            files.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>(),
+            vec![
+                dir.join("test.xml"),
+                dir.join("test.urdf"),
+                dir.join("test.sdf"),
+                dir.join("meshes/cube.stl"),
+            ]
+        );
+        assert!(!dir.exists(), "export_files created something");
     }
 }

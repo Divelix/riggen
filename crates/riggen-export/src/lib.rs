@@ -21,7 +21,7 @@ pub mod urdf;
 pub mod urdf_in;
 pub mod xml;
 
-pub use export::{ExportIoError, export};
+pub use export::{ExportIoError, export, export_files};
 pub use import::{ImportError, ImportWarning};
 pub use mesh_store::MeshStore;
 pub use resolve::{
