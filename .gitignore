@@ -1,6 +1,8 @@
 /target
 # `uv build` output: the wheel and the sdist.
 /dist
+# `web/build.sh` output: the wasm-bindgen bundle plus the page beside it.
+/web/dist
 /python/**/*.so
 # maturin's wheel data directory (pyproject.toml): `python/build_wheel.py`
 # copies the built `riggen` binary into its `scripts/` for the wheel.
