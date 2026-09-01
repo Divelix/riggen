@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use riggen_core::{Command, Geom, GeomId, Link, LinkId, MeshAsset, MeshId, Pose};
+use riggen_core::{Command, Disk, Geom, GeomId, Link, LinkId, MeshAsset, MeshId, Pose};
 
 use super::document::name_from_stem;
 use super::{LoadedMesh, RiggenApp};
@@ -81,7 +81,8 @@ impl RiggenApp {
     /// File › Import URDF… (and a dropped `.urdf`): the file becomes a new,
     /// untitled document; what the import dropped goes to the status bar.
     fn open_urdf_path(&mut self, path: &Path) -> Result<(), String> {
-        let imported = riggen_export::urdf_in::load(path, &riggen_export::PackageMap::default());
+        let imported =
+            riggen_export::urdf_in::load(path, &riggen_export::PackageMap::default(), &Disk);
         self.finish_import(path, imported)
     }
 
@@ -89,7 +90,7 @@ impl RiggenApp {
     /// `riggen_export::mjcf_in` (ADR-0015). One import vocabulary means one
     /// status line for both.
     fn open_mjcf_path(&mut self, path: &Path) -> Result<(), String> {
-        let imported = riggen_export::mjcf_in::load(path);
+        let imported = riggen_export::mjcf_in::load(path, &Disk);
         self.finish_import(path, imported)
     }
 

@@ -32,7 +32,7 @@ pub fn load_obj(path: &Path) -> Result<TriMesh, MeshError> {
 }
 
 /// [`load_obj`] on bytes already in memory; `path` is only for messages.
-pub(crate) fn parse_obj(bytes: &[u8], path: &Path) -> Result<TriMesh, MeshError> {
+pub fn parse_obj(bytes: &[u8], path: &Path) -> Result<TriMesh, MeshError> {
     let mut reader = std::io::Cursor::new(bytes);
     // The material callback is what `mtllib` lines resolve through; answering
     // "no materials" keeps the loader off the filesystem entirely.

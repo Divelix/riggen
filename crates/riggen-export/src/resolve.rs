@@ -714,6 +714,7 @@ fn stem_name(stem: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use riggen_core::Disk;
 
     /// Two triangles in the z = 0 plane: no volume, so no hull and no
     /// decomposition.
@@ -770,7 +771,7 @@ mod tests {
     fn pendulum_resolves_in_order_with_computed_inertials() {
         let (robot, warnings) = riggen_core::load(&fixtures().join("pendulum.riggen")).unwrap();
         assert!(warnings.is_empty(), "{warnings:?}");
-        let (store, errors) = MeshStore::load(&robot);
+        let (store, errors) = MeshStore::load(&robot, &Disk);
         assert!(errors.is_empty(), "{errors:?}");
         let resolved = resolve(&robot, &store, &ComputeNow, &ExportOptions::default()).unwrap();
 
@@ -1297,7 +1298,7 @@ mod tests {
         // Nothing else moved: the golden-XML tests are the rest of this.
         let (robot, _) = riggen_core::load(&fixtures().join("pendulum.riggen")).unwrap();
         assert!(robot.frames.is_empty());
-        let (store, _) = MeshStore::load(&robot);
+        let (store, _) = MeshStore::load(&robot, &Disk);
         let resolved = resolve(&robot, &store, &ComputeNow, &ExportOptions::default()).unwrap();
         assert!(resolved.links.iter().all(|l| l.sites.is_empty()));
     }

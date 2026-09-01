@@ -15,6 +15,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use riggen_core::Disk;
 use riggen_export::{ExportOptions, Format, MeshStore};
 
 /// The one-line reminder under every parse error.
@@ -325,15 +326,18 @@ pub fn run(args: &ExportArgs) -> Result<Vec<PathBuf>, String> {
     // import); anything else is read as a document.
     let robot = match extension.as_str() {
         "urdf" => {
-            let (robot, warnings) =
-                riggen_export::urdf_in::load(&args.input, &riggen_export::PackageMap::default())
-                    .map_err(|e| e.to_string())?;
+            let (robot, warnings) = riggen_export::urdf_in::load(
+                &args.input,
+                &riggen_export::PackageMap::default(),
+                &Disk,
+            )
+            .map_err(|e| e.to_string())?;
             warn_all(&warnings);
             robot
         }
         "xml" => {
             let (robot, warnings) =
-                riggen_export::mjcf_in::load(&args.input).map_err(|e| e.to_string())?;
+                riggen_export::mjcf_in::load(&args.input, &Disk).map_err(|e| e.to_string())?;
             warn_all(&warnings);
             robot
         }
@@ -343,7 +347,7 @@ pub fn run(args: &ExportArgs) -> Result<Vec<PathBuf>, String> {
             robot
         }
     };
-    let (store, load_errors) = MeshStore::load(&robot);
+    let (store, load_errors) = MeshStore::load(&robot, &Disk);
     let options = ExportOptions {
         format: args.format,
         ..Default::default()
@@ -602,7 +606,7 @@ mod tests {
         // The document loads with every mesh beside it.
         let (robot, warnings) = riggen_core::load(&document).unwrap();
         assert!(warnings.is_empty(), "{warnings:?}");
-        let (_, errors) = MeshStore::load(&robot);
+        let (_, errors) = MeshStore::load(&robot, &Disk);
         assert!(errors.is_empty(), "{errors:?}");
         std::fs::remove_dir_all(&temp).unwrap();
     }

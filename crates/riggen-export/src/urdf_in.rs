@@ -21,21 +21,29 @@ use std::path::{Path, PathBuf};
 use crate::import::{ImportError, ImportWarning, mimic_refusals};
 use riggen_core::glam::{DMat3, DVec3};
 use riggen_core::{
-    CollisionPolicy, Dynamics, Geom, GeomId, InertialSpec, Joint, JointId, JointKind, Limits, Link,
-    LinkId, MeshAsset, MeshId, Mimic, Pose, Primitive, Robot, validate,
+    CollisionPolicy, Dynamics, FileSource, Geom, GeomId, InertialSpec, Joint, JointId, JointKind,
+    Limits, Link, LinkId, MeshAsset, MeshId, Mimic, Pose, Primitive, Robot, validate,
 };
 
 /// `package name → directory` for `package://name/...` mesh paths.
 #[derive(Debug, Clone, Default)]
 pub struct PackageMap(pub BTreeMap<String, PathBuf>);
 
-/// Reads `path` and builds the document; mesh paths are resolved against
-/// the file's directory and `packages`.
+/// Reads `path` through `source` and builds the document; mesh paths are
+/// resolved against the file's directory and `packages`, and hashed through
+/// the same `source` — the filesystem natively ([`riggen_core::Disk`]), the
+/// drop gesture's files in a browser (ADR-0017).
 pub fn load(
     path: &Path,
     packages: &PackageMap,
+    source: &dyn FileSource,
 ) -> Result<(Robot, Vec<ImportWarning>), ImportError> {
-    let text = std::fs::read_to_string(path).map_err(|e| ImportError::Io {
+    let io = |e: std::io::Error| ImportError::Io {
+        path: path.to_owned(),
+        message: e.to_string(),
+    };
+    let bytes = source.read(path).map_err(io)?;
+    let text = String::from_utf8(bytes).map_err(|e| ImportError::Parse {
         path: path.to_owned(),
         message: e.to_string(),
     })?;
@@ -43,12 +51,9 @@ pub fn load(
         path: path.to_owned(),
         message: e.to_string(),
     })?;
-    let abs = riggen_core::absolute(path).map_err(|e| ImportError::Io {
-        path: path.to_owned(),
-        message: e.to_string(),
-    })?;
+    let abs = riggen_core::absolute(path).map_err(io)?;
     let base_dir = abs.parent().unwrap_or(Path::new("/"));
-    from_urdf(&urdf, base_dir, packages)
+    from_urdf(&urdf, base_dir, packages, source)
 }
 
 /// The conversion itself, for a parsed file.
@@ -56,6 +61,7 @@ pub fn from_urdf(
     urdf: &urdf_rs::Robot,
     base_dir: &Path,
     packages: &PackageMap,
+    source: &dyn FileSource,
 ) -> Result<(Robot, Vec<ImportWarning>), ImportError> {
     let mut warnings = Vec::new();
     let mut robot = Robot::new(if urdf.name.is_empty() {
@@ -74,6 +80,7 @@ pub fn from_urdf(
             link,
             base_dir,
             packages,
+            source,
             &mut robot,
             &mut assets,
             &mut warnings,
@@ -232,6 +239,7 @@ fn convert_link(
     link: &urdf_rs::Link,
     base_dir: &Path,
     packages: &PackageMap,
+    source: &dyn FileSource,
     robot: &mut Robot,
     assets: &mut BTreeMap<(PathBuf, u64), MeshId>,
     warnings: &mut Vec<ImportWarning>,
@@ -247,7 +255,7 @@ fn convert_link(
                          robot: &mut Robot,
                          warnings: &mut Vec<ImportWarning>|
      -> (Geom, (PathBuf, f64, Pose)) {
-        let (path, package_warning) = resolve_mesh_path(filename, base_dir, packages);
+        let (path, package_warning) = resolve_mesh_path(filename, base_dir, packages, source);
         if let Some(w) = package_warning {
             warnings.push(w);
         }
@@ -266,7 +274,7 @@ fn convert_link(
             }
             None => 1.0,
         };
-        let content_hash = match riggen_core::hash_file(&path) {
+        let content_hash = match source.hash(&path) {
             Ok(h) => h,
             Err(_) => {
                 warnings.push(ImportWarning::MeshNotFound {
@@ -425,6 +433,7 @@ pub fn resolve_mesh_path(
     filename: &str,
     base_dir: &Path,
     packages: &PackageMap,
+    source: &dyn FileSource,
 ) -> (PathBuf, Option<ImportWarning>) {
     if let Some(rest) = filename.strip_prefix("package://") {
         let (package, rest) = rest.split_once('/').unwrap_or((rest, ""));
@@ -432,12 +441,12 @@ pub fn resolve_mesh_path(
             return (dir.join(rest), None);
         }
         let beside = base_dir.join(rest);
-        if beside.exists() {
+        if source.exists(&beside) {
             return (beside, None);
         }
         for ancestor in base_dir.ancestors() {
             let candidate = ancestor.join(package).join(rest);
-            if candidate.exists() {
+            if source.exists(&candidate) {
                 return (candidate, None);
             }
         }
@@ -464,10 +473,15 @@ pub fn resolve_mesh_path(
 mod tests {
     use super::*;
     use crate::test_util::fixtures;
-    use riggen_core::{JointState, fk};
+    use riggen_core::{Disk, JointState, fk};
 
     fn arm() -> (Robot, Vec<ImportWarning>) {
-        load(&fixtures().join("arm/arm.urdf"), &PackageMap::default()).unwrap()
+        load(
+            &fixtures().join("arm/arm.urdf"),
+            &PackageMap::default(),
+            &Disk,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -617,7 +631,7 @@ mod tests {
     #[test]
     fn the_imported_arm_exports_to_mjcf() {
         let (robot, _) = arm();
-        let (store, errors) = crate::MeshStore::load(&robot);
+        let (store, errors) = crate::MeshStore::load(&robot, &Disk);
         assert!(errors.is_empty(), "{errors:?}");
         let resolved = crate::resolve(
             &robot,
@@ -641,28 +655,28 @@ mod tests {
     fn package_paths_resolve_through_the_map_beside_the_file_or_up_the_tree() {
         let dir = fixtures().join("arm");
         let none = PackageMap::default();
-        let (p, w) = resolve_mesh_path("package://arm/base.stl", &dir, &none);
+        let (p, w) = resolve_mesh_path("package://arm/base.stl", &dir, &none, &Disk);
         assert_eq!(p, dir.join("base.stl"));
         assert!(w.is_none());
         // Up the tree: fixtures/arm/base.stl from fixtures/.
-        let (p, w) = resolve_mesh_path("package://arm/base.stl", &fixtures(), &none);
+        let (p, w) = resolve_mesh_path("package://arm/base.stl", &fixtures(), &none, &Disk);
         assert_eq!(p, dir.join("base.stl"));
         assert!(w.is_none());
         // The map wins.
         let mut map = PackageMap::default();
         map.0.insert("arm".into(), PathBuf::from("/elsewhere"));
-        let (p, _) = resolve_mesh_path("package://arm/base.stl", &dir, &map);
+        let (p, _) = resolve_mesh_path("package://arm/base.stl", &dir, &map, &Disk);
         assert_eq!(p, PathBuf::from("/elsewhere/base.stl"));
         // Unknown: beside the file, with a warning.
-        let (p, w) = resolve_mesh_path("package://nope/x.stl", &dir, &none);
+        let (p, w) = resolve_mesh_path("package://nope/x.stl", &dir, &none, &Disk);
         assert_eq!(p, dir.join("x.stl"));
         assert!(matches!(w, Some(ImportWarning::PackageUnresolved { .. })));
         assert_eq!(
-            resolve_mesh_path("file:///abs/x.stl", &dir, &none).0,
+            resolve_mesh_path("file:///abs/x.stl", &dir, &none, &Disk).0,
             PathBuf::from("/abs/x.stl")
         );
         assert_eq!(
-            resolve_mesh_path("rel/x.stl", &dir, &none).0,
+            resolve_mesh_path("rel/x.stl", &dir, &none, &Disk).0,
             dir.join("rel/x.stl")
         );
     }
@@ -686,7 +700,8 @@ mod tests {
   </joint>
 </robot>"#;
         let urdf = urdf_rs::read_from_string(text).unwrap();
-        let (robot, warnings) = from_urdf(&urdf, &fixtures(), &PackageMap::default()).unwrap();
+        let (robot, warnings) =
+            from_urdf(&urdf, &fixtures(), &PackageMap::default(), &Disk).unwrap();
         let a = robot.links.values().find(|l| l.name == "a").unwrap();
         assert_eq!(a.visuals.len(), 1, "the box visual was dropped");
         assert_eq!(robot.assets[&a.visuals[0].mesh].scale, 0.002);
@@ -711,7 +726,7 @@ mod tests {
         let floating = text.replace("type=\"prismatic\"", "type=\"floating\"");
         let urdf = urdf_rs::read_from_string(&floating).unwrap();
         assert!(matches!(
-            from_urdf(&urdf, &fixtures(), &PackageMap::default()),
+            from_urdf(&urdf, &fixtures(), &PackageMap::default(), &Disk),
             Err(ImportError::UnsupportedJoint { .. })
         ));
         let two_roots = text
@@ -722,11 +737,15 @@ mod tests {
             );
         let urdf = urdf_rs::read_from_string(&two_roots).unwrap();
         assert!(matches!(
-            from_urdf(&urdf, &fixtures(), &PackageMap::default()),
+            from_urdf(&urdf, &fixtures(), &PackageMap::default(), &Disk),
             Err(ImportError::UnknownLink { .. })
         ));
         assert!(matches!(
-            load(Path::new("/nowhere/none.urdf"), &PackageMap::default()),
+            load(
+                Path::new("/nowhere/none.urdf"),
+                &PackageMap::default(),
+                &Disk
+            ),
             Err(ImportError::Io { .. })
         ));
     }
@@ -759,7 +778,7 @@ mod tests {
 
     fn import(text: &str) -> (Robot, Vec<ImportWarning>) {
         let urdf = urdf_rs::read_from_string(text).unwrap();
-        from_urdf(&urdf, &fixtures(), &PackageMap::default()).unwrap()
+        from_urdf(&urdf, &fixtures(), &PackageMap::default(), &Disk).unwrap()
     }
 
     /// A `<mimic>` naming a joint further down the file is still resolved:

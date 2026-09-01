@@ -17,7 +17,10 @@ pub mod robot;
 pub mod validate;
 
 pub use command::{Command, Created, EditError};
-pub use file::{FileError, Warning, absolute, content_hash, hash_file, load, save};
+pub use file::{
+    Disk, FileError, FileSource, MemorySource, Warning, absolute, content_hash, hash_file, load,
+    load_from, save,
+};
 pub use fk::{JointState, fk, frames, motion, origin_for_world, resolve_q};
 pub use history::History;
 pub use ids::{FrameId, GeomId, Id, IdGen, JointId, LinkId, MeshId};

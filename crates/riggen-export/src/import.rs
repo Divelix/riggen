@@ -314,3 +314,117 @@ pub(crate) fn mimic_refusals(robot: &Robot) -> Vec<(JointId, String)> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::MeshStore;
+    use crate::test_util::fixtures;
+    use riggen_core::{Disk, FileSource, MemorySource};
+    use std::path::Path;
+
+    /// Every fixture file the arm needs, keyed under a root that does not
+    /// exist, so a read that slipped through to the filesystem fails
+    /// loudly instead of quietly agreeing with the on-disk load.
+    fn dropped(root: &Path, files: &[(&str, &str)]) -> MemorySource {
+        let mut memory = MemorySource::default();
+        for (at, from) in files {
+            memory.insert(root.join(at), std::fs::read(fixtures().join(from)).unwrap());
+        }
+        memory
+    }
+
+    /// The arm's five meshes, `(where the reader will look, what to put
+    /// there)`. URDF's `package://arm/x.stl` falls back to "beside the
+    /// file"; MJCF's `meshdir="arm"` makes a subdirectory of it.
+    const URDF_SET: [(&str, &str); 6] = [
+        ("arm.urdf", "arm/arm.urdf"),
+        ("base.stl", "arm/base.stl"),
+        ("shoulder.stl", "arm/shoulder.stl"),
+        ("upper.stl", "arm/upper.stl"),
+        ("fore.stl", "arm/fore.stl"),
+        ("fore_hull.stl", "arm/fore_hull.stl"),
+    ];
+
+    const MJCF_SET: [(&str, &str); 6] = [
+        ("menagerie_style.xml", "menagerie_style.xml"),
+        ("arm/base.stl", "arm/base.stl"),
+        ("arm/shoulder.stl", "arm/shoulder.stl"),
+        ("arm/upper.stl", "arm/upper.stl"),
+        ("arm/fore.stl", "arm/fore.stl"),
+        ("arm/fore_hull.stl", "arm/fore_hull.stl"),
+    ];
+
+    /// The URDF import over bytes (ADR-0017): `package://arm/base.stl`
+    /// resolves against the dropped set the same way it resolves beside the
+    /// file on disk, and the document that comes out is the same one.
+    #[test]
+    fn urdf_import_from_memory_matches_disk() {
+        let root = Path::new("/dropped");
+        assert!(!root.exists(), "the synthetic root must not exist");
+        let memory = dropped(root, &URDF_SET);
+
+        let (from_memory, memory_warnings) = crate::urdf_in::load(
+            &root.join("arm.urdf"),
+            &crate::PackageMap::default(),
+            &memory,
+        )
+        .unwrap();
+        let (mut from_disk, disk_warnings) = crate::urdf_in::load(
+            &fixtures().join("arm/arm.urdf"),
+            &crate::PackageMap::default(),
+            &Disk,
+        )
+        .unwrap();
+        assert_eq!(memory_warnings, disk_warnings);
+        for asset in from_disk.assets.values_mut() {
+            asset.path = root.join(asset.path.file_name().unwrap());
+        }
+        assert_eq!(
+            serde_json::to_value(&from_memory).unwrap(),
+            serde_json::to_value(&from_disk).unwrap()
+        );
+
+        // And the meshes those paths name load out of the same set.
+        let (store, errors) = MeshStore::load(&from_memory, &memory);
+        assert_eq!(errors, Vec::new());
+        assert_eq!(store.0.len(), from_memory.referenced_assets().len());
+    }
+
+    /// The MJCF import over bytes, `<compiler meshdir="arm">` and all: the
+    /// mesh directory is a path inside the dropped set, not on any disk.
+    #[test]
+    fn mjcf_import_from_memory_matches_disk() {
+        let root = Path::new("/dropped");
+        let memory = dropped(root, &MJCF_SET);
+
+        let (from_memory, memory_warnings) =
+            crate::mjcf_in::load(&root.join("menagerie_style.xml"), &memory).unwrap();
+        let (mut from_disk, disk_warnings) =
+            crate::mjcf_in::load(&fixtures().join("menagerie_style.xml"), &Disk).unwrap();
+        assert_eq!(memory_warnings, disk_warnings);
+        for asset in from_disk.assets.values_mut() {
+            asset.path = root.join("arm").join(asset.path.file_name().unwrap());
+        }
+        assert_eq!(
+            serde_json::to_value(&from_memory).unwrap(),
+            serde_json::to_value(&from_disk).unwrap()
+        );
+
+        let (store, errors) = MeshStore::load(&from_memory, &memory);
+        assert_eq!(errors, Vec::new());
+        assert_eq!(store.0.len(), from_memory.referenced_assets().len());
+    }
+
+    /// A mesh missing from the set is an `UnloadableMesh` that names it,
+    /// not a panic and not a silent hole in the store.
+    #[test]
+    fn mesh_store_reports_what_the_set_does_not_carry() {
+        let root = Path::new("/dropped");
+        let memory = dropped(root, &[("arm.riggen", "arm/arm.riggen")]);
+        let text = String::from_utf8(memory.read(&root.join("arm.riggen")).unwrap()).unwrap();
+        let (robot, _) = riggen_core::load_from(&text, &root.join("arm.riggen"), &memory).unwrap();
+        let (store, errors) = MeshStore::load(&robot, &memory);
+        assert!(store.0.is_empty());
+        assert_eq!(errors.len(), 4, "{errors:?}");
+    }
+}

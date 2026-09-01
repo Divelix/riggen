@@ -28,26 +28,44 @@ pub use decomp::{DecompError, DecompParams, decompose};
 pub use error::MeshError;
 pub use hull::convex_hull;
 pub use mass::{MassProps, mass_properties};
-pub use obj::load_obj;
+pub use obj::{load_obj, parse_obj};
 pub use ray::{Ray, ray_triangle};
-pub use stl::{load_stl, write_binary};
+pub use stl::{load_stl, parse_stl, write_binary};
 pub use tri_mesh::TriMesh;
 
 /// Loads a mesh by file extension, case-insensitively: `.stl` → [`load_stl`],
 /// `.obj` → [`load_obj`], anything else → [`MeshError::UnsupportedFormat`].
 pub fn load_mesh(path: &std::path::Path) -> Result<TriMesh, MeshError> {
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    match extension.as_str() {
+    match extension_of(path).as_str() {
         "stl" => load_stl(path),
         "obj" => load_obj(path),
-        _ => Err(MeshError::UnsupportedFormat {
-            path: path.display().to_string(),
-            extension,
-        }),
+        _ => Err(unsupported(path)),
+    }
+}
+
+/// [`load_mesh`] for bytes already in memory — a browser drop, a zip entry,
+/// an `include_bytes!` — dispatching on `name`'s extension exactly as
+/// [`load_mesh`] does. `name` never has to exist: it is the file's name and
+/// what error messages quote (docs/01-architecture.md §File format).
+pub fn load_mesh_bytes(name: &std::path::Path, bytes: &[u8]) -> Result<TriMesh, MeshError> {
+    match extension_of(name).as_str() {
+        "stl" => parse_stl(bytes, name),
+        "obj" => parse_obj(bytes, name),
+        _ => Err(unsupported(name)),
+    }
+}
+
+fn extension_of(path: &std::path::Path) -> String {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+}
+
+fn unsupported(path: &std::path::Path) -> MeshError {
+    MeshError::UnsupportedFormat {
+        path: path.display().to_string(),
+        extension: extension_of(path),
     }
 }
 
