@@ -49,6 +49,11 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
       - run: cargo test --workspace
 
+  # The web demo (docs/plans/web-demo.md, ADR-0017). Not a build check any
+  # more: this job produces the *same* bundle `pages.yml` deploys, so a page
+  # that only breaks under wasm-bindgen breaks here first. `web/build.sh`
+  # installs the `wasm-bindgen-cli` pinned to `Cargo.lock`'s `wasm-bindgen`
+  # — the two halves of the ABI have to agree.
   wasm:
     runs-on: ubuntu-latest
     steps:
@@ -57,7 +62,11 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --target wasm32-unknown-unknown -p riggen-app
+      - run: web/build.sh
+      # The bundle is only a bundle if the loader's two halves are both in
+      # it: a `web/build.sh` that silently stopped copying the page would
+      # otherwise deploy a directory of wasm and no index.
+      - run: test -f web/dist/index.html -a -f web/dist/main.js -a -f web/dist/riggen_app_bg.wasm
 
   # The M3 acceptance (ADR-0004 §2, ADR-0008): the app's headless export
   # produces the sample arm's MJCF, MuJoCo loads it with zero compiler

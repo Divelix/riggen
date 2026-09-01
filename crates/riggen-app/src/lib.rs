@@ -17,9 +17,9 @@ pub use app::{
 mod web {
     use wasm_bindgen::prelude::*;
 
-    /// JS-side handle: `new WebHandle()` then `.start(canvas)` from the host
-    /// page. The page itself is out of scope for M0; this is just enough for
-    /// the wasm build check to exercise the entry point.
+    /// JS-side handle: `new WebHandle()` then `.start(canvas)` from
+    /// `web/main.js`, which owns the page, the WebGPU probe and the panic
+    /// sheet (docs/01-architecture.md §Cargo workspace, `web/`).
     #[wasm_bindgen]
     pub struct WebHandle {
         runner: eframe::WebRunner,
@@ -48,6 +48,24 @@ mod web {
                     Box::new(|cc| Ok(Box::new(crate::RiggenApp::new(cc)))),
                 )
                 .await
+        }
+
+        /// A panic poisons the runner and the canvas quietly stops
+        /// repainting, which reads as a hang. The page polls this so it can
+        /// say what happened instead.
+        #[wasm_bindgen]
+        pub fn has_panicked(&self) -> bool {
+            self.runner.has_panicked()
+        }
+
+        #[wasm_bindgen]
+        pub fn panic_message(&self) -> Option<String> {
+            self.runner.panic_summary().map(|s| s.message())
+        }
+
+        #[wasm_bindgen]
+        pub fn panic_callstack(&self) -> Option<String> {
+            self.runner.panic_summary().map(|s| s.callstack())
         }
     }
 }
