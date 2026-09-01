@@ -877,6 +877,12 @@ impl RiggenApp {
     /// flight, and a cached entry is never asked for again. Called once per
     /// frame and before an export resolves.
     pub(crate) fn request_decompositions(&mut self) {
+        // In a browser the run is inline and freezes the tab, so it waits
+        // for the answer the properties panel asks for (ADR-0011,
+        // docs/01-architecture.md §Jobs and threads).
+        if !self.decomp_consent {
+            return;
+        }
         for (mesh, params) in self.wanted_decompositions() {
             if self.decomp.contains_key(&(mesh, params)) {
                 continue;

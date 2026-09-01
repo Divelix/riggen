@@ -4757,3 +4757,80 @@ fn a_mesh_drop_joins_the_open_document() {
         assert_eq!(harness.state().debug_state().document.links.len(), 6);
     });
 }
+
+/// The browser's half of the Collision block (plans/web-demo step 6,
+/// ADR-0011): `jobs` has no thread on wasm, so a V-HACD run freezes the
+/// tab, and the panel says so and asks once before starting one. Rendered
+/// on a native runner by turning the consent off by hand — otherwise this
+/// screen would only ever exist in a browser, where the snapshot suite
+/// cannot see it (ADR-0003).
+#[test]
+fn decomposition_asks_before_freezing_the_tab() {
+    scenario("decomp_needs_consent", |harness| {
+        harness.state_mut().set_decomp_consent(false);
+        let link = open_link(harness.state_mut(), "bracket.stl");
+        harness
+            .state_mut()
+            .apply(Command::SetCollision(
+                link,
+                riggen_core::CollisionPolicy::ConvexDecomposition {
+                    max_hulls: 4,
+                    resolution: 32,
+                    concavity: 0.01,
+                },
+            ))
+            .unwrap();
+        harness.state_mut().select(Selection::Link(link));
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        // Nothing was asked for, so nothing is in flight and the app is
+        // idle rather than mid-freeze.
+        assert!(!harness.state().decompositions_pending());
+        assert!(!harness.state().decomp_consent());
+    });
+}
+
+/// And saying yes starts every decomposition the document wants — the
+/// question is asked once per session, not once per link.
+#[test]
+fn consenting_once_starts_the_decomposition() {
+    with_app(|harness| {
+        harness.state_mut().set_decomp_consent(false);
+        let link = open_link(harness.state_mut(), "bracket.stl");
+        let mesh = harness.state().robot().links[&link].visuals[0].mesh;
+        let params = riggen_mesh::DecompParams {
+            max_hulls: 4,
+            resolution: 32,
+            concavity: 0.01,
+        };
+        harness
+            .state_mut()
+            .apply(Command::SetCollision(
+                link,
+                riggen_core::CollisionPolicy::ConvexDecomposition {
+                    max_hulls: params.max_hulls,
+                    resolution: params.resolution,
+                    concavity: params.concavity,
+                },
+            ))
+            .unwrap();
+        for _ in 0..8 {
+            harness.step();
+        }
+        assert!(
+            harness.state().decomposition(mesh, params).is_none(),
+            "nothing may run before the question is answered"
+        );
+
+        harness.state_mut().set_decomp_consent(true);
+        settle(harness);
+        assert!(
+            harness
+                .state()
+                .decomposition(mesh, params)
+                .expect("the answer started it")
+                .is_ok()
+        );
+    });
+}
