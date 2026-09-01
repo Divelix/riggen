@@ -106,9 +106,13 @@ wasm-bindgen bundle on every push and GitHub Pages serves it from `main`.
   duplicated as a test helper per crate — the browser's source is that
   shape anyway (step 4). The importers keep their path-shaped `load`: the
   source resolves the path, so no text-taking twin is needed.
-- [ ] **Step 3 — Bytes out: `export_files`.** The pure file list under
+- [x] **Step 3 — Bytes out: `export_files`.** The pure file list under
   `export()`. *Test:* `export_files` and `export` agree on names and bytes
-  for the arm, all three formats and the `meshes/` folder.
+  for the arm, all three formats and the `meshes/` folder. *Done:*
+  `export_files(robot, options, dir)` keeps the `dir` argument — it settles
+  what `MeshPathStyle::Absolute` writes into the model files — but reads
+  nothing from it and creates nothing in it, which a second test pins
+  against a directory that does not exist.
 - [ ] **Step 4 — Drops open on the web; the sample arm is there at startup.**
   `open_bytes` beside `open_path`; the drop handler prefers `bytes` when
   `path` is `None`; a `DroppedSet` `FileSource` resolving a mesh reference by
