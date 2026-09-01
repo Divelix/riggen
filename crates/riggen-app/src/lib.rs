@@ -5,12 +5,14 @@ mod app;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod cli;
 pub mod debug;
+pub mod example;
 pub mod jobs;
 
 pub use app::{
-    ALIGN_PROMPT, ALIGN_WRONG_LINK, COPIED_STATUS, ExportDialog, GLYPH_HOVER_RADIUS, GizmoTarget,
-    JointGlyph, PendingAction, RiggenApp, SNAP_PIXEL_RADIUS, Selection, SnapCandidate, SnapKind,
-    Tool, ZERO_CONFIG_STATUS, align_transform, aligned_status, placed_status,
+    ALIGN_PROMPT, ALIGN_WRONG_LINK, COPIED_STATUS, DroppedSet, ExportDialog, Files,
+    GLYPH_HOVER_RADIUS, GizmoTarget, JointGlyph, PendingAction, RiggenApp, SNAP_PIXEL_RADIUS,
+    Selection, SnapCandidate, SnapKind, Tool, ZERO_CONFIG_STATUS, align_transform, aligned_status,
+    placed_status,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -45,7 +47,15 @@ mod web {
                 .start(
                     canvas,
                     eframe::WebOptions::default(),
-                    Box::new(|cc| Ok(Box::new(crate::RiggenApp::new(cc)))),
+                    Box::new(|cc| {
+                        // The demo opens on the sample arm, out of the same
+                        // `include_bytes!` the desktop's `--example arm`
+                        // unpacks — as if it had been dropped on the page
+                        // (ADR-0017).
+                        let mut app = crate::RiggenApp::new(cc);
+                        app.load_dropped(crate::example::Example::Arm.dropped());
+                        Ok(Box::new(app))
+                    }),
                 )
                 .await
         }

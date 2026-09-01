@@ -17,6 +17,9 @@ pub enum PendingAction {
     New,
     /// `None`: the open dialog; `Some`: these files (a drop, the CLI).
     Open(Option<Vec<PathBuf>>),
+    /// One drop gesture's bytes, waiting on the same answer — the browser's
+    /// form of `Open(Some(..))` (ADR-0017).
+    OpenDropped(Vec<(PathBuf, Vec<u8>)>),
     Quit,
 }
 
@@ -70,6 +73,19 @@ impl RiggenApp {
         }
     }
 
+    /// Opening one drop gesture's bytes, after the dirty check. Only the
+    /// browser gets here; on the desktop a drop carries paths.
+    pub fn request_open_dropped(&mut self, files: Vec<(PathBuf, Vec<u8>)>) {
+        let replaces = files
+            .iter()
+            .any(|(path, _)| super::file_io::replaces_document(path));
+        if replaces {
+            self.request(PendingAction::OpenDropped(files));
+        } else {
+            self.load_dropped(files);
+        }
+    }
+
     /// File › Quit and the OS close button, after the dirty check.
     pub fn request_quit(&mut self) {
         self.request(PendingAction::Quit);
@@ -88,6 +104,7 @@ impl RiggenApp {
             PendingAction::New => self.new_document(),
             PendingAction::Open(None) => self.open_dialog(),
             PendingAction::Open(Some(paths)) => self.load_files(&paths),
+            PendingAction::OpenDropped(files) => self.load_dropped(files),
             PendingAction::Quit => self.quit_confirmed = true,
         }
     }
@@ -180,7 +197,7 @@ impl RiggenApp {
         };
         let what = match action {
             PendingAction::New => "starting a new document",
-            PendingAction::Open(_) => "opening another document",
+            PendingAction::Open(_) | PendingAction::OpenDropped(_) => "opening another document",
             PendingAction::Quit => "quitting",
         };
         let mut answer: Option<fn(&mut Self)> = None;

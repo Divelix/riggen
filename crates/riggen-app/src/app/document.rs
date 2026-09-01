@@ -75,6 +75,17 @@ impl DecompSource for AppDecomp<'_> {
 }
 
 use super::RiggenApp;
+use super::file_io::Files;
+
+/// A mesh asset's bytes through the app's [`Files`], parsed by the name it
+/// carries — the one place the app turns a `MeshAsset::path` into geometry.
+fn read_mesh(files: &Files, path: &std::path::Path) -> Result<TriMesh, String> {
+    use riggen_core::FileSource as _;
+    let bytes = files
+        .read(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    riggen_mesh::load_mesh_bytes(path, &bytes).map_err(|e| e.to_string())
+}
 
 /// What the user has picked, in document terms. The viewport's own
 /// selection is the instance view of this, kept in step both ways.
@@ -622,13 +633,15 @@ impl RiggenApp {
                         reupload.insert(*mesh_id);
                     }
                 }
-                None => match riggen_mesh::load_mesh(&asset.path) {
+                // The asset's bytes come from wherever the app is living:
+                // the filesystem, or the dropped set (ADR-0017).
+                None => match read_mesh(&self.files, &asset.path) {
                     Ok(raw) => {
                         self.mesh_store
                             .insert(*mesh_id, LoadedMesh::new(raw, asset));
                     }
                     Err(err) => {
-                        first_error.get_or_insert_with(|| err.to_string());
+                        first_error.get_or_insert(err);
                         continue;
                     }
                 },
@@ -908,9 +921,9 @@ impl RiggenApp {
 
     pub(crate) fn ensure_loaded(&mut self, mesh_id: MeshId) -> Option<&mut LoadedMesh> {
         let asset = self.robot.assets.get(&mesh_id)?;
-        if let std::collections::hash_map::Entry::Vacant(slot) = self.mesh_store.entry(mesh_id) {
-            let raw = riggen_mesh::load_mesh(&asset.path).ok()?;
-            slot.insert(LoadedMesh::new(raw, asset));
+        if !self.mesh_store.contains_key(&mesh_id) {
+            let raw = read_mesh(&self.files, &asset.path).ok()?;
+            self.mesh_store.insert(mesh_id, LoadedMesh::new(raw, asset));
         }
         let loaded = self.mesh_store.get_mut(&mesh_id)?;
         loaded.refresh(asset);

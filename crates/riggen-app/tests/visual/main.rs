@@ -2294,7 +2294,9 @@ fn orbit_works_from_a_gizmo_handle() {
 fn gizmo_shares_the_viewport() {
     with_app(|harness| {
         let temp = std::env::temp_dir().join(format!("riggen-share-{}", std::process::id()));
-        let document = riggen_app::cli::Example::Arm.extract_into(&temp).unwrap();
+        let document = riggen_app::example::Example::Arm
+            .extract_into(&temp)
+            .unwrap();
         harness.state_mut().open_path(&document).unwrap();
         harness.state_mut().fit_view_now();
         harness.state_mut().set_tool(Tool::Move);
@@ -4567,7 +4569,9 @@ fn debug_copy_state_reports() {
 fn example_arm_opens_from_the_bundle() {
     with_app(|harness| {
         let temp = std::env::temp_dir().join(format!("riggen-example-app-{}", std::process::id()));
-        let document = riggen_app::cli::Example::Arm.extract_into(&temp).unwrap();
+        let document = riggen_app::example::Example::Arm
+            .extract_into(&temp)
+            .unwrap();
         harness.state_mut().open_path(&document).unwrap();
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -4617,5 +4621,139 @@ fn startup_first_frame_under_budget() {
         harness.state_mut().set_frame_hud_visible(true);
         let timing = harness.state().debug_state().timing.expect("timing");
         assert_eq!(timing.first_frame_ms, Some(riggen_app::debug::round(ms)));
+    });
+}
+
+/// A drop gesture's bytes open exactly as the same files on disk do
+/// (ADR-0017, plans/web-demo step 4). This is the browser's only way in,
+/// so it is asserted against a real app rather than reasoned about.
+#[test]
+fn dropped_bytes_open_the_sample_arm() {
+    with_app(|harness| {
+        let disk = {
+            let temp = std::env::temp_dir().join(format!("riggen-dropped-{}", std::process::id()));
+            let document = riggen_app::example::Example::Arm
+                .extract_into(&temp)
+                .unwrap();
+            harness.state_mut().open_path(&document).unwrap();
+            harness.state().debug_state()
+        };
+
+        // The very same bytes, as one gesture: the document and its four
+        // meshes together, and no path anywhere.
+        harness.state_mut().new_document();
+        harness
+            .state_mut()
+            .load_dropped(riggen_app::example::Example::Arm.dropped());
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        let dropped = harness.state().debug_state();
+
+        assert_eq!(dropped.document.links.len(), disk.document.links.len());
+        assert_eq!(dropped.document.joints.len(), disk.document.joints.len());
+        assert_eq!(dropped.instances.len(), disk.instances.len());
+        assert!(dropped.instances.len() >= 4, "the arm's parts are drawn");
+        // Five files in, one document out: the meshes are the document's,
+        // not four more links.
+        assert_eq!(
+            harness.state().debug_state().status.as_deref(),
+            Some("opened 1 file")
+        );
+        // Untitled: bytes have no file to save back to.
+        assert!(harness.state().file().is_none());
+    });
+}
+
+/// A `.riggen` dropped without its meshes still opens, and says which
+/// meshes are missing — the same `file::Warning` a moved file produces on
+/// disk (ADR-0017).
+#[test]
+fn a_document_dropped_alone_reports_its_missing_meshes() {
+    with_app(|harness| {
+        let example = riggen_app::example::Example::Arm;
+        let document: Vec<_> = example
+            .dropped()
+            .into_iter()
+            .filter(|(path, _)| path.extension().is_some_and(|e| e == "riggen"))
+            .collect();
+        assert_eq!(document.len(), 1);
+        harness.state_mut().load_dropped(document);
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        let status = harness.state().debug_state().status.unwrap_or_default();
+        assert!(status.contains("cannot be read"), "{status}");
+        assert!(status.contains("+3 more warnings"), "{status}");
+        // The document is there; only its geometry is not.
+        assert_eq!(harness.state().debug_state().document.links.len(), 5);
+        assert_eq!(harness.state().debug_state().instances.len(), 0);
+    });
+}
+
+/// Meshes alone are what they have always been: one link per file, added
+/// to the document rather than replacing it.
+#[test]
+fn dropped_meshes_alone_each_become_a_link() {
+    with_app(|harness| {
+        let cube = std::fs::read(fixture("cube_binary.stl")).unwrap();
+        let before = harness.state().debug_state().document.links.len();
+        harness
+            .state_mut()
+            .load_dropped(vec![(std::path::PathBuf::from("cube_binary.stl"), cube)]);
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        assert_eq!(
+            harness.state().debug_state().document.links.len(),
+            before + 1
+        );
+        assert_eq!(harness.state().debug_state().instances.len(), 1);
+    });
+}
+
+/// A gesture carrying a document is that document's whole world
+/// (ADR-0017 §4): dropping the arm again *without* its meshes reports them
+/// missing rather than quietly reusing the ones a previous drop brought.
+#[test]
+fn a_second_drop_does_not_lend_the_first_ones_meshes() {
+    with_app(|harness| {
+        let example = riggen_app::example::Example::Arm;
+        harness.state_mut().load_dropped(example.dropped());
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        assert_eq!(harness.state().debug_state().instances.len(), 4);
+
+        let document: Vec<_> = example
+            .dropped()
+            .into_iter()
+            .filter(|(path, _)| path.extension().is_some_and(|e| e == "riggen"))
+            .collect();
+        harness.state_mut().load_dropped(document);
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        let status = harness.state().debug_state().status.unwrap_or_default();
+        assert!(status.contains("cannot be read"), "{status}");
+        assert_eq!(harness.state().debug_state().instances.len(), 0);
+    });
+}
+
+/// Meshes alone join the open document rather than redefining it: the
+/// arm's parts keep drawing after a cube lands beside them.
+#[test]
+fn a_mesh_drop_joins_the_open_document() {
+    with_app(|harness| {
+        harness
+            .state_mut()
+            .load_dropped(riggen_app::example::Example::Arm.dropped());
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        let cube = std::fs::read(fixture("cube_binary.stl")).unwrap();
+        harness
+            .state_mut()
+            .load_dropped(vec![(std::path::PathBuf::from("cube_binary.stl"), cube)]);
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        assert_eq!(harness.state().debug_state().instances.len(), 5);
+        assert_eq!(harness.state().debug_state().document.links.len(), 6);
     });
 }

@@ -13,8 +13,9 @@
 //! a flag cannot exist without its help line.
 
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+use crate::example::Example;
 use riggen_core::Disk;
 use riggen_export::{ExportOptions, Format, MeshStore};
 
@@ -121,83 +122,6 @@ pub fn help() -> String {
         out.push_str(&format!("  {spelling:<22}  {}\n", flag.doc));
     }
     out
-}
-
-/// A sample robot compiled into the binary, so the first run after
-/// `uv tool install riggen` needs nothing downloaded.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Example {
-    /// `assets/fixtures/arm/`: the M3 sample arm, four STL parts and the
-    /// document that assembles them.
-    Arm,
-}
-
-impl Example {
-    pub const NAMES: &[&str] = &["arm"];
-
-    fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "arm" => Some(Self::Arm),
-            _ => None,
-        }
-    }
-
-    /// `(file name, bytes)` for every file the example needs.
-    pub fn files(self) -> &'static [(&'static str, &'static [u8])] {
-        match self {
-            Self::Arm => &[
-                (
-                    "arm.riggen",
-                    include_bytes!("../../../assets/fixtures/arm/arm.riggen"),
-                ),
-                (
-                    "base.stl",
-                    include_bytes!("../../../assets/fixtures/arm/base.stl"),
-                ),
-                (
-                    "shoulder.stl",
-                    include_bytes!("../../../assets/fixtures/arm/shoulder.stl"),
-                ),
-                (
-                    "upper.stl",
-                    include_bytes!("../../../assets/fixtures/arm/upper.stl"),
-                ),
-                (
-                    "fore.stl",
-                    include_bytes!("../../../assets/fixtures/arm/fore.stl"),
-                ),
-            ],
-        }
-    }
-
-    /// The document file to open, once extracted.
-    fn document(self) -> &'static str {
-        match self {
-            Self::Arm => "arm.riggen",
-        }
-    }
-
-    /// Writes the files to `<temp>/riggen-example-<name>/` (overwriting a
-    /// previous extraction: they are 64 KB) and returns the document path.
-    pub fn extract(self) -> Result<PathBuf, String> {
-        self.extract_into(&std::env::temp_dir())
-    }
-
-    pub fn extract_into(self, temp: &Path) -> Result<PathBuf, String> {
-        let dir = temp.join(format!("riggen-example-{}", self.name()));
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        for (name, bytes) in self.files() {
-            let path = dir.join(name);
-            std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
-        }
-        Ok(dir.join(self.document()))
-    }
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::Arm => "arm",
-        }
-    }
 }
 
 /// What the command line asked for.
