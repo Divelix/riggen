@@ -121,7 +121,16 @@ enum DecompReadout {
     Failed(String),
     /// No visual mesh, so nothing was ever asked for.
     NoMesh,
+    /// The browser: `jobs` has no thread there, so the run would freeze the
+    /// tab and is waiting to be asked for (ADR-0011,
+    /// docs/01-architecture.md §Jobs and threads).
+    NeedsConsent,
 }
+
+/// What the button that gives that consent says, and the warning above it.
+pub const DECOMP_FREEZE_WARNING: &str =
+    "V-HACD runs in this tab: the page will stop responding for a few seconds.";
+pub const DECOMP_CONSENT_BUTTON: &str = "Compute anyway";
 
 /// The four primitive kinds, for the add buttons and the fit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -572,6 +581,9 @@ impl RiggenApp {
         if data.visuals.is_empty() {
             return DecompReadout::NoMesh;
         }
+        if !self.decomp_consent {
+            return DecompReadout::NeedsConsent;
+        }
         let mut pieces = 0;
         for g in &data.visuals {
             match self.decomposition(g.mesh, params) {
@@ -616,6 +628,9 @@ impl RiggenApp {
     ) {
         let decomposition = self.decomp_readout(link, policy);
         let points = self.link_points(link);
+        // Set by the freeze warning's button; applied once the panel's
+        // borrow of `self.props` is done with.
+        let mut consented = false;
         let assets = &self.robot.assets;
         let state = &mut self.props;
 
@@ -849,22 +864,37 @@ impl RiggenApp {
                         },
                     ));
                 }
-                ui.horizontal(|ui| match decomposition {
+                match decomposition {
                     DecompReadout::Pieces(n) => {
-                        ui.label(format!("pieces: {n}"));
+                        ui.horizontal(|ui| ui.label(format!("pieces: {n}")));
                     }
                     DecompReadout::Working => {
-                        ui.spinner();
-                        ui.weak("computing…");
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.weak("computing…");
+                        });
                     }
                     DecompReadout::Failed(reason) => {
-                        ui.colored_label(ui.visuals().error_fg_color, reason);
+                        ui.horizontal(|ui| ui.colored_label(ui.visuals().error_fg_color, reason));
                     }
                     DecompReadout::NoMesh => {
-                        ui.weak("nothing to decompose: the link has no visual mesh");
+                        ui.horizontal(|ui| {
+                            ui.weak("nothing to decompose: the link has no visual mesh")
+                        });
                     }
-                });
+                    // Asked once per session, not once per link: saying yes
+                    // here starts every decomposition the document wants.
+                    DecompReadout::NeedsConsent => {
+                        ui.colored_label(ui.visuals().warn_fg_color, DECOMP_FREEZE_WARNING);
+                        if ui.button(DECOMP_CONSENT_BUTTON).clicked() {
+                            consented = true;
+                        }
+                    }
+                }
             }
+        }
+        if consented {
+            self.decomp_consent = true;
         }
     }
 

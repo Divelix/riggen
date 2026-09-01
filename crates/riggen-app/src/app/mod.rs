@@ -39,6 +39,7 @@ use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use gizmo::GizmoState;
 pub use gizmo::GizmoTarget;
 pub use glyphs::{FrameGlyph, GLYPH_HOVER_RADIUS, JointGlyph};
+pub use panels::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING};
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 use snap::SnapCache;
 pub use snap::{SNAP_PIXEL_RADIUS, SnapCandidate, SnapKind, placed_status};
@@ -118,6 +119,12 @@ pub struct RiggenApp {
     pub(crate) joints_window: JointsWindow,
     /// The materials table window and its in-progress edits.
     pub(crate) materials_window: MaterialsWindow,
+    /// Whether a V-HACD run may start (ADR-0011, docs/01-architecture.md
+    /// §Jobs and threads). Always true on the desktop, where the job has a
+    /// thread and nothing to consent to. In a browser `jobs` has no thread
+    /// and the run happens inline, freezing the tab for a few seconds, so
+    /// the properties panel asks once and this is the answer.
+    pub(crate) decomp_consent: bool,
     /// Where the app reads bytes from: the filesystem on the desktop, the
     /// dropped files in a browser (`file_io.rs`, ADR-0017).
     pub(crate) files: Files,
@@ -224,6 +231,7 @@ impl RiggenApp {
             props: PropertiesState::default(),
             joints_window: JointsWindow::default(),
             materials_window: MaterialsWindow::default(),
+            decomp_consent: !cfg!(target_arch = "wasm32"),
             files: if cfg!(target_arch = "wasm32") {
                 // Nothing has been dropped yet, and there is no filesystem
                 // to fall back to (ADR-0017).

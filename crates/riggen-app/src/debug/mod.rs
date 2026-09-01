@@ -572,6 +572,21 @@ impl RiggenApp {
         self.show_frame_hud = visible;
     }
 
+    /// Whether a V-HACD run may start (ADR-0011).
+    ///
+    /// Always true on the desktop; the browser starts at `false` and the
+    /// properties panel asks once, because `jobs` has no thread there and
+    /// the run freezes the tab (docs/01-architecture.md §Jobs and threads).
+    /// The snapshot suite sets it to see the browser's half of that panel
+    /// on a native runner (ADR-0003).
+    pub fn set_decomp_consent(&mut self, consent: bool) {
+        self.decomp_consent = consent;
+    }
+
+    pub fn decomp_consent(&self) -> bool {
+        self.decomp_consent
+    }
+
     /// Whether a snapshot taken now is reproducible: no pick readback in
     /// flight and no camera animation reading the wall clock. The harness
     /// pumps frames until this has held for a few in a row.
@@ -585,13 +600,18 @@ impl RiggenApp {
     /// Whether any decomposition the document wants is still on the job
     /// thread (`crate::jobs`). Frames keep coming while this is true: the
     /// worker's `wake` is `ctx.request_repaint()`.
+    ///
+    /// A document that wants one while the browser's consent is withheld
+    /// is *not* pending: nothing is running, and nothing will until the
+    /// question is answered (ADR-0011, plans/web-demo step 6).
     pub fn decompositions_pending(&self) -> bool {
-        self.wanted_decompositions().iter().any(|key| {
-            !matches!(
-                self.decomp.get(key),
-                Some(DecompState::Ready(_) | DecompState::Failed(_))
-            )
-        })
+        self.decomp_consent
+            && self.wanted_decompositions().iter().any(|key| {
+                !matches!(
+                    self.decomp.get(key),
+                    Some(DecompState::Ready(_) | DecompState::Failed(_))
+                )
+            })
     }
 
     /// The convex pieces the job thread produced for `(mesh, params)`:

@@ -142,10 +142,15 @@ wasm-bindgen bundle on every push and GitHub Pages serves it from `main`.
   downloaded `arm.zip`, and unzipping it gives files byte-identical to
   `riggen --export all --out … assets/fixtures/arm/arm.riggen`, which is
   the plan's acceptance 3, met for all three formats and all four meshes.
-- [ ] **Step 6 — The decomposition freeze, consented to.** In the web build
+- [x] **Step 6 — The decomposition freeze, consented to.** In the web build
   the properties panel says a V-HACD run will freeze the tab for a few
   seconds and asks once before starting it (`jobs` has no thread on wasm — 01
-  §Jobs and threads). *Check:* Chrome, on `bracket.stl`.
+  §Jobs and threads). *Check:* Chrome, on `bracket.stl`. *Done:* the
+  question is asked once per session, not once per link, and a document
+  that wants a decomposition while the answer is outstanding is no longer
+  reported as `decompositions_pending` — nothing is running. The screen is
+  wasm-only, so `set_decomp_consent` lets the native snapshot suite render
+  it: new golden `decomp_needs_consent` (ADR-0003).
 - [ ] **Step 7 — Size, and the deploy.** A wasm release profile (`opt-level`,
   `lto`), `wasm-opt` if it earns its minutes, and the gzipped `.wasm` size
   measured and written into the roadmap the way M4 recorded the wheel sizes.
