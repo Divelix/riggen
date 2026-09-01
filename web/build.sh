@@ -14,8 +14,10 @@ here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")
 dist="$here/dist"
 
-profile=release
-cargo_profile_flag=(--release)
+# The `web` profile: `opt-level = "s"` and fat LTO, because a browser pays
+# for the download (root Cargo.toml).
+profile=web
+cargo_profile_flag=(--profile web)
 if [[ ${1:-} == "--dev" ]]; then
   profile=debug
   cargo_profile_flag=()
