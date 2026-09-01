@@ -1,0 +1,64 @@
+# The web demo at https://divelix.github.io/riggen/ (ADR-0017,
+# plans/web-demo step 7).
+#
+# Deploys on every push to `main`, because `main` is always green
+# (.agents/rules/git.md) and the demo is meant to be what riggen is now,
+# not what the last tag was. The bundle is the one `web/build.sh` makes and
+# the `wasm` CI job already builds on every push, so a break shows up in CI
+# before it shows up here.
+#
+# One-time setup, by the human:
+#   GitHub › Settings › Pages › Source: GitHub Actions.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  # So the demo can be re-deployed without an empty commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push waits rather than racing, and never
+# cancels a deploy half-way.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: web/build.sh
+      # The measurement docs/03-roadmap.md records, printed where a
+      # regression is visible in the log rather than only on a stopwatch.
+      - run: |
+          raw=$(stat -c%s web/dist/riggen_app_bg.wasm)
+          gz=$(gzip -9 -c web/dist/riggen_app_bg.wasm | wc -c)
+          size() { printf '%d.%02d MB' "$(($1 / 1000000))" "$(($1 / 10000 % 100))"; }
+          echo "wasm: $(size "$raw") raw, $(size "$gz") gzipped" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

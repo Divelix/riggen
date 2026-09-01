@@ -9,6 +9,19 @@ window, or from ten lines of Python.
 
 ![The sample arm in riggen: the link tree, the viewport with joint glyphs, the Joints window](https://raw.githubusercontent.com/Divelix/riggen/main/docs/assets/arm.png)
 
+## Try it in the browser
+
+**[divelix.github.io/riggen](https://divelix.github.io/riggen/)** — the real
+app, wasm, with the sample arm already in it. Orbit it, swing the joint
+sliders, drop your own `.stl` / `.obj` / `.riggen` / `.urdf` / `.xml` onto
+the page, and Export to get the same MJCF, URDF and SDF the desktop writes,
+as one zip. Needs a browser with WebGPU (Chrome/Edge 113+, Firefox 141+,
+Safari 26+); the desktop app does not.
+
+Drop a document **together with its meshes** — the browser hands a page one
+flat set of files per drop and no directory, so a `.riggen` on its own can
+only tell you which meshes are missing.
+
 ## Install
 
 ```sh

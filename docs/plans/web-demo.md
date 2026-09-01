@@ -151,11 +151,19 @@ wasm-bindgen bundle on every push and GitHub Pages serves it from `main`.
   reported as `decompositions_pending` — nothing is running. The screen is
   wasm-only, so `set_decomp_consent` lets the native snapshot suite render
   it: new golden `decomp_needs_consent` (ADR-0003).
-- [ ] **Step 7 — Size, and the deploy.** A wasm release profile (`opt-level`,
+- [x] **Step 7 — Size, and the deploy.** A wasm release profile (`opt-level`,
   `lto`), `wasm-opt` if it earns its minutes, and the gzipped `.wasm` size
   measured and written into the roadmap the way M4 recorded the wheel sizes.
   `.github/workflows/pages.yml` builds and deploys on push to `main`; the
   README gets the URL. *Observable:* the public URL serves the demo.
+  *Done, with one measured refusal:* `wasm-opt` does **not** earn its
+  minutes. `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw `.wasm` and
+  put ~0.12 MB back on the gzipped one, and gzipped is what a visitor
+  downloads. The `[profile.web]` (`opt-level = "s"`, fat LTO) is the whole
+  saving: 3.67 → 3.35 MB gzipped, 61 fps unchanged. Numbers are in
+  docs/03-roadmap.md beside M4's wheel sizes. `pages.yml` needs one
+  by-hand step before the URL is live — **GitHub › Settings › Pages ›
+  Source: GitHub Actions** — and the first deploy is the human's push.
 
 ## Acceptance
 

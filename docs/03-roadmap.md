@@ -271,9 +271,31 @@ release workflow is a tag push.
   wrong, measured and stated: it ignores `relative_to` in silence, and its
   users want the `.urdf` the same export writes.
 
-Still open:
+- **2026-09-02** — the web demo (ADR-0017), at
+  [divelix.github.io/riggen](https://divelix.github.io/riggen/). Not a
+  thinner web riggen: the browser runs the *same* `riggen_core::load_from`,
+  the same URDF and MJCF imports and the same three writers, over one
+  read-only `FileSource` seam — `Disk` on the desktop, the drop gesture's
+  files in a page. Bytes in (`load_mesh_bytes`, `load_from`, a `DroppedSet`
+  that resolves a mesh reference by file name), bytes out (`export_files`
+  under `export`, and Save / Export / Debug › Save state as downloads, the
+  export a stored zip). The sample arm is in the viewport on load, out of
+  the same `include_bytes!` `--example arm` unpacks. WebGPU only, with a
+  plain-English page for a browser that has none, and V-HACD asks before it
+  freezes the tab, because `jobs` has no thread there. `pages.yml` deploys
+  on every push to `main`; the `wasm` CI job builds the same bundle, so a
+  break shows up in CI first.
 
-- Web demo build if the wasm check has stayed green.
+  A third measurement this file is the only record of. **The wasm bundle**
+  at the deploy: 10.40 MB raw, **3.35 MB gzipped**, which is what a visitor
+  downloads. The `web` profile (`opt-level = "s"`, fat LTO) is worth 0.32 MB
+  gzipped over `--release`, and `wasm-opt` is *not* used: `-O2`, `-Os` and
+  `-Oz` each take ~1 MB off the raw file and put ~0.12 MB **back on** the
+  gzipped one, so it costs CI minutes to make the download bigger.
+
+**Accept:** the public URL loads with a clean console, the arm's slider
+swings it, a dropped set of meshes opens, and the zip Export hands the
+browser is byte-identical to `riggen --export all` over the same files.
 
 ## What not to spend agent time on
 
