@@ -55,6 +55,18 @@ pub fn load_mesh_bytes(name: &std::path::Path, bytes: &[u8]) -> Result<TriMesh, 
     }
 }
 
+/// The extension dispatch on its own: `Ok(())` when [`load_mesh`] and
+/// [`load_mesh_bytes`] would know what to do with this name. Callers that
+/// read the bytes themselves ask this **first**, so a `.ply` that is not
+/// there is reported as a format we do not read rather than as a missing
+/// file — which is the more useful half of the truth.
+pub fn supported_format(name: &std::path::Path) -> Result<(), MeshError> {
+    match extension_of(name).as_str() {
+        "stl" | "obj" => Ok(()),
+        _ => Err(unsupported(name)),
+    }
+}
+
 fn extension_of(path: &std::path::Path) -> String {
     path.extension()
         .and_then(|ext| ext.to_str())

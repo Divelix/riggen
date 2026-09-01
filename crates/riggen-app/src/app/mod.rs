@@ -33,6 +33,7 @@ pub use debug_menu::COPIED_STATUS;
 pub use document::Selection;
 pub(crate) use document::{CollisionSource, DecompState, LoadedMesh};
 pub use export_dialog::ExportDialog;
+pub use file_io::{DroppedSet, Files};
 pub use file_menu::PendingAction;
 use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use gizmo::GizmoState;
@@ -117,6 +118,15 @@ pub struct RiggenApp {
     pub(crate) joints_window: JointsWindow,
     /// The materials table window and its in-progress edits.
     pub(crate) materials_window: MaterialsWindow,
+    /// Where the app reads bytes from: the filesystem on the desktop, the
+    /// dropped files in a browser (`file_io.rs`, ADR-0017).
+    pub(crate) files: Files,
+    /// Drop gestures the browser is still reading, filled by the futures
+    /// `handle_file_drops` spawns and drained once per frame. Never more
+    /// than a handful of files; wasm is single-threaded, so an `Rc` and a
+    /// `RefCell` are the whole synchronisation story.
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) inbox: std::rc::Rc<std::cell::RefCell<Vec<Vec<(PathBuf, Vec<u8>)>>>>,
     /// New / Open / Quit waiting on the unsaved-changes answer.
     pub(crate) pending: Option<PendingAction>,
     /// File › Export… (`export_dialog.rs`).
@@ -214,6 +224,15 @@ impl RiggenApp {
             props: PropertiesState::default(),
             joints_window: JointsWindow::default(),
             materials_window: MaterialsWindow::default(),
+            files: if cfg!(target_arch = "wasm32") {
+                // Nothing has been dropped yet, and there is no filesystem
+                // to fall back to (ADR-0017).
+                Files::Dropped(file_io::DroppedSet::default())
+            } else {
+                Files::Disk
+            },
+            #[cfg(target_arch = "wasm32")]
+            inbox: Default::default(),
             pending: None,
             export_dialog: ExportDialog::default(),
             quit_confirmed: false,
@@ -385,6 +404,8 @@ impl eframe::App for RiggenApp {
         self.request_decompositions();
         self.handle_close_request(ui.ctx());
         self.handle_file_drops(ui.ctx());
+        // A browser drop is read asynchronously; whatever finished lands here.
+        self.drain_dropped();
         self.handle_shortcuts(ui.ctx());
         self.update_title(ui.ctx());
 

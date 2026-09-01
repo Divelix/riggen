@@ -22,3 +22,4 @@ Consequences, Alternatives considered.
 | [0014](0014-actuators-on-the-joint-mjcf-only-three-presets.md) | An actuator lives on its joint, is MJCF-only, is named after the joint, and comes in three presets; amends 0004 §4 | Accepted |
 | [0015](0015-mjcf-import-subset-and-one-import-vocabulary.md) | MJCF import reads the subset the document can hold; `<default>` is resolved, not stored; one import vocabulary with URDF | Accepted |
 | [0016](0016-sdf-export-conventions.md) | SDF at 1.11: `relative_to` poses, native `<mimic>`, `<capsule>` and `<frame>`; libsdformat's Python bindings prove it in CI | Accepted |
+| [0017](0017-web-io-bytes-in-downloads-out.md) | Web IO: one `FileSource` seam in, downloads out, a dropped set resolved by file name, WebGPU only | Accepted |

@@ -113,7 +113,7 @@ wasm-bindgen bundle on every push and GitHub Pages serves it from `main`.
   what `MeshPathStyle::Absolute` writes into the model files — but reads
   nothing from it and creates nothing in it, which a second test pins
   against a directory that does not exist.
-- [ ] **Step 4 — Drops open on the web; the sample arm is there at startup.**
+- [x] **Step 4 — Drops open on the web; the sample arm is there at startup.**
   `open_bytes` beside `open_path`; the drop handler prefers `bytes` when
   `path` is `None`; a `DroppedSet` `FileSource` resolving a mesh reference by
   file name against the same gesture's files, warning through the existing
@@ -123,6 +123,13 @@ wasm-bindgen bundle on every push and GitHub Pages serves it from `main`.
   joints swing; dropping `cube_binary.stl` adds a link; dropping the five
   files of `assets/fixtures/arm/` replaces the document with no warning;
   dropping `arm.riggen` alone reports the four missing meshes by name.
+  *Done; all four checked in Chrome.* Two things the plan had not settled:
+  a gesture that carries a **document** replaces the app's source, while a
+  gesture of **meshes alone** adds to it (ADR-0017 §4) — without that rule
+  a document dropped after an earlier drop quietly borrows the earlier
+  meshes; and egui 0.36's `DroppedFile` reads asynchronously on the web
+  (`bytes_async`, not a `bytes` field), so a gesture is read by one spawned
+  future into an inbox the frame loop drains.
 - [ ] **Step 5 — Downloads out.** Save / Save As → a `.riggen` download;
   Export → the export directory as one stored (uncompressed) zip; Debug ›
   Save state → a `.json`. The "no filesystem in the browser" strings become
