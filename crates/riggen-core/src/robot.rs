@@ -238,9 +238,9 @@ pub enum CollisionPolicy {
     /// Hand-placed primitives in link frame.
     Primitives(Vec<Primitive>),
     /// Collision meshes that are not the visuals, in link frame — what a
-    /// URDF `<collision><mesh>` imports to, losslessly (M3, OPEN 1). Shown
-    /// read-only in the properties panel; a v1 file without the variant
-    /// still reads.
+    /// URDF `<collision><mesh>` imports to, losslessly (M3, OPEN 1).
+    /// Editable geom by geom in the properties panel (pose, remove, add a
+    /// file); a v1 file without the variant still reads.
     Meshes(Vec<Geom>),
     /// Approximate convex decomposition of every visual mesh: N convex
     /// pieces that keep the part's concavity, where one hull would fill it
