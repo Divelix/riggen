@@ -39,7 +39,7 @@ use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use gizmo::GizmoState;
 pub use gizmo::GizmoTarget;
 pub use glyphs::{FrameGlyph, GLYPH_HOVER_RADIUS, JointGlyph};
-pub use panels::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING};
+pub use panels::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING, fmt_num};
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 use snap::SnapCache;
 pub use snap::{SNAP_PIXEL_RADIUS, SnapCandidate, SnapKind, placed_status};

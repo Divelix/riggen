@@ -253,10 +253,15 @@ the document, one command per frame, and `History::apply_in_gesture`
 coalesces them into the one entry (02 §Commands and history); a slider
 preview of a joint angle is not a command at all (joint values are derived
 state, not document state — the document stores limits, not the current
-`q`). Concretely: properties-panel numbers are text fields with a
-draft buffer that commit on Enter or lost focus, never per keystroke, and a
-commit equal to the shown value never becomes a command (`History` drops
-the remaining no-ops); the materials table's colour picker keeps a draft,
+`q`). Concretely: properties-panel numbers are scrubbers (egui's
+`DragValue` with our formatter): a horizontal drag changes the value at one
+percent of its magnitude per point, never less than the field's unit floor
+(a millimetre, a tenth of a degree, a gram, a nano-kg·m²), a tenth of that
+with Ctrl, one `Set…` per frame under the field's `GestureId` and
+`end_gesture` on release; a click opens the text editor, which commits on
+Enter or lost focus, never per keystroke, and reverts on Escape; a commit
+equal to the shown value never becomes a command (`History` drops the
+remaining no-ops); the materials table's colour picker keeps a draft,
 tints the viewport live and sends one `UpsertMaterial` when the popup
 closes.
 
@@ -337,8 +342,9 @@ closes.
   in the zero configuration so `SetFrame` stays as dumb as `SetJoint`) and
   its pose in that link's frame as xyz (m) and RPY (°); whatever changed,
   one `SetFrame` (ADR-0012). Fields
-  are `labelled_by` their labels for the accessibility tree. Every number,
-  field or readout, is shown by one `fmt_num`: six significant figures,
+  are `labelled_by` their labels for the accessibility tree. Every number
+  field scrubs (§Tools above). Every number, field or readout, is shown by
+  one `fmt_num`: six significant figures,
   scientific below `1e-3` (`2.86e-5`, never `0.000029`), zero below
   `1e-12` (round-off; the writers keep twelve decimals, so nothing
   smaller reaches a file), and a field sized to its text accepts either
