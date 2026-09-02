@@ -63,7 +63,8 @@ status bar). Reparent by dragging rows in the tree; **Place joint** puts a
 revolute joint on a bore by clicking its edge; **Align** snaps a part's
 bore concentric with its parent's; Properties computes the inertial from
 the mesh and a material, and fits a hull, convex pieces or primitives for
-collision. **+ Frame** puts a named frame on a link — a TCP, a sensor
+collision. Every number there scrubs: drag it, step it with Ctrl+wheel,
+or click and type (`2.86e-5` reads and edits as written). **+ Frame** puts a named frame on a link — a TCP, a sensor
 mount — which Move and Rotate land on a picked feature the same way.
 
 ## What it does

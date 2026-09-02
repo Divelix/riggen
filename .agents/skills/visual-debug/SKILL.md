@@ -44,7 +44,11 @@ committing**; the file is tracked and its default body is on purpose.
 `unsaved_confirm`, `debug_menu`; M2 adds `toolbar`, `gizmo_move_link`,
 `gizmo_rotate_joint`, `glyph_revolute`, `glyph_prismatic`, `glyph_hover`,
 `snap_vertex`, `snap_circle`, `place_joint_bore`, `align_concentric` and
-the acceptance, `five_minute_arm`).
+the acceptance, `five_minute_arm`; v0.3 adds `properties_scrub`,
+`properties_wheel`, `joints_window_opens_itself`,
+`tools_say_what_they_need`, `click_empty_clears`,
+`properties_collision_meshes`, `materials_rename`, `tree_drag_ghost` and
+`tree_reparent_posed` — the full list is in 01 §Testing).
 
 ```sh
 cargo test -p riggen-app --test visual

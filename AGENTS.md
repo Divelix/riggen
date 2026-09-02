@@ -31,11 +31,13 @@ chain `load` walks; three writers and two importers share one
 **Before that:** M4 the wheel; M3 the writers, URDF import, inertials,
 collision; M2 the mouse-only arm; M1 the document, commands, history,
 `.riggen`; M0 the viewport.
-**Next: v0.3 — the hand-feel debt** (`docs/03-roadmap.md`). No new format
-and no new distribution: the viewport answers the mouse and keyboard, the
-overlay tells the truth about depth and driven joints, numbers scrub, and
-the panels stop hiding things. Start with `/idea` for the left-drag orbit
-rule — it is the one line that needs a decision before a plan.
+**Now: v0.3 — the hand-feel debt** (`docs/03-roadmap.md`), no new format
+and no new distribution. Landed 2026-09-03: numbers scrub and Ctrl+wheel
+steps them (one gesture = one history entry), the panels stop hiding
+things, the tree says what a drag will do and reparents at the current
+`q`. Left: the viewport answers the mouse and keyboard, the overlay tells
+the truth about depth and driven joints — decide
+`docs/ideas/orbit-left-drag.md` first, then plan them.
 
 ## Rules that are not derivable from the code
 
