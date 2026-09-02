@@ -195,7 +195,7 @@
       394.55777
     ]
   },
-  "status": null,
+  "status": "place joint: select the joint to place — in the tree, or by its glyph",
   "viewport_rect": [
     245.09375,
     23.0,

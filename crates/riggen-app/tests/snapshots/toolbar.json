@@ -212,7 +212,7 @@
     }
   ],
   "snap": null,
-  "status": null,
+  "status": "rotate: select a link, a joint or a frame to rotate",
   "viewport_rect": [
     240.0,
     23.0,

@@ -878,6 +878,85 @@ fn properties_link() {
     });
 }
 
+/// A tool says what it needs: the status bar carries the selection the
+/// active tool is waiting for, per (tool, selection) pair, and clears it
+/// once the selection satisfies the tool. The golden: Place joint with a
+/// link selected.
+#[test]
+fn tools_say_what_they_need() {
+    use riggen_app::{
+        ALIGN_NEEDS_LINK, MOVE_NEEDS_TARGET, MOVE_ROOT, PLACE_JOINT_NEEDS_JOINT,
+        ROTATE_NEEDS_TARGET, ROTATE_ROOT,
+    };
+    scenario("tools_say_what_they_need", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let root = app.robot().root;
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .unwrap()
+            .0;
+        let hinge = app.robot().parent_joint(arm).unwrap();
+        let status = |app: &riggen_app::RiggenApp| app.debug_state().status;
+
+        assert_eq!(status(app), None, "Select needs nothing");
+        for (tool, none, on_root) in [
+            (Tool::Move, MOVE_NEEDS_TARGET, MOVE_ROOT),
+            (Tool::Rotate, ROTATE_NEEDS_TARGET, ROTATE_ROOT),
+        ] {
+            app.select(Selection::None);
+            app.set_tool(tool);
+            assert_eq!(status(app).as_deref(), Some(none), "{tool:?}");
+            app.select(Selection::Link(root));
+            assert_eq!(status(app).as_deref(), Some(on_root), "{tool:?}");
+            app.select(Selection::Link(arm));
+            assert_eq!(status(app), None, "{tool:?} with a link is satisfied");
+            app.select(Selection::Joint(hinge));
+            assert_eq!(status(app), None, "{tool:?} with a joint is satisfied");
+        }
+
+        app.set_tool(Tool::PlaceJoint);
+        assert_eq!(status(app), None, "a joint is selected already");
+        app.select(Selection::Link(arm));
+        assert_eq!(status(app).as_deref(), Some(PLACE_JOINT_NEEDS_JOINT));
+        app.select(Selection::Joint(hinge));
+        assert_eq!(status(app), None);
+
+        app.set_tool(Tool::Align);
+        assert_eq!(
+            status(app).as_deref(),
+            Some(ALIGN_NEEDS_LINK),
+            "a joint is not a link"
+        );
+        app.select(Selection::Link(root));
+        assert_eq!(
+            status(app).as_deref(),
+            Some(ALIGN_NEEDS_LINK),
+            "nor is the root"
+        );
+        app.select(Selection::Link(arm));
+        assert_eq!(status(app), None);
+
+        // Back to Select: a need is not a message that lingers.
+        app.select(Selection::Joint(hinge));
+        app.set_tool(Tool::Align);
+        assert_eq!(status(app).as_deref(), Some(ALIGN_NEEDS_LINK));
+        app.set_tool(Tool::Select);
+        assert_eq!(status(app), None);
+
+        // The picture: Place joint waiting for a joint.
+        app.select(Selection::Link(arm));
+        app.set_tool(Tool::PlaceJoint);
+        assert_eq!(status(app).as_deref(), Some(PLACE_JOINT_NEEDS_JOINT));
+        app.fit_view_now();
+        settle(harness);
+    });
+}
+
 /// The Joints window opens itself (plans/panels-and-numbers OPEN 3):
 /// loading the sample arm shows it without the menu — the golden — and
 /// the rest of the rule is asserted without a picture below.

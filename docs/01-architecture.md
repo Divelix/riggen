@@ -244,7 +244,14 @@ uses of Escape still see it). The four editing tools commit frame-rewriting
 commands, which work in the **zero configuration**, so `set_tool` resets `q`
 first when something is off zero and says so in the status bar
 (plans/m2-placement-ux OPEN 1). Resetting `q` is not an edit and adds no
-history entry.
+history entry. A tool **says what it needs**: on entry and on every
+selection change while it is active, the status bar carries the
+selection it is waiting for — Move / Rotate with nothing or the root
+selected, Place joint without a joint, Align without a (non-root) link —
+and drops the line once the selection satisfies it, so a click the tool
+would ignore has its reason beside it (`MOVE_NEEDS_TARGET` and the other
+public constants in `tool.rs`; the zero-configuration line takes
+precedence on the entry that rewound the sliders).
 
 Granularity rule, kept from RoboCAD and sharpened in v0.3: **one gesture =
 one history entry.** A gizmo drag mutates a *preview* pose every frame and
