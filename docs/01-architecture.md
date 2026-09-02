@@ -246,11 +246,14 @@ first when something is off zero and says so in the status bar
 (plans/m2-placement-ux OPEN 1). Resetting `q` is not an edit and adds no
 history entry.
 
-Granularity rule, kept from RoboCAD: **one gesture = one command.** A gizmo
-drag mutates a *preview* pose every frame and commits once on release; a
-slider preview of a joint angle is not a command at all (joint values are
-derived state, not document state — the document stores limits, not the
-current `q`). Concretely: properties-panel numbers are text fields with a
+Granularity rule, kept from RoboCAD and sharpened in v0.3: **one gesture =
+one history entry.** A gizmo drag mutates a *preview* pose every frame and
+commits one command on release; a scrubbed number field previews *through*
+the document, one command per frame, and `History::apply_in_gesture`
+coalesces them into the one entry (02 §Commands and history); a slider
+preview of a joint angle is not a command at all (joint values are derived
+state, not document state — the document stores limits, not the current
+`q`). Concretely: properties-panel numbers are text fields with a
 draft buffer that commit on Enter or lost focus, never per keystroke, and a
 commit equal to the shown value never becomes a command (`History` drops
 the remaining no-ops); the materials table's colour picker keeps a draft,

@@ -1,9 +1,21 @@
 //! Snapshot undo/redo (docs/02-data-model.md §Commands and history). The
 //! document is small, so a [`History`] entry is a whole `Robot` clone: undo
 //! is a swap, nothing has an inverse, and a refused command costs nothing.
+//!
+//! A *gesture* is the one exception to "one command, one entry": a scrubbed
+//! number field previews *through* the document, one `Set…` per frame, and
+//! the user dragged once — so every apply under the same [`GestureId`]
+//! lands in the entry the first one opened (plans/panels-and-numbers OPEN 1:
+//! one gesture = one history entry).
 
 use crate::command::{Command, Created, EditError};
 use crate::robot::Robot;
+
+/// Names a gesture — a drag from press to release — so the applies it
+/// makes coalesce into one undo entry. The value is the caller's (the
+/// widget's id hash, say); the history only compares it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GestureId(pub u64);
 
 /// Pre-states for undo, popped states for redo, and where the saved
 /// document sits in that stack.
@@ -15,6 +27,10 @@ pub struct History {
     /// on disk. `None`: it was undone and edited past, so no reachable state
     /// matches the file until the next save.
     saved_depth: Option<usize>,
+    /// The gesture the top undo entry belongs to, while it is still open:
+    /// another apply under this id advances the document without a new
+    /// entry. Anything else that touches the stack closes it.
+    gesture: Option<GestureId>,
 }
 
 impl History {
@@ -25,6 +41,7 @@ impl History {
             undo: Vec::new(),
             redo: Vec::new(),
             saved_depth: Some(0),
+            gesture: None,
         }
     }
 
@@ -32,15 +49,52 @@ impl History {
     /// commits. A refused command leaves `robot` and the history untouched.
     /// A command that changes nothing (the properties panel re-committing
     /// what the document already holds) is dropped without an entry.
-    /// Returns what `AddLink` / `AddFrame` created.
+    /// Returns what `AddLink` / `AddFrame` created. Ends any open gesture:
+    /// a plain edit is its own entry.
     pub fn apply(
         &mut self,
         robot: &mut Robot,
         command: Command,
     ) -> Result<Option<Created>, EditError> {
+        self.gesture = None;
+        self.apply_coalescing(robot, command, None)
+    }
+
+    /// [`apply`](Self::apply) inside a gesture: the first changing apply
+    /// under `gesture` pushes the pre-state as usual and opens the gesture;
+    /// every later one under the same id, until [`end_gesture`]
+    /// (Self::end_gesture) or anything else touches the stack, only
+    /// advances the document. One drag, one undo entry, however many
+    /// frames it previewed through. A refused or no-op command neither
+    /// opens nor closes anything.
+    pub fn apply_in_gesture(
+        &mut self,
+        robot: &mut Robot,
+        command: Command,
+        gesture: GestureId,
+    ) -> Result<Option<Created>, EditError> {
+        self.apply_coalescing(robot, command, Some(gesture))
+    }
+
+    /// Closes the open gesture, if any: the next apply under the same id
+    /// starts a new entry. Release calls this.
+    pub fn end_gesture(&mut self) {
+        self.gesture = None;
+    }
+
+    fn apply_coalescing(
+        &mut self,
+        robot: &mut Robot,
+        command: Command,
+        gesture: Option<GestureId>,
+    ) -> Result<Option<Created>, EditError> {
         let mut next = robot.clone();
         let created = command.apply(&mut next)?;
         if next == *robot {
+            return Ok(created);
+        }
+        if gesture.is_some() && gesture == self.gesture {
+            *robot = next;
             return Ok(created);
         }
         // The saved state was in the redo stack: it is now unreachable.
@@ -49,11 +103,13 @@ impl History {
         }
         self.redo.clear();
         self.undo.push(std::mem::replace(robot, next));
+        self.gesture = gesture;
         Ok(created)
     }
 
     /// Restores the previous state; `false` when there is none.
     pub fn undo(&mut self, robot: &mut Robot) -> bool {
+        self.gesture = None;
         match self.undo.pop() {
             Some(prev) => {
                 self.redo.push(std::mem::replace(robot, prev));
@@ -65,6 +121,7 @@ impl History {
 
     /// Re-applies the last undone state; `false` when there is none.
     pub fn redo(&mut self, robot: &mut Robot) -> bool {
+        self.gesture = None;
         match self.redo.pop() {
             Some(next) => {
                 self.undo.push(std::mem::replace(robot, next));
@@ -88,8 +145,11 @@ impl History {
         self.undo.len()
     }
 
-    /// The current document was just written to disk.
+    /// The current document was just written to disk. A save is a
+    /// boundary: it ends any open gesture, so what the file holds is a
+    /// whole entry and the next apply dirties the document again.
     pub fn mark_saved(&mut self) {
+        self.gesture = None;
         self.saved_depth = Some(self.undo.len());
     }
 
@@ -207,6 +267,107 @@ mod tests {
         assert_eq!(history.undo_depth(), 1);
         assert!(!history.is_dirty());
         let _ = Pose::IDENTITY;
+    }
+
+    fn rename(history: &mut History, robot: &mut Robot, link: LinkId, name: &str, g: GestureId) {
+        history
+            .apply_in_gesture(robot, Command::RenameLink(link, name.into()), g)
+            .unwrap();
+    }
+
+    #[test]
+    fn a_gesture_is_one_entry_however_many_applies() {
+        let mut robot = Robot::new("r");
+        let mut history = History::new();
+        let arm = add_link(&mut history, &mut robot, "arm");
+        let before = robot.clone();
+        let depth = history.undo_depth();
+
+        let drag = GestureId(7);
+        for name in ["a1", "a2", "a3", "a4", "a5"] {
+            rename(&mut history, &mut robot, arm, name, drag);
+        }
+        assert_eq!(robot.links[&arm].name, "a5");
+        assert_eq!(history.undo_depth(), depth + 1, "one entry for the drag");
+        history.end_gesture();
+
+        assert!(history.undo(&mut robot));
+        assert_eq!(robot, before, "one undo restores the pre-drag state");
+        assert!(history.redo(&mut robot));
+        assert_eq!(robot.links[&arm].name, "a5");
+    }
+
+    #[test]
+    fn a_different_gesture_or_a_release_starts_a_new_entry() {
+        let mut robot = Robot::new("r");
+        let mut history = History::new();
+        let arm = add_link(&mut history, &mut robot, "arm");
+        let depth = history.undo_depth();
+
+        rename(&mut history, &mut robot, arm, "a1", GestureId(1));
+        rename(&mut history, &mut robot, arm, "a2", GestureId(1));
+        rename(&mut history, &mut robot, arm, "b1", GestureId(2));
+        assert_eq!(history.undo_depth(), depth + 2, "another id, another entry");
+
+        history.end_gesture();
+        rename(&mut history, &mut robot, arm, "b2", GestureId(2));
+        assert_eq!(
+            history.undo_depth(),
+            depth + 3,
+            "released and pressed again"
+        );
+
+        // A plain apply closes the gesture, and the id does not reopen it.
+        rename(&mut history, &mut robot, arm, "c1", GestureId(3));
+        history
+            .apply(&mut robot, Command::RenameLink(arm, "plain".into()))
+            .unwrap();
+        rename(&mut history, &mut robot, arm, "c2", GestureId(3));
+        assert_eq!(history.undo_depth(), depth + 6);
+
+        // So does undo: the entry it popped must not be advanced.
+        rename(&mut history, &mut robot, arm, "d1", GestureId(4));
+        assert!(history.undo(&mut robot));
+        assert_eq!(robot.links[&arm].name, "c2");
+        rename(&mut history, &mut robot, arm, "d2", GestureId(4));
+        assert!(history.undo(&mut robot));
+        assert_eq!(robot.links[&arm].name, "c2");
+    }
+
+    #[test]
+    fn a_gesture_dirties_and_saves_like_a_single_apply() {
+        let mut robot = Robot::new("r");
+        let mut history = History::new();
+        let arm = add_link(&mut history, &mut robot, "arm");
+        history.mark_saved();
+        assert!(!history.is_dirty());
+
+        let drag = GestureId(1);
+        // A no-op under a gesture opens nothing and dirties nothing.
+        rename(&mut history, &mut robot, arm, "arm", drag);
+        assert!(!history.is_dirty());
+        assert_eq!(history.undo_depth(), 1);
+
+        rename(&mut history, &mut robot, arm, "a1", drag);
+        assert!(history.is_dirty());
+        rename(&mut history, &mut robot, arm, "a2", drag);
+        assert!(history.is_dirty());
+        assert_eq!(history.undo_depth(), 2);
+        history.end_gesture();
+        assert!(history.undo(&mut robot));
+        assert!(!history.is_dirty(), "one undo is back at the saved state");
+
+        // Saving mid-gesture is a boundary: the next apply under the same id
+        // is a new entry, so the document is dirty again.
+        assert!(history.redo(&mut robot));
+        rename(&mut history, &mut robot, arm, "b1", GestureId(2));
+        history.mark_saved();
+        assert!(!history.is_dirty());
+        rename(&mut history, &mut robot, arm, "b2", GestureId(2));
+        assert!(history.is_dirty());
+        assert!(history.undo(&mut robot));
+        assert_eq!(robot.links[&arm].name, "b1");
+        assert!(!history.is_dirty());
     }
 
     #[test]

@@ -74,7 +74,7 @@ current `q`, not at the zero configuration.
   is rejected as "no change" because both sides rounded to `0.000029`.
   Test: unit round-trips for the four cases; the `properties_inertial`
   Override tensor is visible in a snapshot and reads as written.
-- [ ] Step 2 — History gestures in `riggen-core`: `GestureId`,
+- [x] Step 2 — History gestures in `riggen-core`: `GestureId`,
   `apply_in_gesture`, and the coalescing rule above. Unit tests: five
   applies under one id → `undo_depth` grows by one and one `undo` restores
   the before-state; a different id starts a new entry; `is_dirty` and
@@ -181,19 +181,23 @@ built wheel with the two new calls.
   `preview_material_color` do for two — is unbounded. Preferred: the
   gesture entry; AGENTS.md's line becomes "one gesture = one history
   entry". If the human wants an ADR for it, it is a short one.
+  **Decided 2026-09-02:** the gesture entry, no ADR.
 - ⚠ OPEN 2 (human, by step 4): **which wheel steps a field?** A plain wheel
   over Properties scrolls the panel today. Preferred: **Ctrl+wheel** steps
   (Blender's rule), plain wheel keeps scrolling. Alternative: plain wheel
   steps while a field is hovered and scrolls elsewhere — discoverable, but
   a panel that stops scrolling when the cursor crosses a field is the kind
   of surprise v0.3 is removing.
+  **Decided 2026-09-02:** Ctrl+wheel steps, plain wheel scrolls.
 - ⚠ OPEN 3 (human, by step 5): **when does the Joints window open
   itself?** Preferred: on a document replace with a movable joint *and* on
   the first movable joint created, with the user's close respected until
   the next document. Narrower alternative: document replace only.
+  **Decided 2026-09-02:** document replace and first movable joint, the close respected until the next document.
 - ⚠ OPEN 4 (human, by step 11): **`Reparent` at `q` — a paragraph or an
   ADR?** It is the one frame-rewriting command allowed off the zero
   configuration, because it is a tree edit made while posing, not a
   placement. Preferred: a paragraph in 02 §Commands and history; no ADR.
   Also the SDK shape: `q: dict[int, float] | None = None` (preferred) versus
   a `JointState`-like object.
+  **Decided 2026-09-02:** a paragraph in 02, `q: dict[int, float] | None = None`.
