@@ -375,6 +375,13 @@ impl RiggenApp {
         self.selection = Selection::None;
         self.last_viewport_selected = None;
         self.sync_scene();
+        let has_movable = self.has_movable_joint();
+        self.joints_window.document_replaced(has_movable);
+    }
+
+    /// Whether anything in the document can be slid.
+    fn has_movable_joint(&self) -> bool {
+        self.robot.joints.values().any(|j| j.kind.is_movable())
     }
 
     /// Sets one joint's value (a slider) and moves the instances; not a
@@ -589,6 +596,8 @@ impl RiggenApp {
     }
 
     fn after_document_change(&mut self) {
+        let has_movable = self.has_movable_joint();
+        self.joints_window.document_changed(has_movable);
         // Joints that vanished take their q with them; the rest stay within
         // limits that may just have moved.
         let joints = &self.robot.joints;

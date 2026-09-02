@@ -307,7 +307,10 @@ impl RiggenApp {
                     }
                 });
                 ui.menu_button("Window", |ui| {
-                    ui.checkbox(&mut self.joints_window.open, "Joints");
+                    let mut joints = self.joints_window.open;
+                    if ui.checkbox(&mut joints, "Joints").changed() {
+                        self.joints_window.set_open(joints);
+                    }
                     ui.checkbox(&mut self.materials_window.open, "Materials");
                 });
                 ui.menu_button("Debug", |ui| self.debug_menu(ui));

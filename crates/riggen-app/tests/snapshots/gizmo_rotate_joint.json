@@ -113,7 +113,9 @@
   "ui": {
     "tool": "Rotate",
     "renaming": null,
-    "windows": [],
+    "windows": [
+      "joints"
+    ],
     "modal": null,
     "title": "pendulum.riggen — riggen"
   },

@@ -41,7 +41,8 @@ without a wheel, `pip install` builds the SDK from source with `cargo` on
 1. `riggen --example arm` opens a four-part arm: link tree on the left,
    the viewport in the middle, Properties on the right. Orbit with the
    middle mouse button, zoom with the wheel, `Home` to frame everything.
-2. Drag the sliders in **Window › Joints** — the arm moves; that is the
+2. Drag the sliders in the **Joints** window, which opened with the arm
+   (**Window › Joints** brings it back) — the arm moves; that is the
    kinematic tree you will build for your own robot.
 3. **File › Export…**, tick the formats you want (all three by default),
    choose a directory. The dialog lists anything that would stop the

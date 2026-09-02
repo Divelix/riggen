@@ -23,7 +23,7 @@
     "far": 145.494766,
     "projection": "Perspective",
     "animating": false,
-    "aspect": 0.896955,
+    "aspect": 0.955504,
     "view": [
       [
         0.707107,
@@ -52,7 +52,7 @@
     ],
     "proj": [
       [
-        2.691564,
+        2.52664,
         0.0,
         0.0,
         0.0
@@ -78,109 +78,113 @@
     ]
   },
   "document": {
-    "file": null,
+    "file": "arm.riggen",
     "name": "arm",
     "dirty": false,
     "import_scale": 1.0,
     "links": [
       {
-        "id": "l1",
+        "id": "l0",
         "name": "base_link",
         "parent_joint": null,
         "geoms": 0,
         "material": null
       },
       {
-        "id": "l2",
+        "id": "l3",
         "name": "base",
-        "parent_joint": "j20",
+        "parent_joint": "j4",
         "geoms": 1,
-        "material": null
+        "material": "aluminium"
       },
       {
-        "id": "l5",
+        "id": "l7",
         "name": "shoulder",
-        "parent_joint": "j21",
+        "parent_joint": "j8",
         "geoms": 1,
-        "material": null
+        "material": "aluminium"
       },
       {
-        "id": "l9",
+        "id": "l11",
         "name": "upper",
-        "parent_joint": "j22",
+        "parent_joint": "j12",
         "geoms": 1,
-        "material": null
+        "material": "PLA"
       },
       {
-        "id": "l13",
+        "id": "l15",
         "name": "fore",
-        "parent_joint": "j23",
+        "parent_joint": "j16",
         "geoms": 1,
-        "material": null
-      },
-      {
-        "id": "l18",
-        "name": "tcp",
-        "parent_joint": "j24",
-        "geoms": 0,
-        "material": null
-      },
-      {
-        "id": "l19",
-        "name": "camera_mount",
-        "parent_joint": "j25",
-        "geoms": 0,
-        "material": null
+        "material": "PLA"
       }
     ],
     "joints": [
       {
-        "id": "j20",
+        "id": "j4",
         "name": "base_joint",
         "kind": "Fixed",
-        "parent": "l1",
-        "child": "l2",
+        "parent": "l0",
+        "child": "l3",
         "q": 0.0
       },
       {
-        "id": "j21",
+        "id": "j8",
         "name": "shoulder_joint",
         "kind": "Revolute",
-        "parent": "l2",
-        "child": "l5",
+        "parent": "l3",
+        "child": "l7",
         "q": 0.0
       },
       {
-        "id": "j22",
+        "id": "j12",
         "name": "upper_joint",
         "kind": "Revolute",
-        "parent": "l5",
-        "child": "l9",
+        "parent": "l7",
+        "child": "l11",
         "q": 0.0
       },
       {
-        "id": "j23",
+        "id": "j16",
         "name": "fore_joint",
-        "kind": "Continuous",
-        "parent": "l9",
-        "child": "l13",
+        "kind": "Revolute",
+        "parent": "l11",
+        "child": "l15",
         "q": 0.1
+      }
+    ],
+    "frames": [
+      {
+        "id": "f17",
+        "name": "tcp",
+        "parent": "l15",
+        "pos": [
+          0.0,
+          0.0,
+          0.08
+        ],
+        "quat": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
       },
       {
-        "id": "j24",
-        "name": "tcp_fixed",
-        "kind": "Fixed",
-        "parent": "l13",
-        "child": "l18",
-        "q": 0.0
-      },
-      {
-        "id": "j25",
-        "name": "camera_mount_fixed",
-        "kind": "Fixed",
-        "parent": "l2",
-        "child": "l19",
-        "q": 0.0
+        "id": "f18",
+        "name": "camera_mount",
+        "parent": "l3",
+        "pos": [
+          0.03,
+          0.0,
+          0.015
+        ],
+        "quat": [
+          0.707107,
+          0.0,
+          0.707107,
+          0.0
+        ]
       }
     ],
     "selection": null
@@ -192,14 +196,13 @@
       "joints"
     ],
     "modal": null,
-    "title": "untitled — riggen",
-    "collision_view": true
+    "title": "arm.riggen — riggen"
   },
   "instances": [
     {
       "id": 0,
-      "link": "l2",
-      "geom": "g4",
+      "link": "l3",
+      "geom": "g2",
       "visible": true,
       "triangles": 108,
       "bounds": [
@@ -220,16 +223,16 @@
         0.0
       ],
       "color": [
-        0.55,
-        0.65,
+        0.77,
         0.78,
+        0.8,
         1.0
       ]
     },
     {
       "id": 1,
-      "link": "l5",
-      "geom": "g7",
+      "link": "l7",
+      "geom": "g6",
       "visible": true,
       "triangles": 108,
       "bounds": [
@@ -250,16 +253,16 @@
         0.0
       ],
       "color": [
-        0.55,
-        0.65,
+        0.77,
         0.78,
+        0.8,
         1.0
       ]
     },
     {
       "id": 2,
-      "link": "l9",
-      "geom": "g11",
+      "link": "l11",
+      "geom": "g10",
       "visible": true,
       "triangles": 108,
       "bounds": [
@@ -280,16 +283,16 @@
         0.0
       ],
       "color": [
+        0.9,
         0.55,
-        0.65,
-        0.78,
+        0.2,
         1.0
       ]
     },
     {
       "id": 3,
-      "link": "l13",
-      "geom": "g15",
+      "link": "l15",
+      "geom": "g14",
       "visible": true,
       "triangles": 204,
       "bounds": [
@@ -310,73 +313,11 @@
         0.069659
       ],
       "color": [
+        0.9,
         0.55,
-        0.65,
-        0.78,
+        0.2,
         1.0
       ]
-    },
-    {
-      "id": 4,
-      "link": "l2",
-      "geom": null,
-      "visible": true,
-      "triangles": 12,
-      "bounds": [
-        [
-          -0.03,
-          -0.03,
-          -0.01
-        ],
-        [
-          0.03,
-          0.03,
-          0.01
-        ]
-      ],
-      "position": [
-        0.0,
-        0.0,
-        0.01
-      ],
-      "color": [
-        0.9,
-        0.4,
-        0.1,
-        0.35
-      ],
-      "collision": true
-    },
-    {
-      "id": 5,
-      "link": "l13",
-      "geom": null,
-      "visible": true,
-      "triangles": 100,
-      "bounds": [
-        [
-          0.076,
-          0.058,
-          0.121
-        ],
-        [
-          0.104,
-          0.082,
-          0.215
-        ]
-      ],
-      "position": [
-        -0.103028,
-        -0.07,
-        0.069659
-      ],
-      "color": [
-        0.9,
-        0.4,
-        0.1,
-        0.35
-      ],
-      "collision": true
     }
   ],
   "selection": {
@@ -386,7 +327,7 @@
   "gizmo": null,
   "glyphs": [
     {
-      "joint": "j21",
+      "joint": "j8",
       "name": "shoulder_joint",
       "kind": "Revolute",
       "origin": [
@@ -402,14 +343,14 @@
       "size": 0.042276,
       "q": 0.0,
       "screen": [
-        677.0,
+        652.0,
         626.179993
       ],
       "active": false,
       "hovered": false
     },
     {
-      "joint": "j22",
+      "joint": "j12",
       "name": "upper_joint",
       "kind": "Revolute",
       "origin": [
@@ -425,16 +366,16 @@
       "size": 0.065123,
       "q": 0.0,
       "screen": [
-        677.0,
+        652.0,
         531.577026
       ],
       "active": false,
       "hovered": false
     },
     {
-      "joint": "j23",
+      "joint": "j16",
       "name": "fore_joint",
-      "kind": "Continuous",
+      "kind": "Revolute",
       "origin": [
         0.0,
         0.0,
@@ -448,17 +389,51 @@
       "size": 0.053014,
       "q": 0.0,
       "screen": [
-        677.0,
+        652.0,
         329.770752
       ],
       "active": false,
       "hovered": false
     }
   ],
+  "frame_glyphs": [
+    {
+      "frame": "f17",
+      "name": "tcp",
+      "origin": [
+        0.007987,
+        0.0,
+        0.2746
+      ],
+      "size": 0.029158,
+      "screen": [
+        667.090515,
+        136.905548
+      ],
+      "active": false,
+      "hovered": false
+    },
+    {
+      "frame": "f18",
+      "name": "camera_mount",
+      "origin": [
+        0.03,
+        0.0,
+        0.015
+      ],
+      "size": 0.028579,
+      "screen": [
+        696.036621,
+        695.189148
+      ],
+      "active": false,
+      "hovered": false
+    }
+  ],
   "snap": null,
-  "status": "imported arm.urdf: joint \"upper_joint\": <safety_controller> dropped",
+  "status": null,
   "viewport_rect": [
-    294.0,
+    244.0,
     23.0,
     1060.0,
     877.0

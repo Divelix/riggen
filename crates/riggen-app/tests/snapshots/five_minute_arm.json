@@ -158,7 +158,9 @@
   "ui": {
     "tool": "Place joint",
     "renaming": null,
-    "windows": [],
+    "windows": [
+      "joints"
+    ],
     "modal": null,
     "title": "untitled* — riggen"
   },

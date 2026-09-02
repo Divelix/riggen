@@ -114,6 +114,7 @@
     "tool": "Select",
     "renaming": null,
     "windows": [
+      "joints",
       "materials"
     ],
     "modal": null,

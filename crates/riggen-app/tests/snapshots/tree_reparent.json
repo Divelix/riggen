@@ -128,7 +128,9 @@
   "ui": {
     "tool": "Select",
     "renaming": null,
-    "windows": [],
+    "windows": [
+      "joints"
+    ],
     "modal": null,
     "title": "pendulum.riggen* — riggen"
   },
