@@ -15,6 +15,9 @@
 
 # Personal notebooks on the dev build (README §Developing).
 /scratch
+# Personal notes beside the design docs (the release cycle explained, …):
+# never a design doc, never tracked.
+/docs/notes
 __pycache__/
 .venv/
 
