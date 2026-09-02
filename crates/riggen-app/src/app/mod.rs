@@ -109,9 +109,6 @@ pub struct RiggenApp {
     /// puts the link and its subtree there instead of at the FK pose, and
     /// the document is untouched until the release commits.
     preview_world: Option<(LinkId, Pose)>,
-    /// What the viewport reported selected last frame, to notice a click
-    /// resolving without mistaking a programmatic selection for one.
-    last_viewport_selected: Option<PickHit>,
     /// `MeshAsset::scale` for a dropped mesh. Millimetres by default: that
     /// is what most STL exporters write.
     import_scale: f64,
@@ -229,7 +226,6 @@ impl RiggenApp {
             snap_cache: SnapCache::default(),
             align_source: None,
             preview_world: None,
-            last_viewport_selected: None,
             import_scale,
             tree: TreeState::default(),
             props: PropertiesState::default(),

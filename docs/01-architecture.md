@@ -496,7 +496,13 @@ instance** (a "face" on an STL is one triangle, so a face outline would
 trace a single triangle) and the status bar reads `arm (i1/t120)`.
 `Viewport::set_selected(Option<InstanceId>)` is the other direction, for
 the tree; it records triangle `0`, since selection is per instance and the
-triangle is a readout only.
+triangle is a readout only. A resolved select pick is also an **event**:
+`take_select_result() -> Option<Option<PickHit>>` hands the app each
+click's verdict once, hit or miss, so a click on empty space is
+distinguishable from no click and **clears whatever is selected** — a
+joint's or a frame's selection included, which the viewport never held.
+Under a snapping tool (or a frame under Move / Rotate) the select pick is
+suppressed altogether, so that click clears nothing.
 
 `riggen_mesh::ray_triangle` (Möller–Trumbore, two-sided — the ID buffer has
 already chosen the triangle) recovers the exact hit point by intersecting

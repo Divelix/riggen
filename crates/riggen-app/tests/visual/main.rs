@@ -878,6 +878,53 @@ fn properties_link() {
     });
 }
 
+/// Clicking empty space clears a joint or frame selection: the viewport
+/// reports a click that missed everything as an event, and the app clears
+/// whatever was selected on it. Under a snapping tool no select pick is
+/// issued, so the same click clears nothing — the picture, Place joint
+/// with the joint still selected.
+#[test]
+fn click_on_empty_space_clears_a_joint_selection() {
+    scenario("click_empty_clears", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        settle(harness);
+        let hinge = *harness.state().robot().joints.keys().next().unwrap();
+
+        // Select the joint by its glyph.
+        let on_glyph = glyph_axis_point(harness, 0.8);
+        click_at(harness, on_glyph);
+        assert_eq!(harness.state().debug_state().selection.hovered, None);
+        assert_eq!(
+            harness.state().debug_state().document.selection.as_deref(),
+            Some(format!("joint {hinge}").as_str())
+        );
+
+        // Empty space: above the toolbar's reach, left of the pendulum.
+        let r = harness.state().debug_state().viewport_rect.unwrap();
+        let empty = egui::pos2(r[0] as f32 + 60.0, r[1] as f32 + 160.0);
+        click_at(harness, empty);
+        assert_eq!(
+            harness.state().debug_state().document.selection,
+            None,
+            "a click on nothing clears the joint"
+        );
+
+        // The same click under Place joint issues no select pick.
+        click_at(harness, on_glyph);
+        harness.state_mut().set_tool(Tool::PlaceJoint);
+        settle(harness);
+        click_at(harness, empty);
+        assert_eq!(
+            harness.state().debug_state().document.selection.as_deref(),
+            Some(format!("joint {hinge}").as_str()),
+            "a snapping tool's click is not a selection click"
+        );
+    });
+}
+
 /// A tool says what it needs: the status bar carries the selection the
 /// active tool is waiting for, per (tool, selection) pair, and clears it
 /// once the selection satisfies the tool. The golden: Place joint with a

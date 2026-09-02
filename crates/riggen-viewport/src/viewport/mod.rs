@@ -113,6 +113,10 @@ pub struct Viewport {
     /// triangle to snap against, and their click means "place here", not
     /// "select the part under the cursor".
     select_suppressed: bool,
+    /// The last click's resolved pick, hit or miss, until the app takes it
+    /// (`take_select_result`): an *event*, so a click that missed
+    /// everything is distinguishable from no click at all.
+    select_result: Option<Option<PickHit>>,
     /// While `true` neither pick runs — no hover, no select — but camera
     /// input stays live. The pointer is over something drawn *in front of*
     /// the geometry that would answer for it: a gizmo handle, a joint glyph.
@@ -281,6 +285,7 @@ impl Viewport {
             selected: None,
             overlay: Overlay::default(),
             select_suppressed: false,
+            select_result: None,
             pick_suppressed: false,
             pointer_blocked: false,
             pending_pick: None,
@@ -405,6 +410,15 @@ impl Viewport {
 
     pub fn clear_selection(&mut self) {
         self.selected = None;
+    }
+
+    /// The click that resolved since the last call, if one did: `Some(hit)`
+    /// for a part, `Some(None)` for a click on empty space. State
+    /// (`selected`) says what is selected; this says that a click just
+    /// decided it, which is what lets a miss clear a selection the viewport
+    /// never held — a joint's, a frame's.
+    pub fn take_select_result(&mut self) -> Option<Option<PickHit>> {
+        self.select_result.take()
     }
 
     /// Selects an instance from outside the viewport (the tree panel), or
@@ -562,7 +576,10 @@ impl Viewport {
                     });
                 match pending.kind {
                     PickKind::Hover => self.hovered = hit,
-                    PickKind::Select => self.selected = hit,
+                    PickKind::Select => {
+                        self.selected = hit;
+                        self.select_result = Some(hit);
+                    }
                 }
             }
             None => {
