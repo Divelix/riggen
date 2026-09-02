@@ -27,6 +27,13 @@ pub(crate) struct PropertiesState {
     /// A scrub released this frame: the panel ends the gesture after
     /// applying what it produced.
     gesture_ended: bool,
+    /// A new gesture starts this frame on a field whose previous one may
+    /// still be open (a wheel burst that went quiet, a drag after a burst):
+    /// the panel ends it *before* applying.
+    gesture_break: bool,
+    /// The last Ctrl+wheel notch: which field and when, so a burst of
+    /// notches within [`WHEEL_BURST`] coalesces into one entry.
+    wheel: Option<(GestureId, f64)>,
 }
 
 impl PropertiesState {
@@ -35,8 +42,13 @@ impl PropertiesState {
         self.drafts.clear();
         self.gesture = None;
         self.gesture_ended = false;
+        self.gesture_break = false;
+        self.wheel = None;
     }
 }
+
+/// Seconds between Ctrl+wheel notches that still count as one gesture.
+const WHEEL_BURST: f64 = 0.4;
 
 /// The floor of a scrubber's speed, per unit: what one point of drag is
 /// worth when the value is near zero and one percent of it would be
@@ -57,6 +69,55 @@ const FIELD_WIDTH: f32 = 56.0;
 fn scrub_speed(value: f64, step: f64, fine: bool) -> f64 {
     let speed = (value.abs() * 0.01).max(step);
     if fine { speed / 10.0 } else { speed }
+}
+
+/// What one wheel notch adds: one unit of the last digit the field shows
+/// (`1240` → 1, `0.5` → 0.1, `2.86e-5` → 1e-7), or the unit step for a
+/// field showing `0`.
+fn wheel_increment(value: f64, step: f64) -> f64 {
+    let shown = fmt_num(value);
+    if shown == "0" {
+        return step;
+    }
+    let (mantissa, exponent) = shown
+        .split_once('e')
+        .map_or((shown.as_str(), 0), |(m, e)| (m, e.parse().unwrap_or(0)));
+    let decimals = mantissa.split_once('.').map_or(0, |(_, f)| f.len() as i32);
+    10f64.powi(exponent - decimals)
+}
+
+/// This frame's Ctrl+wheel notches, up positive. Read from the raw events
+/// like the viewport does (`riggen-viewport` `raw_wheel_delta_y`): egui
+/// routes a wheel with its zoom modifier away from scrolling, which is
+/// exactly why Ctrl is the stepping wheel — the panel keeps scrolling
+/// under a plain one — and no one else consumes it.
+fn wheel_notches(ui: &egui::Ui) -> i32 {
+    let options = ui.ctx().options(|o| o.input_options);
+    ui.input(|input| {
+        input
+            .raw
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                egui::Event::MouseWheel {
+                    unit,
+                    delta,
+                    modifiers,
+                    ..
+                } if modifiers.matches_any(options.zoom_modifier) => {
+                    let lines = match unit {
+                        egui::MouseWheelUnit::Line => delta.y,
+                        egui::MouseWheelUnit::Point => delta.y / options.line_scroll_speed,
+                        egui::MouseWheelUnit::Page => delta.y.signum(),
+                    };
+                    // A notch is at least one, whatever the platform's
+                    // lines-per-notch setting says.
+                    Some(lines.abs().max(1.0).round() as i32 * lines.signum() as i32)
+                }
+                _ => None,
+            })
+            .sum()
+    })
 }
 
 /// Document ↔ field unit conversion (radians ↔ degrees, or none).
@@ -432,11 +493,32 @@ fn number_field(
         })
         .inner
         .labelled_by(label.id);
+    let gesture = GestureId(id.value());
+    if response.drag_started() {
+        state.gesture_break = true;
+    }
     if response.dragged() {
-        state.gesture = Some(GestureId(id.value()));
+        state.gesture = Some(gesture);
     }
     if response.drag_stopped() {
         state.gesture_ended = true;
+    }
+    if response.hovered() {
+        let notches = wheel_notches(ui);
+        if notches != 0 {
+            let increment = wheel_increment(value, step);
+            let stepped =
+                ((value + f64::from(notches) * increment) / increment).round() * increment;
+            edited = Some(stepped);
+            let now = ui.input(|i| i.time);
+            let burst =
+                matches!(state.wheel, Some((g, t)) if g == gesture && now - t < WHEEL_BURST);
+            if !burst {
+                state.gesture_break = true;
+            }
+            state.wheel = Some((gesture, now));
+            state.gesture = Some(gesture);
+        }
     }
     let n = edited?;
     (n.is_finite() && fmt_num(n) != shown).then_some(n)
@@ -544,6 +626,9 @@ impl RiggenApp {
         // history: one gesture = one history entry).
         let gesture = self.props.gesture.take();
         let ended = std::mem::take(&mut self.props.gesture_ended);
+        if std::mem::take(&mut self.props.gesture_break) {
+            self.end_gesture();
+        }
         for command in commands {
             let _ = match gesture {
                 Some(g) => self.apply_in_gesture(command, g),
@@ -1670,6 +1755,20 @@ mod tests {
         assert_eq!(fmt_num(0.000_999_999_9), "0.001");
         assert_eq!(fmt_num(1_234_567.0), "1234567");
         assert_eq!(fmt_num(123_456.7), "123457");
+    }
+
+    /// A notch is one unit of the last shown digit; a field at zero steps
+    /// by its unit floor.
+    #[test]
+    fn wheel_increment_is_the_last_shown_digit() {
+        use super::{STEP_DEG, STEP_M, wheel_increment};
+        assert_eq!(wheel_increment(1240.0, STEP_M), 1.0);
+        assert_eq!(wheel_increment(0.5, STEP_M), 0.1);
+        assert_eq!(wheel_increment(206.667, STEP_M), 0.001);
+        assert!((wheel_increment(2.86e-5, STEP_M) - 1e-7).abs() < 1e-20);
+        assert_eq!(wheel_increment(-3.0, STEP_DEG), 1.0);
+        assert_eq!(wheel_increment(0.0, STEP_DEG), STEP_DEG);
+        assert_eq!(wheel_increment(0.0, STEP_M), STEP_M);
     }
 
     /// Both spellings parse, and round-trip through the format: what the

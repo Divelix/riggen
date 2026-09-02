@@ -258,7 +258,12 @@ state, not document state — the document stores limits, not the current
 percent of its magnitude per point, never less than the field's unit floor
 (a millimetre, a tenth of a degree, a gram, a nano-kg·m²), a tenth of that
 with Ctrl, one `Set…` per frame under the field's `GestureId` and
-`end_gesture` on release; a click opens the text editor, which commits on
+`end_gesture` on release; **Ctrl+wheel** over a field steps it by one unit
+of the last digit it shows (`1240` → 1, `0.5` → 0.1, a field at `0` by its
+unit floor), a burst of notches within 0.4 s being one entry — Ctrl because
+egui routes a wheel with its zoom modifier away from scrolling, so a plain
+wheel keeps scrolling the panel wherever the cursor is (plans/panels-and-
+numbers OPEN 2); a click opens the text editor, which commits on
 Enter or lost focus, never per keystroke, and reverts on Escape; a commit
 equal to the shown value never becomes a command (`History` drops the
 remaining no-ops); the materials table's colour picker keeps a draft,

@@ -957,6 +957,93 @@ fn properties_scrub() {
     });
 }
 
+/// Ctrl+wheel over a number field steps it by one unit of its last shown
+/// digit per notch, and a burst of notches is one undo entry; a plain
+/// wheel keeps scrolling the panel (plans/panels-and-numbers OPEN 2).
+#[test]
+fn properties_wheel() {
+    scenario("properties_wheel", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let arm = *harness
+            .state()
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .unwrap()
+            .0;
+        harness
+            .state_mut()
+            .apply(Command::SetInertial(
+                arm,
+                riggen_core::InertialSpec::Override {
+                    mass: 1240.0,
+                    com: DVec3::new(0.0, 0.0, 0.5),
+                    inertia: riggen_core::glam::DMat3::IDENTITY * 206.667,
+                },
+            ))
+            .unwrap();
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        harness.get_by_label("arm").click();
+        pump_rendered(harness, 4);
+        let depth = harness.state().history().undo_depth();
+
+        let at = harness.get_by_label("mass kg").rect().center();
+        harness.hover_at(at);
+        harness.step();
+        for _ in 0..3 {
+            harness.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line,
+                delta: egui::vec2(0.0, 1.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::CTRL,
+            });
+            harness.step();
+        }
+        harness.step();
+        let app = harness.state();
+        let riggen_core::InertialSpec::Override { mass, .. } = app.robot().links[&arm].inertial
+        else {
+            unreachable!()
+        };
+        assert!(
+            (mass - 1243.0).abs() < 1e-9,
+            "three notches, three kilograms: {mass}"
+        );
+        assert_eq!(
+            app.history().undo_depth(),
+            depth + 1,
+            "a burst is one entry"
+        );
+        assert_eq!(
+            harness.get_by_label("mass kg").value().as_deref(),
+            Some("1243")
+        );
+
+        // A plain wheel over the same field steps nothing.
+        harness.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, 1.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        harness.step();
+        harness.step();
+        let riggen_core::InertialSpec::Override { mass, .. } =
+            harness.state().robot().links[&arm].inertial
+        else {
+            unreachable!()
+        };
+        assert!((mass - 1243.0).abs() < 1e-9, "{mass}");
+        harness.event(egui::Event::PointerGone);
+        settle(harness);
+    });
+}
+
 /// Properties › Inertial on the pendulum's arm: switching the mode combo
 /// to Override seeds the fields from the computed values (one command), and
 /// the computed readout stays beside them for comparison. A small tensor
