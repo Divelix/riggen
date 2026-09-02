@@ -222,6 +222,20 @@ list of small frictions, and none has been paid down since M2. The public
 demo now puts this UI in front of people who have read no docs, which is
 what turns that debt from a private annoyance into the first impression.
 
+**Status: in progress.** The three panel bullets below landed 2026-09-03
+(plan `panels-and-numbers`, no ADR: its four open questions were decided
+as paragraphs in 01 and 02): every Properties number is a scrubber with a
+per-unit floor, Ctrl+wheel steps it, and a drag is one history entry
+(`History` gestures); the Joints window opens itself, a tool says what it
+needs, empty space clears a joint or frame selection, `Meshes` collision is
+edited geom by geom, a material renames inline and in the SDK; the tree
+shows a ghost and a grab or not-allowed cursor, and `Reparent { at }` keeps
+a posed part where it is. Found on the way and fixed in place: egui's
+`DragValue` re-parses its stashed text the frame after Enter or Escape,
+and its `Slider` writes the display-rounded value back every frame — the
+open Joints window had been quietly rounding `q`. The two viewport bullets
+remain: decide `docs/ideas/orbit-left-drag.md`, then plan them.
+
 - **The viewport answers the mouse.** Orbit on left-drag with click-to-select
   still working (an idea first: the rule is the hard part); keyboard
   shortcuts for the five tools; the rotate gizmo on the wheel; snapping

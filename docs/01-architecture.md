@@ -292,7 +292,8 @@ closes.
   highlights, and the cursor reads `Grabbing`, or `NotAllowed` over a drop
   the document would refuse (the root as the source, the link's own
   subtree as the target); `debug_state().ui.drag` reports the drag —
-  reparents with `keep_world_pose`. Every row is a `dnd_drop_zone` around a
+  reparents with `keep_world_pose` **at the current `q`**, so a part
+  dragged while posed stays where it is seen (02 §Commands and history). Every row is a `dnd_drop_zone` around a
   `Button::selectable(..).sense(click_and_drag())` that sets its own
   payload with `dnd_set_drag_payload` — egui's `dnd_drag_source` lays a
   drag-only widget over its content and the hit test then swallows clicks
@@ -1121,7 +1122,13 @@ measured size is in 03 §v0.2.
   and the frame set — `frames_tree`, `frame_properties`,
   `add_frame_button`, `gizmo_move_frame` — and `decomp_needs_consent`, the
   browser's half of the Collision block, which a native runner renders by
-  turning `set_decomp_consent` off,
+  turning `set_decomp_consent` off, and v0.3's panel set —
+  `properties_scrub` (a drag on a field, one undo entry),
+  `properties_wheel` (three Ctrl+wheel notches), `joints_window_opens_itself`,
+  `tools_say_what_they_need`, `click_empty_clears`,
+  `properties_collision_meshes`, `materials_rename`, `tree_drag_ghost`
+  (captured mid-drag) and `tree_reparent_posed` (a drop with the arm
+  swung) —
   plus golden-less app tests including `build_pendulum_numerically` (the
   M1 acceptance in executable form), `example_arm_opens_from_the_bundle`,
   `startup_first_frame_under_budget`, and the pointer-sharing set behind

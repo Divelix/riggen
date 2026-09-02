@@ -88,6 +88,13 @@ The by-hand half was done headlessly: the manylinux wheel installed into
 - `test_sdf_load.py` cannot see which frame an `<xyz>` is expressed in, because every joint in the fixtures is axis-aligned with the model at q = 0; the convention is pinned in `sdf.rs`'s golden instead. A fixture with a rotated joint origin would close it numerically.
 - The `sdf` CI job adds `packages.osrfoundation.org`, the workflow's only third-party apt repository, and pins nothing: `gz-jetty-sdformat-python` follows the repo. A version pin, or a mirror, if it ever breaks a build.
 
+### From the panels (plans/panels-and-numbers, 2026-09-03)
+
+- Two egui widget quirks are worked around in place, not upstream: `DragValue` stashes the edited text and parses it again the frame after the editor closes (a second commit, and a commit after Escape — the field clears the stash), and `Slider` with its default clamping writes the display-rounded value back every frame (the Joints sliders clamp on edits only). Check both on the next egui bump, or file them.
+- The Materials window opens over the toolbar (both anchor at the viewport's top-left); anchor it beside the Joints window instead
+- Collision › "Add file…" and "Add mesh to this link…" open no dialog in the browser — the seam reads a dropped file, but there is no picker; `rfd::AsyncFileDialog` would give the web build one
+- A scrubber's speed is one percent of the value with a per-unit floor (`STEP_M`, `STEP_DEG`, …); a field cannot say its own step beyond those constants, and a joint limit in degrees near zero scrubs slowly
+
 ## Rejected
 
 - `SetRoot` across a movable joint — a URDF always has a root, and the reversed-pivot convention is a design question nothing in M3 needed (plans/m3-sim-ready OPEN 2, 2026-08-29)
