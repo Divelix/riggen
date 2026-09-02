@@ -93,7 +93,7 @@ current `q`, not at the zero configuration.
   through the same gesture (one notch = one entry; a burst within a short
   window coalesces). Scenario: three notches over `mass` → three
   increments, undo count as decided.
-- [ ] Step 5 — The Joints window opens itself. Rule (⚠ OPEN 3): when a
+- [x] Step 5 — The Joints window opens itself. Rule (⚠ OPEN 3): when a
   document replaces the current one and has a movable joint, the window
   opens; when the first movable joint is created by a command, it opens;
   the user closing it is respected until the next document. Scenarios:

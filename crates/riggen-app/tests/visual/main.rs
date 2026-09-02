@@ -878,6 +878,101 @@ fn properties_link() {
     });
 }
 
+/// The Joints window opens itself (plans/panels-and-numbers OPEN 3):
+/// loading the sample arm shows it without the menu — the golden — and
+/// the rest of the rule is asserted without a picture below.
+#[test]
+fn joints_window_opens_itself() {
+    scenario("joints_window_opens_itself", |harness| {
+        assert!(!harness.state().joints_window_open(), "an empty document");
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        assert!(harness.state().joints_window_open());
+        assert_eq!(harness.state().debug_state().ui.windows, vec!["joints"]);
+        harness.get_by_label("Reset all");
+    });
+}
+
+/// The user's close is respected until the next document; the first
+/// movable joint a command creates opens it; a new empty document does
+/// not.
+#[test]
+fn joints_window_respects_a_close_until_the_next_document() {
+    with_app(|harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        settle(harness);
+        assert!(harness.state().joints_window_open());
+
+        // Closed by the user, then another joint becomes movable: stays shut.
+        harness.state_mut().set_joints_window_open(false);
+        let fixed = *harness
+            .state()
+            .robot()
+            .joints
+            .iter()
+            .find(|(_, j)| !j.kind.is_movable())
+            .expect("the arm has a fixed joint")
+            .0;
+        let mut edited = harness.state().robot().joints[&fixed].clone();
+        edited.kind = riggen_core::JointKind::Revolute;
+        edited.axis = DVec3::Z;
+        edited.limits = Some(riggen_core::Limits {
+            lower: -1.0,
+            upper: 1.0,
+            effort: 0.0,
+            velocity: 0.0,
+        });
+        harness
+            .state_mut()
+            .apply(Command::SetJoint(fixed, edited))
+            .unwrap();
+        harness.step();
+        assert!(
+            !harness.state().joints_window_open(),
+            "the close is respected"
+        );
+
+        // A new empty document does not open it — and forgets the close.
+        harness.state_mut().new_document();
+        harness.step();
+        assert!(!harness.state().joints_window_open());
+        assert!(harness.state().debug_state().ui.windows.is_empty());
+
+        // The first movable joint created by a command opens it.
+        let cube = open_link(harness.state_mut(), "cube_binary.stl");
+        harness.step();
+        assert!(
+            !harness.state().joints_window_open(),
+            "a fixed joint is nothing to slide"
+        );
+        let joint = harness.state().robot().parent_joint(cube).unwrap();
+        let mut edited = harness.state().robot().joints[&joint].clone();
+        edited.kind = riggen_core::JointKind::Continuous;
+        edited.axis = DVec3::Z;
+        harness
+            .state_mut()
+            .apply(Command::SetJoint(joint, edited))
+            .unwrap();
+        harness.step();
+        assert!(
+            harness.state().joints_window_open(),
+            "the first movable joint"
+        );
+        // Undo takes it away again but does not close the window; the
+        // redo is not a *first* joint either.
+        assert!(harness.state_mut().undo());
+        harness.step();
+        assert!(harness.state().joints_window_open());
+    });
+}
+
 /// Properties numbers scrub: a horizontal drag on the hinge's origin `x`
 /// moves the arm in the viewport one `SetJoint` per frame, and the whole
 /// drag is one undo entry (docs/02-data-model.md §Commands and history,
@@ -1789,12 +1884,24 @@ fn joint_value_clamps_to_edited_limits() {
         app.set_joint_value(hinge, 10.0);
         assert!((app.joint_value(hinge) - 30f64.to_radians()).abs() < 1e-12);
 
-        // Window menu → Joints opens the window; Reset all zeroes q.
+        // The window opened itself with the document; Window › Joints
+        // toggles it; Reset all zeroes q.
         let depth = app.history().undo_depth();
-        assert!(!app.joints_window_open());
+        assert!(app.joints_window_open(), "a movable document opens it");
+        // "Joints" is both the menu item and the open window's title.
         harness.get_by_label("Window").click();
         harness.step();
-        harness.get_by_label("Joints").click();
+        harness
+            .get_by_role_and_label(egui::accesskit::Role::CheckBox, "Joints")
+            .click();
+        harness.step();
+        assert!(!harness.state().joints_window_open());
+        assert!(harness.state().debug_state().ui.windows.is_empty());
+        harness.get_by_label("Window").click();
+        harness.step();
+        harness
+            .get_by_role_and_label(egui::accesskit::Role::CheckBox, "Joints")
+            .click();
         harness.step();
         assert!(harness.state().joints_window_open());
         assert_eq!(harness.state().debug_state().ui.windows, vec!["joints"]);
@@ -3934,7 +4041,7 @@ fn materials() {
         settle(harness);
 
         let state = harness.state().debug_state();
-        assert_eq!(state.ui.windows, vec!["materials"]);
+        assert_eq!(state.ui.windows, vec!["joints", "materials"]);
         let robot = harness.state().robot();
         let expect = |name: &str| robot.materials[name].color.map(riggen_app::debug::round32);
         assert_eq!(state.instances[0].color, expect("aluminium"));

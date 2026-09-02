@@ -13,9 +13,46 @@ use riggen_core::{JointId, JointKind, Limits, Mimic};
 
 use crate::app::RiggenApp;
 
+/// The window opens itself (plans/panels-and-numbers OPEN 3): when a
+/// document with a movable joint replaces the current one, and when a
+/// command creates the document's first movable joint. The user closing
+/// it is respected until the next document.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct JointsWindow {
     pub(crate) open: bool,
+    /// The user closed it (the title bar's ×, the Window menu) since the
+    /// document was replaced: no command reopens it.
+    closed_by_user: bool,
+    /// Whether the document had a movable joint after the last change, so
+    /// the *first* one is a transition and not every edit a reason.
+    had_movable: bool,
+}
+
+impl JointsWindow {
+    /// A document replaced the current one: open iff it has something to
+    /// slide, and the user's earlier close is forgotten with the document.
+    pub(crate) fn document_replaced(&mut self, has_movable: bool) {
+        self.closed_by_user = false;
+        self.had_movable = has_movable;
+        self.open = has_movable;
+    }
+
+    /// The document changed: the first movable joint opens the window,
+    /// unless the user closed it for this document.
+    pub(crate) fn document_changed(&mut self, has_movable: bool) {
+        if has_movable && !self.had_movable && !self.closed_by_user {
+            self.open = true;
+        }
+        self.had_movable = has_movable;
+    }
+
+    /// The user's own toggle: closing is remembered for this document.
+    pub(crate) fn set_open(&mut self, open: bool) {
+        if self.open && !open {
+            self.closed_by_user = true;
+        }
+        self.open = open;
+    }
 }
 
 /// One row of the window, read off the document before it is drawn.
@@ -73,8 +110,10 @@ impl RiggenApp {
         self.joints_window.open
     }
 
+    /// The user's toggle (the Window menu, a test standing in for it): a
+    /// close is respected until the next document.
     pub fn set_joints_window_open(&mut self, open: bool) {
-        self.joints_window.open = open;
+        self.joints_window.set_open(open);
     }
 
     /// `= -0.5 × upper_joint + 0.1`, the rule as the document holds it —
@@ -136,9 +175,14 @@ impl RiggenApp {
                             // `joint_value` resolves a follower, so the
                             // slider shows what the viewport is showing.
                             let mut v = to_slider(*kind, self.joint_value(*id));
+                            // Clamp on edits only: egui's default writes
+                            // the value back every frame, rounded to the
+                            // displayed decimal — an open window silently
+                            // turned 0.25 m into 0.2 m.
                             let slider = egui::Slider::new(&mut v, lo..=hi)
                                 .suffix(suffix)
-                                .fixed_decimals(1);
+                                .fixed_decimals(1)
+                                .clamping(egui::SliderClamping::Edits);
                             match mimic {
                                 None => {
                                     if ui.add(slider).changed() {
@@ -162,7 +206,8 @@ impl RiggenApp {
                     reset = true;
                 }
             });
-        self.joints_window.open = open;
+        // The title bar's × is the user's close.
+        self.joints_window.set_open(open);
         for (id, q) in changes {
             self.set_joint_value(id, q);
         }

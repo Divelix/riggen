@@ -131,7 +131,9 @@
   "ui": {
     "tool": "Move",
     "renaming": null,
-    "windows": [],
+    "windows": [
+      "joints"
+    ],
     "modal": null,
     "title": "pendulum.riggen* — riggen"
   },

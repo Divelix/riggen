@@ -354,9 +354,14 @@ closes.
   `1e-12` (round-off; the writers keep twelve decimals, so nothing
   smaller reaches a file), and a field sized to its text accepts either
   spelling — "changed" means changed at that precision.
-- **Window › Joints** / **Materials**: floating windows, closed by default.
-  Joints: one slider per movable joint in its limits (Continuous ±180°),
-  writing `q` and syncing every frame, "Reset all". Materials: name /
+- **Window › Joints** / **Materials**: floating windows. Joints: one
+  slider per movable joint in its limits (Continuous ±180°), writing `q`
+  and syncing every frame, "Reset all". It **opens itself**: when a
+  document with a movable joint replaces the current one (and closes when
+  one without does), and when a command creates the document's first
+  movable joint; the user closing it — the title bar, the menu — is
+  respected until the next document (plans/panels-and-numbers OPEN 3).
+  Materials is closed until asked for. Materials: name /
   density / colour rows, add and remove (refused while a link uses it).
 - **Debug**: egui's `DebugOptions` overlays (debug on hover, widget hits,
   interactive widgets, width / height expansion, resize, unaligned) toggled

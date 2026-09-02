@@ -128,7 +128,9 @@
   "ui": {
     "tool": "Select",
     "renaming": null,
-    "windows": [],
+    "windows": [
+      "joints"
+    ],
     "modal": "unsaved_changes",
     "title": "pendulum.riggen* — riggen"
   },

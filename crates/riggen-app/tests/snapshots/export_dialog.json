@@ -192,7 +192,9 @@
   "ui": {
     "tool": "Select",
     "renaming": null,
-    "windows": [],
+    "windows": [
+      "joints"
+    ],
     "modal": "export",
     "title": "arm.riggen — riggen"
   },

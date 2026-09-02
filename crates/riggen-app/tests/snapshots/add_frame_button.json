@@ -150,7 +150,9 @@
       "f7",
       "frame"
     ],
-    "windows": [],
+    "windows": [
+      "joints"
+    ],
     "modal": null,
     "title": "pendulum.riggen* — riggen"
   },
