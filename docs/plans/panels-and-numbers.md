@@ -88,7 +88,7 @@ current `q`, not at the zero configuration.
   the part moved in the viewport, exactly one undo returns it, the
   document is dirty once. Every existing Properties golden re-captured if
   the field look changes — shown to the human.
-- [ ] Step 4 — The wheel steps a hovered field (⚠ OPEN 2 decides the
+- [x] Step 4 — The wheel steps a hovered field (⚠ OPEN 2 decides the
   modifier): one increment per notch at the field's displayed precision,
   through the same gesture (one notch = one entry; a burst within a short
   window coalesces). Scenario: three notches over `mass` → three
