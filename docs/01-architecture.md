@@ -334,7 +334,12 @@ closes.
   in the zero configuration so `SetFrame` stays as dumb as `SetJoint`) and
   its pose in that link's frame as xyz (m) and RPY (°); whatever changed,
   one `SetFrame` (ADR-0012). Fields
-  are `labelled_by` their labels for the accessibility tree.
+  are `labelled_by` their labels for the accessibility tree. Every number,
+  field or readout, is shown by one `fmt_num`: six significant figures,
+  scientific below `1e-3` (`2.86e-5`, never `0.000029`), zero below
+  `1e-12` (round-off; the writers keep twelve decimals, so nothing
+  smaller reaches a file), and a field sized to its text accepts either
+  spelling — "changed" means changed at that precision.
 - **Window › Joints** / **Materials**: floating windows, closed by default.
   Joints: one slider per movable joint in its limits (Continuous ±180°),
   writing `q` and syncing every frame, "Reset all". Materials: name /

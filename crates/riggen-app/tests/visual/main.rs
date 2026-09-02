@@ -880,7 +880,9 @@ fn properties_link() {
 
 /// Properties › Inertial on the pendulum's arm: switching the mode combo
 /// to Override seeds the fields from the computed values (one command), and
-/// the computed readout stays beside them for comparison.
+/// the computed readout stays beside them for comparison. A small tensor
+/// entry reads as written (`2.86e-5`, not `0.000029`) and an edit at that
+/// scale commits instead of being refused as "no change".
 #[test]
 fn properties_inertial() {
     scenario("properties_inertial", |harness| {
@@ -914,7 +916,7 @@ fn properties_inertial() {
             .find(|(_, l)| l.name == "arm")
             .unwrap()
             .0;
-        let riggen_core::InertialSpec::Override { mass, com, .. } =
+        let riggen_core::InertialSpec::Override { mass, com, inertia } =
             app.robot().links[&arm].inertial
         else {
             panic!("{:?}", app.robot().links[&arm].inertial);
@@ -926,6 +928,37 @@ fn properties_inertial() {
             harness.get_by_label("mass kg").value().as_deref(),
             Some("1240")
         );
+
+        // A tensor in the range a small part has: shown in scientific
+        // notation, and `3e-5` differs from `2.86e-5` at that precision.
+        let mut small = inertia;
+        small.x_axis.x = 2.86e-5;
+        harness
+            .state_mut()
+            .apply(Command::SetInertial(
+                arm,
+                riggen_core::InertialSpec::Override {
+                    mass,
+                    com,
+                    inertia: small,
+                },
+            ))
+            .unwrap();
+        harness.step();
+        assert_eq!(
+            harness.get_by_label("Ixx").value().as_deref(),
+            Some("2.86e-5")
+        );
+        let depth = harness.state().history().undo_depth();
+        type_into(harness, "Ixx", 0, "3e-5");
+        let app = harness.state();
+        assert_eq!(app.history().undo_depth(), depth + 1, "the edit committed");
+        let riggen_core::InertialSpec::Override { inertia, .. } = app.robot().links[&arm].inertial
+        else {
+            unreachable!()
+        };
+        assert!((inertia.x_axis.x - 3e-5).abs() < 1e-12, "{inertia:?}");
+        settle(harness);
     });
 }
 

@@ -219,16 +219,6 @@ impl PrimitiveKind {
     }
 }
 
-/// For the readout: small values (a tensor in kg·m²) in scientific
-/// notation, the rest like [`fmt_num`].
-fn fmt_readout(v: f64) -> String {
-    if v != 0.0 && v.abs() < 1e-3 {
-        format!("{v:.3e}")
-    } else {
-        fmt_num(v)
-    }
-}
-
 /// Default limits handed to a joint switched to a kind that needs them.
 /// The three presets the combo offers, at MuJoCo's own defaults — `kv` 0
 /// on a position servo, `kv` 1 on a velocity one, `gear` 1 on a motor — so
@@ -279,11 +269,49 @@ fn default_limits(kind: JointKind) -> Limits {
     }
 }
 
-/// `0.5`, `-3`, `1.25`: six decimals, trailing zeros dropped, no `-0`.
-fn fmt_num(v: f64) -> String {
-    let r = (v * 1e6).round() / 1e6;
-    let r = if r == 0.0 { 0.0 } else { r };
-    format!("{r}")
+/// The one number format of the panel, for fields and readouts alike:
+/// six significant figures (never fewer than the integer part), scientific
+/// notation below `1e-3`, zero below `1e-12`, trailing zeros dropped, no
+/// `-0` — `2.86e-5`, `0.001`, `-3`, `1.25`, `1240`.
+///
+/// Significant figures rather than decimals so a tensor entry in kg·m²
+/// keeps its digits: with six *decimals* both `2.86e-5` and `3e-5` showed
+/// as `0.000029`, and an edit between them was refused as "no change".
+/// [`number_field`] compares through this function, so "differs" means
+/// "differs at the displayed precision" and the parser (`str::parse`)
+/// accepts both spellings.
+pub(crate) fn fmt_num(v: f64) -> String {
+    if !v.is_finite() {
+        return format!("{v}");
+    }
+    if v.abs() >= 1e6 {
+        // Never fewer digits than the integer part has.
+        return format!("{v:.0}");
+    }
+    // Round to six significant figures first, so the branch below sees the
+    // rounded value (`0.000999999` is `0.001`, not `1e-3`).
+    let rounded: f64 = format!("{v:.5e}").parse().unwrap_or(v);
+    if rounded.abs() < 1e-12 {
+        // Round-off, not a number: the writers keep twelve decimals
+        // (02 §Writers), so nothing smaller could reach a file anyway.
+        return "0".to_owned();
+    }
+    let trim = |s: &str| -> String {
+        if s.contains('.') {
+            s.trim_end_matches('0').trim_end_matches('.').to_owned()
+        } else {
+            s.to_owned()
+        }
+    };
+    if rounded.abs() < 1e-3 {
+        let sci = format!("{rounded:.5e}");
+        let (mantissa, exponent) = sci.split_once('e').unwrap_or((&sci, "0"));
+        format!("{}e{exponent}", trim(mantissa))
+    } else {
+        let magnitude = rounded.abs().log10().floor() as i32;
+        let decimals = (5 - magnitude).max(0) as usize;
+        trim(&format!("{rounded:.decimals$}"))
+    }
 }
 
 /// A text field editing a string, committed on Enter / lost focus. The
@@ -335,7 +363,19 @@ fn number_field(
     value: f64,
 ) -> Option<f64> {
     let shown = fmt_num(value);
-    let (_, committed) = text_field(ui, state, id, label, &shown, 56.0);
+    // Wide enough for what it shows: `-2.46284e-7` must read whole, not as
+    // a clipped `-2.46284` that looks like metres.
+    let text_width = ui
+        .painter()
+        .layout_no_wrap(
+            shown.clone(),
+            egui::TextStyle::Body.resolve(ui.style()),
+            egui::Color32::WHITE,
+        )
+        .size()
+        .x;
+    let width = (text_width + 12.0).max(56.0);
+    let (_, committed) = text_field(ui, state, id, label, &shown, width);
     let parsed = committed?.trim().parse::<f64>().ok()?;
     (parsed.is_finite() && fmt_num(parsed) != shown).then_some(parsed)
 }
@@ -1092,23 +1132,23 @@ impl RiggenApp {
                     .num_columns(2)
                     .show(ui, |ui| {
                         ui.label("mass");
-                        ui.label(format!("{} kg", fmt_readout(c.mass)));
+                        ui.label(format!("{} kg", fmt_num(c.mass)));
                         ui.end_row();
                         ui.label("CoM");
                         ui.label(format!(
                             "{} {} {} m",
-                            fmt_readout(c.com.x),
-                            fmt_readout(c.com.y),
-                            fmt_readout(c.com.z)
+                            fmt_num(c.com.x),
+                            fmt_num(c.com.y),
+                            fmt_num(c.com.z)
                         ));
                         ui.end_row();
                         let [a, b, d] = principal_moments(&c.inertia);
                         ui.label("principal");
                         ui.label(format!(
                             "{} {} {} kg·m²",
-                            fmt_readout(a),
-                            fmt_readout(b),
-                            fmt_readout(d)
+                            fmt_num(a),
+                            fmt_num(b),
+                            fmt_num(d)
                         ));
                         ui.end_row();
                     });
@@ -1457,5 +1497,49 @@ impl RiggenApp {
         if edited != data {
             commands.push(Command::SetJoint(joint, edited));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fmt_num;
+
+    /// The four spellings the plan names, plus the edges around them.
+    #[test]
+    fn fmt_num_six_significant_figures() {
+        assert_eq!(fmt_num(2.86e-5), "2.86e-5");
+        assert_eq!(fmt_num(0.001), "0.001");
+        assert_eq!(fmt_num(-3.0), "-3");
+        assert_eq!(fmt_num(1.25), "1.25");
+        assert_eq!(fmt_num(1240.0), "1240");
+        assert_eq!(fmt_num(206.666_666_7), "206.667");
+        assert_eq!(fmt_num(0.123_456_789), "0.123457");
+        assert_eq!(fmt_num(0.0), "0");
+        assert_eq!(fmt_num(-0.0), "0");
+        assert_eq!(fmt_num(-1e-9), "-1e-9");
+        assert_eq!(fmt_num(1e-10), "1e-10");
+        assert_eq!(fmt_num(-6.89317e-20), "0", "round-off reads as zero");
+        assert_eq!(fmt_num(0.000_999_999_9), "0.001");
+        assert_eq!(fmt_num(1_234_567.0), "1234567");
+        assert_eq!(fmt_num(123_456.7), "123457");
+    }
+
+    /// Both spellings parse, and round-trip through the format: what the
+    /// field shows is what the parser reads back.
+    #[test]
+    fn fmt_num_round_trips_both_spellings() {
+        for text in ["2.86e-5", "0.0000286", "0.001", "1e-3", "-3", "1.25"] {
+            let parsed: f64 = text.parse().unwrap();
+            let shown = fmt_num(parsed);
+            let back: f64 = shown.parse().unwrap();
+            assert_eq!(fmt_num(back), shown, "{text}");
+            assert!(
+                (back - parsed).abs() <= parsed.abs() * 1e-5,
+                "{text} → {shown}"
+            );
+        }
+        // The bug this fixes: `2.86e-5` and `3e-5` are different at the
+        // displayed precision.
+        assert_ne!(fmt_num(2.86e-5), fmt_num(3e-5));
     }
 }
