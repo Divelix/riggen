@@ -1,6 +1,7 @@
 //! The link tree (left panel): one row per link with its parent joint's
 //! name and kind, a row per named frame under the link it hangs on, click
-//! to select, double-click or F2 to rename inline, drag a row onto another
+//! to select, double-click or F2 to rename inline, drag a row (a ghost with
+//! its name follows the cursor; the row under it says yes or no) onto another
 //! to reparent it (`keep_world_pose: true`, so the part stays where it is).
 //! The panel draws from the document and pushes every edit through a
 //! command *after* drawing, so nothing mutates the tree while it is being
@@ -43,6 +44,22 @@ pub(crate) struct TreeState {
     /// Set when a rename starts so the text field grabs focus on its first
     /// frame, then cleared.
     focus_rename: bool,
+    /// The row drag in flight, as drawn this frame: what is being dragged,
+    /// the row under the pointer, and whether dropping there would be
+    /// accepted (`debug_state().ui.drag`).
+    pub(crate) drag: Option<TreeDrag>,
+}
+
+/// A link row being dragged onto another (reparent), as the tree shows it:
+/// a ghost with the name follows the cursor, the row under it highlights,
+/// and a drop the document would refuse — the root as the source, the
+/// link's own subtree as the target — shows `NotAllowed` instead of
+/// `Grabbing`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TreeDrag {
+    pub(crate) link: LinkId,
+    pub(crate) over: Option<LinkId>,
+    pub(crate) allowed: bool,
 }
 
 /// The frame row's marker: a crosshair, since a frame *is* a pose. Kept
@@ -65,6 +82,11 @@ enum TreeAction {
         link: LinkId,
         new_parent: LinkId,
     },
+    /// A dragged row is over this link's row.
+    DragOver {
+        target: LinkId,
+        allowed: bool,
+    },
 }
 
 impl RiggenApp {
@@ -85,8 +107,53 @@ impl RiggenApp {
         self.start_rename_target(RenameTarget::Link(link));
     }
 
+    /// Whether dropping `dragged` onto `target` would be accepted: not the
+    /// root, not onto itself or anything in its own subtree — the rules
+    /// `Command::Reparent` refuses with, checked here so the cursor can say
+    /// so before the drop.
+    fn drop_allowed(&self, dragged: LinkId, target: LinkId) -> bool {
+        dragged != self.robot.root
+            && dragged != target
+            && !self.robot.is_in_subtree(target, dragged)
+    }
+
+    /// The ghost that follows the cursor during a row drag, and the cursor
+    /// itself. Drawn after the panel so it floats over everything.
+    fn drag_ghost(&self, ctx: &egui::Context) {
+        let Some(drag) = self.tree.drag else {
+            return;
+        };
+        let Some(link) = self.robot.links.get(&drag.link) else {
+            return;
+        };
+        let refused = !drag.allowed && (drag.over.is_some() || drag.link == self.robot.root);
+        ctx.set_cursor_icon(if refused {
+            egui::CursorIcon::NotAllowed
+        } else {
+            egui::CursorIcon::Grabbing
+        });
+        if let Some(pointer) = ctx.pointer_latest_pos() {
+            egui::Area::new(egui::Id::new("tree_drag_ghost"))
+                .order(egui::Order::Tooltip)
+                .interactable(false)
+                .fixed_pos(pointer + egui::vec2(12.0, 12.0))
+                .show(ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.label(&link.name);
+                    });
+                });
+        }
+    }
+
     pub(crate) fn tree_panel(&mut self, ui: &mut egui::Ui) {
         let mut actions = Vec::new();
+        // What is being dragged this frame, before the rows are drawn, so
+        // every row can say whether it would take it.
+        self.tree.drag = egui::DragAndDrop::payload::<LinkId>(ui.ctx()).map(|link| TreeDrag {
+            link: *link,
+            over: None,
+            allowed: *link != self.robot.root,
+        });
         egui::Panel::left("tree_panel")
             .resizable(true)
             .default_size(240.0)
@@ -135,6 +202,7 @@ impl RiggenApp {
 
         // The rename field asked for focus on the frame it appeared; once.
         self.tree.focus_rename = false;
+        self.drag_ghost(ui.ctx());
         for action in actions {
             match action {
                 TreeAction::Select(selection) => self.select(selection),
@@ -151,6 +219,12 @@ impl RiggenApp {
                     });
                 }
                 TreeAction::CancelRename => self.tree.renaming = None,
+                TreeAction::DragOver { target, allowed } => {
+                    if let Some(drag) = &mut self.tree.drag {
+                        drag.over = Some(target);
+                        drag.allowed = allowed;
+                    }
+                }
                 TreeAction::Reparent { link, new_parent } => {
                     let _ = self.apply(Command::Reparent {
                         link,
@@ -248,12 +322,32 @@ impl RiggenApp {
         _id: egui::Id,
         actions: &mut Vec<TreeAction>,
     ) {
-        let (_, dropped) = ui.dnd_drop_zone::<LinkId, _>(egui::Frame::NONE, |ui| {
+        let (zone, dropped) = ui.dnd_drop_zone::<LinkId, _>(egui::Frame::NONE, |ui| {
             self.row_name(ui, link, actions);
             if let Some(joint) = self.robot.parent_joint(link) {
                 self.row_joint(ui, joint, actions);
             }
         });
+        // The row under a drag says whether it would take the drop: the
+        // selection colour for yes, the warning colour for no.
+        if let Some(dragged) = zone.response.dnd_hover_payload::<LinkId>() {
+            let allowed = self.drop_allowed(*dragged, link);
+            let stroke = if allowed {
+                ui.visuals().selection.stroke
+            } else {
+                egui::Stroke::new(1.5, ui.visuals().warn_fg_color)
+            };
+            ui.painter().rect_stroke(
+                zone.response.rect.expand(2.0),
+                3.0,
+                stroke,
+                egui::StrokeKind::Outside,
+            );
+            actions.push(TreeAction::DragOver {
+                target: link,
+                allowed,
+            });
+        }
         if let Some(dragged) = dropped
             && *dragged != link
         {

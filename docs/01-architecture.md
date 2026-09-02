@@ -287,7 +287,11 @@ closes.
   frame at that link's origin (both start the new row's rename), Delete /
   "− Remove"
   removes the subtree (root refused, reason in the status bar) or, for a
-  selected frame, that frame alone, dragging a row onto another
+  selected frame, that frame alone, dragging a row onto another — a
+  ghost with the link's name follows the cursor, the row under it
+  highlights, and the cursor reads `Grabbing`, or `NotAllowed` over a drop
+  the document would refuse (the root as the source, the link's own
+  subtree as the target); `debug_state().ui.drag` reports the drag —
   reparents with `keep_world_pose`. Every row is a `dnd_drop_zone` around a
   `Button::selectable(..).sense(click_and_drag())` that sets its own
   payload with `dnd_set_drag_payload` — egui's `dnd_drag_source` lays a
