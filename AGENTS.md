@@ -41,7 +41,9 @@ rule — it is the one line that needs a decision before a plan.
 
 - Lower crates never name upper crates' types; `riggen-core` and
   `riggen-export` never depend on egui or wgpu (`riggen-py` links them).
-- One gesture = one command. Drags preview; release commits.
+- One gesture = one history entry. A drag previews (a gizmo, off the
+  document) or coalesces (a scrubber, through `History` gestures); release
+  commits.
 - Meters, radians, right-handed, Z-up, f64 in the document. Joint frame is
   the child link frame.
 - Decisions go in `docs/adr/`; `⚠ OPEN:` in a doc marks a deferred one.

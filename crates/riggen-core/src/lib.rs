@@ -22,7 +22,7 @@ pub use file::{
     load_from, save, to_json,
 };
 pub use fk::{JointState, fk, frames, motion, origin_for_world, resolve_q};
-pub use history::History;
+pub use history::{GestureId, History};
 pub use ids::{FrameId, GeomId, Id, IdGen, JointId, LinkId, MeshId};
 pub use inertial::{Inertial, InertialError, LinkInertial, MeshLookup, compose_inertial};
 pub use pose::Pose;

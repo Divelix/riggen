@@ -246,11 +246,14 @@ mutates and then validates, so on `Err` the robot may be half-edited;
 `History::apply` therefore runs it on a clone:
 
 ```rust
-pub struct History { undo: Vec<Robot>, redo: Vec<Robot>, saved_depth: Option<usize> }
+pub struct GestureId(pub u64);                           // a drag, press to release; the caller's value
+pub struct History { undo: Vec<Robot>, redo: Vec<Robot>, saved_depth: Option<usize>, gesture: Option<GestureId> }
 
 impl History {
     pub fn new() -> Self;                                // a document that counts as saved
     pub fn apply(&mut self, robot: &mut Robot, cmd: Command) -> Result<Option<Created>, EditError>;
+    pub fn apply_in_gesture(&mut self, robot: &mut Robot, cmd: Command, gesture: GestureId) -> Result<Option<Created>, EditError>;
+    pub fn end_gesture(&mut self);                       // release
     pub fn undo(&mut self, robot: &mut Robot) -> bool;   // false when there is nothing to undo
     pub fn redo(&mut self, robot: &mut Robot) -> bool;
     pub fn can_undo(&self) -> bool;  pub fn can_redo(&self) -> bool;
@@ -266,7 +269,19 @@ counter included), and a command whose result equals the document is
 dropped without an entry — the properties panel can re-commit what it shows
 without growing the history. `saved_depth` becomes `None` when an edit
 branches past it, so "undo below the save, edit" stays dirty until the next
-save. `EditError` is `Invalid(ValidationError)`, `UnknownId { kind, id }`,
+save.
+
+**One gesture = one history entry.** A scrubbed number field previews
+*through* the document — one `Set…` per frame — and the user dragged once,
+so `apply_in_gesture` coalesces: the first changing apply under a
+`GestureId` pushes the pre-state and opens the gesture, every later one
+under the same id only advances the document, and `end_gesture` (release)
+closes it. A plain `apply`, `undo`, `redo` or `mark_saved` closes it too,
+so a popped entry is never advanced and what a save wrote is a whole
+entry; a refused or no-op command opens nothing. The id is the caller's
+(the field's widget id), and `undo_depth` grows by one per drag however
+many frames it previewed through (plans/panels-and-numbers OPEN 1, decided
+2026-09-02 without an ADR). `EditError` is `Invalid(ValidationError)`, `UnknownId { kind, id }`,
 `UnknownMaterial`, `WouldCreateCycle { link, new_parent }`,
 `CannotRemoveRoot`, `CannotReparentRoot`, `MaterialInUse { material, link }`,
 `MovableJointOnRootPath(JointId)`.
