@@ -108,7 +108,7 @@ current `q`, not at the zero configuration.
   Cleared when the selection satisfies the tool. Scenario
   `tools_say_what_they_need` asserts the status text per (tool, selection)
   pair from `debug_state()`.
-- [ ] Step 7 — Clicking empty space clears a joint or frame selection. The
+- [x] Step 7 — Clicking empty space clears a joint or frame selection. The
   viewport's select event (design delta) drives
   `sync_selection_from_viewport`: a miss clears any selection; a hit
   selects the link as today. A click under a snapping tool issues no

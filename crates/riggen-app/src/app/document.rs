@@ -373,7 +373,6 @@ impl RiggenApp {
         self.viewport.clear_scene();
         self.q = JointState::default();
         self.selection = Selection::None;
-        self.last_viewport_selected = None;
         self.sync_scene();
         let has_movable = self.has_movable_joint();
         self.joints_window.document_replaced(has_movable);
@@ -524,22 +523,27 @@ impl RiggenApp {
             _ => None,
         };
         self.viewport.set_selected(instance);
-        self.last_viewport_selected = self.viewport.selected();
         self.refresh_tool_status();
     }
 
-    /// The link whose instance the viewport's last click hit. Called once
-    /// per frame after `Viewport::ui`, when a resolved select pick may
-    /// have changed the viewport's idea of the selection.
+    /// Applies the viewport's resolved click, if there was one this frame
+    /// (called once per frame after `Viewport::ui`): a hit selects its
+    /// link, a miss clears whatever was selected — a joint or a frame
+    /// included, which the viewport never held itself. A click under a
+    /// snapping tool issues no select pick at all
+    /// (`set_select_suppressed`), so it clears nothing.
     pub(crate) fn sync_selection_from_viewport(&mut self) {
-        let hit = self.viewport.selected();
-        if hit == self.last_viewport_selected {
+        let Some(hit) = self.viewport.take_select_result() else {
             return;
-        }
-        self.last_viewport_selected = hit;
-        self.selection = hit
+        };
+        let selection = hit
             .and_then(|h| self.link_of_instance(h.instance))
             .map_or(Selection::None, Selection::Link);
+        if selection != self.selection {
+            self.props.clear();
+            self.cancel_align();
+        }
+        self.selection = selection;
         self.refresh_tool_status();
     }
 
@@ -741,14 +745,6 @@ impl RiggenApp {
         }
 
         self.sync_collision(&world);
-
-        // The viewport drops a selection whose instance vanished; the
-        // document side has to notice, and a link selection whose link
-        // still exists but lost its instance is still a valid selection.
-        let hit = self.viewport.selected();
-        if hit != self.last_viewport_selected && hit.is_none() {
-            self.last_viewport_selected = None;
-        }
     }
 
     /// The translucent collision instances, from each link's policy at the
