@@ -878,6 +878,149 @@ fn properties_link() {
     });
 }
 
+/// Materials can be renamed: a double-click on the name in the Materials
+/// window opens the tree's inline field, Enter commits one
+/// `RenameMaterial`, and the link's Properties combo shows the new name
+/// because its reference followed. F2 over the name does the same.
+#[test]
+fn materials_rename() {
+    scenario("materials_rename", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.set_materials_window_open(true);
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .unwrap()
+            .0;
+        assert_eq!(app.robot().links[&arm].material.as_deref(), Some("PLA"));
+        app.fit_view_now();
+        settle(harness);
+        let depth = harness.state().history().undo_depth();
+
+        // Double-click the name. Nothing is selected yet, so the window's
+        // row is the only "PLA" label (the Properties combo would be
+        // another).
+        let name = harness
+            .get_all_by_label("PLA")
+            .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Label)
+            .expect("the PLA row");
+        let at = name.rect().center();
+        // The harness steps a quarter second per event, past egui's 0.3 s
+        // double-click window: widen the window rather than the harness.
+        harness
+            .ctx
+            .options_mut(|o| o.input_options.max_double_click_delay = 5.0);
+        harness.hover_at(at);
+        harness.step();
+        for _ in 0..2 {
+            harness.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            });
+            harness.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            });
+            harness.step();
+        }
+        harness.step();
+        assert_eq!(harness.state().renaming_material(), Some("PLA"));
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        harness.step();
+        harness
+            .get_all_by_role(egui::accesskit::Role::TextInput)
+            .find(|n| n.is_focused())
+            .expect("the rename field has focus")
+            .type_text("PLA_black");
+        harness.step();
+        harness.key_press(egui::Key::Enter);
+        harness.step();
+        harness.step();
+
+        let app = harness.state();
+        assert_eq!(app.renaming_material(), None);
+        assert_eq!(
+            app.history().undo_depth(),
+            depth + 1,
+            "one RenameMaterial: {:?}",
+            app.debug_state().status
+        );
+        assert!(app.robot().materials.contains_key("PLA_black"));
+        assert!(!app.robot().materials.contains_key("PLA"));
+        assert_eq!(
+            app.robot().links[&arm].material.as_deref(),
+            Some("PLA_black"),
+            "the link's reference followed"
+        );
+        harness.event(egui::Event::PointerGone);
+        // The link's Properties shows the new name in its material combo.
+        harness.state_mut().select(Selection::Link(arm));
+        settle(harness);
+        assert!(
+            harness.query_all_by_label("PLA_black").count() >= 1,
+            "the window's row reads the new name"
+        );
+    });
+}
+
+/// F2 over a material's name starts the same rename, and Escape leaves
+/// the name alone; a taken name is refused in the status bar.
+#[test]
+fn f2_over_a_material_name_renames_it() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.set_materials_window_open(true);
+        settle(harness);
+        let name = harness
+            .get_all_by_label("PLA")
+            .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Label)
+            .expect("the PLA row");
+        harness.hover_at(name.rect().center());
+        harness.step();
+        harness.step();
+        harness.key_press(egui::Key::F2);
+        harness.step();
+        assert_eq!(harness.state().renaming_material(), Some("PLA"));
+        harness.key_press(egui::Key::Escape);
+        harness.step();
+        harness.step();
+        assert_eq!(harness.state().renaming_material(), None);
+        assert!(harness.state().robot().materials.contains_key("PLA"));
+
+        // Onto a name that exists: refused, and the bar says so.
+        let other = harness
+            .state()
+            .robot()
+            .materials
+            .keys()
+            .find(|k| k.as_str() != "PLA")
+            .cloned()
+            .expect("the pendulum has two materials");
+        let err = harness
+            .state_mut()
+            .apply(Command::RenameMaterial {
+                from: "PLA".into(),
+                to: other.clone(),
+            })
+            .unwrap_err();
+        assert_eq!(err, riggen_core::EditError::MaterialExists(other.clone()));
+        assert_eq!(
+            harness.state().debug_state().status.as_deref(),
+            Some(format!("a material \"{other}\" already exists").as_str())
+        );
+    });
+}
+
 /// Properties › Collision with a `Meshes` policy is editable geom by
 /// geom: the fore link of the imported arm carries `fore_hull.stl`; its
 /// pose is typed, a cube is added through the file seam, the hull removed

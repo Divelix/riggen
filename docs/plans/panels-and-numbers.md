@@ -121,7 +121,7 @@ current `q`, not at the zero configuration.
   commit is one `SetCollision`. Scenario `properties_collision_meshes`:
   edit a pose, remove a geom, add the cube; the export zip lists the
   remaining collision meshes.
-- [ ] Step 9 — Materials can be renamed. Core `RenameMaterial` (design
+- [x] Step 9 — Materials can be renamed. Core `RenameMaterial` (design
   delta) with unit tests: references follow, unknown `from` and taken `to`
   refused; SDK `rename_material(from, to)` with a pytest and the `.pyi`.
   The Materials window's name cell renames on double-click or F2, the

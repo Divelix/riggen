@@ -57,6 +57,14 @@ impl RiggenApp {
         }
         let rename = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F2));
         if rename {
+            // A material name under the cursor in the Materials window is
+            // the nearer thing to rename than the selected link.
+            if self.materials_window.open
+                && let Some(name) = self.materials_window.hovered_name.clone()
+            {
+                self.materials_window.start_rename(name);
+                return;
+            }
             match self.selection {
                 Selection::Link(link) => self.start_rename_target(RenameTarget::Link(link)),
                 Selection::Frame(frame) => self.start_rename_target(RenameTarget::Frame(frame)),

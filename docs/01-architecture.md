@@ -371,7 +371,10 @@ closes.
   movable joint; the user closing it — the title bar, the menu — is
   respected until the next document (plans/panels-and-numbers OPEN 3).
   Materials is closed until asked for. Materials: name /
-  density / colour rows, add and remove (refused while a link uses it).
+  density / colour rows, add and remove (refused while a link uses it),
+  and the name renamed inline — double-click it or press F2 over it, the
+  tree's idiom; Enter commits one `RenameMaterial` (refused onto a taken
+  name), Escape leaves it — every link that used it following.
 - **Debug**: egui's `DebugOptions` overlays (debug on hover, widget hits,
   interactive widgets, width / height expansion, resize, unaligned) toggled
   in both themes at once, then **Copy state (JSON)** / **Save state
@@ -853,7 +856,7 @@ the id counter included. No `History`: a script has no undo.
 | `move_joint_frame(joint, origin, axis)` | `MoveJointFrame` |
 | `reparent(link, new_parent, *, keep_world_pose)` | `Reparent` |
 | `set_root(link)` | `SetRoot` |
-| `set_link_material`, `upsert_material`, `remove_material` | `SetLinkMaterial`, `UpsertMaterial`, `RemoveMaterial` |
+| `set_link_material`, `upsert_material`, `remove_material`, `rename_material(from, to)` | `SetLinkMaterial`, `UpsertMaterial`, `RemoveMaterial`, `RenameMaterial` |
 | `set_asset(mesh, doc)` | `SetAsset`; the path absolutised, the hash recomputed |
 | `set_inertial(link, doc)`, `set_collision(link, doc)` | `SetInertial`, `SetCollision` |
 | `validate() -> list[str]`, `check()` | `validation_errors`; `check` raises `ValidationError`. Empty for any document the edit methods, `load` or `from_json` let through — they validate |
@@ -871,7 +874,7 @@ them by name (`errors.rs`), so `except riggen.EditError` is a plain Python
 class: `RiggenError` ← `EditError` ← one subclass per `EditError` variant
 (`InvalidDocument`, `UnknownId`, `UnknownMaterial`, `WouldCreateCycle`,
 `CannotRemoveRoot`, `CannotReparentRoot`, `MaterialInUse`,
-`MovableJointOnRootPath`), and beside it `ValidationError`, `FileError`,
+`MaterialExists`, `MovableJointOnRootPath`), and beside it `ValidationError`, `FileError`,
 `ExportError`, `UrdfImportError`, `MjcfImportError`, `InertialError`. The
 message is the Rust `Display`.
 

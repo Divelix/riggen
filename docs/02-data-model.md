@@ -179,6 +179,7 @@ pub enum Command {
     MoveJointFrame { joint: JointId, origin: Pose, axis: DVec3 },  // moves the pivot, not the geometry
     Reparent { link: LinkId, new_parent: LinkId, keep_world_pose: bool },
     SetLinkMaterial(LinkId, Option<String>), UpsertMaterial(String, Material), RemoveMaterial(String),
+    RenameMaterial { from: String, to: String },               // every link's reference follows
     SetAsset(MeshId, MeshAsset),                               // scale / fix-up edits
     SetInertial(LinkId, InertialSpec), SetCollision(LinkId, CollisionPolicy), SetRoot(LinkId),
     AddFrame(Frame),                                           // allocates the FrameId, returns it
@@ -215,7 +216,9 @@ its `<equality>` already drives it — the same way `RemoveLink` frees a
 follower rather than failing. The per-joint edit needs no command of its own:
 it rides `SetJoint`, which preserves only `parent` / `child`, as `mimic` does.
 `RemoveMaterial` is refused while a link uses the material
-(`MaterialInUse`). `SetRoot` reverses the fixed joints on the path to the
+(`MaterialInUse`); `RenameMaterial` rewrites the key and every link's
+reference in one step, refused for an unknown `from` (`UnknownMaterial`)
+and a `to` the document already has (`MaterialExists`). `SetRoot` reverses the fixed joints on the path to the
 old root and refuses a movable one (a reversed revolute pivot has no home in
 the swapped child frame). That stays so: a URDF always has a root, and a
 reversed-pivot convention is a design question nothing needed
@@ -284,7 +287,7 @@ many frames it previewed through (plans/panels-and-numbers OPEN 1, decided
 2026-09-02 without an ADR). `EditError` is `Invalid(ValidationError)`, `UnknownId { kind, id }`,
 `UnknownMaterial`, `WouldCreateCycle { link, new_parent }`,
 `CannotRemoveRoot`, `CannotReparentRoot`, `MaterialInUse { material, link }`,
-`MovableJointOnRootPath(JointId)`.
+`MaterialExists(String)`, `MovableJointOnRootPath(JointId)`.
 
 ## Kinematics
 

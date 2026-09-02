@@ -32,6 +32,7 @@ pub fn edit_error(py: Python<'_>, e: EditError) -> PyErr {
         EditError::CannotRemoveRoot => "CannotRemoveRoot",
         EditError::CannotReparentRoot => "CannotReparentRoot",
         EditError::MaterialInUse { .. } => "MaterialInUse",
+        EditError::MaterialExists(_) => "MaterialExists",
         EditError::MovableJointOnRootPath(_) => "MovableJointOnRootPath",
     };
     raise(py, class, e.to_string())
