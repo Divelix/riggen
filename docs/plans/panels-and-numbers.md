@@ -67,7 +67,7 @@ current `q`, not at the zero configuration.
 
 ## Steps
 
-- [ ] Step 1 — One number format. `fmt_num` renders six significant figures,
+- [x] Step 1 — One number format. `fmt_num` renders six significant figures,
   scientific notation below `1e-3` (`2.86e-5`, `0.001`, `-3`, `1.25`),
   trailing zeros dropped, no `-0`; `fmt_readout` folds into it; the parser
   accepts both spellings. Fixes the bug that a small Override tensor edit

@@ -16,7 +16,7 @@
 //! least-squares fit of the region's vertices; a planar region (a shaft's
 //! end face) gives axis = face normal and fits its **boundary loop**.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use glam::DVec3;
 
@@ -242,9 +242,13 @@ pub fn fit_circle_with(
     fit(&points, axis)
 }
 
-/// Every distinct position the region's triangles use.
+/// Every distinct position the region's triangles use, in welded-id order
+/// so the fit sums them the same way every run (a `HashMap`'s order is
+/// per-process, and the last bits of a pivot then jittered between runs —
+/// invisible at six decimals, a different `e-7` in every Properties field
+/// that shows one).
 fn region_points(mesh: &TriMesh, adjacency: &Adjacency, region: &[usize]) -> Vec<DVec3> {
-    let mut seen: HashMap<u32, DVec3> = HashMap::new();
+    let mut seen: BTreeMap<u32, DVec3> = BTreeMap::new();
     for &t in region {
         for c in 0..3 {
             let vertex = mesh.indices[3 * t + c] as usize;
@@ -255,10 +259,11 @@ fn region_points(mesh: &TriMesh, adjacency: &Adjacency, region: &[usize]) -> Vec
 }
 
 /// The distinct positions on the region's boundary: the edges whose
-/// neighbour is outside the region (or missing).
+/// neighbour is outside the region (or missing). Welded-id order, as
+/// [`region_points`].
 fn boundary_points(mesh: &TriMesh, adjacency: &Adjacency, region: &[usize]) -> Vec<DVec3> {
     let inside: std::collections::HashSet<usize> = region.iter().copied().collect();
-    let mut seen: HashMap<u32, DVec3> = HashMap::new();
+    let mut seen: BTreeMap<u32, DVec3> = BTreeMap::new();
     for &t in region {
         for (e, neighbor) in adjacency.neighbors(t).into_iter().enumerate() {
             let outside = match neighbor {
