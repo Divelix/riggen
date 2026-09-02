@@ -878,6 +878,126 @@ fn properties_link() {
     });
 }
 
+/// The tree says what a drag will do: a ghost with the link's name
+/// follows the cursor, the row under it highlights, and
+/// `debug_state().ui.drag` reports the target and whether the drop would
+/// be taken. The root as a source and a link's own row as a target read
+/// as refused; a real drop reparents. The golden is captured mid-drag,
+/// `arm` held over `base_link` after it moved under the cube.
+#[test]
+fn tree_drag_ghost() {
+    scenario("tree_drag_ghost", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let cube = open_link(app, "cube.obj");
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        let root = app.robot().root;
+        app.fit_view_now();
+        settle(harness);
+        let row = |harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>, name: &str| {
+            harness.get_by_label(name).rect().center()
+        };
+        let press = |harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+                     pos: egui::Pos2| {
+            harness.hover_at(pos);
+            harness.step();
+            harness.event(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            });
+            harness.step();
+        };
+        let walk = |harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+                    from: egui::Pos2,
+                    to: egui::Pos2| {
+            for i in 1..=6 {
+                let t = i as f32 / 6.0;
+                harness.event(egui::Event::PointerMoved(from + (to - from) * t));
+                harness.step();
+            }
+            harness.step();
+        };
+        let release = |harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+                       pos: egui::Pos2| {
+            harness.event(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            });
+            harness.step();
+            harness.step();
+        };
+        let drag = |harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>| {
+            harness.state().debug_state().ui.drag
+        };
+
+        // The root as a source is never allowed, wherever it is held.
+        let base = row(harness, "base_link");
+        let arm_row = row(harness, "arm");
+        press(harness, base);
+        walk(harness, base, arm_row);
+        let d = drag(harness).expect("a drag in flight");
+        assert_eq!(
+            (d.link.as_str(), d.allowed),
+            (root.to_string().as_str(), false)
+        );
+        release(harness, arm_row);
+        assert_eq!(drag(harness), None);
+        assert_eq!(harness.state().robot().root, root);
+
+        // `arm` over its own row is refused, over `cube` accepted; the
+        // release reparents.
+        let cube_row = row(harness, "cube");
+        press(harness, arm_row);
+        walk(harness, arm_row, arm_row + egui::vec2(4.0, 0.0));
+        let d = drag(harness).unwrap();
+        assert_eq!(
+            (d.over.as_deref(), d.allowed),
+            (Some(arm.to_string().as_str()), false)
+        );
+        walk(harness, arm_row, cube_row);
+        assert_eq!(
+            drag(harness),
+            Some(riggen_app::debug::TreeDragDebug {
+                link: arm.to_string(),
+                over: Some(cube.to_string()),
+                allowed: true,
+            })
+        );
+        release(harness, cube_row);
+        let app = harness.state();
+        assert_eq!(app.debug_state().ui.drag, None);
+        let hinge = app.robot().parent_joint(arm).unwrap();
+        assert_eq!(app.robot().joints[&hinge].parent, cube);
+
+        // Held for the picture: `arm` over `base_link`, a drop it would take.
+        settle(harness);
+        let arm_row = row(harness, "arm");
+        let base = row(harness, "base_link");
+        press(harness, arm_row);
+        walk(harness, arm_row, base);
+        pump_rendered(harness, 4);
+        assert_eq!(
+            drag(harness),
+            Some(riggen_app::debug::TreeDragDebug {
+                link: arm.to_string(),
+                over: Some(root.to_string()),
+                allowed: true,
+            })
+        );
+    });
+}
+
 /// Materials can be renamed: a double-click on the name in the Materials
 /// window opens the tree's inline field, Enter commits one
 /// `RenameMaterial`, and the link's Properties combo shows the new name

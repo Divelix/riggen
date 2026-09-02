@@ -107,6 +107,18 @@ pub struct UiDebug {
     /// View › Collision geometry; omitted when off.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub collision_view: bool,
+    /// A tree row being dragged, if one is; omitted otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drag: Option<TreeDragDebug>,
+}
+
+/// A link row mid-drag: what, over which row, and whether a drop there
+/// would be accepted (the cursor reads `Grabbing` or `NotAllowed`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TreeDragDebug {
+    pub link: String,
+    pub over: Option<String>,
+    pub allowed: bool,
 }
 
 /// The `Robot` and the derived state around it.
@@ -385,6 +397,11 @@ impl RiggenApp {
             camera: CameraDebug::capture(self),
             document,
             ui: UiDebug {
+                drag: self.tree.drag.map(|d| TreeDragDebug {
+                    link: d.link.to_string(),
+                    over: d.over.map(|l| l.to_string()),
+                    allowed: d.allowed,
+                }),
                 tool: self.tool().label(),
                 renaming: self
                     .tree

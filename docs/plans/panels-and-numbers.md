@@ -127,7 +127,7 @@ current `q`, not at the zero configuration.
   The Materials window's name cell renames on double-click or F2, the
   tree's inline-rename idiom. Scenario `materials_rename`: rename `PLA`,
   the link's Properties shows the new name.
-- [ ] Step 10 — The tree says what a drag will do: a ghost row with the
+- [x] Step 10 — The tree says what a drag will do: a ghost row with the
   link's name follows the cursor, the cursor is `Grabbing`, the row under
   it highlights as the drop target, and a row that would be refused (the
   link's own subtree, the root as source) shows `NotAllowed` instead.
