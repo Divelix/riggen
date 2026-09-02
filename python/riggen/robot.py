@@ -1087,7 +1087,8 @@ class Robot:
 
     @property
     def materials(self) -> dict[str, Material]:
-        """By name; edit with :meth:`add_material` / :meth:`remove_material`."""
+        """By name; edit with :meth:`add_material` / :meth:`rename_material` /
+        :meth:`remove_material`."""
         return {name: Material(m["density"], tuple(m["color"])) for name, m in self._inner.materials().items()}  # type: ignore[arg-type]
 
     def link(self, name: str) -> Link:
@@ -1147,6 +1148,12 @@ class Robot:
     def remove_material(self, name: str) -> None:
         """Removes a material no link uses."""
         self._inner.remove_material(name)
+
+    def rename_material(self, name: str, new_name: str) -> None:
+        """Renames a material; every link that used it follows. Refused for a
+        name the document does not have (:class:`UnknownMaterial`) and a new
+        name it already has (:class:`MaterialExists`)."""
+        self._inner.rename_material(name, new_name)
 
     # -- kinematics and export -----------------------------------------------
 

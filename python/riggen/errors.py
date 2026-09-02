@@ -20,6 +20,7 @@ __all__ = [
     "CannotRemoveRoot",
     "CannotReparentRoot",
     "MaterialInUse",
+    "MaterialExists",
     "MovableJointOnRootPath",
     "ValidationError",
     "FileError",
@@ -78,6 +79,10 @@ class CannotReparentRoot(EditError):
 class MaterialInUse(EditError):
     """``remove_material`` while a link uses the material; the message names
     the lowest such link."""
+
+
+class MaterialExists(EditError):
+    """``rename_material`` onto a name the document already has."""
 
 
 class MovableJointOnRootPath(EditError):

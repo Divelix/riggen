@@ -77,6 +77,13 @@ pub enum Command {
     UpsertMaterial(String, Material),
     /// Refused while a link uses the material.
     RemoveMaterial(String),
+    /// Renames a material; every link's reference follows. Refused for an
+    /// unknown `from` (`UnknownMaterial`) and a taken `to`
+    /// (`MaterialExists`).
+    RenameMaterial {
+        from: String,
+        to: String,
+    },
     /// Scale / fix-up edits. Registering an asset is `Robot::add_asset`.
     SetAsset(MeshId, MeshAsset),
     SetInertial(LinkId, InertialSpec),
@@ -165,6 +172,8 @@ pub enum EditError {
         material: String,
         link: LinkId,
     },
+    /// `RenameMaterial` onto a name the document already has.
+    MaterialExists(String),
     /// `SetRoot` across a `Revolute` / `Continuous` / `Prismatic` joint.
     MovableJointOnRootPath(JointId),
 }
@@ -184,6 +193,7 @@ impl fmt::Display for EditError {
             Self::MaterialInUse { material, link } => {
                 write!(f, "material \"{material}\" is used by link {link}")
             }
+            Self::MaterialExists(m) => write!(f, "a material \"{m}\" already exists"),
             Self::MovableJointOnRootPath(j) => write!(
                 f,
                 "cannot change the root across movable joint {j}; only fixed joints can be reversed"
@@ -397,6 +407,21 @@ impl Command {
                     });
                 }
                 robot.materials.remove(&name);
+            }
+            Command::RenameMaterial { from, to } => {
+                if !robot.materials.contains_key(&from) {
+                    return Err(EditError::UnknownMaterial(from));
+                }
+                if to != from && robot.materials.contains_key(&to) {
+                    return Err(EditError::MaterialExists(to));
+                }
+                let material = robot.materials.remove(&from).expect("checked above");
+                robot.materials.insert(to.clone(), material);
+                for link in robot.links.values_mut() {
+                    if link.material.as_deref() == Some(from.as_str()) {
+                        link.material = Some(to.clone());
+                    }
+                }
             }
             Command::SetAsset(mesh, asset) => {
                 let slot = robot.assets.get_mut(&mesh).ok_or_else(|| unknown(mesh))?;
@@ -1184,6 +1209,73 @@ mod tests {
             &robot.joints[&wrist].origin,
             &Pose::new(DVec3::new(2.0, 1.0, 0.0), DQuat::from_rotation_z(FRAC_PI_2)),
         );
+    }
+
+    /// `RenameMaterial`: the key and every link's reference move together;
+    /// an unknown source and a taken target are refused.
+    #[test]
+    fn rename_material_takes_its_references_along() {
+        let (mut robot, [arm, hand, ..]) = arm();
+        let rubbery = Material {
+            density: 900.0,
+            color: [0.0, 0.0, 0.0, 1.0],
+        };
+        apply(&mut robot, Command::UpsertMaterial("foam".into(), rubbery)).unwrap();
+        apply(&mut robot, Command::UpsertMaterial("steel".into(), rubbery)).unwrap();
+        apply(
+            &mut robot,
+            Command::SetLinkMaterial(arm, Some("foam".into())),
+        )
+        .unwrap();
+        apply(
+            &mut robot,
+            Command::SetLinkMaterial(hand, Some("steel".into())),
+        )
+        .unwrap();
+
+        apply(
+            &mut robot,
+            Command::RenameMaterial {
+                from: "foam".into(),
+                to: "sponge".into(),
+            },
+        )
+        .unwrap();
+        assert!(!robot.materials.contains_key("foam"));
+        assert_eq!(robot.materials["sponge"], rubbery);
+        assert_eq!(robot.links[&arm].material.as_deref(), Some("sponge"));
+        assert_eq!(robot.links[&hand].material.as_deref(), Some("steel"));
+
+        assert_eq!(
+            apply(
+                &mut robot,
+                Command::RenameMaterial {
+                    from: "foam".into(),
+                    to: "x".into(),
+                },
+            ),
+            Err(EditError::UnknownMaterial("foam".into()))
+        );
+        assert_eq!(
+            apply(
+                &mut robot,
+                Command::RenameMaterial {
+                    from: "sponge".into(),
+                    to: "steel".into(),
+                },
+            ),
+            Err(EditError::MaterialExists("steel".into()))
+        );
+        // Renaming onto itself is a no-op, not a refusal.
+        apply(
+            &mut robot,
+            Command::RenameMaterial {
+                from: "sponge".into(),
+                to: "sponge".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(robot.links[&arm].material.as_deref(), Some("sponge"));
     }
 
     #[test]

@@ -257,6 +257,20 @@ def test_every_setter_is_one_edit(pendulum_api: riggen.Robot):
     robot.remove_material("brass")
     assert "brass" not in robot.materials
 
+    # A rename takes every link's reference along; the refusals are typed.
+    robot.add_material("gold", 19300)
+    arm.material = "gold"
+    robot.rename_material("gold", "au")
+    assert "gold" not in robot.materials and robot.materials["au"].density == 19300.0
+    assert arm.material == "au"
+    with pytest.raises(riggen.UnknownMaterial):
+        robot.rename_material("gold", "x")
+    robot.add_material("lead", 11340)
+    with pytest.raises(riggen.MaterialExists):
+        robot.rename_material("au", "lead")
+    robot.rename_material("au", "gold")
+    assert arm.material == "gold"
+
     tip = arm.add_link("tip", Fixed((0, 0, 1)))
     assert tip.parent == arm and robot.joint("tip_joint") == tip.joint
     tip.reparent(robot.root)

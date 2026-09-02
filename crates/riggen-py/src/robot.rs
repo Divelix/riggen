@@ -593,6 +593,14 @@ impl PyRobot {
         Ok(())
     }
 
+    /// `RenameMaterial`: every link's reference follows; refused for an
+    /// unknown `from` and a taken `to`.
+    #[pyo3(signature = (from, to))]
+    fn rename_material(&mut self, py: Python<'_>, from: String, to: String) -> PyResult<()> {
+        self.edit(py, Command::RenameMaterial { from, to })?;
+        Ok(())
+    }
+
     /// `SetInertial`: an `InertialSpec` in the schema's shape —
     /// `{"Computed": {"density_override": None}}`, `{"Override": {...}}`,
     /// `{"Hybrid": {"mass": …}}`.
