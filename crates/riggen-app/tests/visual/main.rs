@@ -729,6 +729,7 @@ fn tree_reparent() {
             link: arm,
             new_parent: cube,
             keep_world_pose: true,
+            at: riggen_core::JointState::default(),
         })
         .unwrap();
         app.select(Selection::Link(arm));
@@ -994,6 +995,70 @@ fn tree_drag_ghost() {
                 over: Some(root.to_string()),
                 allowed: true,
             })
+        );
+    });
+}
+
+/// A drop while posing keeps the part where the user sees it: with the
+/// hinge swung 45°, dragging `cube` onto the swung `arm` reparents at the
+/// current `q`, every instance stays put, and the origin is not the one
+/// the zero configuration would have written.
+#[test]
+fn tree_reparent_posed() {
+    scenario("tree_reparent_posed", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let cube = open_link(app, "cube.obj");
+        let cube_joint = app.robot().parent_joint(cube).unwrap();
+        let mut edited = app.robot().joints[&cube_joint].clone();
+        edited.origin = Pose::from_translation(DVec3::new(1.5, 0.0, 0.0));
+        app.apply(Command::SetJoint(cube_joint, edited)).unwrap();
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        let hinge = app.robot().parent_joint(arm).unwrap();
+        app.set_joint_value(hinge, std::f64::consts::FRAC_PI_4);
+        app.fit_view_now();
+        settle(harness);
+        let before = harness.state().debug_state();
+        let depth = harness.state().history().undo_depth();
+
+        let from = harness.get_by_label("cube").rect().center();
+        let to = harness.get_by_label("arm").rect().center();
+        synthetic_drag(harness, from, to, 6);
+        settle(harness);
+
+        let app = harness.state();
+        let state = app.debug_state();
+        assert_eq!(app.history().undo_depth(), depth + 1, "one Reparent");
+        assert_eq!(app.robot().joints[&cube_joint].parent, arm);
+        assert!(
+            (app.joint_value(hinge) - std::f64::consts::FRAC_PI_4).abs() < 1e-12,
+            "still posed"
+        );
+        for (was, is) in before.instances.iter().zip(&state.instances) {
+            assert_eq!(was.link, is.link);
+            for k in 0..3 {
+                assert!(
+                    (was.position[k] - is.position[k]).abs() < 1e-5,
+                    "{:?} moved: {:?} → {:?}",
+                    was.link,
+                    was.position,
+                    is.position
+                );
+            }
+        }
+        // In the zero configuration the cube would sit at (1.5, 0, -0.5) in
+        // the arm's frame; posed, the arm's frame is turned 45° about y.
+        let origin = app.robot().joints[&cube_joint].origin.t;
+        assert!(
+            (origin - DVec3::new(1.5, 0.0, -0.5)).length() > 1e-3,
+            "{origin}"
         );
     });
 }

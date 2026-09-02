@@ -499,3 +499,24 @@ def test_a_bad_decomposition_is_refused_before_the_document(pendulum_api: riggen
         with pytest.raises(ValueError):
             arm.collision = bad
         assert arm.collision == before
+
+
+def test_reparent_at_q_keeps_the_posed_world_pose(pendulum_api: riggen.Robot) -> None:
+    """``reparent(q=)`` keeps the part where it is *at that configuration*;
+    the default is the zero configuration, where the posed part would sit
+    elsewhere."""
+    robot = pendulum_api
+    arm, hinge = robot.link("arm"), robot.joint("hinge")
+    tip = arm.add_link("tip", Fixed((0, 0, 1)))
+    q = {hinge: 0.7}
+    at_zero, before = robot.fk()["tip"], robot.fk(q)["tip"]
+    tip.reparent(robot.root, q=q)
+    assert tip.parent == robot.root
+    after = robot.fk(q)["tip"]
+    assert close(after.xyz, before.xyz) and close(after.quat, before.quat, eps=1e-9)
+    # Under the root the tip no longer turns with the hinge: it stays at the
+    # posed place, which is not where the zero configuration had it.
+    assert not close(after.xyz, at_zero.xyz, eps=1e-6)
+    # Names resolve in Python first, as ``fk``'s do.
+    with pytest.raises(KeyError):
+        tip.reparent(arm, q={"no_such_joint": 0.1})

@@ -858,7 +858,7 @@ the id counter included. No `History`: a script has no undo.
 | `set_joint(joint, doc)` | `SetJoint`; `parent` / `child` in the dict ignored |
 | `add_frame(name, link, *, pose)`, `remove_frame`, `rename_frame`, `set_frame(frame, doc)`, `frame(name)` | `AddFrame` (the id allocated there and returned), `RemoveFrame`, `RenameFrame`, `SetFrame`, a name lookup (ADR-0012) |
 | `move_joint_frame(joint, origin, axis)` | `MoveJointFrame` |
-| `reparent(link, new_parent, *, keep_world_pose)` | `Reparent` |
+| `reparent(link, new_parent, *, keep_world_pose, q=None)` | `Reparent`; `q` is the configuration kept (`at`) |
 | `set_root(link)` | `SetRoot` |
 | `set_link_material`, `upsert_material`, `remove_material`, `rename_material(from, to)` | `SetLinkMaterial`, `UpsertMaterial`, `RemoveMaterial`, `RenameMaterial` |
 | `set_asset(mesh, doc)` | `SetAsset`; the path absolutised, the hash recomputed |

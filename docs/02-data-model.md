@@ -177,7 +177,7 @@ pub enum Command {
     AddGeom(LinkId, Geom), RemoveGeom(LinkId, GeomId), SetGeomPose(LinkId, GeomId, Pose),
     SetJoint(JointId, Joint),                                  // one gesture = one SetJoint; parent/child in the value are ignored
     MoveJointFrame { joint: JointId, origin: Pose, axis: DVec3 },  // moves the pivot, not the geometry
-    Reparent { link: LinkId, new_parent: LinkId, keep_world_pose: bool },
+    Reparent { link: LinkId, new_parent: LinkId, keep_world_pose: bool, at: JointState },  // `at`: the configuration kept
     SetLinkMaterial(LinkId, Option<String>), UpsertMaterial(String, Material), RemoveMaterial(String),
     RenameMaterial { from: String, to: String },               // every link's reference follows
     SetAsset(MeshId, MeshAsset),                               // scale / fix-up edits
@@ -195,9 +195,9 @@ Joints are the edges of the tree (ADR-0005): a link arrives with its parent
 joint and leaves with its subtree, and "connect two links" *is* `Reparent`.
 There is no `AddJoint` / `RemoveJoint`. `Reparent` refuses the root and any
 `new_parent` inside the link's own subtree (`EditError::WouldCreateCycle`);
-with `keep_world_pose` it rewrites the joint origin from `fk` in the
-**zero configuration** so every world pose at `q = 0` is unchanged — the
-single most common assembly operation and the reason FK lives in core.
+with `keep_world_pose` it rewrites the joint origin from `fk` so every
+world pose **at the configuration `at`** is unchanged — the single most
+common assembly operation and the reason FK lives in core.
 `MoveJointFrame` is the other half of that pair, and the one the placement
 tools commit: it writes a new `origin` (the child link frame in the parent
 frame) and `axis` (in the **new** child frame — the joint frame *is* the
@@ -206,9 +206,19 @@ own child joints' origins, its frames and an `Override` inertial through
 `origin_new⁻¹ ∘ origin_old`, so no world pose at `q = 0` changes and only
 the pivot moves. `CollisionPolicy::Meshes` and `Primitives` poses are not
 re-expressed and do move — a backlog line. `Reparent` moves a link between parents; `MoveJointFrame`
-moves where a link's joint turns. Both work in the zero configuration
-(plans/m2-placement-ux OPEN 1); the app resets `q` before entering an
-editing tool. `SetActuators` is the whole-model apply (ADR-0014): every movable joint that
+moves where a link's joint turns. `MoveJointFrame` works in the zero
+configuration (plans/m2-placement-ux OPEN 1); the app resets `q` before
+entering an editing tool. **`Reparent` is the one frame-rewriting command
+allowed off it**: `at: JointState` is the configuration whose world poses
+are kept — the zero configuration by default, the current `q` from the
+tree drop, `q=` in the SDK — and the origin written is
+`world_at(new_parent)⁻¹ ∘ world_at(parent) ∘ origin`: the origin
+re-expressed from the old parent's frame to the new one's, both at `at`
+(the link's own joint value cancels; the joints *above* it are what move
+it), which reduces to the zero-configuration rewrite when `at` is zero. A tree
+edit is made while posing, and the part has to stay where the user sees
+it, not where it would sit at zero (plans/panels-and-numbers OPEN 4,
+decided 2026-09-02: this paragraph, no ADR). `SetActuators` is the whole-model apply (ADR-0014): every movable joint that
 does not follow another one gets the same actuator, in one command and one
 undo, because the uniform case is the common one and clicking seven joints is
 the tedium the app exists to remove. A follower is *skipped*, not refused —

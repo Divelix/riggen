@@ -133,7 +133,7 @@ current `q`, not at the zero configuration.
   link's own subtree, the root as source) shows `NotAllowed` instead.
   Scenario `tree_drag_ghost` captured mid-drag; `debug_state()` reports
   the drag.
-- [ ] Step 11 — `Reparent` at the current `q`. Core: `at: JointState`;
+- [x] Step 11 — `Reparent` at the current `q`. Core: `at: JointState`;
   origin = `world_q(new_parent)⁻¹ ∘ world_q(link) ∘ motion(kind, axis,
   q_link)⁻¹`, which reduces to today's formula at `q = 0`. Unit test: FK
   of every link at `q` is unchanged after a reparent at `q`, and at

@@ -82,6 +82,26 @@ fn pose_from(obj: Option<&Bound<'_, PyAny>>) -> PyResult<Pose> {
 }
 
 impl PyRobot {
+    /// `{joint id: value}` → a `JointState`, refusing an id that is not a
+    /// joint of the document (`UnknownId`).
+    fn joint_state(&self, py: Python<'_>, q: BTreeMap<u32, f64>) -> PyResult<JointState> {
+        let mut state = JointState::new();
+        for (joint, value) in q {
+            let id = JointId::from_raw(joint);
+            if !self.inner.joints.contains_key(&id) {
+                return Err(edit_error(
+                    py,
+                    EditError::UnknownId {
+                        kind: JointId::KIND,
+                        id: id.to_string(),
+                    },
+                ));
+            }
+            state.set(id, value);
+        }
+        Ok(state)
+    }
+
     /// Runs `f` on a clone; the document changes only if `f` succeeds.
     fn commit<T>(&mut self, f: impl FnOnce(&mut Robot) -> PyResult<T>) -> PyResult<T> {
         let mut next = self.inner.clone();
@@ -533,20 +553,25 @@ impl PyRobot {
     /// `Reparent`: hangs `link` (with its subtree) under `new_parent`. With
     /// `keep_world_pose` the joint origin is rewritten so nothing moves at
     /// `q = 0`; without it the origin is kept and the part jumps.
-    #[pyo3(signature = (link, new_parent, *, keep_world_pose = false))]
+    /// `q` is the configuration the world pose is kept at (`{joint id:
+    /// value}`, missing joints at zero): the zero configuration by default.
+    #[pyo3(signature = (link, new_parent, *, keep_world_pose = false, q = None))]
     fn reparent(
         &mut self,
         py: Python<'_>,
         link: u32,
         new_parent: u32,
         keep_world_pose: bool,
+        q: Option<BTreeMap<u32, f64>>,
     ) -> PyResult<()> {
+        let at = self.joint_state(py, q.unwrap_or_default())?;
         self.edit(
             py,
             Command::Reparent {
                 link: LinkId::from_raw(link),
                 new_parent: LinkId::from_raw(new_parent),
                 keep_world_pose,
+                at,
             },
         )?;
         Ok(())
@@ -652,20 +677,7 @@ impl PyRobot {
     /// `q` (`{joint id: radians or meters}`, missing joints at zero), as
     /// `{link id: pose}`.
     fn fk(&self, py: Python<'_>, q: BTreeMap<u32, f64>) -> PyResult<Py<PyDict>> {
-        let mut state = JointState::new();
-        for (joint, value) in q {
-            let id = JointId::from_raw(joint);
-            if !self.inner.joints.contains_key(&id) {
-                return Err(edit_error(
-                    py,
-                    EditError::UnknownId {
-                        kind: JointId::KIND,
-                        id: id.to_string(),
-                    },
-                ));
-            }
-            state.set(id, value);
-        }
+        let state = self.joint_state(py, q)?;
         let world = riggen_core::fk(&self.inner, &state);
         self.map(py, world.iter().map(|(id, pose)| (*id, pose)))
     }
@@ -674,20 +686,7 @@ impl PyRobot {
     /// `world(parent) ∘ frame.pose` (ADR-0012). `fk` itself stays links
     /// only, because it is the export oracle.
     fn fk_frames(&self, py: Python<'_>, q: BTreeMap<u32, f64>) -> PyResult<Py<PyDict>> {
-        let mut state = JointState::new();
-        for (joint, value) in q {
-            let id = JointId::from_raw(joint);
-            if !self.inner.joints.contains_key(&id) {
-                return Err(edit_error(
-                    py,
-                    EditError::UnknownId {
-                        kind: JointId::KIND,
-                        id: id.to_string(),
-                    },
-                ));
-            }
-            state.set(id, value);
-        }
+        let state = self.joint_state(py, q)?;
         let world = riggen_core::frames(&self.inner, &state);
         self.map(py, world.iter().map(|(id, pose)| (*id, pose)))
     }
