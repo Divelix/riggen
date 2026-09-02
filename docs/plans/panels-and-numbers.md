@@ -115,7 +115,7 @@ current `q`, not at the zero configuration.
   select pick and therefore clears nothing. Scenario: select a joint by
   its glyph, click the background → `Selection::None`; repeat under Place
   joint → the joint stays selected.
-- [ ] Step 8 — Per-geom collision editing for `Meshes`: per geom the pose
+- [x] Step 8 — Per-geom collision editing for `Meshes`: per geom the pose
   rows (scrubbing, from step 3), a remove button, and "Add file…" through
   the `FileSource` seam (ADR-0017) so it works in the web build; each
   commit is one `SetCollision`. Scenario `properties_collision_meshes`:

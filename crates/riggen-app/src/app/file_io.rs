@@ -345,6 +345,53 @@ impl RiggenApp {
             .map_err(|e| e.to_string())
     }
 
+    /// A collision mesh of the link's own (`CollisionPolicy::Meshes`), read
+    /// through the file seam like a visual (ADR-0017): appended to the
+    /// list, or starting one when the policy was something else. One
+    /// `SetCollision`.
+    pub fn add_collision_mesh_to_link(
+        &mut self,
+        link: LinkId,
+        path: &Path,
+    ) -> Result<GeomId, String> {
+        let at = riggen_core::absolute(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut geoms = match self.robot.links.get(&link).map(|l| &l.collision) {
+            Some(riggen_core::CollisionPolicy::Meshes(geoms)) => geoms.clone(),
+            Some(_) => Vec::new(),
+            None => return Err(format!("no link {link}")),
+        };
+        let (mesh, _) = self.register_mesh(&at)?;
+        let geom = self.geom_for(mesh);
+        let id = geom.id;
+        geoms.push(geom);
+        self.apply(Command::SetCollision(
+            link,
+            riggen_core::CollisionPolicy::Meshes(geoms),
+        ))
+        .map(|_| id)
+        .map_err(|e| e.to_string())
+    }
+
+    /// The dialog behind Collision › "Add file…", the twin of
+    /// [`add_mesh_dialog`](Self::add_mesh_dialog).
+    pub(crate) fn add_collision_mesh_dialog(&mut self, link: LinkId) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = link;
+            self.status = Some("no filesystem in the browser; drop files onto the window".into());
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("Meshes (STL, OBJ)", &MESH_EXTENSIONS)
+                .pick_file()
+                && let Err(err) = self.add_collision_mesh_to_link(link, &path)
+            {
+                self.status = Some(err);
+            }
+        }
+    }
+
     /// The dialog behind "Add mesh to this link…".
     pub(crate) fn add_mesh_dialog(&mut self, link: LinkId) {
         #[cfg(target_arch = "wasm32")]

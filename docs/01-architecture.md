@@ -338,8 +338,10 @@ closes.
   entries; mass) and, beside them, what the meshes say (mass, CoM,
   principal moments) or why they say nothing ("open mesh: <file>" in
   warning colour) — and **Collision** — the policy combo (None / Same as
-  visual / Convex hull / Convex decomposition / Primitives; `Meshes` shown
-  read-only when a URDF import carries it), for Primitives the list
+  visual / Convex hull / Convex decomposition / Primitives; `Meshes` is
+  not offered but, when an import carries it, edited geom by geom: the
+  file, pose rows, Remove, and "Add file…" through the file seam, each
+  commit one `SetCollision`), for Primitives the list
   with "+ Box / Cylinder / Sphere / Capsule" (each fitted to the link's
   meshes on creation), Fit to mesh, Remove, pose and size fields, and for
   the decomposition its three parameters (max pieces, voxel grid,

@@ -604,6 +604,7 @@ impl RiggenApp {
     pub(crate) fn properties_panel(&mut self, ui: &mut egui::Ui) {
         let mut commands: Vec<Command> = Vec::new();
         let mut add_mesh_to: Option<LinkId> = None;
+        let mut add_collision_to: Option<LinkId> = None;
         egui::Panel::right("properties_panel")
             .resizable(true)
             .default_size(380.0)
@@ -615,7 +616,13 @@ impl RiggenApp {
                         ui.weak("Nothing selected");
                     }
                     Selection::Link(link) => {
-                        self.link_properties(ui, link, &mut commands, &mut add_mesh_to);
+                        self.link_properties(
+                            ui,
+                            link,
+                            &mut commands,
+                            &mut add_mesh_to,
+                            &mut add_collision_to,
+                        );
                     }
                     Selection::Joint(joint) => self.joint_properties(ui, joint, &mut commands),
                     Selection::Frame(frame) => self.frame_properties(ui, frame, &mut commands),
@@ -641,6 +648,9 @@ impl RiggenApp {
         if let Some(link) = add_mesh_to {
             self.add_mesh_dialog(link);
         }
+        if let Some(link) = add_collision_to {
+            self.add_collision_mesh_dialog(link);
+        }
     }
 
     fn link_properties(
@@ -649,6 +659,7 @@ impl RiggenApp {
         link: LinkId,
         commands: &mut Vec<Command>,
         add_mesh_to: &mut Option<LinkId>,
+        add_collision_to: &mut Option<LinkId>,
     ) {
         let Some(data) = self.robot.links.get(&link).cloned() else {
             return;
@@ -760,7 +771,14 @@ impl RiggenApp {
         self.inertial_properties(ui, link, &data.inertial, base.with("inertial"), commands);
 
         ui.add_space(8.0);
-        self.collision_properties(ui, link, &data.collision, base.with("collision"), commands);
+        self.collision_properties(
+            ui,
+            link,
+            &data.collision,
+            base.with("collision"),
+            commands,
+            add_collision_to,
+        );
     }
 
     /// Every vertex of the link's visual meshes, in the link frame: what a
@@ -823,8 +841,10 @@ impl RiggenApp {
 
     /// Properties › Collision: the policy combo; for `Primitives` the list
     /// with add (fitted to the meshes on creation) / remove / fit-to-mesh
-    /// and each shape's pose and size; `Meshes` read-only. Every commit is
-    /// one `SetCollision`.
+    /// and each shape's pose and size; for `Meshes` each geom's file, pose
+    /// rows and Remove, plus "Add file…" (`add_collision_to`, answered by
+    /// the dialog once the panel's borrows are done). Every commit is one
+    /// `SetCollision`.
     fn collision_properties(
         &mut self,
         ui: &mut egui::Ui,
@@ -832,6 +852,7 @@ impl RiggenApp {
         policy: &CollisionPolicy,
         base: egui::Id,
         commands: &mut Vec<Command>,
+        add_collision_to: &mut Option<LinkId>,
     ) {
         let decomposition = self.decomp_readout(link, policy);
         let points = self.link_points(link);
@@ -1011,14 +1032,51 @@ impl RiggenApp {
                 }
             }
             CollisionPolicy::Meshes(geoms) => {
-                ui.weak("collision meshes from the import; edit the files to change them");
-                for g in geoms {
+                ui.horizontal(|ui| {
+                    ui.weak("collision meshes of their own, in the link frame");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Add file…").clicked() {
+                            *add_collision_to = Some(link);
+                        }
+                    });
+                });
+                if geoms.is_empty() {
+                    ui.weak("none left: nothing collides");
+                }
+                let mut next = geoms.clone();
+                let mut edited = false;
+                let mut removed: Option<usize> = None;
+                for (i, g) in geoms.iter().enumerate() {
+                    let gid = base.with(("mesh", g.id));
                     let file = assets
                         .get(&g.mesh)
                         .and_then(|a| a.path.file_name())
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_else(|| g.mesh.to_string());
-                    ui.label(file);
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(&file).strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("Remove").clicked() {
+                                removed = Some(i);
+                            }
+                        });
+                    });
+                    egui::Grid::new(gid.with("grid"))
+                        .num_columns(2)
+                        .show(ui, |ui| {
+                            if let Some(pose) = pose_rows(ui, state, gid.with("pose"), &g.pose) {
+                                next[i].pose = pose;
+                                edited = true;
+                            }
+                        });
+                }
+                if let Some(i) = removed {
+                    next.remove(i);
+                    edited = true;
+                }
+                if edited {
+                    commands.push(Command::SetCollision(link, CollisionPolicy::Meshes(next)));
                 }
             }
             CollisionPolicy::None => {

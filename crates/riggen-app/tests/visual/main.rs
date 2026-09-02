@@ -878,6 +878,126 @@ fn properties_link() {
     });
 }
 
+/// Properties › Collision with a `Meshes` policy is editable geom by
+/// geom: the fore link of the imported arm carries `fore_hull.stl`; its
+/// pose is typed, a cube is added through the file seam, the hull removed
+/// by its button, each one `SetCollision` — and the export writes the
+/// collision meshes that remain.
+#[test]
+fn properties_collision_meshes() {
+    scenario("properties_collision_meshes", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("arm/arm.urdf"))
+            .expect("the sample URDF opens");
+        app.set_show_collision(true);
+        let fore = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| matches!(l.collision, riggen_core::CollisionPolicy::Meshes(_)))
+            .expect("fore has a collision mesh of its own")
+            .0;
+        assert_eq!(app.robot().links[&fore].name, "fore");
+        app.select(Selection::Link(fore));
+        app.fit_view_now();
+        settle(harness);
+        let depth = harness.state().history().undo_depth();
+
+        // "z" fields in panel order: the visual geom's position, the CoM
+        // of the inertial the import carried, then the collision mesh's.
+        type_into(harness, "z", 2, "0.05");
+        let geoms = |app: &riggen_app::RiggenApp| match &app.robot().links[&fore].collision {
+            riggen_core::CollisionPolicy::Meshes(g) => g.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(geoms(harness.state()).len(), 1);
+        assert!((geoms(harness.state())[0].pose.t.z - 0.05).abs() < 1e-9);
+        assert_eq!(harness.state().history().undo_depth(), depth + 1);
+
+        // A second file, read through the seam; a centimetre cube.
+        harness.state_mut().set_import_scale(0.01);
+        harness
+            .state_mut()
+            .add_collision_mesh_to_link(fore, &fixture("cube_binary.stl"))
+            .expect("the cube adds as a collision mesh");
+        settle(harness);
+        assert_eq!(geoms(harness.state()).len(), 2);
+        assert_eq!(harness.state().history().undo_depth(), depth + 2);
+
+        // Remove the hull: the visual geom's Remove is first, then the
+        // collision meshes in order.
+        harness
+            .get_all_by_label("Remove")
+            .nth(1)
+            .expect("the hull's Remove")
+            .click();
+        harness.step();
+        harness.step();
+        let left = geoms(harness.state());
+        assert_eq!(left.len(), 1);
+        assert_eq!(harness.state().history().undo_depth(), depth + 3);
+        let cube = harness.state().robot().assets[&left[0].mesh].path.clone();
+        assert!(cube.ends_with("cube_binary.stl"), "{}", cube.display());
+        assert_eq!(
+            harness
+                .state()
+                .debug_state()
+                .instances
+                .iter()
+                .filter(|i| i.collision)
+                .count(),
+            2,
+            "the box on base and the cube on fore"
+        );
+        settle(harness);
+    });
+}
+
+/// After the edits above, the export writes the collision mesh that
+/// remains and not the one that went. No golden: the status line names
+/// the scratch directory.
+#[test]
+fn export_writes_the_collision_meshes_that_remain() {
+    with_app(|harness| {
+        let dir = scratch_dir("collision_meshes_export");
+        let app = harness.state_mut();
+        app.open_path(&fixture("arm/arm.urdf"))
+            .expect("the sample URDF opens");
+        let fore = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| matches!(l.collision, riggen_core::CollisionPolicy::Meshes(_)))
+            .unwrap()
+            .0;
+        app.set_import_scale(0.01);
+        app.add_collision_mesh_to_link(fore, &fixture("cube_binary.stl"))
+            .unwrap();
+        let riggen_core::CollisionPolicy::Meshes(geoms) =
+            app.robot().links[&fore].collision.clone()
+        else {
+            unreachable!()
+        };
+        app.apply(Command::SetCollision(
+            fore,
+            riggen_core::CollisionPolicy::Meshes(geoms[1..].to_vec()),
+        ))
+        .unwrap();
+
+        app.open_export_dialog();
+        app.set_export_dir(&dir);
+        app.set_export_options(riggen_export::ExportOptions {
+            format: riggen_export::Format::BOTH,
+            mesh_paths: riggen_export::MeshPathStyle::Relative,
+            floating_base: false,
+        });
+        assert!(app.run_export(), "{:?}", app.export_dialog().errors);
+        assert!(dir.join("meshes/cube_binary.stl").is_file());
+        assert!(!dir.join("meshes/fore_hull.stl").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    });
+}
+
 /// Clicking empty space clears a joint or frame selection: the viewport
 /// reports a click that missed everything as an event, and the app clears
 /// whatever was selected on it. Under a snapping tool no select pick is
