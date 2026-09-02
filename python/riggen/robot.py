@@ -787,12 +787,20 @@ class Link(_Handle):
         cannot be removed."""
         self.robot._inner.remove_link(self.id)
 
-    def reparent(self, new_parent: Link, *, keep_world_pose: bool = True) -> None:
+    def reparent(
+        self,
+        new_parent: Link,
+        *,
+        keep_world_pose: bool = True,
+        q: dict[str | Joint, float] | None = None,
+    ) -> None:
         """Hangs this link (with its subtree) under ``new_parent``. With
-        ``keep_world_pose`` the joint origin is rewritten so nothing moves
-        in the zero configuration; without it the origin is kept and the
-        part jumps."""
-        self.robot._inner.reparent(self.id, new_parent.id, keep_world_pose=keep_world_pose)
+        ``keep_world_pose`` the joint origin is rewritten so nothing moves at
+        the configuration ``q`` (joint values by name or handle, missing
+        joints at zero — the zero configuration by default); without it the
+        origin is kept and the part jumps."""
+        state = {(self.robot.joint(k).id if isinstance(k, str) else k.id): float(v) for k, v in (q or {}).items()}
+        self.robot._inner.reparent(self.id, new_parent.id, keep_world_pose=keep_world_pose, q=state)
 
     def place(self, world: PoseLike) -> None:
         """Writes this link's joint origin so the link sits at ``world`` in

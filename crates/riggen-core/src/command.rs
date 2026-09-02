@@ -71,6 +71,11 @@ pub enum Command {
         link: LinkId,
         new_parent: LinkId,
         keep_world_pose: bool,
+        /// The configuration whose world poses `keep_world_pose`
+        /// preserves: `JointState::default()` is the zero configuration,
+        /// the tree drop passes the current `q` so a posed part stays
+        /// where the user sees it (plans/panels-and-numbers OPEN 4).
+        at: JointState,
     },
     SetLinkMaterial(LinkId, Option<String>),
     /// Adds or replaces a material by name.
@@ -363,6 +368,7 @@ impl Command {
                 link,
                 new_parent,
                 keep_world_pose,
+                at,
             } => {
                 require_link(robot, link)?;
                 require_link(robot, new_parent)?;
@@ -376,9 +382,19 @@ impl Command {
                 // document that somehow bypassed validation is reported as
                 // unknown rather than silently given a joint.
                 let joint_id = robot.parent_joint(link).ok_or_else(|| unknown(link))?;
+                // `world(link) = world(parent) ∘ origin ∘ motion(q_link)`, so
+                // keeping `link` where it is at `at` means re-expressing the
+                // origin from the old parent's frame to the new parent's, both
+                // at `at`: `world_at(new_parent)⁻¹ ∘ world_at(parent) ∘ origin`
+                // (the link's own motion cancels; upstream joints are what
+                // move it). At `at = 0` this is the zero-configuration rewrite.
                 let origin = keep_world_pose.then(|| {
-                    let world = fk(robot, &JointState::default());
-                    world[&new_parent].inverse().compose(&world[&link])
+                    let world = fk(robot, &at);
+                    let joint = &robot.joints[&joint_id];
+                    world[&new_parent]
+                        .inverse()
+                        .compose(&world[&joint.parent])
+                        .compose(&joint.origin)
                 });
                 let joint = joint_mut(robot, joint_id)?;
                 joint.parent = new_parent;
@@ -997,6 +1013,7 @@ mod tests {
                 link: arm,
                 new_parent: tail,
                 keep_world_pose: true,
+                at: JointState::default(),
             },
         )
         .unwrap();
@@ -1138,7 +1155,8 @@ mod tests {
                 Command::Reparent {
                     link: root,
                     new_parent: tail,
-                    keep_world_pose: false
+                    keep_world_pose: false,
+                    at: JointState::default(),
                 }
             ),
             Err(EditError::CannotReparentRoot)
@@ -1150,7 +1168,8 @@ mod tests {
                     Command::Reparent {
                         link: arm,
                         new_parent,
-                        keep_world_pose: true
+                        keep_world_pose: true,
+                        at: JointState::default(),
                     }
                 ),
                 Err(EditError::WouldCreateCycle {
@@ -1173,6 +1192,7 @@ mod tests {
                 link: hand,
                 new_parent: tail,
                 keep_world_pose: false,
+                at: JointState::default(),
             },
         )
         .unwrap();
@@ -1193,6 +1213,7 @@ mod tests {
                 link: hand,
                 new_parent: tail,
                 keep_world_pose: true,
+                at: JointState::default(),
             },
         )
         .unwrap();
@@ -1208,6 +1229,66 @@ mod tests {
         assert_pose_eq(
             &robot.joints[&wrist].origin,
             &Pose::new(DVec3::new(2.0, 1.0, 0.0), DQuat::from_rotation_z(FRAC_PI_2)),
+        );
+    }
+
+    /// `Reparent { at }`: with the shoulder posed, moving `tail` under the
+    /// posed `hand` at that `q` leaves every world pose at `q` where it
+    /// was — and the same reparent in the zero configuration would not,
+    /// which is what the field is for.
+    #[test]
+    fn reparent_at_q_keeps_the_posed_world_pose() {
+        let (mut robot, [arm, hand, _, tail]) = arm();
+        let shoulder = robot.parent_joint(arm).unwrap();
+        let mut joint = robot.joints[&shoulder].clone();
+        joint.kind = crate::robot::JointKind::Revolute;
+        joint.axis = DVec3::Z;
+        joint.limits = Some(crate::robot::Limits {
+            lower: -3.0,
+            upper: 3.0,
+            effort: 0.0,
+            velocity: 0.0,
+        });
+        apply(&mut robot, Command::SetJoint(shoulder, joint)).unwrap();
+        let mut at = JointState::default();
+        at.set(shoulder, 0.7);
+        let before = fk(&robot, &at);
+        let zero = robot.clone();
+
+        apply(
+            &mut robot,
+            Command::Reparent {
+                link: tail,
+                new_parent: hand,
+                keep_world_pose: true,
+                at: at.clone(),
+            },
+        )
+        .unwrap();
+        assert_eq!(validate(&robot), Ok(()));
+        let after = fk(&robot, &at);
+        assert_eq!(before.len(), after.len());
+        for (link, pose) in &before {
+            assert_pose_eq(&after[link], pose);
+        }
+
+        let mut robot0 = zero;
+        apply(
+            &mut robot0,
+            Command::Reparent {
+                link: tail,
+                new_parent: hand,
+                keep_world_pose: true,
+                at: JointState::default(),
+            },
+        )
+        .unwrap();
+        let after0 = fk(&robot0, &at);
+        assert!(
+            !after0[&tail].t.abs_diff_eq(before[&tail].t, 1e-9),
+            "the zero-configuration reparent moved the posed tail: {:?} vs {:?}",
+            after0[&tail].t,
+            before[&tail].t
         );
     }
 

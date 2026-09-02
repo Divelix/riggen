@@ -226,10 +226,13 @@ impl RiggenApp {
                     }
                 }
                 TreeAction::Reparent { link, new_parent } => {
+                    // At the current `q`: a drop while posing keeps the part
+                    // where the user sees it, not where it would sit at zero.
                     let _ = self.apply(Command::Reparent {
                         link,
                         new_parent,
                         keep_world_pose: true,
+                        at: self.q.clone(),
                     });
                 }
             }

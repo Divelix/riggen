@@ -1,0 +1,267 @@
+{
+  "camera": {
+    "eye": [
+      4.048861,
+      -3.298861,
+      3.078992
+    ],
+    "target": [
+      0.75,
+      0.0,
+      0.53033
+    ],
+    "up": [
+      -0.339005,
+      0.339005,
+      0.877583
+    ],
+    "distance": 5.316074,
+    "yaw_deg": -45.0,
+    "pitch_deg": 28.64789,
+    "fov_y_deg": 45.0,
+    "near": 0.016953,
+    "far": 1695.311157,
+    "projection": "Perspective",
+    "animating": false,
+    "aspect": 0.960187,
+    "view": [
+      [
+        0.707107,
+        -0.339005,
+        0.620544,
+        0.0
+      ],
+      [
+        0.707107,
+        0.339005,
+        -0.620545,
+        0.0
+      ],
+      [
+        0.0,
+        0.877583,
+        0.479426,
+        0.0
+      ],
+      [
+        -0.53033,
+        -0.211155,
+        -6.035736,
+        1.0
+      ]
+    ],
+    "proj": [
+      [
+        2.514315,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        2.414213,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        -1.00001,
+        -1.0
+      ],
+      [
+        0.0,
+        0.0,
+        -0.016953,
+        0.0
+      ]
+    ]
+  },
+  "document": {
+    "file": "pendulum.riggen",
+    "name": "pendulum",
+    "dirty": true,
+    "import_scale": 1.0,
+    "links": [
+      {
+        "id": "l0",
+        "name": "base_link",
+        "parent_joint": null,
+        "geoms": 1,
+        "material": "aluminium"
+      },
+      {
+        "id": "l5",
+        "name": "arm",
+        "parent_joint": "j6",
+        "geoms": 1,
+        "material": "PLA"
+      },
+      {
+        "id": "l9",
+        "name": "cube",
+        "parent_joint": "j10",
+        "geoms": 1,
+        "material": null
+      }
+    ],
+    "joints": [
+      {
+        "id": "j6",
+        "name": "hinge",
+        "kind": "Revolute",
+        "parent": "l0",
+        "child": "l5",
+        "q": 0.785398
+      },
+      {
+        "id": "j10",
+        "name": "cube_joint",
+        "kind": "Fixed",
+        "parent": "l5",
+        "child": "l9",
+        "q": 0.0
+      }
+    ],
+    "selection": null
+  },
+  "ui": {
+    "tool": "Select",
+    "renaming": null,
+    "windows": [
+      "joints"
+    ],
+    "modal": null,
+    "title": "pendulum.riggen* — riggen"
+  },
+  "instances": [
+    {
+      "id": 0,
+      "link": "l0",
+      "geom": "g2",
+      "visible": true,
+      "triangles": 12,
+      "bounds": [
+        [
+          -0.5,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.5,
+          0.5,
+          0.5
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.77,
+        0.78,
+        0.8,
+        1.0
+      ]
+    },
+    {
+      "id": 1,
+      "link": "l5",
+      "geom": "g4",
+      "visible": true,
+      "triangles": 12,
+      "bounds": [
+        [
+          -0.5,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.5,
+          0.5,
+          0.5
+        ]
+      ],
+      "position": [
+        0.353553,
+        0.0,
+        0.853553
+      ],
+      "color": [
+        0.9,
+        0.55,
+        0.2,
+        1.0
+      ]
+    },
+    {
+      "id": 2,
+      "link": "l9",
+      "geom": "g8",
+      "visible": true,
+      "triangles": 12,
+      "bounds": [
+        [
+          -0.5,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.5,
+          0.5,
+          0.5
+        ]
+      ],
+      "position": [
+        1.5,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.55,
+        0.65,
+        0.78,
+        1.0
+      ]
+    }
+  ],
+  "selection": {
+    "hovered": null,
+    "selected": null
+  },
+  "gizmo": null,
+  "glyphs": [
+    {
+      "joint": "j6",
+      "name": "hinge",
+      "kind": "Revolute",
+      "origin": [
+        0.0,
+        0.0,
+        0.5
+      ],
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "size": 1.118034,
+      "q": 0.785398,
+      "screen": [
+        555.676514,
+        409.513031
+      ],
+      "active": false,
+      "hovered": false
+    }
+  ],
+  "snap": null,
+  "status": null,
+  "viewport_rect": [
+    240.0,
+    23.0,
+    1060.0,
+    877.0
+  ]
+}
