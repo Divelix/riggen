@@ -14,10 +14,11 @@ pub mod example;
 pub mod jobs;
 
 pub use app::{
-    ALIGN_PROMPT, ALIGN_WRONG_LINK, COPIED_STATUS, DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING,
-    DroppedSet, ExportDialog, Files, GLYPH_HOVER_RADIUS, GizmoTarget, JointGlyph, PendingAction,
-    RiggenApp, SNAP_PIXEL_RADIUS, Selection, SnapCandidate, SnapKind, Tool, ZERO_CONFIG_STATUS,
-    align_transform, aligned_status, fmt_num, placed_status,
+    ALIGN_NEEDS_LINK, ALIGN_PROMPT, ALIGN_WRONG_LINK, COPIED_STATUS, DECOMP_CONSENT_BUTTON,
+    DECOMP_FREEZE_WARNING, DroppedSet, ExportDialog, Files, GLYPH_HOVER_RADIUS, GizmoTarget,
+    JointGlyph, MOVE_NEEDS_TARGET, MOVE_ROOT, PLACE_JOINT_NEEDS_JOINT, PendingAction,
+    ROTATE_NEEDS_TARGET, ROTATE_ROOT, RiggenApp, SNAP_PIXEL_RADIUS, Selection, SnapCandidate,
+    SnapKind, Tool, ZERO_CONFIG_STATUS, align_transform, aligned_status, fmt_num, placed_status,
 };
 
 #[cfg(target_arch = "wasm32")]

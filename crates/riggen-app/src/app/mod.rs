@@ -43,6 +43,10 @@ pub use panels::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING, fmt_num};
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 use snap::SnapCache;
 pub use snap::{SNAP_PIXEL_RADIUS, SnapCandidate, SnapKind, placed_status};
+pub use tool::{
+    ALIGN_NEEDS_LINK, MOVE_NEEDS_TARGET, MOVE_ROOT, PLACE_JOINT_NEEDS_JOINT, ROTATE_NEEDS_TARGET,
+    ROTATE_ROOT,
+};
 pub use tool::{Tool, ZERO_CONFIG_STATUS};
 
 /// The eframe app: one `Robot` and what is derived from it

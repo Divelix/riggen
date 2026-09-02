@@ -377,6 +377,7 @@ impl RiggenApp {
         self.sync_scene();
         let has_movable = self.has_movable_joint();
         self.joints_window.document_replaced(has_movable);
+        self.refresh_tool_status();
     }
 
     /// Whether anything in the document can be slid.
@@ -524,6 +525,7 @@ impl RiggenApp {
         };
         self.viewport.set_selected(instance);
         self.last_viewport_selected = self.viewport.selected();
+        self.refresh_tool_status();
     }
 
     /// The link whose instance the viewport's last click hit. Called once
@@ -538,6 +540,7 @@ impl RiggenApp {
         self.selection = hit
             .and_then(|h| self.link_of_instance(h.instance))
             .map_or(Selection::None, Selection::Link);
+        self.refresh_tool_status();
     }
 
     pub(crate) fn link_of_instance(&self, instance: InstanceId) -> Option<LinkId> {
@@ -624,6 +627,7 @@ impl RiggenApp {
         {
             self.selection = Selection::None;
         }
+        self.refresh_tool_status();
         self.sync_scene();
     }
 

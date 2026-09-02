@@ -101,7 +101,7 @@ current `q`, not at the zero configuration.
   switching another joint to Revolute does not reopen it; a new empty
   document does not open it. Every golden that loads a movable document
   will change — shown to the human, staged with `snapshots:`.
-- [ ] Step 6 — A tool says what it needs. Public constants in the style of
+- [x] Step 6 — A tool says what it needs. Public constants in the style of
   `ZERO_CONFIG_STATUS`, set on tool entry *and* on selection change while
   the tool is active: Move / Rotate with nothing or the root selected,
   Place joint without a joint selected, Align without a link selected.
