@@ -878,6 +878,85 @@ fn properties_link() {
     });
 }
 
+/// Properties numbers scrub: a horizontal drag on the hinge's origin `x`
+/// moves the arm in the viewport one `SetJoint` per frame, and the whole
+/// drag is one undo entry (docs/02-data-model.md §Commands and history,
+/// one gesture = one history entry). The golden shows the moved arm and
+/// the field reading what the drag produced.
+#[test]
+fn properties_scrub() {
+    scenario("properties_scrub", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        harness.get_by_label("hinge · revolute").click();
+        pump_rendered(harness, 4);
+        let depth = harness.state().history().undo_depth();
+        assert!(!harness.state().history().is_dirty());
+        let arm = harness
+            .state()
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id.to_string())
+            .unwrap();
+        let arm_x = |harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>| {
+            let state = harness.state().debug_state();
+            state
+                .instances
+                .iter()
+                .find(|i| i.link.as_deref() == Some(arm.as_str()))
+                .map(|i| i.position[0])
+                .expect("the arm's instance")
+        };
+        let rest = arm_x(harness);
+
+        // The joint's origin `x` is the first "x" field (the axis row is
+        // the second). Forty points to the right at the metre floor.
+        let field = harness
+            .get_all_by_label("x")
+            .next()
+            .expect("origin x")
+            .rect();
+        let from = field.center();
+        synthetic_drag(harness, from, from + egui::vec2(40.0, 0.0), 8);
+
+        let moved = arm_x(harness) - rest;
+        assert!(
+            (0.02..=0.05).contains(&moved),
+            "forty points at a millimetre a point moved the arm {moved} m"
+        );
+        let app = harness.state();
+        assert_eq!(app.history().undo_depth(), depth + 1, "one drag, one entry");
+        assert!(app.history().is_dirty());
+        assert_eq!(
+            harness
+                .get_all_by_label("x")
+                .next()
+                .unwrap()
+                .value()
+                .as_deref(),
+            Some(riggen_app::fmt_num(moved).as_str())
+        );
+
+        // One undo puts it back; redo brings the drag back for the golden.
+        assert!(harness.state_mut().undo());
+        settle(harness);
+        assert!(
+            (arm_x(harness) - rest).abs() < 1e-9,
+            "one undo restores the pre-drag pose"
+        );
+        assert!(!harness.state().history().is_dirty());
+        assert!(harness.state_mut().redo());
+        settle(harness);
+        assert!((arm_x(harness) - rest - moved).abs() < 1e-9);
+    });
+}
+
 /// Properties › Inertial on the pendulum's arm: switching the mode combo
 /// to Override seeds the fields from the computed values (one command), and
 /// the computed readout stays beside them for comparison. A small tensor
@@ -1451,6 +1530,45 @@ fn typing_origin_and_rpy_moves_the_arm() {
             .unwrap();
         assert!((hinge.limits.unwrap().upper - std::f64::consts::FRAC_PI_4).abs() < 1e-9);
         assert_eq!(app.history().undo_depth(), depth + 4);
+
+        // Escape reverts: the typed text is thrown away, now and next frame.
+        let field = harness.get_all_by_label("upper °").next().unwrap();
+        field.focus();
+        harness.step();
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        harness.step();
+        harness
+            .get_all_by_label("upper °")
+            .next()
+            .unwrap()
+            .type_text("99");
+        harness.step();
+        harness.key_press(egui::Key::Escape);
+        harness.step();
+        harness.step();
+        harness.step();
+        let app = harness.state();
+        let hinge = app
+            .robot()
+            .joints
+            .values()
+            .find(|j| j.name == "hinge")
+            .unwrap();
+        assert!((hinge.limits.unwrap().upper - std::f64::consts::FRAC_PI_4).abs() < 1e-9);
+        assert_eq!(
+            app.history().undo_depth(),
+            depth + 4,
+            "Escape committed nothing"
+        );
+        assert_eq!(
+            harness
+                .get_all_by_label("upper °")
+                .next()
+                .unwrap()
+                .value()
+                .as_deref(),
+            Some("45")
+        );
     });
 }
 
@@ -1469,8 +1587,10 @@ fn clicking_through_every_field_adds_no_history_entry() {
             harness.get_by_label(row).click();
             harness.step();
             let depth = harness.state().history().undo_depth();
+            // The name is a text input; every number is a scrubber.
             let fields: Vec<egui::Rect> = harness
                 .get_all_by_role(egui::accesskit::Role::TextInput)
+                .chain(harness.get_all_by_role(egui::accesskit::Role::SpinButton))
                 .map(|n| n.rect())
                 .collect();
             assert!(fields.len() >= 5, "{row}: {} fields", fields.len());

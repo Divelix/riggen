@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::inertial::{Inertial, InertialError, principal_moments};
 use riggen_core::{
-    ActuatorSpec, CollisionPolicy, Command, FrameId, InertialSpec, JointId, JointKind, JointState,
-    Limits, LinkId, Mimic, Pose, Primitive, fk,
+    ActuatorSpec, CollisionPolicy, Command, FrameId, GestureId, InertialSpec, JointId, JointKind,
+    JointState, Limits, LinkId, Mimic, Pose, Primitive, fk,
 };
 use riggen_mesh::{DecompParams, fit};
 
@@ -21,13 +21,42 @@ use crate::app::{RiggenApp, Selection};
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PropertiesState {
     drafts: HashMap<egui::Id, String>,
+    /// The scrub in flight this frame: the field being dragged names the
+    /// gesture its commands coalesce under (`History::apply_in_gesture`).
+    gesture: Option<GestureId>,
+    /// A scrub released this frame: the panel ends the gesture after
+    /// applying what it produced.
+    gesture_ended: bool,
 }
 
 impl PropertiesState {
     /// Drops every unfinished edit — the selection changed under it.
     pub(crate) fn clear(&mut self) {
         self.drafts.clear();
+        self.gesture = None;
+        self.gesture_ended = false;
     }
+}
+
+/// The floor of a scrubber's speed, per unit: what one point of drag is
+/// worth when the value is near zero and one percent of it would be
+/// nothing. Metres, degrees, kilograms, kg·m², plain numbers, kg/m³, counts.
+const STEP_M: f64 = 1e-3;
+const STEP_DEG: f64 = 0.1;
+const STEP_KG: f64 = 1e-3;
+const STEP_KGM2: f64 = 1e-9;
+const STEP_UNIT: f64 = 0.01;
+const STEP_DENSITY: f64 = 1.0;
+const STEP_INT: f64 = 1.0;
+
+/// A number field's resting width; the button grows for a longer number.
+const FIELD_WIDTH: f32 = 56.0;
+
+/// Blender's rule: one point of drag is one percent of the value, never
+/// less than the field's unit step, and a tenth of that with Ctrl.
+fn scrub_speed(value: f64, step: f64, fine: bool) -> f64 {
+    let speed = (value.abs() * 0.01).max(step);
+    if fine { speed / 10.0 } else { speed }
 }
 
 /// Document ↔ field unit conversion (radians ↔ degrees, or none).
@@ -280,7 +309,7 @@ fn default_limits(kind: JointKind) -> Limits {
 /// [`number_field`] compares through this function, so "differs" means
 /// "differs at the displayed precision" and the parser (`str::parse`)
 /// accepts both spellings.
-pub(crate) fn fmt_num(v: f64) -> String {
+pub fn fmt_num(v: f64) -> String {
     if !v.is_finite() {
         return format!("{v}");
     }
@@ -353,31 +382,64 @@ fn text_field(
     (response, committed)
 }
 
-/// A number field. `None` unless committed with a parseable value that
-/// differs from `value` (at the displayed precision).
+/// A number field that scrubs. A horizontal drag changes the value at
+/// [`scrub_speed`] per point, one `Set…` per frame under the field's
+/// gesture ([`PropertiesState::gesture`]) so the whole drag is one undo
+/// entry; a click opens the text editor, which commits on Enter or lost
+/// focus and reverts on Escape. `None` unless the value changed at the
+/// displayed precision ([`fmt_num`]). `step` is the unit floor of the
+/// speed; `label` names the field for the accessibility tree.
 fn number_field(
     ui: &mut egui::Ui,
     state: &mut PropertiesState,
     id: egui::Id,
     label: &egui::Response,
     value: f64,
+    step: f64,
 ) -> Option<f64> {
     let shown = fmt_num(value);
-    // Wide enough for what it shows: `-2.46284e-7` must read whole, not as
-    // a clipped `-2.46284` that looks like metres.
-    let text_width = ui
-        .painter()
-        .layout_no_wrap(
-            shown.clone(),
-            egui::TextStyle::Body.resolve(ui.style()),
-            egui::Color32::WHITE,
-        )
-        .size()
-        .x;
-    let width = (text_width + 12.0).max(56.0);
-    let (_, committed) = text_field(ui, state, id, label, &shown, width);
-    let parsed = committed?.trim().parse::<f64>().ok()?;
-    (parsed.is_finite() && fmt_num(parsed) != shown).then_some(parsed)
+    let fine = ui.input(|i| i.modifiers.ctrl);
+    let speed = scrub_speed(value, step, fine);
+    let mut edited: Option<f64> = None;
+    let response = ui
+        .scope(|ui| {
+            // The button's resting width and the text editor's, both.
+            ui.spacing_mut().interact_size.x = FIELD_WIDTH;
+            // The id `DragValue` takes: nothing allocates between here and
+            // its own `next_auto_id`.
+            let widget = ui.next_auto_id();
+            let response = ui.add(
+                egui::DragValue::from_get_set(|new| {
+                    if let Some(n) = new {
+                        edited = Some(n);
+                    }
+                    value
+                })
+                .speed(speed)
+                .custom_formatter(|v, _| fmt_num(v))
+                .custom_parser(|text| text.trim().parse::<f64>().ok().filter(|v| v.is_finite()))
+                .update_while_editing(false),
+            );
+            if response.lost_focus() {
+                // The editor closed this frame — committed on Enter or lost
+                // focus, or reverted on Escape — and that is the end of it.
+                // `DragValue` also stashes the text and would parse it once
+                // more next frame: a second commit, which renormalises an
+                // axis twice, and an Escape that commits after all.
+                ui.data_mut(|data| data.remove_temp::<String>(widget));
+            }
+            response
+        })
+        .inner
+        .labelled_by(label.id);
+    if response.dragged() {
+        state.gesture = Some(GestureId(id.value()));
+    }
+    if response.drag_stopped() {
+        state.gesture_ended = true;
+    }
+    let n = edited?;
+    (n.is_finite() && fmt_num(n) != shown).then_some(n)
 }
 
 /// Three labelled number fields in a row (`x y z`, `roll pitch yaw`).
@@ -388,12 +450,13 @@ fn vec3_row(
     id: egui::Id,
     labels: [&str; 3],
     v: DVec3,
+    step: f64,
 ) -> Option<DVec3> {
     let mut out = None;
     ui.horizontal(|ui| {
         for (i, label) in labels.iter().enumerate() {
             let tag = ui.label(*label);
-            if let Some(n) = number_field(ui, state, id.with(i), &tag, v[i]) {
+            if let Some(n) = number_field(ui, state, id.with(i), &tag, v[i], step) {
                 let mut w = v;
                 w[i] = n;
                 out = Some(w);
@@ -410,9 +473,10 @@ fn number_row(
     id: egui::Id,
     label: &str,
     value: f64,
+    step: f64,
 ) -> Option<f64> {
     let tag = ui.label(label);
-    let edited = number_field(ui, state, id, &tag, value);
+    let edited = number_field(ui, state, id, &tag, value, step);
     ui.end_row();
     edited
 }
@@ -435,7 +499,7 @@ fn pose_rows(
 ) -> Option<Pose> {
     let (xyz, rpy) = pose.to_xyz_rpy();
     ui.label("position");
-    let new_xyz = vec3_row(ui, state, id.with("xyz"), ["x", "y", "z"], xyz);
+    let new_xyz = vec3_row(ui, state, id.with("xyz"), ["x", "y", "z"], xyz, STEP_M);
     ui.end_row();
     ui.label("rotation °");
     let new_rpy = vec3_row(
@@ -444,6 +508,7 @@ fn pose_rows(
         id.with("rpy"),
         ["roll", "pitch", "yaw"],
         degrees(rpy),
+        STEP_DEG,
     );
     ui.end_row();
     match (new_xyz, new_rpy) {
@@ -474,8 +539,19 @@ impl RiggenApp {
                     Selection::Frame(frame) => self.frame_properties(ui, frame, &mut commands),
                 });
             });
+        // A scrub's commands coalesce under its gesture; release ends it
+        // after the last one lands (docs/02-data-model.md §Commands and
+        // history: one gesture = one history entry).
+        let gesture = self.props.gesture.take();
+        let ended = std::mem::take(&mut self.props.gesture_ended);
         for command in commands {
-            let _ = self.apply(command);
+            let _ = match gesture {
+                Some(g) => self.apply_in_gesture(command, g),
+                None => self.apply(command),
+            };
+        }
+        if ended {
+            self.end_gesture();
         }
         if let Some(link) = add_mesh_to {
             self.add_mesh_dialog(link);
@@ -560,9 +636,14 @@ impl RiggenApp {
                     }
                     if let Some(asset) = asset {
                         let mut edited = asset.clone();
-                        if let Some(scale) =
-                            number_row(ui, state, gid.with("scale"), "scale", asset.scale)
-                            && scale > 0.0
+                        if let Some(scale) = number_row(
+                            ui,
+                            state,
+                            gid.with("scale"),
+                            "scale",
+                            asset.scale,
+                            STEP_UNIT,
+                        ) && scale > 0.0
                         {
                             edited.scale = scale;
                         }
@@ -577,6 +658,7 @@ impl RiggenApp {
                             gid.with("fixup"),
                             ["roll", "pitch", "yaw"],
                             degrees(fix_rpy),
+                            STEP_DEG,
                         ) {
                             edited.fix_up = (deg != DVec3::ZERO)
                                 .then(|| Pose::from_xyz_rpy(DVec3::ZERO, radians(deg)).r);
@@ -766,9 +848,14 @@ impl RiggenApp {
                                     *pose = p;
                                 }
                                 ui.label("size m");
-                                if let Some(v) =
-                                    vec3_row(ui, state, pid.with("size"), ["x", "y", "z"], *size)
-                                    && v.min_element() > 0.0
+                                if let Some(v) = vec3_row(
+                                    ui,
+                                    state,
+                                    pid.with("size"),
+                                    ["x", "y", "z"],
+                                    *size,
+                                    STEP_M,
+                                ) && v.min_element() > 0.0
                                 {
                                     *size = v;
                                 }
@@ -778,9 +865,14 @@ impl RiggenApp {
                                 if let Some(p) = pose_rows(ui, state, pid.with("pose"), pose) {
                                     *pose = p;
                                 }
-                                if let Some(r) =
-                                    number_row(ui, state, pid.with("radius"), "radius m", *radius)
-                                    && r > 0.0
+                                if let Some(r) = number_row(
+                                    ui,
+                                    state,
+                                    pid.with("radius"),
+                                    "radius m",
+                                    *radius,
+                                    STEP_M,
+                                ) && r > 0.0
                                 {
                                     *radius = r;
                                 }
@@ -798,15 +890,25 @@ impl RiggenApp {
                                 if let Some(p) = pose_rows(ui, state, pid.with("pose"), pose) {
                                     *pose = p;
                                 }
-                                if let Some(r) =
-                                    number_row(ui, state, pid.with("radius"), "radius m", *radius)
-                                    && r > 0.0
+                                if let Some(r) = number_row(
+                                    ui,
+                                    state,
+                                    pid.with("radius"),
+                                    "radius m",
+                                    *radius,
+                                    STEP_M,
+                                ) && r > 0.0
                                 {
                                     *radius = r;
                                 }
-                                if let Some(l) =
-                                    number_row(ui, state, pid.with("length"), "length m", *length)
-                                    && l >= 0.0
+                                if let Some(l) = number_row(
+                                    ui,
+                                    state,
+                                    pid.with("length"),
+                                    "length m",
+                                    *length,
+                                    STEP_M,
+                                ) && l >= 0.0
                                 {
                                     *length = l;
                                 }
@@ -867,6 +969,7 @@ impl RiggenApp {
                             id.with("max_hulls"),
                             "max pieces",
                             params.max_hulls as f64,
+                            STEP_INT,
                         ) && v >= 1.0
                             && v <= MAX_DECOMP_HULLS as f64
                         {
@@ -878,6 +981,7 @@ impl RiggenApp {
                             id.with("resolution"),
                             "voxel grid",
                             params.resolution as f64,
+                            STEP_INT,
                         ) && v >= 1.0
                             && v <= MAX_DECOMP_RESOLUTION as f64
                         {
@@ -889,6 +993,7 @@ impl RiggenApp {
                             id.with("concavity"),
                             "concavity",
                             params.concavity,
+                            STEP_UNIT,
                         ) && (0.0..=1.0).contains(&v)
                         {
                             edited.concavity = v;
@@ -1031,8 +1136,14 @@ impl RiggenApp {
                                 ));
                             }
                             if let Some(d) = density_override
-                                && let Some(n) =
-                                    number_field(ui, state, base.with("density"), &tag, *d)
+                                && let Some(n) = number_field(
+                                    ui,
+                                    state,
+                                    base.with("density"),
+                                    &tag,
+                                    *d,
+                                    STEP_DENSITY,
+                                )
                                 && n > 0.0
                             {
                                 commands.push(Command::SetInertial(
@@ -1047,7 +1158,8 @@ impl RiggenApp {
                         ui.end_row();
                     }
                     InertialSpec::Override { mass, com, inertia } => {
-                        if let Some(m) = number_row(ui, state, base.with("mass"), "mass kg", *mass)
+                        if let Some(m) =
+                            number_row(ui, state, base.with("mass"), "mass kg", *mass, STEP_KG)
                         {
                             commands.push(Command::SetInertial(
                                 link,
@@ -1060,7 +1172,7 @@ impl RiggenApp {
                         }
                         ui.label("CoM m");
                         if let Some(c) =
-                            vec3_row(ui, state, base.with("com"), ["x", "y", "z"], *com)
+                            vec3_row(ui, state, base.with("com"), ["x", "y", "z"], *com, STEP_M)
                         {
                             commands.push(Command::SetInertial(
                                 link,
@@ -1088,7 +1200,9 @@ impl RiggenApp {
                                 for (col, (label, value)) in chunk.iter().enumerate() {
                                     let tag = ui.label(*label);
                                     let id = base.with(("inertia", row, col));
-                                    if let Some(n) = number_field(ui, state, id, &tag, *value) {
+                                    if let Some(n) =
+                                        number_field(ui, state, id, &tag, *value, STEP_KGM2)
+                                    {
                                         let mut all = entries.map(|(_, v)| v);
                                         all[row * 3 + col] = n;
                                         edited = Some(all);
@@ -1113,7 +1227,8 @@ impl RiggenApp {
                         }
                     }
                     InertialSpec::Hybrid { mass } => {
-                        if let Some(m) = number_row(ui, state, base.with("mass"), "mass kg", *mass)
+                        if let Some(m) =
+                            number_row(ui, state, base.with("mass"), "mass kg", *mass, STEP_KG)
                             && m > 0.0
                         {
                             commands
@@ -1296,9 +1411,14 @@ impl RiggenApp {
 
                 if data.kind.is_movable() {
                     ui.label("axis");
-                    if let Some(axis) =
-                        vec3_row(ui, state, base.with("axis"), ["x", "y", "z"], data.axis)
-                    {
+                    if let Some(axis) = vec3_row(
+                        ui,
+                        state,
+                        base.with("axis"),
+                        ["x", "y", "z"],
+                        data.axis,
+                        STEP_UNIT,
+                    ) {
                         // Normalised on commit; a zero axis is left for
                         // `validate` to refuse with its message.
                         edited.axis = axis.normalize_or_zero();
@@ -1309,10 +1429,10 @@ impl RiggenApp {
                 if data.kind.requires_limits() {
                     let limits = data.limits.unwrap_or_else(|| default_limits(data.kind));
                     let angular = data.kind == JointKind::Revolute;
-                    let (unit, to_ui, from_ui): (&str, Convert, Convert) = if angular {
-                        ("°", f64::to_degrees, f64::to_radians)
+                    let (unit, to_ui, from_ui, step): (&str, Convert, Convert, f64) = if angular {
+                        ("°", f64::to_degrees, f64::to_radians, STEP_DEG)
                     } else {
-                        ("m", |x| x, |x| x)
+                        ("m", |x| x, |x| x, STEP_M)
                     };
                     let mut new_limits = limits;
                     if let Some(v) = number_row(
@@ -1321,6 +1441,7 @@ impl RiggenApp {
                         base.with("lower"),
                         &format!("lower {unit}"),
                         to_ui(limits.lower),
+                        step,
                     ) {
                         new_limits.lower = from_ui(v);
                     }
@@ -1330,12 +1451,18 @@ impl RiggenApp {
                         base.with("upper"),
                         &format!("upper {unit}"),
                         to_ui(limits.upper),
+                        step,
                     ) {
                         new_limits.upper = from_ui(v);
                     }
-                    if let Some(v) =
-                        number_row(ui, state, base.with("effort"), "effort", limits.effort)
-                    {
+                    if let Some(v) = number_row(
+                        ui,
+                        state,
+                        base.with("effort"),
+                        "effort",
+                        limits.effort,
+                        STEP_UNIT,
+                    ) {
                         new_limits.effort = v;
                     }
                     if let Some(v) = number_row(
@@ -1344,6 +1471,7 @@ impl RiggenApp {
                         base.with("velocity"),
                         "velocity",
                         limits.velocity,
+                        STEP_UNIT,
                     ) {
                         new_limits.velocity = v;
                     }
@@ -1408,6 +1536,7 @@ impl RiggenApp {
                             base.with("multiplier"),
                             "multiplier",
                             mimic.multiplier,
+                            STEP_UNIT,
                         ) && let Some(m) = &mut edited.mimic
                         {
                             m.multiplier = v;
@@ -1418,6 +1547,7 @@ impl RiggenApp {
                             base.with("offset"),
                             &format!("offset {unit}"),
                             mimic.offset,
+                            STEP_UNIT,
                         ) && let Some(m) = &mut edited.mimic
                         {
                             m.offset = v;
@@ -1454,7 +1584,8 @@ impl RiggenApp {
                     }
                     if let Some(spec) = data.actuator {
                         for (label, value) in gains(spec) {
-                            if let Some(v) = number_row(ui, state, base.with(label), label, value)
+                            if let Some(v) =
+                                number_row(ui, state, base.with(label), label, value, STEP_UNIT)
                                 && let Some(edit) = &mut edited.actuator
                             {
                                 set_gain(edit, label, v);
@@ -1479,17 +1610,34 @@ impl RiggenApp {
                 }
 
                 let d = data.dynamics;
-                if let Some(v) = number_row(ui, state, base.with("damping"), "damping", d.damping) {
+                if let Some(v) = number_row(
+                    ui,
+                    state,
+                    base.with("damping"),
+                    "damping",
+                    d.damping,
+                    STEP_UNIT,
+                ) {
                     edited.dynamics.damping = v;
                 }
-                if let Some(v) =
-                    number_row(ui, state, base.with("friction"), "friction", d.friction)
-                {
+                if let Some(v) = number_row(
+                    ui,
+                    state,
+                    base.with("friction"),
+                    "friction",
+                    d.friction,
+                    STEP_UNIT,
+                ) {
                     edited.dynamics.friction = v;
                 }
-                if let Some(v) =
-                    number_row(ui, state, base.with("armature"), "armature", d.armature)
-                {
+                if let Some(v) = number_row(
+                    ui,
+                    state,
+                    base.with("armature"),
+                    "armature",
+                    d.armature,
+                    STEP_UNIT,
+                ) {
                     edited.dynamics.armature = v;
                 }
             });

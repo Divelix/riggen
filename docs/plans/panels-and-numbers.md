@@ -79,7 +79,7 @@ current `q`, not at the zero configuration.
   applies under one id → `undo_depth` grows by one and one `undo` restores
   the before-state; a different id starts a new entry; `is_dirty` and
   `mark_saved` behave as for a single apply.
-- [ ] Step 3 — Number fields scrub. `number_field` is a `DragValue`: a
+- [x] Step 3 — Number fields scrub. `number_field` is a `DragValue`: a
   horizontal drag changes the value at a speed scaled to its magnitude
   (Blender's rule; Ctrl for fine), each frame's value goes through
   `apply_in_gesture`, `drag_stopped` ends the gesture; a click still opens

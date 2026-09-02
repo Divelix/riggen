@@ -11,8 +11,8 @@ use std::sync::Arc;
 use riggen_core::glam::{DMat4, DQuat, DVec3};
 use riggen_core::inertial::{InertialError, LinkInertial, MeshLookup, compose_inertial};
 use riggen_core::{
-    CollisionPolicy, Command, Created, EditError, FrameId, GeomId, History, Joint, JointId,
-    JointState, Link, LinkId, MeshAsset, MeshId, Pose, Primitive, Robot, fk,
+    CollisionPolicy, Command, Created, EditError, FrameId, GeomId, GestureId, History, Joint,
+    JointId, JointState, Link, LinkId, MeshAsset, MeshId, Pose, Primitive, Robot, fk,
 };
 use riggen_export::{DecompMiss, DecompSource};
 use riggen_mesh::feature::Adjacency;
@@ -317,6 +317,29 @@ impl RiggenApp {
             Err(err) => self.status = Some(err.to_string()),
         }
         result
+    }
+
+    /// [`apply`](Self::apply) under a gesture: every command applied under
+    /// the same id until [`end_gesture`](Self::end_gesture) shares one undo
+    /// entry — a scrubbed field previewing through the document.
+    pub fn apply_in_gesture(
+        &mut self,
+        command: Command,
+        gesture: GestureId,
+    ) -> Result<Option<Created>, EditError> {
+        let result = self
+            .history
+            .apply_in_gesture(&mut self.robot, command, gesture);
+        match &result {
+            Ok(_) => self.after_document_change(),
+            Err(err) => self.status = Some(err.to_string()),
+        }
+        result
+    }
+
+    /// The scrub was released: the next command is its own entry.
+    pub fn end_gesture(&mut self) {
+        self.history.end_gesture();
     }
 
     /// `false` when there was nothing to undo.
