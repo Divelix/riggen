@@ -235,10 +235,21 @@ impl RiggenApp {
         match result {
             Some((_, transforms)) => {
                 if let Some(next) = transforms.first() {
-                    let pose = Pose::new(
+                    let mut pose = Pose::new(
                         DVec3::from(next.translation),
                         DQuat::from(next.rotation).normalize(),
                     );
+                    // A translate drag lands on the feature under the
+                    // cursor, if there is one: the same ladder, marker and
+                    // readout the placement tools use, and the gizmo's own
+                    // origin is what lands on it (ADR-0019 §5). The
+                    // rotation is the drag's, untouched — a snap says where,
+                    // never which way round.
+                    if self.translate_dragging()
+                        && let Some(snap) = self.snap_candidate
+                    {
+                        pose = Pose::new(snap.point, pose.r);
+                    }
                     self.gizmo_state.drag = Some((target, pose));
                     // Only a link drag moves anything in the world; a pivot
                     // move leaves the geometry exactly where it is.

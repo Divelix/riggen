@@ -211,8 +211,9 @@ pub struct InputDebug {
     pub pick_suppressed: bool,
     /// A click means "place here", not "select what is under the cursor".
     pub select_suppressed: bool,
-    /// The pointer belongs to something else entirely: no camera, no picks.
-    pub pointer_blocked: bool,
+    /// The camera ignores the pointer: something else owns the gesture.
+    /// The picks have their own two switches (ADR-0019 §4).
+    pub camera_blocked: bool,
     /// The *left* drag is spoken for — a gizmo handle has it — while the
     /// middle and right drags, the wheel and both picks stay live
     /// (ADR-0018).
@@ -227,7 +228,7 @@ impl InputDebug {
     fn is_off(&self) -> bool {
         !self.pick_suppressed
             && !self.select_suppressed
-            && !self.pointer_blocked
+            && !self.camera_blocked
             && !self.primary_drag_claimed
             && !self.wheel_claimed
     }
@@ -473,14 +474,14 @@ impl RiggenApp {
                 let (
                     pick_suppressed,
                     select_suppressed,
-                    pointer_blocked,
+                    camera_blocked,
                     primary_drag_claimed,
                     wheel_claimed,
                 ) = self.viewport.pointer_policy();
                 InputDebug {
                     pick_suppressed,
                     select_suppressed,
-                    pointer_blocked,
+                    camera_blocked,
                     primary_drag_claimed,
                     wheel_claimed,
                 }

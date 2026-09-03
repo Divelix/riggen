@@ -3247,6 +3247,216 @@ fn the_wheel_still_zooms_beside_a_ring() {
     });
 }
 
+/// A translate drag snaps to the same features a placement click does
+/// (ADR-0019 §5). The golden is taken **mid-drag**, with the button still
+/// down: the cyan marker on the base's corner and the arm already sitting
+/// on it, before anything is committed.
+#[test]
+fn gizmo_drag_snaps_to_a_vertex() {
+    scenario("gizmo_drag_snaps_to_a_vertex", |harness| {
+        let (arm, corner, depth) = drag_the_arm_onto_the_base_corner(harness);
+
+        let snapped = harness.state().snap().expect("a snap under the cursor");
+        assert_eq!(snapped.kind, riggen_app::SnapKind::Vertex);
+        assert!(
+            (snapped.point - corner).length() < 1e-9,
+            "the base's corner: {:?}",
+            snapped.point
+        );
+        // The preview is already there, and nothing is committed yet.
+        let previewed = harness
+            .state()
+            .gizmo_world(harness.state().gizmo_target().expect("a gizmo"));
+        assert!(previewed.is_some_and(|p| (p.t - corner).length() < 1e-9));
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth,
+            "a drag previews; nothing is committed until the release"
+        );
+        let _ = arm;
+    });
+}
+
+/// …and the release commits exactly what the marker showed, in one command.
+#[test]
+fn a_snapped_drag_commits_where_the_marker_was() {
+    with_app(|harness| {
+        let (arm, corner, depth) = drag_the_arm_onto_the_base_corner(harness);
+        let to = harness.state().debug_state().gizmo.expect("a gizmo").screen;
+        let to = egui::pos2(to.expect("on screen")[0] as f32, to.unwrap()[1] as f32);
+        harness.event(egui::Event::PointerButton {
+            pos: to,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        pump_rendered(harness, 8);
+
+        let app = harness.state();
+        assert_eq!(
+            app.history().undo_depth(),
+            depth + 1,
+            "one drag, one command"
+        );
+        let world = riggen_core::fk(app.robot(), &Default::default())[&arm];
+        assert!(
+            (world.t - corner).length() < 1e-9,
+            "the arm landed on the corner: {:?}",
+            world.t
+        );
+    });
+}
+
+/// Opens the pendulum and drags the arm's gizmo over a corner of the base,
+/// leaving the button **down**. Returns the arm, the corner it is snapping
+/// to, and the history depth before the gesture.
+fn drag_the_arm_onto_the_base_corner(
+    harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+) -> (LinkId, DVec3, usize) {
+    let app = harness.state_mut();
+    app.open_path(&fixture("pendulum.riggen"))
+        .expect("open the corpus file");
+    let arm = *app
+        .robot()
+        .links
+        .iter()
+        .find(|(_, l)| l.name == "arm")
+        .map(|(id, _)| id)
+        .unwrap();
+    app.fit_view_now();
+    app.set_tool(Tool::Move);
+    app.select(Selection::Link(arm));
+    settle(harness);
+
+    let depth = harness.state().history().undo_depth();
+    let from = gizmo_handle(harness);
+    // A top corner of the *base* cube, nudged inward so the pick lands on a
+    // triangle rather than on the silhouette.
+    let corner = DVec3::new(0.5, -0.5, 0.5);
+    let to = harness.state().project_world(corner).expect("on screen");
+    let centre = harness.state().viewport_center().unwrap();
+    let to = to + (centre - to).normalized() * 6.0;
+
+    // Hand-rolled rather than `synthetic_drag`, so the drag can be examined
+    // while the button is still down: the ID buffer needs several real
+    // frames at the destination before the ladder has anything to run
+    // against.
+    harness.hover_at(from);
+    pump_rendered(harness, 4);
+    harness.event(egui::Event::PointerButton {
+        pos: from,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    pump_rendered(harness, 2);
+    harness.event(egui::Event::PointerMoved(to));
+    pump_rendered(harness, 10);
+    (arm, corner, depth)
+}
+
+/// The dragged part is not a feature to land on: the picks look *through*
+/// its whole subtree, so what the drag snaps to is whatever is behind it —
+/// never itself (ADR-0019 §5).
+#[test]
+fn a_drag_looks_through_the_part_it_is_moving() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        let base = app.robot().root;
+        app.fit_view_now();
+        app.set_tool(Tool::Move);
+        app.select(Selection::Link(arm));
+        settle(harness);
+
+        // Barely off the start: the arm's own cube is right under the
+        // cursor, and the base is behind it.
+        let from = gizmo_handle(harness);
+        let to = from + egui::vec2(0.0, 30.0);
+        harness.hover_at(from);
+        pump_rendered(harness, 4);
+        harness.event(egui::Event::PointerButton {
+            pos: from,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        pump_rendered(harness, 2);
+        harness.event(egui::Event::PointerMoved(to));
+        pump_rendered(harness, 10);
+
+        assert!(harness.state().translate_dragging(), "still dragging");
+        let snap = harness.state().snap().expect("the base is behind the arm");
+        assert_eq!(
+            snap.link, base,
+            "the cursor is over the arm it is carrying and sees the base"
+        );
+        harness.event(egui::Event::PointerButton {
+            pos: to,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        pump_rendered(harness, 8);
+    });
+}
+
+/// A rotate drag turns about a named axis; there is nothing in the ladder
+/// for it to land on, so it does not snap (ADR-0019 §5).
+#[test]
+fn a_rotate_drag_does_not_snap() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::Rotate);
+        app.select(Selection::Link(arm));
+        settle(harness);
+
+        let from = ring_cursor(harness, RingAxis::Z);
+        let spoke = (from - gizmo_handle(harness)).normalized();
+        let to = from + egui::vec2(-spoke.y, spoke.x) * 40.0;
+        harness.hover_at(from);
+        pump_rendered(harness, 4);
+        harness.event(egui::Event::PointerButton {
+            pos: from,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        pump_rendered(harness, 2);
+        harness.event(egui::Event::PointerMoved(to));
+        pump_rendered(harness, 10);
+
+        assert!(harness.state().gizmo_dragging(), "still dragging");
+        assert!(!harness.state().translate_dragging(), "a rotate drag");
+        assert_eq!(harness.state().snap(), None, "a rotate drag does not snap");
+        harness.event(egui::Event::PointerButton {
+            pos: to,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        pump_rendered(harness, 8);
+    });
+}
+
 /// The gizmo takes the pointer on its handles and **nowhere else**
 /// (ADR-0010): with Move active and a link selected, the part under
 /// the cursor still tints and a click still selects it. The crate's own
@@ -3370,7 +3580,7 @@ fn camera_works_while_the_gizmo_is_up() {
             "the cursor is on the view-plane handle"
         );
         assert!(
-            state.input.pick_suppressed && !state.input.pointer_blocked,
+            state.input.pick_suppressed && !state.input.camera_blocked,
             "a handle takes the picks, not the camera: {:?}",
             state.input
         );
@@ -3408,7 +3618,7 @@ fn the_toolbar_does_not_zoom_the_camera() {
         scroll_at(harness, on_toolbar, -3.0);
         let state = harness.state().debug_state();
         assert!(
-            state.input.pointer_blocked,
+            state.input.camera_blocked,
             "the toolbar owns the pointer: {:?}",
             state.input
         );
@@ -3434,7 +3644,7 @@ fn the_toolbar_does_not_zoom_the_camera() {
         scroll_at(harness, on_window, -3.0);
         let state = harness.state().debug_state();
         assert!(
-            !state.input.pointer_blocked,
+            !state.input.camera_blocked,
             "nothing blocks it: egui's layer filter already did, {:?}",
             state.input
         );
@@ -4388,7 +4598,7 @@ fn a_hovered_glyph_leaves_the_camera_alone() {
         let state = harness.state().debug_state();
         assert!(state.glyphs[0].hovered, "the glyph is hot");
         assert!(
-            state.input.pick_suppressed && !state.input.pointer_blocked,
+            state.input.pick_suppressed && !state.input.camera_blocked,
             "the glyph takes the picks, not the pointer: {:?}",
             state.input
         );

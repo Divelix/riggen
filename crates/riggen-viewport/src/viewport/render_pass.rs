@@ -189,11 +189,14 @@ impl ViewportCallback {
                 multiview_mask: None,
             });
             pass.set_pipeline(&self.pick_pipeline);
-            // Translucent instances are see-through for the cursor too.
+            // Translucent instances are see-through for the cursor too,
+            // and so is whatever a gizmo drag is carrying: it follows the
+            // cursor, so leaving it in would mean the drag could only ever
+            // snap to itself (ADR-0019 §5).
             for instance in self
                 .instances
                 .iter()
-                .filter(|i| i.group == RenderGroup::Opaque)
+                .filter(|i| i.group == RenderGroup::Opaque && !i.pick_hidden)
             {
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_bind_group(1, &self.model_bind_group, &[instance.model_offset]);

@@ -123,13 +123,16 @@ pub struct Viewport {
     /// Re-picking under those would tint the part behind them, but orbit,
     /// pan and zoom have no reason to stop (ADR-0010).
     pick_suppressed: bool,
-    /// While `true` the viewport ignores the pointer entirely: no camera
-    /// input, no picking. Two things set it: something drawn over the
-    /// viewport in the *same* egui layer, which `contains_pointer` cannot
-    /// see through (the toolbar), and a gesture that must not be disturbed
-    /// (a gizmo drag is solved against the projection it started in, so a
-    /// wheel event mid-drag would make the part jump).
-    pointer_blocked: bool,
+    /// While `true` the camera ignores the pointer: no orbit, no pan, no
+    /// zoom. The picks are not its business — they have two switches of
+    /// their own. Two things set it: something drawn over the viewport in
+    /// the *same* egui layer, which `contains_pointer` cannot see through
+    /// (the toolbar, which suppresses the picks as well), and a gesture
+    /// that must not be disturbed — a gizmo drag is solved against the
+    /// projection it started in, so a wheel event mid-drag would make the
+    /// part jump, while the hover pick under it is exactly what the drag's
+    /// snap ladder reads (ADR-0019 §4).
+    camera_blocked: bool,
     /// While `true` the *primary* drag is spoken for: `dragged_by(Primary)`
     /// does not orbit or pan, and nothing else changes — the middle and
     /// right drags, the wheel and both picks stay live. Set while a gizmo
@@ -143,6 +146,11 @@ pub struct Viewport {
     /// keys stay live. Set while a rotate ring is under the cursor, where
     /// the wheel steps that ring instead of zooming (ADR-0019).
     wheel_claimed: bool,
+    /// Instances the picks look *through*: drawn as usual, left out of the
+    /// ID buffer. Set to what a gizmo drag is carrying, so the part that
+    /// follows the cursor does not cover the feature the drag is aiming at
+    /// (ADR-0019 §5).
+    pick_excluded: Vec<InstanceId>,
     pending_pick: Option<PendingPick>,
     last_pick: Option<PickInputs>,
     /// The rect allocated by the most recent [`Viewport::ui`] call, in egui
@@ -300,9 +308,10 @@ impl Viewport {
             select_suppressed: false,
             select_result: None,
             pick_suppressed: false,
-            pointer_blocked: false,
+            camera_blocked: false,
             primary_drag_claimed: false,
             wheel_claimed: false,
+            pick_excluded: Vec::new(),
             pending_pick: None,
             last_pick: None,
             last_rect: None,
@@ -515,9 +524,9 @@ impl Viewport {
     }
 
     /// Whether the pointer is ignored this frame entirely (see
-    /// `pointer_blocked`).
-    pub fn set_pointer_blocked(&mut self, blocked: bool) {
-        self.pointer_blocked = blocked;
+    /// `camera_blocked`).
+    pub fn set_camera_blocked(&mut self, blocked: bool) {
+        self.camera_blocked = blocked;
     }
 
     /// Whether a click may change the selection (see `select_suppressed`).
@@ -537,15 +546,30 @@ impl Viewport {
         self.wheel_claimed = claimed;
     }
 
+    /// The instances the picks look through this frame (see
+    /// `pick_excluded`). They keep drawing; only the ID buffer skips them.
+    ///
+    /// A change to the set drops the hover memo. That memo is keyed on the
+    /// cursor and the camera — the two things that normally decide what is
+    /// under the pointer — and neither moves when a part stops being
+    /// pickable, so without this the answer from the frame before the drag
+    /// would stand for the whole drag.
+    pub fn set_pick_excluded(&mut self, instances: Vec<InstanceId>) {
+        if self.pick_excluded != instances {
+            self.pick_excluded = instances;
+            self.last_pick = None;
+        }
+    }
+
     /// The five pointer switches as they stand this frame, for
     /// `debug_state`: `(pick_suppressed, select_suppressed,
-    /// pointer_blocked, primary_drag_claimed, wheel_claimed)`. A scenario can then assert
+    /// camera_blocked, primary_drag_claimed, wheel_claimed)`. A scenario can then assert
     /// the *policy* and not only the tint it happens to produce.
     pub fn pointer_policy(&self) -> (bool, bool, bool, bool, bool) {
         (
             self.pick_suppressed,
             self.select_suppressed,
-            self.pointer_blocked,
+            self.camera_blocked,
             self.primary_drag_claimed,
             self.wheel_claimed,
         )
@@ -913,7 +937,7 @@ impl Viewport {
         self.last_rect = Some(rect);
         let aspect = rect.width().max(1.0) / rect.height().max(1.0);
 
-        if !self.pointer_blocked && self.handle_input(ui, &response, rect) {
+        if !self.camera_blocked && self.handle_input(ui, &response, rect) {
             ui.ctx().request_repaint();
         }
 
@@ -964,14 +988,22 @@ impl Viewport {
         let view_proj = view_proj_matrix.to_cols_array_2d();
         let decision = decide_pick(
             self.pending_pick.is_some() || self.scene.is_empty(),
-            (!self.pointer_blocked && !self.pick_suppressed && !self.select_suppressed)
+            (!self.pick_suppressed && !self.select_suppressed)
                 .then(|| response.clicked().then(|| response.interact_pointer_pos()))
                 .flatten()
                 .flatten()
                 .map(to_pixel),
-            (!self.pointer_blocked && !self.pick_suppressed)
-                .then(|| response.hover_pos())
+            // `contains_pointer`, not `hover_pos`: the latter is gated on
+            // `hovered()`, which any later widget in this layer clears —
+            // the gizmo registers one at the cursor while it owns a drag,
+            // and that drag is exactly when the snap ladder wants to know
+            // what is under the pointer (ADR-0019 §4). What is drawn *over*
+            // the geometry is the two pick switches' business, not the hit
+            // test's.
+            (!self.pick_suppressed)
+                .then(|| ui.ctx().pointer_hover_pos())
                 .flatten()
+                .filter(|pos| rect.contains(*pos) && response.contains_pointer())
                 .map(to_pixel),
             self.last_pick,
             view_proj,
@@ -1046,6 +1078,7 @@ impl Viewport {
                 index_count: entry.mesh.index_count,
                 pick_vertex_buffer: entry.mesh.pick_vertex_buffer.clone(),
                 triangle_count: entry.mesh.triangle_count,
+                pick_hidden: self.pick_excluded.contains(&entry.key),
             });
         }
 

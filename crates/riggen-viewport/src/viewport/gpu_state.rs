@@ -176,4 +176,7 @@ pub struct InstanceBuffers {
     /// Non-indexed, three vertices per triangle (`crate::GpuMesh`).
     pub pick_vertex_buffer: wgpu::Buffer,
     pub triangle_count: u32,
+    /// Drawn as usual, left out of the **pick** pass: the cursor looks
+    /// through it (`Viewport::set_pick_excluded`, ADR-0019 §5).
+    pub pick_hidden: bool,
 }

@@ -185,10 +185,42 @@ impl RiggenApp {
         }
     }
 
-    /// Whether the snap ladder runs this frame: a placement tool, or a
-    /// frame being placed under Move / Rotate.
+    /// The instances a translate drag is carrying: the dragged link's
+    /// whole subtree, visual and collision alike. The picks look through
+    /// them, so the part that follows the cursor cannot cover the feature
+    /// the drag is aiming at — or snap to itself (ADR-0019 §5).
+    pub(crate) fn dragged_instances(&self) -> Vec<InstanceId> {
+        let Some((super::GizmoTarget::Link(dragged), _)) = self.gizmo_state.drag else {
+            return Vec::new();
+        };
+        if !self.translate_dragging() {
+            return Vec::new();
+        }
+        let moving = self.robot.subtree(dragged);
+        self.instances
+            .iter()
+            .filter(|((link, _), _)| moving.contains(link))
+            .map(|(_, id)| *id)
+            .chain(
+                self.collision_instances
+                    .iter()
+                    .filter(|((link, _), _)| moving.contains(link))
+                    .map(|(_, (id, _))| *id),
+            )
+            .collect()
+    }
+
+    /// Whether a **translate** gizmo drag is in flight: the drag that
+    /// snaps (ADR-0019 §5). A rotate drag turns about a named axis and has
+    /// nothing in the ladder to land on.
+    pub fn translate_dragging(&self) -> bool {
+        self.tool == Tool::Move && self.gizmo_dragging()
+    }
+
+    /// Whether the snap ladder runs this frame: a placement tool, a frame
+    /// being placed under Move / Rotate, or a translate drag.
     pub fn snapping(&self) -> bool {
-        self.tool.snaps() || self.placing_frame().is_some()
+        self.tool.snaps() || self.placing_frame().is_some() || self.translate_dragging()
     }
 
     /// Recomputes the snap target for this frame. Called before the overlay
@@ -202,8 +234,10 @@ impl RiggenApp {
 
     fn compute_snap(&mut self, ctx: &egui::Context) -> Option<SnapCandidate> {
         // Nothing behind the toolbar, the gizmo or a modal is being pointed
-        // at, and a click there must not place anything either.
-        if self.gizmo_state.captured || self.pending.is_some() {
+        // at, and a click there must not place anything either. A translate
+        // drag is the exception: the gizmo owns the cursor and still wants
+        // to know what is under it.
+        if (self.gizmo_state.captured && !self.translate_dragging()) || self.pending.is_some() {
             return None;
         }
         let hit = self.viewport.hovered()?;
@@ -212,6 +246,15 @@ impl RiggenApp {
             return None;
         }
         let link = self.link_of_instance(hit.instance)?;
+        // A part cannot snap to itself. The pick pass already looks
+        // through the dragged subtree; this covers the frame between the
+        // drag starting and that taking effect, when the readback in hand
+        // is still the old one.
+        if let Some((super::GizmoTarget::Link(dragged), _)) = self.gizmo_state.drag
+            && self.robot.subtree(dragged).contains(&link)
+        {
+            return None;
+        }
         let geom = self.geom_of_instance(hit.instance)?;
         let mesh_id = self
             .robot

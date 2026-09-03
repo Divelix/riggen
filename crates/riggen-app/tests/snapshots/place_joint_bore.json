@@ -158,7 +158,7 @@
   "input": {
     "pick_suppressed": false,
     "select_suppressed": true,
-    "pointer_blocked": false,
+    "camera_blocked": false,
     "primary_drag_claimed": false,
     "wheel_claimed": false
   },

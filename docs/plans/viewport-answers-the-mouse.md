@@ -114,7 +114,7 @@ tells the truth**.
       Z ring asserts the joint's axis/origin and `history` depth **1**, one
       more that a pause between notches makes two entries, and one that the
       wheel still zooms with the cursor a ring-radius away.
-- [ ] Step 4 — **A translate drag snaps.** `set_camera_blocked` replaces
+- [x] Step 4 — **A translate drag snaps.** `set_camera_blocked` replaces
       `set_pointer_blocked` (toolbar behaviour unchanged); during a
       translate gizmo drag the hover pick stays live, `compute_snap` runs,
       hits inside the dragged subtree are ignored, and the previewed pose's
@@ -151,7 +151,8 @@ hand-feel list for these three gestures.
 
 - `docs/adr/0019-*.md` — written in step 2, nothing to do at retirement.
 - `docs/01-architecture.md` §Frame loop — the five switches and who sets
-  them, and the two modifier facts step 3 found (below); §Picking and snapping — the snap ladder runs during a translate
+  them, `set_pick_excluded` beside them, and the modifier and memo facts
+  steps 3 and 4 found (below); §Picking and snapping — the snap ladder runs during a translate
   drag and skips the dragged subtree; §Panels and menus — the tool keys.
 - `docs/03-roadmap.md` §v0.3 — fold the three items into the status
   paragraph, leaving **The overlay tells the truth** as the last bullet,
@@ -185,6 +186,19 @@ retirement:
   the fine step would have been dropped too; the ring's own reader skips
   only the zoom modifier, because there is nothing in the viewport for a
   horizontal scroll to move.
+- **"Excluded from the hit" had to become excluded from the *pick pass*.**
+  Dropping the hit when it lands on the dragged subtree is not enough: the
+  part follows the cursor and covers what the drag is aiming at, so the
+  answer is no feature at all rather than the one behind. `Viewport::
+  set_pick_excluded` leaves those instances out of the ID buffer — they
+  draw as usual — and the drag looks through what it carries.
+- **The hover pick is memoised on the cursor and the camera**, neither of
+  which moves when a part stops being pickable, so `set_pick_excluded`
+  drops that memo when the set changes.
+- **The hover pick was keyed on `hover_pos()`**, which is gated on
+  `hovered()` and therefore false whenever the gizmo's own widget is over
+  the cursor — the whole of a drag. It now uses `contains_pointer`, the
+  same correction ADR-0010 made for the camera.
 - **A wheel event's modifiers come off the event, not off `InputState`.**
   `i.modifiers` is filled from key events, so a synthetic wheel — and a
   real one arriving before its modifier key is seen — reads as unmodified.
