@@ -200,7 +200,7 @@ pub struct SelectionDebug {
     pub selected: Option<HitDebug>,
 }
 
-/// Which of the viewport's pointer switches are on (ADR-0010).
+/// Which of the viewport's pointer switches are on (ADR-0010, ADR-0018).
 ///
 /// The bug this exists for was a *policy* bug — the gizmo took the whole
 /// pointer instead of the handle under it — and a policy is asserted here
@@ -213,12 +213,19 @@ pub struct InputDebug {
     pub select_suppressed: bool,
     /// The pointer belongs to something else entirely: no camera, no picks.
     pub pointer_blocked: bool,
+    /// The *left* drag is spoken for — a gizmo handle has it — while the
+    /// middle and right drags, the wheel and both picks stay live
+    /// (ADR-0018).
+    pub primary_drag_claimed: bool,
 }
 
 impl InputDebug {
     /// Nothing suppressed — the plain viewport.
     fn is_off(&self) -> bool {
-        !self.pick_suppressed && !self.select_suppressed && !self.pointer_blocked
+        !self.pick_suppressed
+            && !self.select_suppressed
+            && !self.pointer_blocked
+            && !self.primary_drag_claimed
     }
 }
 
@@ -454,14 +461,13 @@ impl RiggenApp {
                 selected: self.viewport.selected().map(HitDebug::from),
             },
             input: {
-                // The fourth switch, `primary_drag_claimed`, is reported
-                // from step 3 on.
-                let (pick_suppressed, select_suppressed, pointer_blocked, _) =
+                let (pick_suppressed, select_suppressed, pointer_blocked, primary_drag_claimed) =
                     self.viewport.pointer_policy();
                 InputDebug {
                     pick_suppressed,
                     select_suppressed,
                     pointer_blocked,
+                    primary_drag_claimed,
                 }
             },
             glyphs: {

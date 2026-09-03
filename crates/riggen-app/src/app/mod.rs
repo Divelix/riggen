@@ -496,6 +496,15 @@ impl eframe::App for RiggenApp {
                 // under the cursor" — but the hover pick has to keep running,
                 // because it is what the snap is computed from.
                 self.viewport.set_select_suppressed(self.snapping());
+                // And the *left* drag alone belongs to a handle under the
+                // cursor: a left-drag from one moves the part instead of
+                // turning the camera under it, while the middle and right
+                // drags, the wheel and both picks stay the viewport's
+                // (ADR-0018). The same `captured` the pick switch reads, and
+                // deliberately not the glyph hover — a drag from a glyph
+                // orbits like a drag from anywhere else.
+                self.viewport
+                    .set_primary_drag_claimed(self.gizmo_captured());
 
                 let response = self.viewport.ui(ui);
                 let rect = response.rect;

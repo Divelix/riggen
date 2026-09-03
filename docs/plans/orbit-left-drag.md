@@ -86,7 +86,7 @@ README stops being the only place that says how.
   the middle pair still does what it did. Snapshot scenario `orbit_left_drag`
   — the sample arm after a left-drag — and the docs edits to 01 §Frame loop,
   01 §Testing and the README ride in this commit.
-- [ ] Step 3 — **The gizmo claims the primary drag.**
+- [x] Step 3 — **The gizmo claims the primary drag.**
   `app/mod.rs` sets `set_primary_drag_claimed(self.gizmo_captured())`;
   `InputDebug` reports it. Tests: from a gizmo handle, a left-drag moves the
   part and the camera does not turn, while the existing

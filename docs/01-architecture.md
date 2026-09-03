@@ -613,21 +613,31 @@ click under a handle, nothing more; the gizmo reads the raw pointer, never
 the widget's response. Sensing drags as well would take the *middle* drag
 too, because egui sets `potential_drag_id` from `hits.drag` on a press of
 any button, and orbit would land on a widget that does not orbit.
-Click-only, the hit test reports `click: gizmo, drag: viewport` — so orbit
-and pan start from a handle like anywhere else. Everywhere else the
-viewport keeps the pointer it always had. The toolbar
-is registered after the gizmo in turn: viewport < gizmo < toolbar.
+Click-only, the hit test reports `click: gizmo, drag: viewport` — so the
+*middle* and *right* drags start from a handle like anywhere else. The
+**left** drag is the exception, and it is a switch rather than a widget: a
+handle under the cursor claims it (`set_primary_drag_claimed`, below), so a
+left-drag from a handle moves the part instead of orbiting the camera under
+it (ADR-0018). Everywhere else the viewport keeps the pointer it always had.
+The toolbar is registered after the gizmo in turn: viewport < gizmo <
+toolbar.
 
-The viewport takes that policy through **three** switches, because "the
-pointer is busy" has three different meanings:
+The viewport takes that policy through **four** switches, because "the
+pointer is busy" has four different meanings:
 
 | Switch | Off | Set by |
 |---|---|---|
 | `set_pick_suppressed` | both picks; the camera stays live | a gizmo handle, or a joint or frame glyph under the cursor — something drawn *in front of* the geometry that would answer |
 | `set_select_suppressed` | the select pick; the hover keeps running | `snapping()`: a placement tool, or Move / Rotate on a frame — the click means "put it here" |
 | `set_pointer_blocked` | camera **and** picks | the toolbar, which floats in the viewport's own egui layer; a gizmo drag in flight, which is solved against the projection it started in |
+| `set_primary_drag_claimed` | `dragged_by(Primary)` alone — the middle and right drags, the wheel and both picks stay live | `gizmo_captured()`: a handle under the cursor or a gizmo drag in flight (ADR-0018) |
 
-The gizmo's two are one frame late — it cannot say whether it owns the
+A glyph sets the first and deliberately not the last: it hides the geometry
+that would answer a pick, but a drag from a glyph orbits like a drag from
+anywhere else. Only the gizmo's claim withholds the left drag, and nothing
+withholds the middle or right one.
+
+The gizmo's three are one frame late — it cannot say whether it owns the
 cursor until it has run, and the viewport runs first — which is the same lag
 egui's own interaction has. Camera input keys on `Response::contains_pointer`
 rather than `hovered`: `contains_pointer` filters *layers* covering the
@@ -1149,7 +1159,10 @@ measured size is in 03 §v0.2.
   `the_toolbar_does_not_zoom_the_camera`,
   `a_hovered_glyph_leaves_the_camera_alone` and the acceptance run
   `gizmo_shares_the_viewport`, which orbits, zooms, re-selects and drags a
-  handle in one session because those stopped working together. `debug_state().timing`
+  handle in one session because those stopped working together; and behind
+  ADR-0018 `the_camera_answers_every_button`,
+  `left_drag_from_a_gizmo_handle_moves_the_part` and
+  `a_left_drag_from_a_glyph_still_orbits`. `debug_state().timing`
   (`first_frame_ms`, `frame_dt`) is present only while the frame HUD is
   on, which the harness turns off, so no golden holds a wall-clock number.
   The harness sets the import scale to `1.0` (the fixtures are unit cubes

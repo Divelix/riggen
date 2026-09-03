@@ -3202,6 +3202,150 @@ fn orbit_works_from_a_gizmo_handle() {
     });
 }
 
+/// A **left**-drag from a gizmo handle moves the part and nothing else
+/// (ADR-0018): the gizmo claims the primary drag while a handle is under the
+/// cursor, so the camera that would otherwise orbit under the gesture stays
+/// exactly where it was.
+///
+/// The middle and right drags are never claimed —
+/// `orbit_works_from_a_gizmo_handle` is the other half of this and still
+/// orbits from the same handle — and a *right*-drag from the handle pans,
+/// which is asserted here so "claimed" cannot quietly become "blocked".
+#[test]
+fn left_drag_from_a_gizmo_handle_moves_the_part() {
+    with_app(|harness| {
+        pendulum_with_move_armed(harness);
+        let depth = harness.state().history().undo_depth();
+
+        // Hovered first, and only then asserted: the claim is one frame
+        // behind — the gizmo cannot say it owns the cursor until it has run,
+        // and the viewport runs before it (ADR-0010) — which is harmless
+        // because a human's cursor rests on the handle before the press.
+        let handle = gizmo_handle(harness);
+        harness.hover_at(handle);
+        pump_rendered(harness, 6);
+        let before = harness.state().debug_state();
+        assert!(
+            before.input.primary_drag_claimed,
+            "the handle under the cursor claims the left drag before the press: {:?}",
+            before.input
+        );
+        camera_drag(
+            harness,
+            handle,
+            handle + egui::vec2(90.0, 45.0),
+            egui::PointerButton::Primary,
+            egui::Modifiers::NONE,
+        );
+
+        let after = harness.state().debug_state();
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth + 1,
+            "one gesture, one command: the gizmo took the drag"
+        );
+        assert_ne!(
+            after
+                .instances
+                .iter()
+                .map(|i| i.position)
+                .collect::<Vec<_>>(),
+            before
+                .instances
+                .iter()
+                .map(|i| i.position)
+                .collect::<Vec<_>>(),
+            "and the part it points at moved"
+        );
+        assert_eq!(
+            (
+                after.camera.yaw_deg,
+                after.camera.pitch_deg,
+                after.camera.target
+            ),
+            (
+                before.camera.yaw_deg,
+                before.camera.pitch_deg,
+                before.camera.target
+            ),
+            "and the camera did not move under it"
+        );
+
+        // The right drag is never claimed: it pans from a handle like from
+        // anywhere else, and moves nothing.
+        let handle = gizmo_handle(harness);
+        let before = harness.state().debug_state();
+        camera_drag(
+            harness,
+            handle,
+            handle + egui::vec2(60.0, 0.0),
+            egui::PointerButton::Secondary,
+            egui::Modifiers::NONE,
+        );
+        let after = harness.state().debug_state();
+        assert!(
+            after.camera.target != before.camera.target,
+            "a right-drag from the handle panned: {:?} -> {:?}",
+            before.camera.target,
+            after.camera.target
+        );
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth + 1,
+            "and committed nothing"
+        );
+    });
+}
+
+/// A joint glyph suppresses *picks*, never the drag (ADR-0018): a left-drag
+/// that starts on a glyph orbits like a left-drag from anywhere else.
+///
+/// The distinction the switch table rests on — only the gizmo's claim may
+/// withhold the left drag, and "something is drawn in front of the geometry"
+/// may not.
+#[test]
+fn a_left_drag_from_a_glyph_still_orbits() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        settle(harness);
+
+        let at = glyph_axis_point(harness, 0.8);
+        harness.hover_at(at);
+        pump_rendered(harness, 6);
+        let before = harness.state().debug_state();
+        assert!(
+            before.input.pick_suppressed && !before.input.primary_drag_claimed,
+            "the glyph takes the picks and leaves the drag: {:?}",
+            before.input
+        );
+
+        camera_drag(
+            harness,
+            at,
+            at + egui::vec2(90.0, 45.0),
+            egui::PointerButton::Primary,
+            egui::Modifiers::NONE,
+        );
+
+        let after = harness.state().debug_state();
+        assert!(
+            after.camera.yaw_deg != before.camera.yaw_deg
+                && after.camera.pitch_deg != before.camera.pitch_deg,
+            "the drag orbited: {:?} -> {:?}",
+            (before.camera.yaw_deg, before.camera.pitch_deg),
+            (after.camera.yaw_deg, after.camera.pitch_deg)
+        );
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            0,
+            "and nothing was edited"
+        );
+    });
+}
+
 /// Every button the audience reaches for drives the camera (ADR-0018):
 /// left orbits, shift+left pans, right pans, and the middle pair keeps
 /// exactly what it had. Over empty space, so nothing under the cursor can

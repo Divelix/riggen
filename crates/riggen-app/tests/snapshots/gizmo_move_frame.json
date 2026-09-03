@@ -206,7 +206,8 @@
   "input": {
     "pick_suppressed": false,
     "select_suppressed": true,
-    "pointer_blocked": false
+    "pointer_blocked": false,
+    "primary_drag_claimed": false
   },
   "gizmo": {
     "target": "frame f7",

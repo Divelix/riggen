@@ -188,7 +188,8 @@
   "input": {
     "pick_suppressed": true,
     "select_suppressed": false,
-    "pointer_blocked": false
+    "pointer_blocked": false,
+    "primary_drag_claimed": false
   },
   "gizmo": null,
   "glyphs": [
