@@ -1161,8 +1161,11 @@ measured size is in 03 §v0.2.
   `gizmo_shares_the_viewport`, which orbits, zooms, re-selects and drags a
   handle in one session because those stopped working together; and behind
   ADR-0018 `the_camera_answers_every_button`,
-  `left_drag_from_a_gizmo_handle_moves_the_part` and
-  `a_left_drag_from_a_glyph_still_orbits`. `debug_state().timing`
+  `left_drag_from_a_gizmo_handle_moves_the_part`,
+  `a_left_drag_from_a_glyph_still_orbits` and
+  `left_drag_orbits_and_a_click_still_selects`, which reads egui's two click
+  thresholds off the context and asserts them before sizing its gestures
+  from them. `debug_state().timing`
   (`first_frame_ms`, `frame_dt`) is present only while the frame HUD is
   on, which the harness turns off, so no golden holds a wall-clock number.
   The harness sets the import scale to `1.0` (the fixtures are unit cubes
@@ -1202,6 +1205,14 @@ measured size is in 03 §v0.2.
     holds shift down across every frame of a pan. `to` must be further from
     `from` than `max_click_dist`, or the gesture is a click and not a drag
     (ADR-0018).
+  - **The harness's `step_dt` is a quarter of a second**, and egui's clock
+    advances by it (kittest never sets `RawInput::time`). So a press held for
+    more than about three frames is past `max_click_duration` and egui calls
+    it a drag *whatever* the distance — which is why `click_at` pumps exactly
+    two frames while the button is down, why `camera_drag`'s four-move walk
+    can never be a click, and why the gesture that tests the *distance*
+    threshold has its own three-frame helper,
+    `press_move_release(harness, from, to)`.
   - kittest cannot drag a tree row onto another: `tree_reparent` reparents
     through the command API and only draws the result. A synthetic drag
     (press, `PointerMoved` in steps, release) does work for a one-off check.

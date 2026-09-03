@@ -94,7 +94,7 @@ README stops being the only place that says how.
   green; from a *joint glyph* — picks suppressed, drag not claimed — a
   left-drag orbits; a right-drag from a handle pans. The 01
   §Picking and snapping table and gizmo paragraph are updated here.
-- [ ] Step 4 — **Click-to-select survives, and the thresholds are pinned.**
+- [x] Step 4 — **Click-to-select survives, and the thresholds are pinned.**
   A test that reads `max_click_dist` and `max_click_duration` off the context
   rather than hard-coding 6.0 / 0.8, asserts the values, then drives a press
   that moves *under* the threshold (selects, camera unmoved) and one that
@@ -124,6 +124,15 @@ arm and can still select a link.
 - `docs/ideas/orbit-left-drag.md` — deleted with this plan's first commit
   (absorbed above; git keeps it).
 
+## Found while doing it
+
+- **The harness's `step_dt` is ¼ s**, and egui's clock advances by it
+  (kittest never sets `RawInput::time`), so a press held more than about
+  three frames is past `max_click_duration` and is a drag *whatever* the
+  distance. `camera_drag`'s four-move walk can therefore never be a click,
+  and step 4's under-the-threshold gesture needed its own three-frame
+  helper, `press_move_release`. Recorded in 01 §Testing's harness facts.
+
 ## Open questions
 
 - **Does shift+left pan, or is shift+left reserved?** *Decided 2026-09-03
@@ -131,8 +140,11 @@ arm and can still select a link.
   trackpad has, and shift already means pan on the middle button. ADR-0018
   §Consequences records that box select now needs a third modifier or must
   overturn the ADR.
-- `⚠ OPEN:` **Right-drag pan on the web.** eframe's web backend already
-  `preventDefault`s `contextmenu` on the canvas, so the browser menu will not
-  fire — but that is read from the source, not observed. *Agent, by step 4*:
-  confirmed on the built demo as part of the by-hand acceptance, and if it
-  does fire, right-drag pan is dropped and shift+left carries the pan alone.
+- **Right-drag pan on the web.** *Answered 2026-09-03 (agent, step 4):
+  observed, not read.* The demo was built and driven in headed Chromium over
+  CDP: a right-press-drag across the canvas raised **no** `contextmenu` event
+  at the window at all, while the identical CDP gesture on a control page
+  raised one with `defaultPrevented: false` — so eframe's canvas handler both
+  prevents and stops it, and the browser menu will not fire. The same drag
+  translated the arm across the canvas with no rotation: right-drag pans on
+  the web. `shift+left` does not have to carry the pan alone.

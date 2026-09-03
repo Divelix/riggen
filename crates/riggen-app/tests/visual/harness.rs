@@ -252,6 +252,30 @@ pub fn camera_drag(
     pump_rendered(harness, 4);
 }
 
+/// A left press at `from` that moves to `to` in **one** step and is then
+/// released: a *click* while the distance is under `max_click_dist`, a drag
+/// once it is past (ADR-0018).
+///
+/// Three frames from press to release on purpose, and that is the whole
+/// budget: the harness runs at `step_dt` = ¼ s, so a gesture spanning more
+/// frames is past `max_click_duration` (0.8 s) and egui calls it a drag
+/// whatever the distance. That is why [`camera_drag`]'s four-move walk can
+/// never be a click and this cannot be written in terms of it, and it is
+/// also why [`click_at`] pumps exactly two frames while the button is down.
+#[allow(dead_code, reason = "used from the click-threshold scenario on")]
+pub fn press_move_release(harness: &mut Harness<'_, RiggenApp>, from: egui::Pos2, to: egui::Pos2) {
+    harness.hover_at(from);
+    pump_rendered(harness, 4);
+    harness.event(pointer_button(from, true));
+    pump_rendered(harness, 1);
+    harness.event(egui::Event::PointerMoved(to));
+    pump_rendered(harness, 1);
+    harness.event(pointer_button(to, false));
+    pump_rendered(harness, 8);
+    harness.event(egui::Event::PointerGone);
+    pump_rendered(harness, 4);
+}
+
 /// Hovers at `pos` and turns the wheel `lines` notches there.
 ///
 /// The viewport reads the wheel off `InputState::raw.events`

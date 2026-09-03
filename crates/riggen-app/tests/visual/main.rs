@@ -17,8 +17,8 @@ mod harness;
 
 use egui_kittest::kittest::{NodeT, Queryable};
 use harness::{
-    camera_drag, click_at, click_widget, middle_drag, pump_rendered, scenario, scroll_at, settle,
-    synthetic_drag, with_app,
+    camera_drag, click_at, click_widget, middle_drag, press_move_release, pump_rendered, scenario,
+    scroll_at, settle, synthetic_drag, with_app,
 };
 
 use riggen_app::{Selection, Tool, ZERO_CONFIG_STATUS};
@@ -3200,6 +3200,174 @@ fn orbit_works_from_a_gizmo_handle() {
             "and the gizmo never took the drag"
         );
     });
+}
+
+/// A left press that stays still selects; one that moves orbits (ADR-0018).
+///
+/// Nothing in riggen decides which — egui does, from `max_click_dist` and
+/// `max_click_duration` — so both are read off the context and asserted
+/// here rather than hard-coded at the call sites: if a future egui moves
+/// them, this says so instead of the gestures below quietly changing
+/// meaning. The two gestures are then sized *from* the threshold, one two
+/// points under it and one well past.
+///
+/// The second half repeats both under Place joint, where `select_suppressed`
+/// is on: the click still places, and the drag still orbits and commits
+/// nothing.
+#[test]
+fn left_drag_orbits_and_a_click_still_selects() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        settle(harness);
+
+        let (max_click_dist, max_click_duration) = harness.ctx.options(|o| {
+            (
+                o.input_options.max_click_dist,
+                o.input_options.max_click_duration,
+            )
+        });
+        assert_eq!(
+            (max_click_dist, max_click_duration),
+            (6.0, 0.8),
+            "egui's click thresholds are riggen's select-versus-orbit rule; \
+             if they moved, the gestures below mean something else"
+        );
+
+        // The middle of the arm's own geometry, not the viewport's centre:
+        // the hinge glyph sits at the centre and a click there would select
+        // the *joint*, through the overlay rather than through the pick this
+        // is about.
+        let arm = arm_instance_point(harness);
+        let start = harness.state().debug_state();
+        assert_eq!(start.document.selection, None, "nothing is selected yet");
+
+        // Under the threshold: still a click.
+        press_and_move(harness, arm, max_click_dist - 2.0);
+        let clicked = harness.state().debug_state();
+        assert_eq!(
+            clicked.document.selection.as_deref(),
+            Some(format!("link {}", arm_link(harness)).as_str()),
+            "a press that jittered {} points still selected the part under it",
+            max_click_dist - 2.0
+        );
+        assert_eq!(
+            (
+                clicked.camera.yaw_deg,
+                clicked.camera.pitch_deg,
+                clicked.camera.target
+            ),
+            (
+                start.camera.yaw_deg,
+                start.camera.pitch_deg,
+                start.camera.target
+            ),
+            "and the camera did not move under it"
+        );
+
+        // Well past it: an orbit, and the selection is left alone.
+        press_and_move(harness, arm, max_click_dist * 15.0);
+        let dragged = harness.state().debug_state();
+        assert!(
+            dragged.camera.yaw_deg != clicked.camera.yaw_deg,
+            "the long press orbited: {} -> {}",
+            clicked.camera.yaw_deg,
+            dragged.camera.yaw_deg
+        );
+        assert_eq!(
+            dragged.document.selection, clicked.document.selection,
+            "a drag is not a click, so it selected nothing"
+        );
+
+        // The same pair under a placement tool. The click means "put it
+        // here" and the select pick is off; the drag was doing nothing at
+        // all before ADR-0018.
+        let joint = *harness.state().robot().joints.keys().next().unwrap();
+        harness.state_mut().select(Selection::Joint(joint));
+        harness.state_mut().set_tool(Tool::PlaceJoint);
+        settle(harness);
+        assert!(
+            harness.state().debug_state().input.select_suppressed,
+            "the placement tool suppresses the select pick"
+        );
+
+        let at = arm_instance_point(harness);
+        hover_until_snapped(harness, at);
+        assert!(
+            harness.state().snap().is_some(),
+            "the cursor is on geometry, so there is something to place on"
+        );
+        let depth = harness.state().history().undo_depth();
+        let before = harness.state().debug_state();
+
+        press_and_move(harness, at, max_click_dist - 2.0);
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth + 1,
+            "the click still placed the joint"
+        );
+
+        let placed = harness.state().debug_state();
+        press_and_move(harness, at, max_click_dist * 15.0);
+        let after = harness.state().debug_state();
+        assert!(
+            after.camera.yaw_deg != placed.camera.yaw_deg,
+            "and a drag over a placement tool orbits: {} -> {}",
+            placed.camera.yaw_deg,
+            after.camera.yaw_deg
+        );
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth + 1,
+            "without placing anything"
+        );
+        assert_eq!(
+            after.document.selection, before.document.selection,
+            "and without changing the selection either"
+        );
+    });
+}
+
+/// The middle of the non-root link's geometry on screen: a point that is on
+/// a *part*, clear of the joint glyph drawn at the pivot.
+fn arm_instance_point(harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>) -> egui::Pos2 {
+    let root = harness.state().robot().root.to_string();
+    let state = harness.state().debug_state();
+    let instance = state
+        .instances
+        .iter()
+        .find(|i| i.link.as_deref() != Some(root.as_str()))
+        .expect("the pendulum has a link under its root");
+    let [min, max] = instance.bounds.expect("the instance has bounds");
+    let centre = (DVec3::from(min) + DVec3::from(max)) * 0.5;
+    harness
+        .state()
+        .project_world(DVec3::from(instance.position) + centre)
+        .expect("it is on screen")
+}
+
+/// That link's id, for the selection the click should produce.
+fn arm_link(harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>) -> String {
+    let root = harness.state().robot().root;
+    harness
+        .state()
+        .robot()
+        .links
+        .keys()
+        .find(|l| **l != root)
+        .expect("the pendulum has a link under its root")
+        .to_string()
+}
+
+/// A left press at `at` that moves `dx` points before it is released.
+fn press_and_move(
+    harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+    at: egui::Pos2,
+    dx: f32,
+) {
+    press_move_release(harness, at, at + egui::vec2(dx, 0.0));
 }
 
 /// A **left**-drag from a gizmo handle moves the part and nothing else
