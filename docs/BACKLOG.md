@@ -21,7 +21,7 @@ below with the reason, so the same idea is not re-brainstormed.
 - Live joint-state link from a running Python script to the GUI (file or socket)
 - A web worker for `jobs`, so a convex decomposition does not freeze the browser tab: `Jobs` has no thread on wasm and runs the job inline, and the demo asks before starting one rather than fixing it (ADR-0017, 01 §Jobs and threads; RoboCAD's `InlineEval` has the same gap)
 - A WebGL2 fallback for the demo, for browsers without WebGPU: needs a second picking mechanism, because the ID-buffer readback is `copy_texture_to_buffer` on an `R32Uint` target and wgpu's GL backend will not do it (ADR-0017 §7)
-- Touch and a narrow-screen layout for the demo: it is a desktop-browser UI today, and a phone gets the desktop panels
+- Touch and a narrow-screen layout for the demo: it is a desktop-browser UI today, and a phone gets the desktop panels. A one-finger drag already orbits, because it reaches egui as a primary drag (ADR-0018); pinch-zoom and two-finger pan have nothing behind them and are untested
 - A directory drop on the web, with real relative mesh paths: a plain drop gives only file names, so two `base.stl` in one gesture collide (ADR-0017 §Consequences)
 - A document surviving a reload of the demo page: eframe's `persistence` keeps the UI layout and the import-units choice, as on native, and the document is lost — the meshes would have to be kept too, so it is browser storage rather than a serde change
 - Ground grid at z = 0 in the viewport (new; robocad never had one — M0 ships the gradient background only)

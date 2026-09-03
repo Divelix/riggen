@@ -1110,7 +1110,11 @@ measured size is in 03 §v0.2.
   `toDataURL` (`Page.captureScreenshot` does not composite a WebGPU
   canvas). It has to run **headed** on a display: headless Chromium's GPU
   process fails `requestDevice`, which a minimal clear-to-red WebGPU page
-  confirms is the environment and not riggen.
+  confirms is the environment and not riggen. Headed also means it takes
+  the keyboard focus while it is up, so anything typed during a run lands
+  in the demo rather than in the terminal — a stray `p` toggles the
+  projection — and a screenshot that disagrees with the actions sent is
+  worth re-running before it is believed.
 - **Visual snapshots** (`riggen-app/tests/visual`, ADR-0003): `egui_kittest`
   drives the real `eframe::App` headlessly through wgpu (CPU adapter via
   lavapipe, so local and CI agree) and diffs PNGs. This is how an agent sees

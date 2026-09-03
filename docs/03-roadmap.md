@@ -233,13 +233,23 @@ shows a ghost and a grab or not-allowed cursor, and `Reparent { at }` keeps
 a posed part where it is. Found on the way and fixed in place: egui's
 `DragValue` re-parses its stashed text the frame after Enter or Escape,
 and its `Slider` writes the display-rounded value back every frame — the
-open Joints window had been quietly rounding `q`. The two viewport bullets
-remain: decide `docs/ideas/orbit-left-drag.md`, then plan them.
+open Joints window had been quietly rounding `q`. The left-drag landed the
+same day (plan `orbit-left-drag`, ADR-0018): the camera now takes **left =
+orbit, shift+left = pan, right = pan** and keeps the middle pair, and a
+fourth pointer switch, `set_primary_drag_claimed`, lets a gizmo handle take
+the primary drag alone — so a left-drag from a handle moves the part while
+a drag from a joint glyph, or from anywhere else, still orbits.
+Click-to-select survives on egui's own click-versus-drag arbitration, and a
+test reads `max_click_dist` and `max_click_duration` off the context rather
+than trusting the defaults. Found on the way: the kittest harness runs at
+`step_dt` = ¼ s, so a press held past about three frames is a drag whatever
+the distance — the distance threshold needs a three-frame gesture of its own
+(01 §Testing). Left of the viewport work: the three other mouse items and
+the overlay.
 
-- **The viewport answers the mouse.** Orbit on left-drag with click-to-select
-  still working (an idea first: the rule is the hard part); keyboard
-  shortcuts for the five tools; the rotate gizmo on the wheel; snapping
-  *during* a gizmo drag, not only in the Align tool.
+- **The viewport answers the mouse.** Keyboard shortcuts for the five tools;
+  the rotate gizmo on the wheel; snapping *during* a gizmo drag, not only in
+  the Align tool. (Orbit on left-drag: done, ADR-0018.)
 - **The overlay tells the truth.** A depth-tested overlay, so a glyph behind
   a part reads as behind it; a badge or tint on a joint glyph that is driven
   (ADR-0013) or actuated (ADR-0014), which today look like free joints.
@@ -257,8 +267,9 @@ remain: decide `docs/ideas/orbit-left-drag.md`, then plan them.
 
 **Out:** any new format, importer or writer; distribution (crates.io, the
 screencast, notarization); the demo's four gaps (web worker, WebGL2, touch,
-directory drop) — all still backlog lines. No new ADR is expected unless
-the left-drag rule needs one; §What not to spend agent time on stands.
+directory drop) — all still backlog lines. The left-drag rule needed the one
+ADR this cycle expected (ADR-0018) and no other is; §What not to spend agent
+time on stands.
 
 **Accept:** the M2 arm build, run by hand again end to end, produces no new
 entry for this list — and the agent's own snapshot suite covers every

@@ -35,9 +35,10 @@ collision; M2 the mouse-only arm; M1 the document, commands, history,
 and no new distribution. Landed 2026-09-03: numbers scrub and Ctrl+wheel
 steps them (one gesture = one history entry), the panels stop hiding
 things, the tree says what a drag will do and reparents at the current
-`q`. Left: the viewport answers the mouse and keyboard, the overlay tells
-the truth about depth and driven joints — decide
-`docs/ideas/orbit-left-drag.md` first, then plan them.
+`q`, and the left-drag orbits while a gizmo handle claims it (ADR-0018).
+Left: tool shortcuts, the rotate gizmo on the wheel, snapping during a
+gizmo drag, and the overlay telling the truth about depth and driven
+joints.
 
 ## Rules that are not derivable from the code
 
