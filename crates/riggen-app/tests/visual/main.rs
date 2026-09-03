@@ -21,7 +21,7 @@ use harness::{
     scroll_at, settle, synthetic_drag, with_app,
 };
 
-use riggen_app::{Selection, Tool, ZERO_CONFIG_STATUS};
+use riggen_app::{RingAxis, Selection, Tool, ZERO_CONFIG_STATUS};
 use riggen_core::glam::DVec3;
 use riggen_core::{Command, Link, LinkId, Pose};
 
@@ -2935,6 +2935,143 @@ fn gizmo_rotate_joint() {
         assert_eq!(gizmo.mode, "rotate");
         // The joint frame is the child link frame.
         assert_eq!(gizmo.origin, [0.0, 0.0, 0.5]);
+    });
+}
+
+/// Which of the three rotate rings the cursor is on (step 1 of
+/// plans/viewport-answers-the-mouse, for the wheel of step 3).
+///
+/// `Gizmo::pick_preview` answers only *whether* a handle is under the
+/// cursor and the crate's subgizmos are private, so `ring_under_cursor`
+/// recomputes the ring from the crate's own geometry. This walks the circle
+/// the rings are drawn on — a tilted ring projects to an ellipse that meets
+/// that circle at the ends of its major axis, so one lap names all three —
+/// and then parks on the Z ring, which the crate draws hot.
+#[test]
+fn gizmo_ring_hover() {
+    scenario("gizmo_ring_hover", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::Rotate);
+        app.select(Selection::Joint(hinge));
+        settle(harness);
+
+        // The gizmo's own size in points (`gizmo_visuals`), which is the
+        // radius its rings are drawn at.
+        const RADIUS: f32 = 110.0;
+        let origin = gizmo_handle(harness);
+        let mut found: Vec<(RingAxis, egui::Pos2)> = Vec::new();
+        for step in 0..72 {
+            let angle = step as f32 / 72.0 * std::f32::consts::TAU;
+            let at = origin + egui::vec2(angle.cos(), angle.sin()) * RADIUS;
+            harness.hover_at(at);
+            harness.step();
+            harness.step();
+            if let Some(ring) = harness.state().hovered_ring() {
+                found.push((ring, at));
+            }
+        }
+        for ring in RingAxis::ALL {
+            assert!(
+                found.iter().any(|(seen, _)| *seen == ring),
+                "one lap of the gizmo should meet the {} ring, saw {:?}",
+                ring.label(),
+                found.iter().map(|(r, _)| r.label()).collect::<Vec<_>>()
+            );
+        }
+        // The middle of the gizmo is no ring at all.
+        harness.hover_at(origin);
+        harness.step();
+        harness.step();
+        assert_eq!(harness.state().hovered_ring(), None);
+
+        // Park on the Z ring for the golden: the crate draws the ring under
+        // the cursor hot, so the picture shows what the wheel would step.
+        let at = found
+            .iter()
+            .find(|(ring, _)| *ring == RingAxis::Z)
+            .expect("the Z ring was met")
+            .1;
+        harness.hover_at(at);
+        harness.step();
+        harness.step();
+        let gizmo = harness.state().debug_state().gizmo.expect("a gizmo");
+        assert_eq!(gizmo.mode, "rotate");
+        assert_eq!(gizmo.hovered_ring, Some("z"));
+        assert!(gizmo.captured, "a handle under the cursor is the gizmo's");
+    });
+}
+
+/// The ring the hover names is the ring the **crate** turns about.
+///
+/// `ring_under_cursor` reimplements crate-private geometry, so the one
+/// thing worth pinning is that the two agree: hover each ring in turn, drag
+/// it, and read the rotation the gizmo actually produced. Local axes, since
+/// the gizmo is configured `GizmoOrientation::Local`.
+#[test]
+fn a_ring_drag_turns_about_the_ring_the_hover_named() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::Rotate);
+        app.select(Selection::Joint(hinge));
+        settle(harness);
+
+        const RADIUS: f32 = 110.0;
+        let origin = gizmo_handle(harness);
+        for ring in RingAxis::ALL {
+            // Where this ring meets the circle it is drawn on.
+            let mut at = None;
+            for step in 0..72 {
+                let angle = step as f32 / 72.0 * std::f32::consts::TAU;
+                let candidate = origin + egui::vec2(angle.cos(), angle.sin()) * RADIUS;
+                harness.hover_at(candidate);
+                harness.step();
+                harness.step();
+                if harness.state().hovered_ring() == Some(ring) {
+                    at = Some(candidate);
+                    break;
+                }
+            }
+            let at = at.unwrap_or_else(|| panic!("the {} ring is on screen", ring.label()));
+
+            let before = harness
+                .state()
+                .gizmo_world(harness.state().gizmo_target().expect("a gizmo"))
+                .expect("a pose");
+            // Tangentially, so the drag is along the ring rather than
+            // across it.
+            let spoke = (at - origin).normalized();
+            let to = at + egui::vec2(-spoke.y, spoke.x) * 40.0;
+            synthetic_drag(harness, at, to, 8);
+            settle(harness);
+
+            let after = harness
+                .state()
+                .gizmo_world(harness.state().gizmo_target().expect("a gizmo"))
+                .expect("a pose");
+            let (axis, angle) = (before.r.inverse() * after.r).to_axis_angle();
+            assert!(
+                angle.abs() > 1e-3,
+                "the {} ring drag turned nothing",
+                ring.label()
+            );
+            // Parallel to the ring's own axis, either way round: the sign
+            // follows the drag's direction, not the ring.
+            assert!(
+                axis.cross(ring.local()).length() < 1e-6,
+                "the {} ring turned about {axis:?}",
+                ring.label()
+            );
+            harness.state_mut().undo();
+            settle(harness);
+        }
     });
 }
 

@@ -264,6 +264,11 @@ pub struct GizmoDebug {
     /// Whether the gizmo owns the cursor: a handle is under it, or a drag
     /// is in flight. Suppresses the viewport's own input while it holds.
     pub captured: bool,
+    /// Which rotate ring the cursor is on — `"x"`, `"y"` or `"z"`. Absent
+    /// off the rings, and on the crate's fourth, view-axis one, which the
+    /// wheel does not claim.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hovered_ring: Option<&'static str>,
 }
 
 /// One joint glyph: where its pivot and axis are, and how big it is drawn.
@@ -564,6 +569,7 @@ impl RiggenApp {
                         .map(|p| [round32(p.x), round32(p.y)]),
                     dragging: self.gizmo_dragging(),
                     captured: self.gizmo_captured(),
+                    hovered_ring: self.hovered_ring().map(crate::app::RingAxis::label),
                 })
             }),
             status: self.status.clone(),

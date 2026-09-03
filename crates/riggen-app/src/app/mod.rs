@@ -37,7 +37,7 @@ pub use file_io::{DroppedSet, Files};
 pub use file_menu::PendingAction;
 use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use gizmo::GizmoState;
-pub use gizmo::GizmoTarget;
+pub use gizmo::{GizmoTarget, RingAxis};
 pub use glyphs::{FrameGlyph, GLYPH_HOVER_RADIUS, JointGlyph};
 pub use panels::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING, fmt_num};
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};

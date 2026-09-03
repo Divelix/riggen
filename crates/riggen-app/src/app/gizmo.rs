@@ -30,7 +30,7 @@
 //! pointer away from the viewport on *every* frame a gizmo is on screen
 //! (ADR-0010).
 
-use riggen_core::glam::{DQuat, DVec3};
+use riggen_core::glam::{DMat4, DQuat, DVec3};
 use riggen_core::{Command, FrameId, JointId, JointState, LinkId, Pose, origin_for_world};
 use transform_gizmo_egui::{
     Gizmo, GizmoConfig, GizmoInteraction, GizmoMode, GizmoOrientation, GizmoResult, GizmoVisuals,
@@ -74,6 +74,10 @@ pub(crate) struct GizmoState {
     /// `Viewport::set_pick_suppressed` *before* the viewport runs, so it
     /// is one frame behind — the same lag egui's own interaction has.
     pub(crate) captured: bool,
+    /// Which rotate ring the cursor is on, while one is
+    /// ([`ring_under_cursor`]). `None` outside the Rotate tool, off the
+    /// handles, and on the crate's fourth — view-axis — ring.
+    pub(crate) hovered_ring: Option<RingAxis>,
 }
 
 impl RiggenApp {
@@ -143,10 +147,12 @@ impl RiggenApp {
         let Some(target) = self.gizmo_target() else {
             self.end_gizmo_drag(None);
             self.gizmo_state.captured = false;
+            self.gizmo_state.hovered_ring = None;
             return;
         };
         let Some(world) = self.gizmo_world(target) else {
             self.gizmo_state.captured = false;
+            self.gizmo_state.hovered_ring = None;
             return;
         };
 
@@ -155,26 +161,22 @@ impl RiggenApp {
             Tool::Rotate => GizmoMode::all_rotate(),
             _ => GizmoMode::all_translate(),
         };
+        // Hoisted out of the config: `ring_under_cursor` rebuilds the
+        // crate's own ring geometry from exactly these, and a second copy
+        // of the numbers would be a second copy to keep in step.
+        let view = self.viewport.camera.view_matrix().as_dmat4();
+        let projection = self.viewport.camera.proj_matrix(aspect).as_dmat4();
+        let visuals = gizmo_visuals();
         self.gizmo_state.gizmo.update_config(GizmoConfig {
-            view_matrix: self.viewport.camera.view_matrix().as_dmat4().into(),
-            projection_matrix: self.viewport.camera.proj_matrix(aspect).as_dmat4().into(),
+            view_matrix: view.into(),
+            projection_matrix: projection.into(),
             viewport: rect,
             modes,
             // Local: the handles follow the frame being edited, which is
             // what "put this joint's axis along that bore" needs.
             orientation: GizmoOrientation::Local,
             pixels_per_point: ui.ctx().pixels_per_point(),
-            visuals: GizmoVisuals {
-                // The axes triad's colours, so red/green/blue means the same
-                // thing in the corner and under the cursor.
-                x_color: egui::Color32::from_rgb(230, 64, 64),
-                y_color: egui::Color32::from_rgb(89, 217, 89),
-                z_color: egui::Color32::from_rgb(77, 140, 242),
-                // 75 px (the crate's default) is a small target for a
-                // handle that has to be hit on the first try.
-                gizmo_size: 110.0,
-                ..Default::default()
-            },
+            visuals,
             ..Default::default()
         });
 
@@ -195,6 +197,23 @@ impl RiggenApp {
                 !self.toolbar_rect.is_some_and(|r| r.contains(c))
                     && self.gizmo_state.gizmo.pick_preview((c.x, c.y))
             });
+        // Which ring, for the wheel. Gated on `over_handle`, so the crate
+        // has already said a handle is there and this only says *which* —
+        // and only under Rotate, where the three rings are the handles.
+        self.gizmo_state.hovered_ring = (self.tool == Tool::Rotate && over_handle)
+            .then(|| {
+                ring_under_cursor(
+                    view,
+                    projection,
+                    rect,
+                    world,
+                    visuals.gizmo_size,
+                    visuals.stroke_width,
+                    cursor?,
+                )
+            })
+            .flatten();
+
         // A drag that has left its handle still owns the pointer.
         let active = self.gizmo_state.drag.is_some();
         let result = interact(
@@ -309,6 +328,12 @@ impl RiggenApp {
         self.gizmo_state.captured
     }
 
+    /// Which rotate ring the cursor is on, if any — what the wheel will
+    /// step (`debug_state`, and step 3 of plans/viewport-answers-the-mouse).
+    pub fn hovered_ring(&self) -> Option<RingAxis> {
+        self.gizmo_state.hovered_ring
+    }
+
     /// Where `world` lands on screen, in egui logical points — what aims a
     /// scripted click at a part or at the gizmo.
     pub fn project_world(&self, world: DVec3) -> Option<egui::Pos2> {
@@ -399,4 +424,359 @@ fn interact(
     });
 
     result
+}
+
+/// The gizmo's visual style, in one place: [`RiggenApp::gizmo_ui`] hands it
+/// to the crate and [`ring_under_cursor`] measures with it, so the ring the
+/// wheel steps cannot drift from the ring that was drawn.
+fn gizmo_visuals() -> GizmoVisuals {
+    GizmoVisuals {
+        // The axes triad's colours, so red/green/blue means the same thing
+        // in the corner and under the cursor.
+        x_color: egui::Color32::from_rgb(230, 64, 64),
+        y_color: egui::Color32::from_rgb(89, 217, 89),
+        z_color: egui::Color32::from_rgb(77, 140, 242),
+        // 75 px (the crate's default) is a small target for a handle that
+        // has to be hit on the first try.
+        gizmo_size: 110.0,
+        ..Default::default()
+    }
+}
+
+/// One of the rotate gizmo's three rings: the axis it turns about, in the
+/// **local** frame the gizmo is drawn on (`GizmoOrientation::Local`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RingAxis {
+    X,
+    Y,
+    Z,
+}
+
+impl RingAxis {
+    /// The order [`ring_under_cursor`] tests them in; ties break on depth,
+    /// not on this.
+    pub const ALL: [RingAxis; 3] = [Self::X, Self::Y, Self::Z];
+
+    /// The name `debug_state` reports.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::X => "x",
+            Self::Y => "y",
+            Self::Z => "z",
+        }
+    }
+
+    /// The axis in the gizmo's own frame.
+    pub fn local(self) -> DVec3 {
+        match self {
+            Self::X => DVec3::X,
+            Self::Y => DVec3::Y,
+            Self::Z => DVec3::Z,
+        }
+    }
+}
+
+/// Which rotate ring the cursor is on, if any.
+///
+/// `Gizmo::pick_preview` answers only *whether* a handle is under the
+/// cursor, and `transform-gizmo`'s subgizmos are private, so which ring it
+/// is has to be recomputed here. This mirrors the crate's own geometry —
+/// `subgizmo/rotation.rs::pick_preview` and `arc_angle`, `config.rs`'s
+/// `scale_factor` / `focus_distance`, `math.rs`'s `ray_to_plane_origin` —
+/// against the same matrices and the same [`gizmo_visuals`] the config was
+/// built from, so the two agree by construction rather than by luck. The
+/// caller gates it on the crate's own `pick_preview`, so this only ever
+/// says *which*, never *whether*.
+///
+/// `None` on the crate's fourth ring — the view circle drawn outside the
+/// other three, turning about the camera's own axis — which the wheel
+/// deliberately does not claim (plans/viewport-answers-the-mouse: a step
+/// about an axis the document has no name for is not one the user can
+/// predict, and zoom keeps working there).
+pub(crate) fn ring_under_cursor(
+    view: DMat4,
+    projection: DMat4,
+    rect: egui::Rect,
+    world: Pose,
+    gizmo_size: f32,
+    stroke_width: f32,
+    cursor: egui::Pos2,
+) -> Option<RingAxis> {
+    let view_projection = projection * view;
+    // The two radii and the tolerance the crate derives from its scale.
+    let scale = ring_scale(view, projection, rect, world);
+    if !scale.is_finite() || scale <= 0.0 {
+        return None;
+    }
+    let radius = scale * gizmo_size as f64;
+    let outer = scale * (gizmo_size + stroke_width + 5.0) as f64;
+    let focus = scale * (stroke_width as f64 / 2.0 + 5.0);
+
+    let inverse = view_projection.inverse();
+    let origin = screen_to_world(rect, inverse, cursor, -1.0);
+    let direction = (screen_to_world(rect, inverse, cursor, 1.0) - origin).normalize_or_zero();
+    if direction == DVec3::ZERO {
+        return None;
+    }
+
+    // The crate's `view_forward()`: the third *row* of the view matrix (its
+    // config holds a `mint::RowMatrix4`, which glam transposes on the way
+    // in). Its sign is what the arc test measures against, so the
+    // handedness rule comes along with it.
+    let mut forward = view.row(2).truncate();
+    if left_handed(view, projection) {
+        forward = -forward;
+    }
+
+    let best = RingAxis::ALL
+        .iter()
+        .filter_map(|&axis| {
+            let normal = (world.r * axis.local()).normalize_or_zero();
+            let (t, distance) = ray_to_ring(normal, world.t, origin, direction)?;
+            if (distance - radius).abs() > focus {
+                return None;
+            }
+            // The direction from the centre to the point of the ring
+            // nearest the hit — the crate walks from the hit back toward
+            // the centre, which lands on the same unit vector.
+            let offset = (origin + direction * t - world.t).normalize_or_zero();
+            let angle = f64::atan2(offset.cross(forward).dot(normal), offset.dot(forward));
+            // The back half of a ring is not drawn and not pickable, unless
+            // the ring is nearly face-on, where the arc closes into a full
+            // circle.
+            (angle.abs() < arc_angle(normal.dot(forward).abs())).then_some((t, axis))
+        })
+        .min_by(|(first, _), (second, _)| first.total_cmp(second));
+
+    let (depth, axis) = best?;
+    // The view ring is a full circle at `outer`, and it sits close enough to
+    // the others that a cursor can be in both bands; when it is the nearer,
+    // the wheel is not ours.
+    let view_ring = ray_to_ring(forward, world.t, origin, direction)
+        .filter(|(_, distance)| (distance - outer).abs() <= focus);
+    match view_ring {
+        Some((view_depth, _)) if view_depth < depth => None,
+        _ => Some(axis),
+    }
+}
+
+/// World units per screen point at the gizmo's depth
+/// (`config.rs::update_for_config`), which is what turns the gizmo's size
+/// in pixels into the radius of its rings in the world.
+fn ring_scale(view: DMat4, projection: DMat4, rect: egui::Rect, world: Pose) -> f64 {
+    let model = DMat4::from_rotation_translation(world.r.normalize(), world.t);
+    let mvp = projection * view * model;
+    mvp.w_axis.w / projection.x_axis.x / rect.width().max(1.0) as f64 * 2.0
+}
+
+/// `math.rs::screen_to_world`: a point on the near (`z = -1`) or far
+/// (`z = 1`) plane, in world coordinates.
+fn screen_to_world(rect: egui::Rect, inverse: DMat4, pos: egui::Pos2, z: f64) -> DVec3 {
+    let x = (((pos.x - rect.min.x) / rect.width().max(1.0)) * 2.0 - 1.0) as f64;
+    let y = (((pos.y - rect.min.y) / rect.height().max(1.0)) * 2.0 - 1.0) as f64;
+    let mut world = inverse * riggen_core::glam::DVec4::new(x, -y, z, 1.0);
+    // w is zero when the far plane is at infinity.
+    if world.w.abs() < 1e-7 {
+        world.w = 1e-7;
+    }
+    (world / world.w).truncate()
+}
+
+/// `math.rs::ray_to_plane_origin` on a ring's plane: the ray parameter and
+/// the distance from the centre, or `None` when the ray runs parallel to
+/// the plane or meets it behind the eye.
+fn ray_to_ring(
+    normal: DVec3,
+    center: DVec3,
+    ray_origin: DVec3,
+    ray_dir: DVec3,
+) -> Option<(f64, f64)> {
+    let denominator = normal.dot(ray_dir);
+    if denominator.abs() < 10e-8 {
+        return None;
+    }
+    let t = (center - ray_origin).dot(normal) / denominator;
+    (t >= 0.0).then(|| (t, (ray_origin + ray_dir * t - center).length()))
+}
+
+/// `rotation.rs::arc_angle`: how much of a ring is drawn, and therefore
+/// pickable — half of it edge-on, all of it once it is within a few degrees
+/// of facing the camera.
+fn arc_angle(dot: f64) -> f64 {
+    use std::f64::consts::{FRAC_PI_2, PI};
+    const MIN_DOT: f64 = 0.990;
+    const MAX_DOT: f64 = 0.995;
+    let angle = ((dot - MIN_DOT).max(0.0) / (MAX_DOT - MIN_DOT)).min(1.0) * FRAC_PI_2 + FRAC_PI_2;
+    if (angle - PI).abs() < 1e-2 { PI } else { angle }
+}
+
+/// `config.rs::update_for_config`'s handedness rule, which decides the sign
+/// of the forward vector the arc test uses. Both of our projections —
+/// `perspective_rh` and `orthographic_rh` — are right-handed, so this is
+/// `false`; it is mirrored anyway, because a camera change should not
+/// silently rotate the pickable half of every ring.
+fn left_handed(view: DMat4, projection: DMat4) -> bool {
+    if projection.z_axis.w == 0.0 {
+        projection.z_axis.z > 0.0
+            && view
+                .x_axis
+                .truncate()
+                .cross(view.y_axis.truncate())
+                .dot(view.z_axis.truncate())
+                < 0.0
+    } else {
+        projection.z_axis.w > 0.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use riggen_core::glam::{DMat4, DVec3, DVec4};
+
+    const RECT: egui::Rect = egui::Rect {
+        min: egui::Pos2::ZERO,
+        max: egui::Pos2::new(800.0, 600.0),
+    };
+    const SIZE: f32 = 110.0;
+    const STROKE: f32 = 4.0;
+
+    /// A camera five metres out along +Z, looking at the origin: the local
+    /// Z ring is face-on, X and Y are edge-on.
+    fn camera() -> (DMat4, DMat4) {
+        let view = DMat4::look_at_rh(DVec3::new(0.0, 0.0, 5.0), DVec3::ZERO, DVec3::Y);
+        let projection = DMat4::perspective_rh(
+            45f64.to_radians(),
+            RECT.width() as f64 / RECT.height() as f64,
+            0.1,
+            100.0,
+        );
+        (view, projection)
+    }
+
+    /// Where a world point lands, the inverse of [`screen_to_world`].
+    fn project(view: DMat4, projection: DMat4, at: DVec3) -> egui::Pos2 {
+        let clip = projection * view * DVec4::new(at.x, at.y, at.z, 1.0);
+        let ndc = clip.truncate() / clip.w;
+        egui::pos2(
+            RECT.min.x + (ndc.x as f32 * 0.5 + 0.5) * RECT.width(),
+            RECT.min.y + (0.5 - ndc.y as f32 * 0.5) * RECT.height(),
+        )
+    }
+
+    /// A point on a ring of `world`, `turn` of the way around it.
+    fn ring_point(view: DMat4, projection: DMat4, world: Pose, axis: RingAxis, turn: f64) -> DVec3 {
+        let radius = ring_scale(view, projection, RECT, world) * SIZE as f64;
+        let normal = world.r * axis.local();
+        let (start, _) = normal.any_orthonormal_pair();
+        let spoke = DQuat::from_axis_angle(normal, turn * std::f64::consts::TAU) * start;
+        world.t + spoke * radius
+    }
+
+    /// The cursor on that point.
+    fn on_ring(
+        view: DMat4,
+        projection: DMat4,
+        world: Pose,
+        axis: RingAxis,
+        turn: f64,
+    ) -> egui::Pos2 {
+        project(
+            view,
+            projection,
+            ring_point(view, projection, world, axis, turn),
+        )
+    }
+
+    fn ring(world: Pose, cursor: egui::Pos2) -> Option<RingAxis> {
+        let (view, projection) = camera();
+        ring_under_cursor(view, projection, RECT, world, SIZE, STROKE, cursor)
+    }
+
+    #[test]
+    fn the_face_on_ring_is_the_one_under_the_cursor() {
+        let (view, projection) = camera();
+        let world = Pose::IDENTITY;
+        // Three points around the Z ring, none of them where it crosses the
+        // two edge-on ones.
+        for turn in [0.125, 0.375, 0.625] {
+            let cursor = on_ring(view, projection, world, RingAxis::Z, turn);
+            assert_eq!(
+                ring(world, cursor),
+                Some(RingAxis::Z),
+                "at {turn} of a turn"
+            );
+        }
+    }
+
+    #[test]
+    fn the_ring_follows_the_frame_it_is_drawn_on() {
+        let (view, projection) = camera();
+        // A quarter turn about Y puts the *local X* ring face-on.
+        let world = Pose::new(
+            DVec3::ZERO,
+            DQuat::from_axis_angle(DVec3::Y, std::f64::consts::FRAC_PI_2),
+        );
+        let cursor = on_ring(view, projection, world, RingAxis::X, 0.125);
+        assert_eq!(ring(world, cursor), Some(RingAxis::X));
+    }
+
+    #[test]
+    fn the_middle_and_the_outside_are_not_a_ring() {
+        let (view, projection) = camera();
+        let world = Pose::IDENTITY;
+        assert_eq!(ring(world, project(view, projection, DVec3::ZERO)), None);
+        let radius = ring_scale(view, projection, RECT, world) * SIZE as f64;
+        let far = project(view, projection, DVec3::new(radius * 3.0, 0.0, 0.0));
+        assert_eq!(ring(world, far), None);
+    }
+
+    /// The crate draws a fourth ring outside the other three, turning about
+    /// the camera's own axis. The wheel does not claim it, and it is close
+    /// enough to the others that saying so takes a test.
+    #[test]
+    fn the_view_ring_is_not_ours() {
+        let (view, projection) = camera();
+        let world = Pose::IDENTITY;
+        let scale = ring_scale(view, projection, RECT, world);
+        let outer = scale * (SIZE + STROKE + 5.0) as f64;
+        for turn in [0.125f64, 0.375, 0.625] {
+            let spoke = DVec3::new(
+                (turn * std::f64::consts::TAU).cos(),
+                (turn * std::f64::consts::TAU).sin(),
+                0.0,
+            );
+            let cursor = project(view, projection, spoke * outer);
+            assert_eq!(ring(world, cursor), None, "at {turn} of a turn");
+        }
+    }
+
+    /// An edge-on ring keeps its front half: the crate draws only the arc
+    /// facing the camera, and picking it where nothing is drawn would step
+    /// a ring the user cannot see.
+    #[test]
+    fn the_back_of_a_ring_is_not_pickable() {
+        let (view, projection) = camera();
+        // The Y ring seen edge-on from +Z: its front half is the +Z side.
+        // Tilted 60° out of the screen, so the ring's arc is a half circle
+        // rather than the full one a face-on ring gets.
+        let world = Pose::new(
+            DVec3::ZERO,
+            DQuat::from_axis_angle(DVec3::X, 60f64.to_radians()),
+        );
+        let one = ring_point(view, projection, world, RingAxis::Z, 0.25);
+        let other = ring_point(view, projection, world, RingAxis::Z, 0.75);
+        // The camera is out along +Z, so the nearer of the two is the one
+        // on the half that is drawn.
+        let (near, far) = if one.z > other.z {
+            (one, other)
+        } else {
+            (other, one)
+        };
+        assert_eq!(
+            ring(world, project(view, projection, near)),
+            Some(RingAxis::Z)
+        );
+        assert_eq!(ring(world, project(view, projection, far)), None);
+    }
 }
