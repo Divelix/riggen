@@ -15,7 +15,7 @@ Consequences, Alternatives considered.
 | [0007](0007-transform-gizmo-crate-over-our-own.md) | The gizmo comes from `transform-gizmo-egui`, bridged through `mint` | Accepted, amended by 0010 |
 | [0008](0008-export-conventions.md) | Export conventions: meshes baked to meters as STL, `fullinertia`, a headless CLI export | Accepted |
 | [0009](0009-one-wheel-abi3-extension-plus-binary-as-data.md) | One wheel: a PyO3 abi3 extension module plus the binary as wheel data | Accepted |
-| [0010](0010-gizmo-egui-glue-is-ours.md) | The gizmo's egui glue is ours; the pointer is shared per handle | Accepted, §3 amended by 0018 |
+| [0010](0010-gizmo-egui-glue-is-ours.md) | The gizmo's egui glue is ours; the pointer is shared per handle | Accepted, §3 amended by 0018 and 0019 |
 | [0011](0011-convex-decomposition-from-parry-vhacd.md) | Convex decomposition from `parry3d-f64`'s V-HACD; the merge step is ours; the document stores parameters, not pieces | Accepted |
 | [0012](0012-frames-as-mjcf-sites-and-urdf-dummy-links.md) | A frame is an MJCF `<site>` and a URDF massless dummy link; the import does not reverse the second; frames and links share one namespace | Accepted |
 | [0013](0013-mimic-joints-as-urdf-mimic-and-mjcf-equality.md) | A mimic joint is URDF's `<mimic>` and an MJCF `<equality><joint polycoef>`; no chains; a removed leader frees its followers | Accepted |
@@ -23,4 +23,5 @@ Consequences, Alternatives considered.
 | [0015](0015-mjcf-import-subset-and-one-import-vocabulary.md) | MJCF import reads the subset the document can hold; `<default>` is resolved, not stored; one import vocabulary with URDF | Accepted |
 | [0016](0016-sdf-export-conventions.md) | SDF at 1.11: `relative_to` poses, native `<mimic>`, `<capsule>` and `<frame>`; libsdformat's Python bindings prove it in CI | Accepted |
 | [0017](0017-web-io-bytes-in-downloads-out.md) | Web IO: one `FileSource` seam in, downloads out, a dropped set resolved by file name, WebGPU only | Accepted |
-| [0018](0018-left-drag-orbits-gizmo-claims-the-primary-drag.md) | The bare left-drag belongs to the camera; the gizmo claims the primary drag; amends 0010 §3 | Accepted |
+| [0018](0018-left-drag-orbits-gizmo-claims-the-primary-drag.md) | The bare left-drag belongs to the camera; the gizmo claims the primary drag; amends 0010 §3 | Accepted, §3 amended by 0019 |
+| [0019](0019-the-wheel-is-claimable-and-a-drag-keeps-the-hover-pick.md) | The wheel can be claimed by a rotate ring, and a gizmo drag keeps the hover pick; amends 0010 §3 and 0018 §3 | Accepted |

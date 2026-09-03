@@ -96,7 +96,7 @@ tells the truth**.
       plan's one real unknown — a reimplementation of crate-private geometry
       that has to agree with the ring the crate draws hot — so it retires
       first.*
-- [ ] Step 2 — **ADR-0019.** The two contract rows above, their
+- [x] Step 2 — **ADR-0019.** The two contract rows above, their
       alternatives (Ctrl+wheel instead of the bare wheel, which
       `raw_wheel_delta_y` deliberately skips today and which the Properties
       scrubbers have already spent; a sixth switch instead of narrowing
