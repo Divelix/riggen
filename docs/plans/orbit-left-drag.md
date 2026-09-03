@@ -76,7 +76,7 @@ README stops being the only place that says how.
   primary drag), consequences (box select foreclosed, touch orbit free,
   `orbit_works_from_a_gizmo_handle` unchanged), alternatives (the idea's B,
   C, D). No code changes; nothing behaves differently yet.
-- [ ] Step 2 — **The viewport takes the left and right drags.**
+- [x] Step 2 — **The viewport takes the left and right drags.**
   `handle_input` orbits on primary, pans on shift+primary and on secondary;
   `primary_drag_claimed` and its setter exist and gate the primary branch
   only (nothing sets it yet). Generalise the harness's `middle_drag` into

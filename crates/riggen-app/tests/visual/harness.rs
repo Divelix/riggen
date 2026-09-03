@@ -195,12 +195,8 @@ pub fn synthetic_drag(
 /// Presses the **middle** button at `from`, walks the pointer to `to` and
 /// releases, with `modifiers` held for the whole gesture.
 ///
-/// Frames rather than queued events, for the reason [`synthetic_drag`]
-/// gives. `ModifiersChanged` is what carries the modifier: egui's
-/// `InputState` keeps the modifiers of the previous pass and only an
-/// explicit event changes them, so one at each end holds shift down across
-/// every frame of the drag — which is what the viewport's pan reads
-/// (`i.modifiers.shift`).
+/// [`camera_drag`] with the button spelled out; kept because the middle
+/// button is what most camera scenarios still drive.
 #[allow(dead_code, reason = "used from the orbit scenarios on")]
 pub fn middle_drag(
     harness: &mut Harness<'_, RiggenApp>,
@@ -208,23 +204,48 @@ pub fn middle_drag(
     to: egui::Pos2,
     modifiers: egui::Modifiers,
 ) {
-    let button = |pos, pressed| egui::Event::PointerButton {
+    camera_drag(harness, from, to, egui::PointerButton::Middle, modifiers);
+}
+
+/// Presses `button` at `from`, walks the pointer to `to` and releases, with
+/// `modifiers` held for the whole gesture.
+///
+/// Frames rather than queued events, for the reason [`synthetic_drag`]
+/// gives. `ModifiersChanged` is what carries the modifier: egui's
+/// `InputState` keeps the modifiers of the previous pass and only an
+/// explicit event changes them, so one at each end holds shift down across
+/// every frame of the drag — which is what the viewport's pan reads
+/// (`i.modifiers.shift`).
+///
+/// The four moves are what makes this a *drag* rather than a click: the
+/// viewport senses `click_and_drag`, so egui withholds `dragged()` until the
+/// press is past `max_click_dist` (ADR-0018) — `to` has to be further than
+/// that from `from`, which every caller's tens of points is.
+#[allow(dead_code, reason = "used from the orbit scenarios on")]
+pub fn camera_drag(
+    harness: &mut Harness<'_, RiggenApp>,
+    from: egui::Pos2,
+    to: egui::Pos2,
+    button: egui::PointerButton,
+    modifiers: egui::Modifiers,
+) {
+    let press = |pos, pressed| egui::Event::PointerButton {
         pos,
-        button: egui::PointerButton::Middle,
+        button,
         pressed,
         modifiers,
     };
     harness.hover_at(from);
     pump_rendered(harness, 4);
     harness.event(egui::Event::ModifiersChanged(modifiers));
-    harness.event(button(from, true));
+    harness.event(press(from, true));
     pump_rendered(harness, 2);
     for i in 1..=4 {
         let t = i as f32 / 4.0;
         harness.event(egui::Event::PointerMoved(from + (to - from) * t));
         pump_rendered(harness, 2);
     }
-    harness.event(button(to, false));
+    harness.event(press(to, false));
     harness.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
     pump_rendered(harness, 4);
     harness.event(egui::Event::PointerGone);

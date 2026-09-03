@@ -39,8 +39,11 @@ without a wheel, `pip install` builds the SDK from source with `cargo` on
 ## The first minute
 
 1. `riggen --example arm` opens a four-part arm: link tree on the left,
-   the viewport in the middle, Properties on the right. Orbit with the
-   middle mouse button, zoom with the wheel, `Home` to frame everything.
+   the viewport in the middle, Properties on the right. Drag with the left
+   button to orbit and with the right to pan (shift+left pans too, for a
+   trackpad; the middle button orbits and shift+middle pans), zoom with the
+   wheel, `Home` to frame everything. A click still selects — only a drag
+   turns the camera.
 2. Drag the sliders in the **Joints** window, which opened with the arm
    (**Window › Joints** brings it back) — the arm moves; that is the
    kinematic tree you will build for your own robot.

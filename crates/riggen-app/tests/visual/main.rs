@@ -17,7 +17,7 @@ mod harness;
 
 use egui_kittest::kittest::{NodeT, Queryable};
 use harness::{
-    click_at, click_widget, middle_drag, pump_rendered, scenario, scroll_at, settle,
+    camera_drag, click_at, click_widget, middle_drag, pump_rendered, scenario, scroll_at, settle,
     synthetic_drag, with_app,
 };
 
@@ -3198,6 +3198,162 @@ fn orbit_works_from_a_gizmo_handle() {
         assert!(
             !harness.state().gizmo_dragging(),
             "and the gizmo never took the drag"
+        );
+    });
+}
+
+/// Every button the audience reaches for drives the camera (ADR-0018):
+/// left orbits, shift+left pans, right pans, and the middle pair keeps
+/// exactly what it had. Over empty space, so nothing under the cursor can
+/// claim anything and the mapping alone is on trial.
+///
+/// Orbit is asserted as "the angles moved and the target did not", and pan
+/// as its mirror image, because those are the two ways the wrong branch
+/// could fire without the camera looking obviously wrong.
+#[test]
+fn the_camera_answers_every_button() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        settle(harness);
+
+        // Above the toolbar's reach, left of the pendulum — the same empty
+        // corner `click_empty_clears` aims at.
+        let r = harness.state().debug_state().viewport_rect.unwrap();
+        let from = egui::pos2(r[0] as f32 + 60.0, r[1] as f32 + 160.0);
+
+        let orbits = |harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+                      button,
+                      modifiers,
+                      what: &str| {
+            let before = harness.state().debug_state().camera;
+            camera_drag(
+                harness,
+                from,
+                from + egui::vec2(90.0, 45.0),
+                button,
+                modifiers,
+            );
+            let after = harness.state().debug_state().camera;
+            assert!(
+                after.yaw_deg != before.yaw_deg && after.pitch_deg != before.pitch_deg,
+                "{what} orbited: {:?} -> {:?}",
+                (before.yaw_deg, before.pitch_deg),
+                (after.yaw_deg, after.pitch_deg)
+            );
+            assert_eq!(
+                after.target, before.target,
+                "{what} turns around the target, it does not move it"
+            );
+        };
+        let pans = |harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+                    button,
+                    modifiers,
+                    what: &str| {
+            let before = harness.state().debug_state().camera;
+            camera_drag(
+                harness,
+                from,
+                from + egui::vec2(60.0, 0.0),
+                button,
+                modifiers,
+            );
+            let after = harness.state().debug_state().camera;
+            assert!(
+                after.target != before.target,
+                "{what} panned: {:?} -> {:?}",
+                before.target,
+                after.target
+            );
+            assert_eq!(
+                (after.yaw_deg, after.pitch_deg),
+                (before.yaw_deg, before.pitch_deg),
+                "{what} does not orbit"
+            );
+        };
+
+        orbits(
+            harness,
+            egui::PointerButton::Primary,
+            egui::Modifiers::NONE,
+            "a left-drag",
+        );
+        pans(
+            harness,
+            egui::PointerButton::Primary,
+            egui::Modifiers::SHIFT,
+            "shift+left",
+        );
+        pans(
+            harness,
+            egui::PointerButton::Secondary,
+            egui::Modifiers::NONE,
+            "a right-drag",
+        );
+        orbits(
+            harness,
+            egui::PointerButton::Middle,
+            egui::Modifiers::NONE,
+            "a middle-drag",
+        );
+        pans(
+            harness,
+            egui::PointerButton::Middle,
+            egui::Modifiers::SHIFT,
+            "shift+middle",
+        );
+
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            0,
+            "moving the camera is not an edit"
+        );
+    });
+}
+
+/// The picture the web visitor gets for the gesture they reached for: the
+/// sample arm, turned by a plain left-drag over it (ADR-0018).
+///
+/// The drag starts *on* the arm on purpose — that is where a first-time
+/// visitor's drag starts, and it is the case a "left-drag orbits only over
+/// empty space" rule would have got wrong.
+#[test]
+fn a_left_drag_turns_the_sample_arm() {
+    scenario("orbit_left_drag", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("arm/arm.riggen"))
+            .expect("open the sample arm");
+        app.fit_view_now();
+        settle(harness);
+        let before = harness.state().debug_state().camera;
+
+        let on_the_arm = harness
+            .state()
+            .project_world(DVec3::from(
+                harness.state().debug_state().instances[0].position,
+            ))
+            .expect("a part is on screen");
+        camera_drag(
+            harness,
+            on_the_arm,
+            on_the_arm + egui::vec2(90.0, 10.0),
+            egui::PointerButton::Primary,
+            egui::Modifiers::NONE,
+        );
+
+        let after = harness.state().debug_state().camera;
+        assert!(
+            after.yaw_deg != before.yaw_deg,
+            "the arm turned: {} -> {}",
+            before.yaw_deg,
+            after.yaw_deg
+        );
+        assert_eq!(
+            harness.state().debug_state().document.selection,
+            None,
+            "and a drag is not a click, so nothing was selected"
         );
     });
 }

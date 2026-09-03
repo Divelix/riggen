@@ -468,6 +468,17 @@ snap views, Num5 or `P` toggles projection, Home animates a fit; the
 `persp`/`ortho` label sits in the viewport corner, the wall-clock frame time
 in the status bar (hidden by `set_frame_hud_visible(false)` in tests).
 
+The camera's drags are **left = orbit, shift+left = pan, right = pan,
+middle = orbit, shift+middle = pan** (ADR-0018) — the mapping MuJoCo's
+`simulate`, rerun and every browser viewer share, and the only orbit a
+trackpad with no middle button has. Nothing in `handle_input` arbitrates
+click versus drag: the viewport senses `click_and_drag`, so egui withholds
+`dragged()` until the press is past `InputOptions::max_click_dist` (6.0
+points) or `max_click_duration` (0.8 s), and click-to-select is what a press
+that does neither still is. The left drag is the only one that can be taken
+away from the camera at all; `set_primary_drag_claimed` is that claim
+(ADR-0018).
+
 Repaint policy: egui repaints on input; request continuous repaint only
 during camera motion, gizmo drags, slider drags and joint animation. A hover
 pick is issued only when the cursor pixel or the camera matrix changed
@@ -1127,8 +1138,9 @@ measured size is in 03 §v0.2.
   `properties_wheel` (three Ctrl+wheel notches), `joints_window_opens_itself`,
   `tools_say_what_they_need`, `click_empty_clears`,
   `properties_collision_meshes`, `materials_rename`, `tree_drag_ghost`
-  (captured mid-drag) and `tree_reparent_posed` (a drop with the arm
-  swung) —
+  (captured mid-drag), `tree_reparent_posed` (a drop with the arm
+  swung) and `orbit_left_drag` (the sample arm turned by a plain
+  left-drag) —
   plus golden-less app tests including `build_pendulum_numerically` (the
   M1 acceptance in executable form), `example_arm_opens_from_the_bundle`,
   `startup_first_frame_under_budget`, and the pointer-sharing set behind
@@ -1167,12 +1179,16 @@ measured size is in 03 §v0.2.
     would never be seen apart. `RiggenApp::project_world` aims it — for the
     gizmo, `debug_state().gizmo.screen` is its view-plane handle.
   - `scroll_at(harness, pos, lines)` and
-    `middle_drag(harness, from, to, modifiers)` drive the camera. The wheel
+    `camera_drag(harness, from, to, button, modifiers)` — with
+    `middle_drag(harness, from, to, modifiers)` as the middle-button caller
+    — drive the camera. The wheel
     is read off `InputState::raw.events`, which holds one frame's worth, so
     the event needs a frame of its own after the hover has settled; and a
     modifier is carried by `Event::ModifiersChanged`, because egui keeps the
     previous pass's modifiers until an event changes them — one at each end
-    holds shift down across every frame of a pan.
+    holds shift down across every frame of a pan. `to` must be further from
+    `from` than `max_click_dist`, or the gesture is a click and not a drag
+    (ADR-0018).
   - kittest cannot drag a tree row onto another: `tree_reparent` reparents
     through the command API and only draws the result. A synthetic drag
     (press, `PointerMoved` in steps, release) does work for a one-off check.

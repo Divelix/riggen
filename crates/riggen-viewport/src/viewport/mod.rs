@@ -130,6 +130,14 @@ pub struct Viewport {
     /// (a gizmo drag is solved against the projection it started in, so a
     /// wheel event mid-drag would make the part jump).
     pointer_blocked: bool,
+    /// While `true` the *primary* drag is spoken for: `dragged_by(Primary)`
+    /// does not orbit or pan, and nothing else changes — the middle and
+    /// right drags, the wheel and both picks stay live. Set while a gizmo
+    /// handle is under the cursor or its drag is in flight, so a left-drag
+    /// from a handle moves the part instead of turning the camera under it
+    /// (ADR-0018). A glyph, which suppresses picks, deliberately does not
+    /// set it: a drag from a glyph orbits like a drag from anywhere else.
+    primary_drag_claimed: bool,
     pending_pick: Option<PendingPick>,
     last_pick: Option<PickInputs>,
     /// The rect allocated by the most recent [`Viewport::ui`] call, in egui
@@ -288,6 +296,7 @@ impl Viewport {
             select_result: None,
             pick_suppressed: false,
             pointer_blocked: false,
+            primary_drag_claimed: false,
             pending_pick: None,
             last_pick: None,
             last_rect: None,
@@ -510,15 +519,22 @@ impl Viewport {
         self.select_suppressed = suppressed;
     }
 
-    /// The three pointer switches as they stand this frame, for
+    /// Whether the primary drag belongs to something else this frame (see
+    /// `primary_drag_claimed`).
+    pub fn set_primary_drag_claimed(&mut self, claimed: bool) {
+        self.primary_drag_claimed = claimed;
+    }
+
+    /// The four pointer switches as they stand this frame, for
     /// `debug_state`: `(pick_suppressed, select_suppressed,
-    /// pointer_blocked)`. A scenario can then assert the *policy* and not
-    /// only the tint it happens to produce.
-    pub fn pointer_policy(&self) -> (bool, bool, bool) {
+    /// pointer_blocked, primary_drag_claimed)`. A scenario can then assert
+    /// the *policy* and not only the tint it happens to produce.
+    pub fn pointer_policy(&self) -> (bool, bool, bool, bool) {
         (
             self.pick_suppressed,
             self.select_suppressed,
             self.pointer_blocked,
+            self.primary_drag_claimed,
         )
     }
 
@@ -700,12 +716,28 @@ impl Viewport {
         let mut changed = false;
         let aspect = rect.width().max(1.0) / rect.height().max(1.0);
 
-        if response.dragged_by(egui::PointerButton::Middle) {
+        // Three buttons, one camera (ADR-0018). The bare **left** drag
+        // orbits — the gesture MuJoCo's `simulate`, rerun and every browser
+        // viewer trained this audience on, and the only orbit a trackpad
+        // with no middle button has — unless something in front of the
+        // geometry has claimed it (a gizmo handle). **Right** always pans,
+        // and nothing may claim it. **Middle** keeps exactly what it had.
+        // Shift turns an orbit into a pan on either orbiting button, which
+        // is the one-button trackpad's only pan.
+        //
+        // Nothing here arbitrates click versus drag: the viewport senses
+        // `click_and_drag`, so egui withholds `dragged()` until the press
+        // is `is_decidedly_dragging` — past `max_click_dist` or
+        // `max_click_duration` — and click-to-select survives untouched.
+        let orbiting = response.dragged_by(egui::PointerButton::Middle)
+            || (!self.primary_drag_claimed && response.dragged_by(egui::PointerButton::Primary));
+        let panning = response.dragged_by(egui::PointerButton::Secondary);
+        if orbiting || panning {
             let delta = response.drag_delta();
-            if ui.input(|i| i.modifiers.shift) {
-                self.camera.pan(delta.x, delta.y);
-            } else {
+            if orbiting && !ui.input(|i| i.modifiers.shift) {
                 self.camera.orbit(-delta.x * 0.01, delta.y * 0.01);
+            } else {
+                self.camera.pan(delta.x, delta.y);
             }
             changed = true;
         }

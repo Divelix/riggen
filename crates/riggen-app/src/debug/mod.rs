@@ -454,7 +454,9 @@ impl RiggenApp {
                 selected: self.viewport.selected().map(HitDebug::from),
             },
             input: {
-                let (pick_suppressed, select_suppressed, pointer_blocked) =
+                // The fourth switch, `primary_drag_claimed`, is reported
+                // from step 3 on.
+                let (pick_suppressed, select_suppressed, pointer_blocked, _) =
                     self.viewport.pointer_policy();
                 InputDebug {
                     pick_suppressed,
