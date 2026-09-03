@@ -189,7 +189,8 @@
     "pick_suppressed": true,
     "select_suppressed": false,
     "pointer_blocked": false,
-    "primary_drag_claimed": true
+    "primary_drag_claimed": true,
+    "wheel_claimed": true
   },
   "gizmo": {
     "target": "joint j6",

@@ -3075,6 +3075,178 @@ fn a_ring_drag_turns_about_the_ring_the_hover_named() {
     });
 }
 
+/// Walks the circle the rotate rings are drawn on and stops on `ring`.
+fn ring_cursor(
+    harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+    ring: RingAxis,
+) -> egui::Pos2 {
+    // The gizmo's own size in points (`gizmo_visuals`).
+    const RADIUS: f32 = 110.0;
+    let origin = gizmo_handle(harness);
+    for step in 0..72 {
+        let angle = step as f32 / 72.0 * std::f32::consts::TAU;
+        let at = origin + egui::vec2(angle.cos(), angle.sin()) * RADIUS;
+        harness.hover_at(at);
+        harness.step();
+        harness.step();
+        if harness.state().hovered_ring() == Some(ring) {
+            return at;
+        }
+    }
+    panic!("the {} ring is not on screen", ring.label())
+}
+
+/// One wheel notch on a rotate ring, the pointer already on it.
+fn wheel_notch(
+    harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+    modifiers: egui::Modifiers,
+) {
+    harness.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: egui::vec2(0.0, 1.0),
+        phase: egui::TouchPhase::Move,
+        modifiers,
+    });
+    harness.step();
+}
+
+/// The turn a gizmo made since `before`, about its own axes: angle in
+/// degrees and the local axis it went round.
+fn turned(before: riggen_core::Pose, after: riggen_core::Pose) -> (f64, DVec3) {
+    let (axis, angle) = (before.r.inverse() * after.r).to_axis_angle();
+    (angle.to_degrees(), axis)
+}
+
+fn gizmo_pose(harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>) -> riggen_core::Pose {
+    let app = harness.state();
+    app.gizmo_world(app.gizmo_target().expect("a gizmo"))
+        .expect("a pose")
+}
+
+/// The wheel over a rotate ring steps it (ADR-0019 §2): 5° a notch, 1° with
+/// shift, about the ring's own axis — and the camera does not zoom under it.
+#[test]
+fn wheel_steps_the_hovered_ring() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::Rotate);
+        app.select(Selection::Joint(hinge));
+        settle(harness);
+
+        let at = ring_cursor(harness, RingAxis::Z);
+        let before = gizmo_pose(harness);
+        let distance = harness.state().debug_state().camera.distance;
+        let depth = harness.state().history().undo_depth();
+
+        harness.hover_at(at);
+        harness.step();
+        for _ in 0..3 {
+            wheel_notch(harness, egui::Modifiers::NONE);
+        }
+        let (angle, axis) = turned(before, gizmo_pose(harness));
+        assert!((angle - 15.0).abs() < 1e-9, "three notches of 5°: {angle}");
+        assert!(axis.cross(DVec3::Z).length() < 1e-9, "about Z: {axis:?}");
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth + 1,
+            "a burst of notches is one entry"
+        );
+        // The wheel was claimed, so the camera stayed where it was.
+        let state = harness.state().debug_state();
+        assert!(state.input.wheel_claimed);
+        assert!(
+            (state.camera.distance - distance).abs() < 1e-9,
+            "the ring took the wheel, the camera should not have zoomed"
+        );
+
+        // Shift is the fine step.
+        let before = gizmo_pose(harness);
+        wheel_notch(harness, egui::Modifiers::SHIFT);
+        let (angle, _) = turned(before, gizmo_pose(harness));
+        assert!((angle - 1.0).abs() < 1e-9, "shift is 1°: {angle}");
+    });
+}
+
+/// Notches close together are one undo entry; a pause between them starts
+/// another, on the same `WHEEL_BURST` rule the Properties scrubbers use.
+#[test]
+fn a_wheel_burst_is_one_history_entry() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::Rotate);
+        app.select(Selection::Joint(hinge));
+        settle(harness);
+
+        let at = ring_cursor(harness, RingAxis::Z);
+        let before = gizmo_pose(harness);
+        let depth = harness.state().history().undo_depth();
+
+        harness.hover_at(at);
+        harness.step();
+        wheel_notch(harness, egui::Modifiers::NONE);
+        wheel_notch(harness, egui::Modifiers::NONE);
+        assert_eq!(harness.state().history().undo_depth(), depth + 1);
+
+        // The harness steps at ¼ s, so four frames is well past the 0.4 s a
+        // burst holds for.
+        for _ in 0..4 {
+            harness.step();
+        }
+        wheel_notch(harness, egui::Modifiers::NONE);
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth + 2,
+            "a pause starts a new entry"
+        );
+
+        // Which means undo rewinds the second burst only.
+        harness.state_mut().undo();
+        settle(harness);
+        let (angle, _) = turned(before, gizmo_pose(harness));
+        assert!((angle - 10.0).abs() < 1e-9, "two notches are left: {angle}");
+    });
+}
+
+/// Off the rings the wheel is the camera's, as it has always been.
+#[test]
+fn the_wheel_still_zooms_beside_a_ring() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.fit_view_now();
+        app.set_tool(Tool::Rotate);
+        app.select(Selection::Joint(hinge));
+        settle(harness);
+
+        // Twice the gizmo's radius out: past every ring, still over the
+        // viewport.
+        let at = gizmo_handle(harness) + egui::vec2(220.0, 0.0);
+        let before = gizmo_pose(harness);
+        let distance = harness.state().debug_state().camera.distance;
+        scroll_at(harness, at, 1.0);
+
+        let state = harness.state().debug_state();
+        assert!(!state.input.wheel_claimed);
+        assert!(
+            state.camera.distance < distance - 1e-6,
+            "the wheel should still zoom: {} vs {distance}",
+            state.camera.distance
+        );
+        let (angle, _) = turned(before, gizmo_pose(harness));
+        assert!(angle.abs() < 1e-9, "and turn nothing: {angle}");
+    });
+}
+
 /// The gizmo takes the pointer on its handles and **nowhere else**
 /// (ADR-0010): with Move active and a link selected, the part under
 /// the cursor still tints and a click still selects it. The crate's own

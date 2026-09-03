@@ -217,6 +217,9 @@ pub struct InputDebug {
     /// middle and right drags, the wheel and both picks stay live
     /// (ADR-0018).
     pub primary_drag_claimed: bool,
+    /// The **wheel** is spoken for — a rotate ring under the cursor steps
+    /// on it — while everything else stays live (ADR-0019).
+    pub wheel_claimed: bool,
 }
 
 impl InputDebug {
@@ -226,6 +229,7 @@ impl InputDebug {
             && !self.select_suppressed
             && !self.pointer_blocked
             && !self.primary_drag_claimed
+            && !self.wheel_claimed
     }
 }
 
@@ -466,13 +470,19 @@ impl RiggenApp {
                 selected: self.viewport.selected().map(HitDebug::from),
             },
             input: {
-                let (pick_suppressed, select_suppressed, pointer_blocked, primary_drag_claimed) =
-                    self.viewport.pointer_policy();
+                let (
+                    pick_suppressed,
+                    select_suppressed,
+                    pointer_blocked,
+                    primary_drag_claimed,
+                    wheel_claimed,
+                ) = self.viewport.pointer_policy();
                 InputDebug {
                     pick_suppressed,
                     select_suppressed,
                     pointer_blocked,
                     primary_drag_claimed,
+                    wheel_claimed,
                 }
             },
             glyphs: {

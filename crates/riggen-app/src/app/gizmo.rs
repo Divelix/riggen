@@ -31,7 +31,9 @@
 //! (ADR-0010).
 
 use riggen_core::glam::{DMat4, DQuat, DVec3};
-use riggen_core::{Command, FrameId, JointId, JointState, LinkId, Pose, origin_for_world};
+use riggen_core::{
+    Command, FrameId, GestureId, JointId, JointState, LinkId, Pose, origin_for_world,
+};
 use transform_gizmo_egui::{
     Gizmo, GizmoConfig, GizmoInteraction, GizmoMode, GizmoOrientation, GizmoResult, GizmoVisuals,
     math::Transform,
@@ -40,7 +42,7 @@ use transform_gizmo_egui::{
 use super::{RiggenApp, Selection, Tool};
 
 /// What the gizmo is attached to this frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GizmoTarget {
     /// Moves the link (its parent joint's origin); the subtree follows.
     Link(LinkId),
@@ -78,6 +80,10 @@ pub(crate) struct GizmoState {
     /// ([`ring_under_cursor`]). `None` outside the Rotate tool, off the
     /// handles, and on the crate's fourth — view-axis — ring.
     pub(crate) hovered_ring: Option<RingAxis>,
+    /// The wheel gesture the ring steps under, and when its last notch
+    /// was: notches closer together than [`WHEEL_BURST`] coalesce into one
+    /// history entry (ADR-0019 §2).
+    wheel: Option<(GestureId, f64)>,
 }
 
 impl RiggenApp {
@@ -245,6 +251,7 @@ impl RiggenApp {
             }
             None => self.end_gizmo_drag(Some(target)),
         }
+        self.step_ring_with_wheel(ui, target);
         self.gizmo_state.captured = over_handle || self.gizmo_state.drag.is_some();
     }
 
@@ -261,11 +268,13 @@ impl RiggenApp {
             self.sync_scene();
             return;
         }
-        self.commit_gizmo(target, pose);
+        self.commit_gizmo(target, pose, None);
     }
 
-    /// One gesture, one command.
-    fn commit_gizmo(&mut self, target: GizmoTarget, world: Pose) {
+    /// One gesture, one command. `gesture` coalesces a burst of wheel
+    /// notches into a single undo entry; a drag commits outside one,
+    /// because a drag is already exactly one command.
+    fn commit_gizmo(&mut self, target: GizmoTarget, world: Pose, gesture: Option<GestureId>) {
         match target {
             GizmoTarget::Link(link) => {
                 let Some(joint_id) = self.robot.parent_joint(link) else {
@@ -276,7 +285,7 @@ impl RiggenApp {
                 };
                 let mut joint = self.robot.joints[&joint_id].clone();
                 joint.origin = origin;
-                let _ = self.apply(Command::SetJoint(joint_id, joint));
+                self.commit(gesture, Command::SetJoint(joint_id, joint));
             }
             GizmoTarget::Joint(joint_id) => {
                 let Some(joint) = self.robot.joints.get(&joint_id).cloned() else {
@@ -285,21 +294,75 @@ impl RiggenApp {
                 let Some(origin) = origin_for_world(&self.robot, joint.child, world) else {
                     return;
                 };
-                let _ = self.apply(Command::MoveJointFrame {
-                    joint: joint_id,
-                    origin,
-                    // In the child frame, which is the frame the gizmo just
-                    // moved: the axis rides along unchanged.
-                    axis: joint.axis,
-                });
+                self.commit(
+                    gesture,
+                    Command::MoveJointFrame {
+                        joint: joint_id,
+                        origin,
+                        // In the child frame, which is the frame the gizmo just
+                        // moved: the axis rides along unchanged.
+                        axis: joint.axis,
+                    },
+                );
             }
             GizmoTarget::Frame(id) => {
                 let Some(edited) = self.frame_at_world(id, world) else {
                     return;
                 };
-                let _ = self.apply(Command::SetFrame(id, edited));
+                self.commit(gesture, Command::SetFrame(id, edited));
             }
         }
+    }
+
+    /// One command, inside `gesture` when there is one.
+    fn commit(&mut self, gesture: Option<GestureId>, command: Command) {
+        let _ = match gesture {
+            Some(gesture) => self.apply_in_gesture(command, gesture),
+            None => self.apply(command),
+        };
+    }
+
+    /// The wheel over a rotate ring steps it: 5° a notch, 1° with shift,
+    /// about the ring's own local axis (ADR-0019 §2). The viewport has
+    /// already been told not to zoom (`set_wheel_claimed`), so the notches
+    /// are ours to read.
+    ///
+    /// A burst of notches is one gesture and therefore one undo entry, on
+    /// the same [`WHEEL_BURST`] rule the Properties scrubbers use; a pause,
+    /// or a move to another ring or another target, starts a new one.
+    fn step_ring_with_wheel(&mut self, ui: &egui::Ui, target: GizmoTarget) {
+        let Some(ring) = self.gizmo_state.hovered_ring else {
+            return;
+        };
+        // A drag owns the gesture while it is in flight, and the wheel is
+        // blocked outright then anyway.
+        if self.gizmo_state.drag.is_some() {
+            return;
+        }
+        let (notches, fine) = wheel_notches(ui);
+        if notches == 0 {
+            return;
+        }
+        let Some(world) = self.gizmo_world(target) else {
+            return;
+        };
+        let step = if fine { WHEEL_STEP_FINE } else { WHEEL_STEP };
+        let now = ui.input(|i| i.time);
+        // About the ring's *own* axis, which is the local one: the gizmo is
+        // configured `GizmoOrientation::Local`, so the ring the user is
+        // pointing at is an axis of the frame being edited.
+        let turn = DQuat::from_axis_angle(ring.local(), f64::from(notches) * step.to_radians());
+        let pose = Pose::new(world.t, (world.r * turn).normalize());
+
+        let gesture = wheel_gesture(target, ring);
+        let burst = matches!(self.gizmo_state.wheel, Some((open, last))
+            if open == gesture && now - last < WHEEL_BURST);
+        if !burst {
+            self.end_gesture();
+        }
+        self.gizmo_state.wheel = Some((gesture, now));
+        self.commit_gizmo(target, pose, Some(gesture));
+        ui.ctx().request_repaint();
     }
 
     /// The frame `id` would be, with its pose re-expressed so it sits at
@@ -441,6 +504,77 @@ fn gizmo_visuals() -> GizmoVisuals {
         gizmo_size: 110.0,
         ..Default::default()
     }
+}
+
+/// Degrees a wheel notch turns a ring, and what shift makes of it
+/// (ADR-0019 §2). Twelve notches to a quarter turn is fine enough that the
+/// shifted step is for the last degree or two.
+const WHEEL_STEP: f64 = 5.0;
+const WHEEL_STEP_FINE: f64 = 1.0;
+
+/// Seconds between notches that still count as one gesture — the same
+/// number, for the same reason, as the Properties scrubbers' `WHEEL_BURST`.
+const WHEEL_BURST: f64 = 0.4;
+
+/// The gesture a burst of notches coalesces under: the target and the ring
+/// together, so moving to another ring — or another joint — starts a new
+/// undo entry rather than extending the last one.
+fn wheel_gesture(target: GizmoTarget, ring: RingAxis) -> GestureId {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    (target, ring.label()).hash(&mut hasher);
+    GestureId(hasher.finish())
+}
+
+/// This frame's wheel notches over a ring, up positive, and whether shift
+/// was held on them — the fine step.
+///
+/// Read from the raw events, like the viewport's own `raw_wheel_delta_y`
+/// and the Properties panel's stepper. Events carrying egui's **zoom**
+/// modifier are skipped — that gesture is egui's UI scale and never reached
+/// the viewport's wheel either — but its **horizontal-scroll** modifier,
+/// which is shift, is not: shift is the fine step here (ADR-0019 §2), and
+/// there is nothing in the viewport for a horizontal scroll to move. The
+/// raw event carries `delta.y` whatever the modifier; only egui's own
+/// smoothing would have remapped it.
+///
+/// The modifier is read off the **event**, not off `InputState`: an event
+/// carries the modifiers as they were when it happened, which is what a
+/// gesture means by "with shift held", and it needs no key event to have
+/// been seen first.
+fn wheel_notches(ui: &egui::Ui) -> (i32, bool) {
+    let options = ui.ctx().options(|o| o.input_options);
+    let ignored = options.zoom_modifier;
+    ui.input(|input| {
+        input
+            .raw
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                egui::Event::MouseWheel {
+                    unit,
+                    delta,
+                    modifiers,
+                    ..
+                } if !modifiers.matches_any(ignored) => {
+                    let lines = match unit {
+                        egui::MouseWheelUnit::Line => delta.y,
+                        egui::MouseWheelUnit::Point => delta.y / options.line_scroll_speed,
+                        egui::MouseWheelUnit::Page => delta.y.signum(),
+                    };
+                    // A notch is at least one, whatever the platform's
+                    // lines-per-notch setting says.
+                    Some((
+                        lines.abs().max(1.0).round() as i32 * lines.signum() as i32,
+                        modifiers.shift,
+                    ))
+                }
+                _ => None,
+            })
+            .fold((0, false), |(sum, fine), (notches, shift)| {
+                (sum + notches, fine || shift)
+            })
+    })
 }
 
 /// One of the rotate gizmo's three rings: the axis it turns about, in the

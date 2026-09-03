@@ -138,6 +138,11 @@ pub struct Viewport {
     /// (ADR-0018). A glyph, which suppresses picks, deliberately does not
     /// set it: a drag from a glyph orbits like a drag from anywhere else.
     primary_drag_claimed: bool,
+    /// While `true` the **wheel** is spoken for: zoom does not run, and
+    /// nothing else changes — every drag, both picks and the viewport's own
+    /// keys stay live. Set while a rotate ring is under the cursor, where
+    /// the wheel steps that ring instead of zooming (ADR-0019).
+    wheel_claimed: bool,
     pending_pick: Option<PendingPick>,
     last_pick: Option<PickInputs>,
     /// The rect allocated by the most recent [`Viewport::ui`] call, in egui
@@ -297,6 +302,7 @@ impl Viewport {
             pick_suppressed: false,
             pointer_blocked: false,
             primary_drag_claimed: false,
+            wheel_claimed: false,
             pending_pick: None,
             last_pick: None,
             last_rect: None,
@@ -525,16 +531,23 @@ impl Viewport {
         self.primary_drag_claimed = claimed;
     }
 
-    /// The four pointer switches as they stand this frame, for
+    /// Whether the wheel belongs to something else this frame (see
+    /// `wheel_claimed`).
+    pub fn set_wheel_claimed(&mut self, claimed: bool) {
+        self.wheel_claimed = claimed;
+    }
+
+    /// The five pointer switches as they stand this frame, for
     /// `debug_state`: `(pick_suppressed, select_suppressed,
-    /// pointer_blocked, primary_drag_claimed)`. A scenario can then assert
+    /// pointer_blocked, primary_drag_claimed, wheel_claimed)`. A scenario can then assert
     /// the *policy* and not only the tint it happens to produce.
-    pub fn pointer_policy(&self) -> (bool, bool, bool, bool) {
+    pub fn pointer_policy(&self) -> (bool, bool, bool, bool, bool) {
         (
             self.pick_suppressed,
             self.select_suppressed,
             self.pointer_blocked,
             self.primary_drag_claimed,
+            self.wheel_claimed,
         )
     }
 
@@ -744,7 +757,7 @@ impl Viewport {
 
         // Unsmoothed, and only while the pointer is over the viewport — like
         // every other viewport shortcut (see `raw_wheel_delta_y`).
-        let scroll = if response.contains_pointer() {
+        let scroll = if response.contains_pointer() && !self.wheel_claimed {
             let options = ui.ctx().options(|o| o.input_options);
             ui.input(|i| raw_wheel_delta_y(i, &options))
         } else {

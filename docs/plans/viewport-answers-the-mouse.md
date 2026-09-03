@@ -102,7 +102,7 @@ tells the truth**.
       scrubbers have already spent; a sixth switch instead of narrowing
       `pointer_blocked`), and the consequence that zoom stops working over a
       ~15 px band of the viewport while Rotate is active. Docs only.
-- [ ] Step 3 — **The wheel steps the hovered ring.**
+- [x] Step 3 — **The wheel steps the hovered ring.**
       `Viewport::set_wheel_claimed` and its skip in `handle_input`; the app
       claims the wheel while `ring_under_cursor` is `Some` and a rotate
       gizmo has a target — the three local rings only, never the view ring,
@@ -151,7 +151,7 @@ hand-feel list for these three gestures.
 
 - `docs/adr/0019-*.md` — written in step 2, nothing to do at retirement.
 - `docs/01-architecture.md` §Frame loop — the five switches and who sets
-  them; §Picking and snapping — the snap ladder runs during a translate
+  them, and the two modifier facts step 3 found (below); §Picking and snapping — the snap ladder runs during a translate
   drag and skips the dragged subtree; §Panels and menus — the tool keys.
 - `docs/03-roadmap.md` §v0.3 — fold the three items into the status
   paragraph, leaving **The overlay tells the truth** as the last bullet,
@@ -176,6 +176,20 @@ human on 2026-09-03 and answered:
   by `raw_wheel_delta_y`, and Ctrl+wheel already means "step this number" in
   Properties.
 - **The snap anchor** is the gizmo's origin, matching `place_frame`.
+
+Found while executing, and worth carrying into the design docs at
+retirement:
+
+- **Shift is egui's horizontal-scroll modifier**, as Ctrl is its zoom one.
+  `raw_wheel_delta_y` drops both before the viewport's zoom sees them, so
+  the fine step would have been dropped too; the ring's own reader skips
+  only the zoom modifier, because there is nothing in the viewport for a
+  horizontal scroll to move.
+- **A wheel event's modifiers come off the event, not off `InputState`.**
+  `i.modifiers` is filled from key events, so a synthetic wheel — and a
+  real one arriving before its modifier key is seen — reads as unmodified.
+  The event carries the state as it was when it happened, which is what a
+  gesture means by "with shift held".
 
 One decision the agent took rather than asking: this cycle gets a **second
 ADR** (ADR-0019, step 2) even though §v0.3 of the roadmap says ADR-0018 is

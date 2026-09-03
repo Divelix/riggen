@@ -505,6 +505,12 @@ impl eframe::App for RiggenApp {
                 // orbits like a drag from anywhere else.
                 self.viewport
                     .set_primary_drag_claimed(self.gizmo_captured());
+                // And the wheel alone belongs to a rotate ring under the
+                // cursor, where a notch steps the ring instead of zooming
+                // (ADR-0019). Like the others, last frame's answer: the
+                // gizmo cannot say which ring it is until it has run.
+                self.viewport
+                    .set_wheel_claimed(self.hovered_ring().is_some());
 
                 let response = self.viewport.ui(ui);
                 let rect = response.rect;
