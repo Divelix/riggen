@@ -2746,6 +2746,11 @@ fn toolbar() {
         settle(harness);
         assert_eq!(harness.state().tool(), Tool::Rotate);
         assert_eq!(harness.state().debug_state().ui.tool, "Rotate");
+
+        // Left hovering a button, so the golden carries the tooltip that
+        // says which key it is on: a binding nobody can find is folklore.
+        harness.hover_at(label_center(harness, Tool::Align.label()));
+        settle(harness);
     });
 }
 
@@ -2935,6 +2940,80 @@ fn gizmo_rotate_joint() {
         assert_eq!(gizmo.mode, "rotate");
         // The joint frame is the child link frame.
         assert_eq!(gizmo.origin, [0.0, 0.0, 0.5]);
+    });
+}
+
+/// The five tools have keys, and pressing one is the same gesture as
+/// clicking its toolbar button — the zero-configuration rewind included.
+#[test]
+fn tool_shortcuts_switch_tools() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        settle(harness);
+
+        for tool in Tool::ALL {
+            harness.key_press(tool.shortcut());
+            harness.step();
+            assert_eq!(
+                harness.state().tool(),
+                tool,
+                "{} is {:?}",
+                tool.label(),
+                tool.shortcut()
+            );
+        }
+
+        // Entering an editing tool by key rewinds `q`, exactly as the
+        // button does (plans/m2-placement-ux OPEN 1).
+        harness.key_press(Tool::Select.shortcut());
+        harness.step();
+        let hinge = *harness.state().robot().joints.keys().next().unwrap();
+        harness.state_mut().set_joint_value(hinge, 0.4);
+        settle(harness);
+        harness.key_press(Tool::Rotate.shortcut());
+        harness.step();
+        assert_eq!(harness.state().tool(), Tool::Rotate);
+        assert_eq!(
+            harness.state().debug_state().status.as_deref(),
+            Some(ZERO_CONFIG_STATUS)
+        );
+        assert_eq!(harness.state().joint_value(hinge), 0.0);
+    });
+}
+
+/// A field being typed into keeps its letters: the tool keys are bare, so
+/// they yield to a focused `TextEdit` like Delete and F2 already do.
+#[test]
+fn tool_shortcuts_yield_to_a_text_field() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        app.select(Selection::Link(arm));
+        settle(harness);
+
+        // The properties panel's name field, focused by clicking into it.
+        harness.get_by_label("name").click();
+        harness.step();
+        harness.step();
+        for tool in Tool::ALL {
+            harness.key_press(tool.shortcut());
+            harness.step();
+        }
+        assert_eq!(
+            harness.state().tool(),
+            Tool::Select,
+            "a focused field swallows the tool keys"
+        );
     });
 }
 

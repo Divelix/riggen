@@ -128,7 +128,7 @@ tells the truth**.
       and that it is one history entry; a snapshot of the marker mid-drag;
       and `snapping_is_off_outside_the_placement_tools` extended to say that
       a *rotate* drag still does not snap.
-- [ ] Step 5 — **Tool shortcuts.** `V` Select, `G` Move, `R` Rotate, `J`
+- [x] Step 5 — **Tool shortcuts.** `V` Select, `G` Move, `R` Rotate, `J`
       Place joint, `B` Align, consumed in `handle_shortcuts`
       before the panels, ignored while a text field has focus, and shown in
       each toolbar button's tooltip so the binding is discoverable rather
@@ -158,8 +158,9 @@ hand-feel list for these three gestures.
   paragraph, leaving **The overlay tells the truth** as the last bullet,
   and correct the section's closing line, which currently says ADR-0018 is
   the only ADR this cycle expects.
-- `README.md` §The first minute step 1 — the tool keys and the ring wheel
-  beside the mouse bindings ADR-0018 put there.
+- ~~`README.md` §The first minute~~ — **done in step 5**: the tool keys,
+  the ring wheel and the snapping drag are a new step 2 beside the mouse
+  bindings ADR-0018 put there.
 - `AGENTS.md` current state — what is left of v0.3.
 
 ## Open questions

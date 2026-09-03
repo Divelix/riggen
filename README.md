@@ -44,15 +44,21 @@ without a wheel, `pip install` builds the SDK from source with `cargo` on
    trackpad; the middle button orbits and shift+middle pans), zoom with the
    wheel, `Home` to frame everything. A click still selects — only a drag
    turns the camera.
-2. Drag the sliders in the **Joints** window, which opened with the arm
+2. The five tools on the toolbar have keys: `V` select, `G` move, `R`
+   rotate, `J` place joint, `B` align, and `Esc` back to select. With
+   **Rotate** up, the wheel over one of the gizmo's three rings steps that
+   ring by 5° — 1° with shift — instead of zooming; with **Move** up, a
+   drag snaps to the vertex, box corner or bore centre under the cursor,
+   looking through the part it is carrying.
+3. Drag the sliders in the **Joints** window, which opened with the arm
    (**Window › Joints** brings it back) — the arm moves; that is the
    kinematic tree you will build for your own robot.
-3. **File › Export…**, tick the formats you want (all three by default),
+4. **File › Export…**, tick the formats you want (all three by default),
    choose a directory. The dialog lists anything that would stop the
    export (a link with no mass, a joint with no axis) and writes
    `arm.xml`, `arm.urdf` and `arm.sdf` beside `meshes/*.stl` when there is
    nothing.
-4. Load it:
+5. Load it:
 
    ```sh
    python -c "import mujoco; m = mujoco.MjModel.from_xml_path('out/arm.xml'); print(m.nbody, 'bodies')"

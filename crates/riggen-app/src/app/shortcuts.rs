@@ -51,6 +51,15 @@ impl RiggenApp {
         {
             self.set_tool(crate::app::Tool::Select);
         }
+        // The five tools, on the keys `Tool::shortcut` names. Bare keys, so
+        // Ctrl+V and friends are still whatever they were, and after the
+        // text-field guard above so typing a name does not change the tool.
+        if let Some(tool) = crate::app::Tool::ALL
+            .into_iter()
+            .find(|tool| ctx.input_mut(|i| i.consume_key(Modifiers::NONE, tool.shortcut())))
+        {
+            self.set_tool(tool);
+        }
         let delete = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete));
         if delete {
             self.remove_selected();

@@ -50,6 +50,23 @@ impl Tool {
         }
     }
 
+    /// The key that switches to this tool (`shortcuts.rs`).
+    ///
+    /// Blender's `G` = grab and `R` = rotate, with `V` and `B` standing in
+    /// for the initials of Select and Align: **`W A S D E Q` are reserved**
+    /// for the fly camera the backlog wants, and a tool must not spend one
+    /// of them. The digits are out too — the viewport owns
+    /// `Num1/3/5/7/0` (standard views), `P` (projection) and `Home` (fit).
+    pub fn shortcut(self) -> egui::Key {
+        match self {
+            Tool::Select => egui::Key::V,
+            Tool::Move => egui::Key::G,
+            Tool::Rotate => egui::Key::R,
+            Tool::PlaceJoint => egui::Key::J,
+            Tool::Align => egui::Key::B,
+        }
+    }
+
     /// Whether the tool commits frame-rewriting commands, and therefore
     /// needs the zero configuration.
     pub fn edits_frames(self) -> bool {
@@ -170,8 +187,17 @@ impl RiggenApp {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         for tool in Tool::ALL {
+                            // The key is in the tooltip, not on the button:
+                            // a binding nobody can find is folklore, and a
+                            // toolbar that spells out five of them is a
+                            // toolbar nobody can read.
                             if ui
                                 .selectable_label(self.tool == tool, tool.label())
+                                .on_hover_text(format!(
+                                    "{} ({})",
+                                    tool.label(),
+                                    tool.shortcut().name()
+                                ))
                                 .clicked()
                             {
                                 chosen = Some(tool);

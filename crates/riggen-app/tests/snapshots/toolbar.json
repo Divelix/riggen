@@ -185,6 +185,13 @@
     "hovered": null,
     "selected": null
   },
+  "input": {
+    "pick_suppressed": true,
+    "select_suppressed": false,
+    "camera_blocked": true,
+    "primary_drag_claimed": false,
+    "wheel_claimed": false
+  },
   "gizmo": null,
   "glyphs": [
     {
