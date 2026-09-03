@@ -240,7 +240,17 @@ such a selection alone (the viewport reports `None → None`).
 A `Tool` is modal: it decides what a viewport click and drag mean. `Select`
 is the M1 behaviour and the resting state, and `Esc` always returns to it
 (consumed only while a tool is active, so the rename / modal / field-revert
-uses of Escape still see it). The four editing tools commit frame-rewriting
+uses of Escape still see it). Each has a key — **`V` Select, `G` Move,
+`R` Rotate, `J` Place joint, `B` Align** (`Tool::shortcut`) — consumed in
+`handle_shortcuts` before the panels and, like every bare key there,
+yielding to a focused `TextEdit`. Blender's `G` and `R`, with `V` and `B`
+standing in for the initials of the other two: `W A S D E Q` are reserved
+for a fly camera and the digits are the viewport's (`Num1/3/5/7/0`, `P`,
+`Home`). The binding lives in each toolbar button's tooltip rather than on
+its face — a shortcut nobody can find is folklore, and five keys printed on
+a toolbar is a toolbar nobody can read.
+
+The four editing tools commit frame-rewriting
 commands, which work in the **zero configuration**, so `set_tool` resets `q`
 first when something is off zero and says so in the status bar
 (plans/m2-placement-ux OPEN 1). Resetting `q` is not an edit and adds no
@@ -419,7 +429,7 @@ input ──► shortcuts ──► menu bar, status bar, tree, properties
        ──► central panel:
              joint + frame glyphs from (Robot, q) ──► glyph hover ──► snap candidate
              viewport.set_overlay(glyphs + frame triads + align pick + snap marker)
-             viewport.set_pick_suppressed / set_pointer_blocked / set_select_suppressed
+             viewport pointer policy: five switches + set_pick_excluded
              viewport.ui ──► gizmo ──► toolbar   (registration order = pointer precedence)
              a click ──► select a joint or frame / place a joint or frame / align
        ──► Commands ──► History ──► Robot
@@ -463,7 +473,8 @@ the depth range from the fitted radius (`set_depth_range_for`: near
 range follows `[2·near, far/2]`, so a part imported at mm → m scale is
 neither clipped nor lost and a room-sized scene still fits. Wheel input is
 read from the raw events, not egui's smoothed delta (the smoothing reads as
-the camera coasting), and zooms toward the cursor. Numpad 1/3/7/0 (+ctrl)
+the camera coasting), and zooms toward the cursor — unless a rotate ring has
+claimed it (`set_wheel_claimed`, below). Numpad 1/3/7/0 (+ctrl)
 snap views, Num5 or `P` toggles projection, Home animates a fit; the
 `persp`/`ortho` label sits in the viewport corner, the wall-clock frame time
 in the status bar (hidden by `set_frame_hud_visible(false)` in tests).
@@ -475,9 +486,10 @@ trackpad with no middle button has. Nothing in `handle_input` arbitrates
 click versus drag: the viewport senses `click_and_drag`, so egui withholds
 `dragged()` until the press is past `InputOptions::max_click_dist` (6.0
 points) or `max_click_duration` (0.8 s), and click-to-select is what a press
-that does neither still is. The left drag is the only one that can be taken
-away from the camera at all; `set_primary_drag_claimed` is that claim
-(ADR-0018).
+that does neither still is. The left drag and the wheel are the only two inputs that can
+be taken away from the camera at all; `set_primary_drag_claimed` and
+`set_wheel_claimed` are those claims (ADR-0018, ADR-0019). The middle and
+right drags are never anyone else's.
 
 Repaint policy: egui repaints on input; request continuous repaint only
 during camera motion, gizmo drags, slider drags and joint animation. A hover
@@ -510,11 +522,24 @@ nearest the cursor in the region wins (there is no B-Rep, so no vertex >
 edge > face ladder). At most one pick is in flight; a click's select pick
 beats a hover; a hover whose `(pixel, view_proj)` equal the last pick's is
 not re-issued (`last_pick`), otherwise a resting cursor would re-render the
-ID buffer at vsync rate forever; `PointerGone` clears the hover. The policy
+ID buffer at vsync rate forever; `PointerGone` clears the hover. That memo
+is keyed on the cursor and the camera alone, so anything else that changes
+what the ID buffer holds has to drop it — which is what
+`set_pick_excluded` does (below). The hover's cursor comes from
+`Response::contains_pointer` and the context's pointer position, not from
+`hover_pos()`: the latter is gated on `hovered()`, false whenever a later
+widget in the same layer is over the cursor, which is the whole of a gizmo
+drag. The policy
 is the pure `decide_pick`, unit-tested without a GPU. The result is a
 `PickHit { instance, triangle }`; hover and selection tint the **whole
 instance** (a "face" on an STL is one triangle, so a face outline would
 trace a single triangle) and the status bar reads `arm (i1/t120)`.
+`Viewport::set_pick_excluded(Vec<InstanceId>)` takes instances out of the
+**pick pass** while they keep drawing: the cursor looks through them. A
+translate gizmo drag sets it to the dragged link's whole subtree, because
+that geometry follows the cursor and would otherwise be the only thing the
+drag could ever find under it (ADR-0019 §5).
+
 `Viewport::set_selected(Option<InstanceId>)` is the other direction, for
 the tree; it records triangle `0`, since selection is per instance and the
 triangle is a readout only. A resolved select pick is also an **event**:
@@ -533,11 +558,22 @@ triangle can be the cursor's *neighbour*, and the exact ray then misses it
 by a pixel; its plane is the fallback. `app/snap.rs` builds the
 candidates and picks among them by a fixed ladder — **vertex > box >
 circle > point** — with the winner, its axis and its readout in
-`debug_state().snap`. Only the placement tools snap (`Tool::snaps`);
-markers under the cursor while merely selecting would be noise. Move and
-Rotate join them for a **selected frame** (`RiggenApp::placing_frame`,
-`snapping`): a frame is the one thing the gizmo edits that nothing hangs
-off, so a click puts it on the picked feature — Move takes the point and
+`debug_state().snap`.
+
+Snapping is a placement affordance: markers under the cursor while merely
+selecting would be noise. Three gestures ask for it
+(`RiggenApp::snapping`) — the placement tools (`Tool::snaps`), Move or
+Rotate on a selected frame, and a **translate gizmo drag**
+(`translate_dragging`). The drag runs the same ladder and draws the same
+marker: the previewed pose's translation becomes the snapped point, its
+rotation untouched, so the gizmo's own origin lands on the feature and the
+release commits that — the anchor a frame placement already uses. A
+*rotate* drag does not snap; a rotation about a named axis has nothing in
+the ladder to land on.
+
+Move and Rotate snap for a **selected frame**
+(`RiggenApp::placing_frame`): a frame is the one thing the gizmo edits
+that nothing hangs off, so a click puts it on the picked feature — Move takes the point and
 keeps the orientation, Rotate keeps the point and turns the frame's +Z onto
 the feature's axis — and a TCP lands on a bore or a corner without a
 coordinate typed (ADR-0012). One `SetFrame` per click, and the gizmo is
@@ -585,10 +621,13 @@ direction, so the axis is left alone — inventing one from a corner is a
 decision the user cannot see. Nothing in the world moves; only the pivot
 does, and the status bar repeats the fit it placed on.
 
-Whenever the snap ladder runs — a placement tool, or Move / Rotate with a
-frame selected (`RiggenApp::snapping`) — the viewport's *select* click is
-suppressed (`set_select_suppressed`) while its hover keeps running: the
-click means "put it here", and the hover is what the snap is computed from.
+Whenever the snap ladder runs — a placement tool, Move / Rotate with a
+frame selected, or a translate drag (`RiggenApp::snapping`) — the
+viewport's *select* click is suppressed (`set_select_suppressed`) while its
+hover keeps running: the click means "put it here", and the hover is what
+the snap is computed from. A drag needs the same thing for the same reason,
+which is why blocking the pointer during one had to narrow to blocking the
+camera (ADR-0019 §4).
 A glyph never takes the pointer then either, because the selected joint's
 or frame's own glyph sits exactly where the user is aiming.
 
@@ -622,28 +661,53 @@ it (ADR-0018). Everywhere else the viewport keeps the pointer it always had.
 The toolbar is registered after the gizmo in turn: viewport < gizmo <
 toolbar.
 
-The viewport takes that policy through **four** switches, because "the
-pointer is busy" has four different meanings:
+The viewport takes that policy through **five** switches, each one channel
+and no more, because "the pointer is busy" has five different meanings:
 
 | Switch | Off | Set by |
 |---|---|---|
-| `set_pick_suppressed` | both picks; the camera stays live | a gizmo handle, or a joint or frame glyph under the cursor — something drawn *in front of* the geometry that would answer |
-| `set_select_suppressed` | the select pick; the hover keeps running | `snapping()`: a placement tool, or Move / Rotate on a frame — the click means "put it here" |
-| `set_pointer_blocked` | camera **and** picks | the toolbar, which floats in the viewport's own egui layer; a gizmo drag in flight, which is solved against the projection it started in |
+| `set_pick_suppressed` | both picks; the camera stays live | a gizmo handle, or a joint or frame glyph under the cursor — something drawn *in front of* the geometry that would answer — and the toolbar |
+| `set_select_suppressed` | the select pick; the hover keeps running | `snapping()`: a placement tool, Move / Rotate on a frame, or a translate drag — the click means "put it here" |
+| `set_camera_blocked` | camera input; the picks are not its business | the toolbar, which floats in the viewport's own egui layer; a gizmo drag in flight, which is solved against the projection it started in |
 | `set_primary_drag_claimed` | `dragged_by(Primary)` alone — the middle and right drags, the wheel and both picks stay live | `gizmo_captured()`: a handle under the cursor or a gizmo drag in flight (ADR-0018) |
+| `set_wheel_claimed` | zoom alone — every drag, both picks and the viewport's keys stay live | a **rotate ring** under the cursor, where a notch steps the ring instead (ADR-0019) |
 
-A glyph sets the first and deliberately not the last: it hides the geometry
-that would answer a pick, but a drag from a glyph orbits like a drag from
-anywhere else. Only the gizmo's claim withholds the left drag, and nothing
-withholds the middle or right one.
+A glyph sets the first and deliberately not the fourth: it hides the
+geometry that would answer a pick, but a drag from a glyph orbits like a
+drag from anywhere else. Only the gizmo's claim withholds the left drag,
+only a ring withholds the wheel, and nothing withholds the middle or right
+drag.
 
-The gizmo's three are one frame late — it cannot say whether it owns the
-cursor until it has run, and the viewport runs first — which is the same lag
-egui's own interaction has. Camera input keys on `Response::contains_pointer`
-rather than `hovered`: `contains_pointer` filters *layers* covering the
-cursor but not same-layer widgets, so a floating window still takes the wheel
-while a gizmo handle no longer freezes the camera — and the toolbar, being
-same-layer, is what `set_pointer_blocked` is for.
+A gizmo *drag* is the one case that blocks the camera while keeping the
+hover pick: the drag is solved against the projection it started in, so the
+camera must hold still, but the snap ladder under the cursor is exactly
+what the drag is aiming at (ADR-0019 §4). The toolbar, which wants neither,
+sets `set_camera_blocked` **and** `set_pick_suppressed`.
+
+The gizmo's switches are one frame late — it cannot say whether it owns the
+cursor, or which ring is under it, until it has run, and the viewport runs
+first — which is the same lag egui's own interaction has. Camera input keys
+on `Response::contains_pointer` rather than `hovered`, as the hover pick
+does: `contains_pointer` filters *layers* covering the cursor but not
+same-layer widgets, so a floating window still takes the wheel while a
+gizmo handle no longer freezes the camera — and the toolbar, being
+same-layer, is what `set_camera_blocked` is for.
+
+**The wheel over a rotate ring** steps that ring by 5°, or 1° with shift,
+about the ring's own local axis, and commits through the same path a drag
+does; notches less than `WHEEL_BURST` (0.4 s) apart coalesce into one
+history entry, keyed by target *and* ring, so a burst is one undo and
+moving to another ring starts another (ADR-0019 §2). Which ring the cursor
+is on is `ring_under_cursor`, which rebuilds the crate's private ring
+geometry from the same matrices and visuals the config is built from and is
+gated on the crate's own `pick_preview`, so it only ever says *which*,
+never *whether*; the crate's fourth, view-axis ring is not claimed, and the
+wheel keeps zooming there. Two modifier facts the gesture rests on: egui's
+zoom modifier (Ctrl) is dropped from every viewport wheel reader, but its
+horizontal-scroll modifier (shift) is **not** — there is nothing in the
+viewport for a horizontal scroll to move — and the modifier is read off the
+wheel *event*, since `InputState::modifiers` is filled from key events and
+would miss a wheel that arrives first.
 
 What the gizmo edits follows the selection (plans/m2-placement-ux OPEN 2): a
 **link** moves through its parent joint's `origin` (one `SetJoint` via
@@ -1153,8 +1217,10 @@ measured size is in 03 §v0.2.
   `tools_say_what_they_need`, `click_empty_clears`,
   `properties_collision_meshes`, `materials_rename`, `tree_drag_ghost`
   (captured mid-drag), `tree_reparent_posed` (a drop with the arm
-  swung) and `orbit_left_drag` (the sample arm turned by a plain
-  left-drag) —
+  swung), `orbit_left_drag` (the sample arm turned by a plain
+  left-drag), `gizmo_ring_hover` (the rotate ring under the cursor, drawn
+  hot) and `gizmo_drag_snaps_to_a_vertex` (captured mid-drag: the marker on
+  the corner, the part already on it, nothing committed) —
   plus golden-less app tests including `build_pendulum_numerically` (the
   M1 acceptance in executable form), `example_arm_opens_from_the_bundle`,
   `startup_first_frame_under_budget`, and the pointer-sharing set behind
@@ -1169,7 +1235,14 @@ measured size is in 03 §v0.2.
   `a_left_drag_from_a_glyph_still_orbits` and
   `left_drag_orbits_and_a_click_still_selects`, which reads egui's two click
   thresholds off the context and asserts them before sizing its gestures
-  from them. `debug_state().timing`
+  from them; and behind ADR-0019
+  `a_ring_drag_turns_about_the_ring_the_hover_named` (which pins the ring
+  hit test against the crate by dragging each ring and reading the rotation
+  the *crate* produced), `wheel_steps_the_hovered_ring`,
+  `a_wheel_burst_is_one_history_entry`, `the_wheel_still_zooms_beside_a_ring`,
+  `a_snapped_drag_commits_where_the_marker_was`,
+  `a_drag_looks_through_the_part_it_is_moving`, `a_rotate_drag_does_not_snap`,
+  `tool_shortcuts_switch_tools` and `tool_shortcuts_yield_to_a_text_field`. `debug_state().timing`
   (`first_frame_ms`, `frame_dt`) is present only while the frame HUD is
   on, which the harness turns off, so no golden holds a wall-clock number.
   The harness sets the import scale to `1.0` (the fixtures are unit cubes

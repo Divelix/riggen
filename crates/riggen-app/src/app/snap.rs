@@ -156,8 +156,10 @@ pub(crate) fn nearest_within(
 impl Tool {
     /// Whether this tool always snaps. Snapping is a placement affordance:
     /// markers under the cursor while merely selecting would be noise.
-    /// Move and Rotate snap only for a selected frame
-    /// ([`RiggenApp::placing_frame`]).
+    /// Move and Rotate snap for a selected frame
+    /// ([`RiggenApp::placing_frame`]) and while a translate drag is in
+    /// flight ([`RiggenApp::translate_dragging`]) — see
+    /// [`RiggenApp::snapping`], which is what actually decides.
     pub fn snaps(self) -> bool {
         matches!(self, Tool::PlaceJoint | Tool::Align)
     }

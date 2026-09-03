@@ -21,24 +21,21 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 **v0.2 closed 2026-09-02, tag `v0.2.1`.** The cycle that made "sim-ready" a
 feature rather than a claim: the Python SDK in the one wheel (ADR-0009),
-V-HACD collision (ADR-0011), frames (ADR-0012), mimics (ADR-0013),
-actuator presets (ADR-0014), MJCF import (ADR-0015), SDF export
-(ADR-0016), and the web demo at
-[divelix.github.io/riggen](https://divelix.github.io/riggen/) over one
-`FileSource` seam (ADR-0017). `.riggen` is **schema 3**, with the upgrade
-chain `load` walks; three writers and two importers share one
-`ResolvedRobot` and one warning vocabulary.
+V-HACD collision (ADR-0011), frames (ADR-0012), mimics (ADR-0013), actuator
+presets (ADR-0014), MJCF import (ADR-0015), SDF export (ADR-0016), and the
+web demo at [divelix.github.io/riggen](https://divelix.github.io/riggen/)
+over one `FileSource` seam (ADR-0017). `.riggen` is **schema 3**; three
+writers and two importers share one `ResolvedRobot` and one warning
+vocabulary.
 **Before that:** M4 the wheel; M3 the writers, URDF import, inertials,
 collision; M2 the mouse-only arm; M1 the document, commands, history,
 `.riggen`; M0 the viewport.
 **Now: v0.3 — the hand-feel debt** (`docs/03-roadmap.md`), no new format
-and no new distribution. Landed 2026-09-03: numbers scrub and Ctrl+wheel
-steps them (one gesture = one history entry), the panels stop hiding
-things, the tree says what a drag will do and reparents at the current
-`q`, and the left-drag orbits while a gizmo handle claims it (ADR-0018).
-Left: tool shortcuts, the rotate gizmo on the wheel, snapping during a
-gizmo drag, and the overlay telling the truth about depth and driven
-joints.
+and no new distribution. Landed: scrubbable numbers, panels that stop
+hiding things, a tree that says what a drag will do, orbit on left-drag
+(ADR-0018), tool keys `V G R J B`, the wheel stepping a rotate ring, and a
+translate drag that snaps through the part it carries (ADR-0019). Left:
+the overlay telling the truth about depth and driven joints.
 
 ## Rules that are not derivable from the code
 

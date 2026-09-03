@@ -244,12 +244,23 @@ test reads `max_click_dist` and `max_click_duration` off the context rather
 than trusting the defaults. Found on the way: the kittest harness runs at
 `step_dt` = ¼ s, so a press held past about three frames is a drag whatever
 the distance — the distance threshold needs a three-frame gesture of its own
-(01 §Testing). Left of the viewport work: the three other mouse items and
-the overlay.
+(01 §Testing). The three mouse items left after it landed 2026-09-04 (plan
+`viewport-answers-the-mouse`, ADR-0019): the five tools have keys — `V` `G`
+`R` `J` `B`, Blender's `G`/`R` with `W A S D E Q` held back for a fly
+camera — shown in each toolbar button's tooltip; the wheel over one of the
+rotate gizmo's three rings steps that ring by 5°, or 1° with shift, with a
+burst of notches landing as one undo entry; and a translate drag runs the
+snap ladder under the cursor, so a part can be dropped on a vertex, a box
+corner or a bore centre. Two switch-table changes carried it: a fifth
+switch, `set_wheel_claimed` (zoom alone goes quiet over a ring), and
+`set_pointer_blocked` narrowing to `set_camera_blocked`, because blocking
+the whole pointer during a drag was killing the hover pick the ladder reads.
+Found on the way: excluding the dragged part from the *hit* was not enough —
+it follows the cursor and covers the target — so `set_pick_excluded` leaves
+it out of the ID buffer entirely and the drag looks through what it carries;
+and shift is egui's horizontal-scroll modifier as Ctrl is its zoom one, with
+a wheel event's modifiers readable only off the event. Left: the overlay.
 
-- **The viewport answers the mouse.** Keyboard shortcuts for the five tools;
-  the rotate gizmo on the wheel; snapping *during* a gizmo drag, not only in
-  the Align tool. (Orbit on left-drag: done, ADR-0018.)
 - **The overlay tells the truth.** A depth-tested overlay, so a glyph behind
   a part reads as behind it; a badge or tint on a joint glyph that is driven
   (ADR-0013) or actuated (ADR-0014), which today look like free joints.
@@ -267,9 +278,10 @@ the overlay.
 
 **Out:** any new format, importer or writer; distribution (crates.io, the
 screencast, notarization); the demo's four gaps (web worker, WebGL2, touch,
-directory drop) — all still backlog lines. The left-drag rule needed the one
-ADR this cycle expected (ADR-0018) and no other is; §What not to spend agent
-time on stands.
+directory drop) — all still backlog lines. This cycle expected one ADR and
+has two: the left-drag rule (ADR-0018) and the wheel-and-drag pointer
+contract (ADR-0019), both amendments to the same switch table ADR-0010
+published. §What not to spend agent time on stands.
 
 **Accept:** the M2 arm build, run by hand again end to end, produces no new
 entry for this list — and the agent's own snapshot suite covers every

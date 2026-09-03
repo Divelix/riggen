@@ -24,6 +24,8 @@ below with the reason, so the same idea is not re-brainstormed.
 - Touch and a narrow-screen layout for the demo: it is a desktop-browser UI today, and a phone gets the desktop panels. A one-finger drag already orbits, because it reaches egui as a primary drag (ADR-0018); pinch-zoom and two-finger pan have nothing behind them and are untested
 - A directory drop on the web, with real relative mesh paths: a plain drop gives only file names, so two `base.stl` in one gesture collide (ADR-0017 §Consequences)
 - A document surviving a reload of the demo page: eframe's `persistence` keeps the UI layout and the import-units choice, as on native, and the document is lost — the meshes would have to be kept too, so it is browser storage rather than a serde change
+- Snapping during a *rotate* gizmo drag: align the dragged frame's axis to a snapped feature's axis (a circle's, a face normal). Needs a rule for which of the three axes aligns and a second overlay idiom, which is why ADR-0019 §5 left the drag snap to translation
+- A snap quantum for a translate drag — mm / degree increments under a modifier, the CAD idiom beside the feature snap (ADR-0019's out-list; the wheel's 5° step is the rotation half of it and the document has nowhere to keep a general one)
 - Ground grid at z = 0 in the viewport (new; robocad never had one — M0 ships the gradient background only)
 - MSAA for the offscreen colour pass (new; robocad had none)
 - Meshes over 2^20 triangles: decimate at load or widen the pick id (loaders reject them today)
