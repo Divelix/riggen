@@ -81,7 +81,7 @@ frame gizmo drag already does.
   ADR (OPEN 1 decides full-res vs downsampled from those). Test: a headless
   kittest scenario where a point known to be inside the cube reads a nearer
   depth than its own projected z, and one outside reads the far plane.
-- [ ] Step 2 — **ADR-0020** from step 1's measurements: the readback, the
+- [x] Step 2 — **ADR-0020** from step 1's measurements: the readback, the
   staleness rule, dimmed-not-dropped, the per-item policy, the rejected
   alternatives.
 - [ ] Step 3 — **Hidden runs read as hidden.**

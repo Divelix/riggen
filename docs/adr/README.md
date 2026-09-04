@@ -25,3 +25,4 @@ Consequences, Alternatives considered.
 | [0017](0017-web-io-bytes-in-downloads-out.md) | Web IO: one `FileSource` seam in, downloads out, a dropped set resolved by file name, WebGPU only | Accepted |
 | [0018](0018-left-drag-orbits-gizmo-claims-the-primary-drag.md) | The bare left-drag belongs to the camera; the gizmo claims the primary drag; amends 0010 §3 | Accepted, §3 amended by 0019 |
 | [0019](0019-the-wheel-is-claimable-and-a-drag-keeps-the-hover-pick.md) | The wheel can be claimed by a rotate ring, and a gizmo drag keeps the hover pick; amends 0010 §3 and 0018 §3 | Accepted |
+| [0020](0020-the-overlay-reads-the-scenes-depth-back.md) | The overlay reads the scene's depth back, and hidden runs dim rather than vanish | Accepted |
