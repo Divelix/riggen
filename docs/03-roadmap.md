@@ -259,7 +259,24 @@ Found on the way: excluding the dragged part from the *hit* was not enough —
 it follows the cursor and covers the target — so `set_pick_excluded` leaves
 it out of the ID buffer entirely and the drag looks through what it carries;
 and shift is egui's horizontal-scroll modifier as Ctrl is its zoom one, with
-a wheel event's modifiers readable only off the event. Left: the overlay.
+a wheel event's modifiers readable only off the event. The overlay stopped
+lying last, 2026-09-04 (plan `overlay-tells-the-truth`, ADR-0020): the
+viewport reads its own depth buffer back — on egui's encoder so it sees
+this frame's depth, memoised on `(view_proj, size, Scene::revision)` so a
+resting camera pays nothing — and a glyph's runs behind geometry are
+stroked at a third of the strength, dimmed rather than dropped, because a
+pivot inside a link still has to be aimable. Depth is per item, defaulting
+to off: cursor feedback stays on top, where a marker hidden behind the part
+it is aiming at would answer nothing. A mimic follower is now drawn in a
+muted amber and labelled with its leader, an actuated joint keeps the full
+amber and gains a ring named for its preset, and a joint gizmo drag
+previews on the glyph — retiring the M2 exit gate's last backlog line.
+Found on the way: a follower's glyph was reading its **raw** `q`, which is
+never written, so a driven joint's tick sat at zero while its link was
+somewhere else; and egui's bundled fonts have no arrows, so the mimic mark
+reads `»` and not `↳`.
+
+**v0.3 is done.** Every bullet below has landed.
 
 - **The overlay tells the truth.** A depth-tested overlay, so a glyph behind
   a part reads as behind it; a badge or tint on a joint glyph that is driven
@@ -279,9 +296,9 @@ a wheel event's modifiers readable only off the event. Left: the overlay.
 **Out:** any new format, importer or writer; distribution (crates.io, the
 screencast, notarization); the demo's four gaps (web worker, WebGL2, touch,
 directory drop) — all still backlog lines. This cycle expected one ADR and
-has two: the left-drag rule (ADR-0018) and the wheel-and-drag pointer
+has three: the left-drag rule (ADR-0018) and the wheel-and-drag pointer
 contract (ADR-0019), both amendments to the same switch table ADR-0010
-published. §What not to spend agent time on stands.
+published, and the depth-tested overlay (ADR-0020). §What not to spend agent time on stands.
 
 **Accept:** the M2 arm build, run by hand again end to end, produces no new
 entry for this list — and the agent's own snapshot suite covers every

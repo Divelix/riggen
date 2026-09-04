@@ -43,9 +43,14 @@ on top of the scene — the joint glyphs, snap markers, readouts — arrives as
 world-space `OverlayItem`s and is projected through the same
 `camera.view_proj` the wgpu pass rasterized with, so an overlay cannot
 disagree with the geometry about where a point is. It is drawn with egui's
-painter after the paint callback and is **not** depth-tested; for a joint
-glyph inside a part that is the wanted behaviour. The viewport never sees a
-`Joint` — the app builds the items (`app/glyphs.rs`).
+painter after the paint callback, which has no depth buffer, so **depth is
+per item** (`Occlusion`, ADR-0020): a glyph asks to be tested and has the
+runs behind geometry stroked at a third of the strength — dimmed, not
+dropped, because a joint inside a part still has to be visible and
+aimable — while cursor feedback (snap markers, the align pick, readout
+labels) stays unconditionally on top, where "where is the pointer" is the
+only question it answers. The viewport never sees a `Joint` — the app
+builds the items (`app/glyphs.rs`).
 
 `riggen-core` depends on `riggen-mesh` for the `glam` re-export and for
 `mass_properties`: a link's computed inertial is a function of its meshes,
@@ -325,7 +330,16 @@ closes.
   glyph is the size of the part it belongs to; the scene radius, then one
   metre, are the fallbacks. Drawn for every movable joint plus the
   selected one whatever its kind (plans/m2-placement-ux OPEN 4) — every
-  weld in a big assembly would be noise. **Hover runs both ways**: a
+  weld in a big assembly would be noise. Every part of it is
+  **depth-tested** (ADR-0020): the runs behind geometry are stroked at a
+  third of the strength, so a pivot inside a link reads as inside it and a
+  near hinge reads apart from a far one, while staying visible and aimable.
+  It also says whether the joint is free to move — a **mimic follower**
+  (ADR-0013) in a muted amber labelled `» <leader>`, an **actuated** joint
+  (ADR-0014) at full amber with a ring at the pivot named for its preset,
+  since an actuator holds a joint the user can still pose where a mimic
+  takes the posing away. The tick sits at the *resolved* `q`, so a
+  follower's points where its link actually is. **Hover runs both ways**: a
   hovered tree row (the link's name or the joint's label) draws that
   joint's glyph hot, and a glyph under the cursor — nearest axis segment
   within `GLYPH_HOVER_RADIUS` screen points, measured in screen space
@@ -435,7 +449,7 @@ input ──► shortcuts ──► menu bar, status bar, tree, properties
        ──► Commands ──► History ──► Robot
 Robot ──► fk(robot, q) ──► world pose per link
        ──► for each visual geom: viewport.set_instance_model(instance, link_pose * geom.pose)
-       ──► viewport.ui(...)   (records the wgpu callback; picks resolve next frame)
+       ──► viewport.ui(...)   (records the wgpu callback; pick and depth readbacks resolve next frame)
 ```
 
 The viewport draws **instances**, not links: one instance per `(LinkId,
@@ -460,6 +474,12 @@ binding.
 The scene renders into an offscreen colour + `Depth32Float` pair (egui's
 own pass has no depth attachment) and is blitted in `paint()`; the axes
 triad draws last in its own corner viewport with a rotation-only camera.
+The depth half carries `COPY_SRC` and is read back for the overlay
+(ADR-0020): the copy is recorded on **egui's** encoder right after the
+scene pass, so it sees the depth this frame wrote, and is mapped on the
+following `ui()` — asynchronous like the pick, never waited on, and
+abandoned after eight frames if nothing answers. Only the opaque pass
+writes depth, so a translucent collision hull hides no glyph.
 `f64` → `f32` happens in `GpuMesh::upload` and the model-uniform pack, and
 nowhere else.
 
@@ -495,7 +515,11 @@ Repaint policy: egui repaints on input; request continuous repaint only
 during camera motion, gizmo drags, slider drags and joint animation. A hover
 pick is issued only when the cursor pixel or the camera matrix changed
 (RoboCAD's `last_pick` rule — otherwise pick + readback + repaint loop at
-vsync while the pointer merely rests).
+vsync while the pointer merely rests). The depth readback keeps the same
+kind of memo, on `(view_proj, size, Scene::revision)`: a resting camera
+over an unchanging scene reads the depth buffer back once, not once a
+frame. It is also only asked for on a frame that will render, since the
+copy rides on the paint callback and a logic-only pass never reaches one.
 
 ## Picking and snapping
 
@@ -607,9 +631,9 @@ drawn in magenta, not remembered silently, and a tool change or another
 selection abandons it.
 
 A box target on the **far** side of the part is dropped before the ladder
-runs: the overlay is not depth-tested and a bounding box floats around the
-geometry rather than lying on it, so a hidden corner would otherwise win a
-snap to something the user cannot see. A vertex of the hit triangle is on
+runs: a bounding box floats around the geometry rather than lying on it, so
+a hidden corner would otherwise win a snap to a point that is not on the
+surface at all. A vertex of the hit triangle is on
 the surface by construction and is not filtered.
 
 **Place joint** turns a candidate into one `MoveJointFrame` on the selected
@@ -716,7 +740,9 @@ alone (one `MoveJointFrame`; the axis is expressed in the child frame, which
 is the frame the gizmo just moved, so it rides along unchanged and nothing
 in the world moves), a **frame** moves on its link (one `SetFrame`; nothing
 else moves, because nothing hangs off a frame — ADR-0012). Drag previews
-through `preview_world`, or on the glyph itself for a frame; release commits.
+through `preview_world` for a link, and on the glyph itself for a joint or a
+frame — neither moves anything in the world, so the glyph is the only thing
+that can show the gesture; release commits.
 
 `Viewport::project(DVec3) -> Option<Pos2>` is the one projection everything
 drawn over the viewport goes through — glyphs, snap markers, a scripted
@@ -1306,7 +1332,10 @@ measured size is in 03 §v0.2.
     a rail click is not exact; its value is read with
     `NodeT::accesskit_node().numeric_value()`.
   - `settle()` pumps until `RiggenApp::settled()` — no camera animation, no
-    pick in flight — has held for four frames.
+    pick and no depth readback in flight — has held for four frames. It runs
+    egui's logic pass only, so a scenario that needs the depth image (any
+    glyph drawn against geometry) has to `pump_rendered`: the copy rides on
+    the paint callback.
   - Scenarios serialise on a global `Mutex`: parallel lavapipe devices at
     1440×900 segfault inside the driver.
   - `UPDATE_SNAPSHOTS=1` refreshes the PNG **and** the JSON golden; look at

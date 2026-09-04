@@ -96,6 +96,10 @@ The by-hand half was done headlessly: the manylinux wheel installed into
 - Collision › "Add file…" and "Add mesh to this link…" open no dialog in the browser — the seam reads a dropped file, but there is no picker; `rfd::AsyncFileDialog` would give the web build one
 - A scrubber's speed is one percent of the value with a per-unit floor (`STEP_M`, `STEP_DEG`, …); a field cannot say its own step beyond those constants, and a joint limit in degrees near zero scrubs slowly
 
+### From the overlay (plans/overlay-tells-the-truth, 2026-09-04)
+
+- The depth readback is full-resolution; at 4K it is 33 MB and about 5 ms of memcpy per copy, against 0.28 ms at 1440×900 (ADR-0020 §3). Downsample — which needs a second pass, and would misclassify a thin glyph's ends by a pixel — only if a 4K viewport actually bites
+
 ## Rejected
 
 - `SetRoot` across a movable joint — a URDF always has a root, and the reversed-pivot convention is a design question nothing in M3 needed (plans/m3-sim-ready OPEN 2, 2026-08-29)
