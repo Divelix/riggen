@@ -90,7 +90,7 @@ frame gizmo drag already does.
   lying exactly on a surface does not flicker. Unit tests on the splitter;
   snapshot `glyph_behind_part` — a two-link arm posed so one pivot is
   inside its link and another is in front of it.
-- [ ] Step 4 — **A driven joint looks driven.** Mimic followers and
+- [x] Step 4 — **A driven joint looks driven.** Mimic followers and
   actuated joints marked on the glyph (OPEN 3); `GlyphDebug` carries it;
   snapshot `glyph_driven_joint` over a document that has both (the
   `bracket`/sample arm already carries a mimic and two actuators — reuse
@@ -150,12 +150,12 @@ hand end to end produces no new entry for the v0.3 list — after which
 - ✔ OPEN 2 (human) — **the same colour at ~35%, same width**
   (`overlay::HIDDEN_STRENGTH`), over a thinner or a dashed stroke.
   ADR-0020 §5.
-- ⚠ OPEN 3 (human, at step 4): the driven/actuated idiom. Recommendation: a
-  mimic follower's amber goes muted and its label reads `↳ <leader>`; an
-  actuated joint keeps full amber and gains a small ring at the pivot with
-  the preset's name (`position` / `velocity` / `motor`). A joint that is
-  both shows both. Alternative: colour alone, no text — quieter, but a
-  screenshot then cannot be read without the panel.
+- ✔ OPEN 3 (human) — **muted amber plus a text mark**, over colour alone
+  and over text alone. One correction in the flesh: the mark reads
+  `» <leader>`, not `↳ <leader>` — egui's bundled fonts have no arrows and
+  `↳` renders as a tofu box. `»` renders, reads as "follows", and does not
+  claim the equality `=` would; the multiplier and offset stay the Joints
+  window's to state.
 - ✔ OPEN 4 (agent) — **confirmed, and by a better golden than the one
   named.** `glyph_behind_part` has no live snap marker; the refreshed
   `gizmo_drag_snaps_to_a_vertex` golden does, and it is the picture the
@@ -173,6 +173,17 @@ hand end to end produces no new entry for the v0.3 list — after which
   (bright, dim, bright — two crossings on one glyph) and
   `shoulder_joint`'s runs up the column it lives in and is dimmed end to
   end.
+- Step 4: a mimic follower's glyph was reading its **raw** `q`, which is
+  never written for a follower — so its tick sat at zero while its link was
+  somewhere else entirely. `joint_glyphs` now takes `resolve_q`, the same
+  answer `fk` already uses for the poses. Found by the scenario asserting
+  the follower's `q`, and fixed in step 4's commit: it is the same lie the
+  plan is about.
+- Step 4: `GlyphDebug` reports `pivot_hidden: Option<bool>` rather than the
+  plainer "was there a depth image" the design deltas named. It answers
+  that question — `null` means no image — and says what the image
+  concluded, so `glyph_behind_part`'s golden asserts the policy in the JSON
+  instead of only in the test body.
 - Step 3: 20 existing goldens changed, all of them images and none of them
   state — every scenario whose frames actually render and whose document
   has a movable joint. The change is the same in all of them and is the

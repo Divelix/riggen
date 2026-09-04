@@ -347,7 +347,9 @@
         626.179993
       ],
       "active": false,
-      "hovered": false
+      "hovered": false,
+      "actuator": "position",
+      "pivot_hidden": true
     },
     {
       "joint": "j12",
@@ -370,7 +372,9 @@
         531.577026
       ],
       "active": false,
-      "hovered": false
+      "hovered": false,
+      "actuator": "velocity",
+      "pivot_hidden": true
     },
     {
       "joint": "j16",
@@ -387,13 +391,15 @@
         0.0
       ],
       "size": 0.053014,
-      "q": 0.0,
+      "q": 0.1,
       "screen": [
         652.0,
         329.770752
       ],
       "active": false,
-      "hovered": false
+      "hovered": false,
+      "mimic": "j12",
+      "pivot_hidden": true
     }
   ],
   "frame_glyphs": [

@@ -12,6 +12,13 @@
 //! (plans/m2-placement-ux OPEN 4): an unselected `Fixed` joint has nothing
 //! to show and every weld in a big assembly would be noise.
 //!
+//! A glyph also says whether its joint is free to move: a **mimic
+//! follower** (ADR-0013) is drawn in a muted amber and labelled with its
+//! leader, an **actuated** joint (ADR-0014) keeps the full amber and gains
+//! a ring at the pivot labelled with the preset. Without that the viewport
+//! draws a driven hinge exactly like a free one and only the Joints window
+//! knows the difference (ADR-0020).
+//!
 //! The anchor is the **pivot** — `world(parent) ∘ origin` — not the child
 //! link frame, which for a prismatic joint has already slid away by `q`.
 
@@ -33,6 +40,11 @@ const TRIAD_COLORS: [egui::Color32; 3] = [
     egui::Color32::from_rgb(89, 217, 89),
     egui::Color32::from_rgb(77, 140, 242),
 ];
+/// A mimic follower's amber, muted (ADR-0013): the joint cannot move on
+/// its own, and the glyph says so before its label is read.
+const AXIS_COLOR_MIMIC: egui::Color32 = egui::Color32::from_rgb(166, 133, 84);
+/// The same, for the muted glyph the user is pointing at or has selected.
+const AXIS_COLOR_MIMIC_ACTIVE: egui::Color32 = egui::Color32::from_rgb(214, 186, 143);
 /// The tick at the current `q`, and a frame glyph's origin dot and label.
 const TICK_COLOR: egui::Color32 = egui::Color32::from_rgb(245, 245, 245);
 /// A frame's name and origin dot: the same near-white, so the label reads
@@ -53,6 +65,9 @@ const AXIS_HALF_LENGTH: f64 = 1.15;
 const FRAME_TRIAD_LENGTH: f64 = 0.55;
 const TRIAD_LENGTH: f64 = 0.4;
 const ARC_RADIUS: f64 = 0.6;
+/// The actuated-joint ring, well inside the limit arc so the two never
+/// read as one.
+const ACTUATOR_RING_RADIUS: f64 = 0.16;
 /// How far past the arc the current-`q` tick sticks out.
 const TICK_OVERSHOOT: f64 = 1.25;
 
@@ -71,6 +86,20 @@ pub struct JointGlyph {
     pub kind: JointKind,
     pub q: f64,
     pub limits: Option<(f64, f64)>,
+    /// The joint this one follows, if any (ADR-0013). A follower is drawn
+    /// muted: its `q` is somebody else's.
+    pub mimic: Option<JointId>,
+    /// The actuator preset holding it, if any — `"position"`, `"velocity"`
+    /// or `"motor"` (ADR-0014). The name, not the gains: the glyph says
+    /// *that* the joint is driven, the panel says how hard.
+    pub actuator: Option<&'static str>,
+}
+
+impl JointGlyph {
+    /// Whether something other than the user's hand moves this joint.
+    pub fn driven(&self) -> bool {
+        self.mimic.is_some() || self.actuator.is_some()
+    }
 }
 
 impl JointGlyph {
@@ -85,7 +114,7 @@ impl JointGlyph {
     /// where a limit arc begins measuring from. Derived from the pivot's
     /// own frame so it turns with the joint instead of flipping when the
     /// camera moves.
-    fn reference(&self) -> DVec3 {
+    pub(crate) fn reference(&self) -> DVec3 {
         let local = DVec3::new(0.0, 0.0, 1.0);
         let axis_local = self.pivot.r.inverse() * self.axis;
         let reference = if axis_local.cross(local).length_squared() < 1e-12 {
@@ -123,6 +152,12 @@ impl RiggenApp {
     /// Every glyph the viewport should draw this frame.
     pub fn joint_glyphs(&self) -> Vec<JointGlyph> {
         let world = riggen_core::fk(&self.robot, &self.q);
+        // Resolved, not raw: a mimic follower's own entry in `self.q` is
+        // never written, so the tick of a driven joint would sit at zero
+        // while its link is somewhere else entirely (ADR-0013). `fk` above
+        // already resolves for the poses; this is the same answer for the
+        // glyph's own numbers.
+        let q = riggen_core::resolve_q(&self.robot, &self.q);
         let selected = match self.selection {
             Selection::Joint(j) => Some(j),
             _ => None,
@@ -143,8 +178,10 @@ impl RiggenApp {
                     axis,
                     size: self.glyph_size(joint.child),
                     kind: joint.kind,
-                    q: self.q.get(id),
+                    q: q.get(id),
                     limits: joint.limits.map(|l| (l.lower, l.upper)),
+                    mimic: joint.mimic.map(|m| m.joint),
+                    actuator: joint.actuator.map(|a| a.kind_name()),
                 })
             })
             .collect()
@@ -262,6 +299,47 @@ impl RiggenApp {
             .unwrap_or(1.0)
     }
 
+    /// The colour a glyph's amber parts are drawn in: brighter for the
+    /// joint the user is pointing at, muted for one a mimic drives — its
+    /// `q` is somebody else's, and the glyph says so before the label is
+    /// read (ADR-0013).
+    ///
+    /// An **actuated** joint keeps the full amber on purpose: an actuator
+    /// holds a joint the user can still pose, where a mimic takes the
+    /// posing away. Its mark is the ring, not the colour.
+    fn axis_color(glyph: &JointGlyph, hot: bool) -> egui::Color32 {
+        match (glyph.mimic.is_some(), hot) {
+            (false, false) => AXIS_COLOR,
+            (false, true) => AXIS_COLOR_ACTIVE,
+            (true, false) => AXIS_COLOR_MIMIC,
+            (true, true) => AXIS_COLOR_MIMIC_ACTIVE,
+        }
+    }
+
+    /// What a glyph says in words about not being free: `» <leader>` for a
+    /// mimic follower, the preset's name for an actuated joint. Both, in
+    /// that order, for a joint that is somehow both — `validate` rejects
+    /// that pairing (ADR-0014), and a glyph is not the place to hide it.
+    ///
+    /// `»` and not `↳`: egui's bundled fonts have no arrows, and a mark
+    /// that renders as a tofu box says nothing at all. `»` reads as
+    /// "follows" without claiming the equality `=` would — the multiplier
+    /// and offset are the Joints window's to state
+    /// (`panels/joints.rs::mimic_rule`).
+    fn driven_marks(&self, glyph: &JointGlyph) -> Vec<String> {
+        let mut marks = Vec::new();
+        if let Some(leader) = glyph.mimic {
+            let name = self
+                .robot
+                .joints
+                .get(&leader)
+                .map_or_else(|| leader.to_string(), |j| j.name.clone());
+            marks.push(format!("\u{bb} {name}"));
+        }
+        marks.extend(glyph.actuator.map(str::to_owned));
+        marks
+    }
+
     /// The glyphs as overlay primitives. `active` is the joint the user is
     /// pointing at or has selected, drawn brighter and thicker.
     pub(crate) fn glyph_overlay(&self, glyphs: &[JointGlyph], active: Option<JointId>) -> Overlay {
@@ -271,7 +349,7 @@ impl RiggenApp {
         overlay.depth_tested(|overlay| {
             for glyph in glyphs {
                 let hot = active == Some(glyph.joint);
-                let color = if hot { AXIS_COLOR_ACTIVE } else { AXIS_COLOR };
+                let color = Self::axis_color(glyph, hot);
                 let width = if hot { 3.0 } else { 1.5 };
 
                 let (from, to) = glyph.axis_ends();
@@ -288,6 +366,21 @@ impl RiggenApp {
                     );
                 }
 
+                // An actuated joint gets a ring round the pivot, in the
+                // joint's own plane and well inside the limit arc
+                // (ADR-0014).
+                if glyph.actuator.is_some() {
+                    overlay.push(OverlayItem::Arc {
+                        center: glyph.pivot.t,
+                        axis: glyph.axis,
+                        start: glyph.reference(),
+                        radius: glyph.size * ACTUATOR_RING_RADIUS,
+                        sweep: std::f64::consts::TAU,
+                        color,
+                        width,
+                    });
+                }
+
                 match glyph.kind {
                     JointKind::Revolute | JointKind::Continuous => {
                         self.push_arc(overlay, glyph, color, width)
@@ -297,6 +390,19 @@ impl RiggenApp {
                 }
             }
         });
+        // The labels last and undepthed: text that fades behind a part is
+        // unreadable rather than informative (ADR-0020 §4).
+        for glyph in glyphs {
+            let color = Self::axis_color(glyph, active == Some(glyph.joint));
+            for (i, mark) in self.driven_marks(glyph).into_iter().enumerate() {
+                overlay.label(
+                    glyph.pivot.t,
+                    mark,
+                    color,
+                    egui::vec2(11.0, 26.0 + i as f32 * 13.0),
+                );
+            }
+        }
         overlay
     }
 

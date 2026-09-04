@@ -1,26 +1,26 @@
 {
   "camera": {
     "eye": [
-      0.283114,
-      -0.283114,
-      0.35673
+      0.335218,
+      -0.284176,
+      0.335891
     ],
     "target": [
+      0.051042,
       0.0,
-      0.0,
-      0.137999
+      0.11634
     ],
     "up": [
       -0.339005,
       0.339005,
-      0.877583
+      0.877582
     ],
-    "distance": 0.456235,
+    "distance": 0.457946,
     "yaw_deg": -45.0,
     "pitch_deg": 28.64789,
     "fov_y_deg": 45.0,
-    "near": 0.001455,
-    "far": 145.494766,
+    "near": 0.00146,
+    "far": 146.040359,
     "projection": "Perspective",
     "animating": false,
     "aspect": 0.955504,
@@ -39,14 +39,14 @@
       ],
       [
         0.0,
-        0.877583,
+        0.877582,
         0.479426,
         0.0
       ],
       [
-        0.0,
-        -0.121106,
-        -0.522396,
+        -0.036092,
+        -0.084795,
+        -0.545396,
         1.0
       ]
     ],
@@ -72,7 +72,7 @@
       [
         0.0,
         0.0,
-        -0.001455,
+        -0.00146,
         0.0
       ]
     ]
@@ -80,7 +80,7 @@
   "document": {
     "file": "arm.riggen",
     "name": "arm",
-    "dirty": true,
+    "dirty": false,
     "import_scale": 1.0,
     "links": [
       {
@@ -142,7 +142,7 @@
         "kind": "Revolute",
         "parent": "l7",
         "child": "l11",
-        "q": 0.0
+        "q": 0.9
       },
       {
         "id": "j16",
@@ -150,7 +150,7 @@
         "kind": "Revolute",
         "parent": "l11",
         "child": "l15",
-        "q": 0.1
+        "q": -0.35
       }
     ],
     "frames": [
@@ -196,7 +196,7 @@
       "joints"
     ],
     "modal": null,
-    "title": "arm.riggen* — riggen"
+    "title": "arm.riggen — riggen"
   },
   "instances": [
     {
@@ -278,9 +278,9 @@
         ]
       ],
       "position": [
+        -0.074416,
         0.0,
-        0.0,
-        0.0
+        0.035947
       ],
       "color": [
         0.9,
@@ -308,9 +308,9 @@
         ]
       ],
       "position": [
-        -0.103028,
+        -0.068957,
         -0.07,
-        0.069659
+        0.089112
       ],
       "color": [
         0.9,
@@ -343,12 +343,13 @@
       "size": 0.042276,
       "q": 0.0,
       "screen": [
-        652.0,
-        626.179993
+        581.295776,
+        547.346313
       ],
       "active": false,
       "hovered": false,
-      "actuator": "position"
+      "actuator": "position",
+      "pivot_hidden": true
     },
     {
       "joint": "j12",
@@ -364,39 +365,41 @@
         1.0,
         0.0
       ],
-      "size": 0.065123,
-      "q": 0.0,
+      "size": 0.072751,
+      "q": 0.9,
       "screen": [
-        652.0,
-        531.577026
+        577.565918,
+        452.937836
       ],
       "active": false,
       "hovered": false,
-      "actuator": "velocity"
+      "actuator": "velocity",
+      "pivot_hidden": true
     },
     {
       "joint": "j16",
       "name": "fore_joint",
       "kind": "Revolute",
       "origin": [
+        0.078333,
         0.0,
-        0.0,
-        0.195
+        0.157161
       ],
       "axis": [
         0.0,
         1.0,
         0.0
       ],
-      "size": 0.053014,
-      "q": 0.1,
+      "size": 0.061007,
+      "q": -0.35,
       "screen": [
-        652.0,
-        329.770752
+        699.203552,
+        385.003937
       ],
       "active": true,
       "hovered": false,
-      "mimic": "j12"
+      "mimic": "j12",
+      "pivot_hidden": true
     }
   ],
   "frame_glyphs": [
@@ -404,14 +407,14 @@
       "frame": "f17",
       "name": "tcp",
       "origin": [
-        0.007987,
+        0.120148,
         0.0,
-        0.2746
+        0.225363
       ],
-      "size": 0.029158,
+      "size": 0.033554,
       "screen": [
-        667.090515,
-        136.905548
+        790.849609,
+        244.706558
       ],
       "active": false,
       "hovered": false
@@ -426,8 +429,8 @@
       ],
       "size": 0.028579,
       "screen": [
-        696.036621,
-        695.189148
+        622.480713,
+        612.294617
       ],
       "active": false,
       "hovered": false

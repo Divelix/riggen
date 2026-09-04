@@ -449,13 +449,14 @@
         0.0
       ],
       "size": 0.053014,
-      "q": 0.0,
+      "q": 0.1,
       "screen": [
         675.453125,
         329.770752
       ],
       "active": false,
-      "hovered": false
+      "hovered": false,
+      "mimic": "j22"
     }
   ],
   "snap": null,

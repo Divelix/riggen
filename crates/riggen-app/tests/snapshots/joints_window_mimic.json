@@ -347,7 +347,8 @@
         536.674683
       ],
       "active": false,
-      "hovered": false
+      "hovered": false,
+      "actuator": "position"
     },
     {
       "joint": "j12",
@@ -370,7 +371,8 @@
         441.0047
       ],
       "active": false,
-      "hovered": false
+      "hovered": false,
+      "actuator": "velocity"
     },
     {
       "joint": "j16",
@@ -387,13 +389,14 @@
         0.0
       ],
       "size": 0.061446,
-      "q": 0.0,
+      "q": -0.4,
       "screen": [
         702.057495,
         392.747192
       ],
       "active": false,
-      "hovered": false
+      "hovered": false,
+      "mimic": "j12"
     }
   ],
   "frame_glyphs": [

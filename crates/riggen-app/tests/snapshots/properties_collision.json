@@ -305,7 +305,8 @@
         450.000061
       ],
       "active": false,
-      "hovered": false
+      "hovered": false,
+      "pivot_hidden": true
     }
   ],
   "snap": null,

@@ -2402,14 +2402,6 @@ fn clicking_through_every_field_adds_no_history_entry() {
     });
 }
 
-/// A glyph behind a part reads as behind it (ADR-0020): the sample arm at
-/// its default pose has the upper hinge's pivot buried in its own bearing
-/// and the shoulder's standing clear above the base plate, so one glyph
-/// shows both — the axis bright in free space, dimmed where it runs
-/// through the bearing, and the limit arc dimmed on its far half.
-///
-/// `pump_rendered`, not `settle`: the depth copy rides on the paint
-/// callback and a logic-only pass never reaches one.
 /// The ends of a glyph's axis segment, the way `JointGlyph::axis_ends`
 /// builds them: the line the overlay strokes and the depth test splits.
 fn glyph_axis_ends(glyph: &riggen_app::debug::GlyphDebug) -> (DVec3, DVec3) {
@@ -2470,6 +2462,61 @@ fn glyph_behind_part() {
         assert!(
             hidden(DVec3::from_array(shoulder.origin)) && hidden(from) && hidden(to),
             "the shoulder's axis runs up the column and never leaves it"
+        );
+    });
+}
+
+/// A driven joint looks driven (ADR-0020 §4, ADR-0013, ADR-0014). The
+/// sample arm carries all three cases at once: `shoulder_joint` on a
+/// position actuator and `upper_joint` on a velocity one — full amber, a
+/// ring at the pivot, the preset named — and `fore_joint` following
+/// `upper_joint`, drawn in the muted amber and labelled `» upper_joint`.
+///
+/// The follower is selected, so the golden also shows that the muting
+/// survives the brightening an active glyph gets: a hot mimic is a
+/// brighter muted, never the free joint's amber. `upper_joint` is swung
+/// first, so the two joints the mimic couples are visibly at different
+/// angles rather than both at zero.
+#[test]
+fn glyph_driven_joint() {
+    scenario("glyph_driven_joint", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        let leader = joint_named(harness, "upper_joint");
+        let follower = joint_named(harness, "fore_joint");
+        let app = harness.state_mut();
+        app.set_joint_value(leader, 0.9);
+        app.select(Selection::Joint(follower));
+        app.fit_view_now();
+        settle(harness);
+        pump_rendered(harness, 8);
+
+        let glyphs = harness.state().debug_state().glyphs;
+        let glyph = |name: &str| {
+            glyphs
+                .iter()
+                .find(|g| g.name == name)
+                .unwrap_or_else(|| panic!("no glyph for {name}"))
+                .clone()
+        };
+        assert_eq!(glyph("shoulder_joint").actuator, Some("position"));
+        assert_eq!(glyph("shoulder_joint").mimic, None);
+        assert_eq!(glyph("upper_joint").actuator, Some("velocity"));
+
+        let follower_glyph = glyph("fore_joint");
+        assert_eq!(follower_glyph.mimic, Some(leader.to_string()));
+        assert_eq!(follower_glyph.actuator, None, "validate forbids both");
+        assert!(follower_glyph.active, "the follower is the selection");
+        // The mimic rule is `-0.5 x upper_joint + 0.1`, resolved by `fk`.
+        assert_eq!(follower_glyph.q, -0.35);
+
+        // And every glyph reports what the depth image said about its
+        // pivot, so the policy is asserted and not only the pixels.
+        assert!(
+            glyphs.iter().all(|g| g.pivot_hidden.is_some()),
+            "a depth image landed before the golden was taken"
         );
     });
 }

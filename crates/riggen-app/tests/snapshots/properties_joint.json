@@ -208,7 +208,8 @@
         450.000061
       ],
       "active": true,
-      "hovered": true
+      "hovered": true,
+      "pivot_hidden": true
     }
   ],
   "snap": null,

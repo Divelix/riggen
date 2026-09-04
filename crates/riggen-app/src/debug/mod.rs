@@ -301,6 +301,20 @@ pub struct GlyphDebug {
     pub active: bool,
     /// The pointer is on this glyph, or on its row in the tree.
     pub hovered: bool,
+    /// The joint this one follows, as `"j12"` — the glyph is drawn muted
+    /// and labelled `↳ <leader>` (ADR-0013). Omitted for a free joint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mimic: Option<String>,
+    /// The actuator preset holding it — the glyph gains a ring at the
+    /// pivot (ADR-0014). Omitted for an unactuated joint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actuator: Option<&'static str>,
+    /// Whether the scene's depth image says the pivot is behind geometry,
+    /// so a scenario asserts the *policy* and not only the pixels
+    /// (ADR-0020, ADR-0003). `null` — omitted — before any depth image has
+    /// landed, which is every logic-only scenario.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pivot_hidden: Option<bool>,
 }
 
 /// The snap target under the cursor: which kind won the priority ladder,
@@ -515,6 +529,12 @@ impl RiggenApp {
                             .map(|p| [round32(p.x), round32(p.y)]),
                         active: active == Some(glyph.joint),
                         hovered: self.hovered_joint() == Some(glyph.joint),
+                        mimic: glyph.mimic.map(|m| m.to_string()),
+                        actuator: glyph.actuator,
+                        pivot_hidden: self
+                            .viewport
+                            .depth_image()
+                            .map(|image| image.hidden(glyph.pivot.t)),
                     })
                     .collect()
             },

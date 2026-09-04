@@ -320,7 +320,8 @@
         625.885193
       ],
       "active": false,
-      "hovered": false
+      "hovered": false,
+      "pivot_hidden": true
     },
     {
       "joint": "j12",
@@ -343,7 +344,8 @@
         530.922791
       ],
       "active": false,
-      "hovered": false
+      "hovered": false,
+      "pivot_hidden": true
     },
     {
       "joint": "j16",
@@ -366,7 +368,8 @@
         366.848633
       ],
       "active": true,
-      "hovered": false
+      "hovered": false,
+      "pivot_hidden": false
     }
   ],
   "snap": null,

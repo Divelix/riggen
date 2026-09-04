@@ -253,7 +253,8 @@
         409.513031
       ],
       "active": false,
-      "hovered": false
+      "hovered": false,
+      "pivot_hidden": true
     }
   ],
   "snap": null,

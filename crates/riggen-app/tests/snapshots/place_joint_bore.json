@@ -185,7 +185,8 @@
         449.999969
       ],
       "active": true,
-      "hovered": false
+      "hovered": false,
+      "pivot_hidden": true
     }
   ],
   "snap": null,

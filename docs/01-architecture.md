@@ -1219,8 +1219,11 @@ measured size is in 03 §v0.2.
   (captured mid-drag), `tree_reparent_posed` (a drop with the arm
   swung), `orbit_left_drag` (the sample arm turned by a plain
   left-drag), `gizmo_ring_hover` (the rotate ring under the cursor, drawn
-  hot) and `gizmo_drag_snaps_to_a_vertex` (captured mid-drag: the marker on
-  the corner, the part already on it, nothing committed) —
+  hot), `gizmo_drag_snaps_to_a_vertex` (captured mid-drag: the marker on
+  the corner, the part already on it, nothing committed),
+  `glyph_behind_part` (one axis crossing its bearing, another buried end to
+  end in its column) and `glyph_driven_joint` (a mimic follower muted and
+  labelled, two actuated joints ringed and named) —
   plus golden-less app tests including `build_pendulum_numerically` (the
   M1 acceptance in executable form), `example_arm_opens_from_the_bundle`,
   `startup_first_frame_under_budget`, and the pointer-sharing set behind
