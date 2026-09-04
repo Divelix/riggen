@@ -13,7 +13,7 @@ pub use camera::{
     shortest_angular_delta,
 };
 pub use gpu_mesh::{AxesTriadMesh, ColorVertex, GpuMesh, PickVertex, Vertex};
-pub use overlay::{Occlusion, Overlay, OverlayEntry, OverlayItem};
+pub use overlay::{HIDDEN_STRENGTH, Occlusion, Overlay, OverlayEntry, OverlayItem};
 pub use scene::{
     DEFAULT_INSTANCE_COLOR, InstanceEntry, InstanceId, InstancePayload, MAX_INSTANCES, RenderGroup,
     Scene, SceneFull,

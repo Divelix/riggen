@@ -2402,6 +2402,78 @@ fn clicking_through_every_field_adds_no_history_entry() {
     });
 }
 
+/// A glyph behind a part reads as behind it (ADR-0020): the sample arm at
+/// its default pose has the upper hinge's pivot buried in its own bearing
+/// and the shoulder's standing clear above the base plate, so one glyph
+/// shows both — the axis bright in free space, dimmed where it runs
+/// through the bearing, and the limit arc dimmed on its far half.
+///
+/// `pump_rendered`, not `settle`: the depth copy rides on the paint
+/// callback and a logic-only pass never reaches one.
+/// The ends of a glyph's axis segment, the way `JointGlyph::axis_ends`
+/// builds them: the line the overlay strokes and the depth test splits.
+fn glyph_axis_ends(glyph: &riggen_app::debug::GlyphDebug) -> (DVec3, DVec3) {
+    let pivot = DVec3::from_array(glyph.origin);
+    let half = DVec3::from_array(glyph.axis) * glyph.size * 1.15;
+    (pivot - half, pivot + half)
+}
+
+/// A glyph behind a part reads as behind it (ADR-0020). Every pivot on the
+/// sample arm sits inside its own bearing, so the golden contrasts the two
+/// shapes that produces: `upper_joint`'s axis runs *across* its bearing —
+/// dim in the middle, bright at both ends, one glyph with two crossings —
+/// while `shoulder_joint`'s runs straight up the column it lives in and is
+/// dimmed end to end.
+///
+/// `pump_rendered`, not `settle`: the depth copy rides on the paint
+/// callback and a logic-only pass never reaches one.
+#[test]
+fn glyph_behind_part() {
+    scenario("glyph_behind_part", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        pump_rendered(harness, 8);
+
+        let glyphs = harness.state().debug_state().glyphs;
+        let glyph = |name: &str| {
+            glyphs
+                .iter()
+                .find(|g| g.name == name)
+                .unwrap_or_else(|| panic!("no glyph for {name}"))
+                .clone()
+        };
+        let hidden = |at: DVec3| {
+            let (stored, own) = harness
+                .state()
+                .depth_probe(at)
+                .expect("a point on the image");
+            stored < own
+        };
+
+        let upper = glyph("upper_joint");
+        let (from, to) = glyph_axis_ends(&upper);
+        assert!(
+            hidden(DVec3::from_array(upper.origin)),
+            "the upper hinge's pivot is inside its bearing"
+        );
+        assert!(
+            !hidden(from) && !hidden(to),
+            "…and both ends of its axis stick out of it"
+        );
+
+        let shoulder = glyph("shoulder_joint");
+        let (from, to) = glyph_axis_ends(&shoulder);
+        assert!(
+            hidden(DVec3::from_array(shoulder.origin)) && hidden(from) && hidden(to),
+            "the shoulder's axis runs up the column and never leaves it"
+        );
+    });
+}
+
 /// The depth readback (ADR-0020): the viewport keeps the scene's own depth
 /// buffer, so an overlay can tell a point inside a part from one in front
 /// of it.

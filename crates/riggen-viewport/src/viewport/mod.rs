@@ -18,7 +18,8 @@ use riggen_mesh::{Aabb, Ray, TriMesh};
 use crate::PickHit;
 use crate::camera::{OrbitCamera, Projection, StandardView};
 use crate::gpu_mesh::{AxesTriadMesh, GpuMesh, PickVertex, Vertex};
-use crate::overlay::{Overlay, OverlayItem};
+use crate::overlay;
+use crate::overlay::{Occlusion, Overlay, OverlayItem};
 use crate::scene::RenderGroup;
 use crate::scene::{InstanceId, Scene, SceneFull};
 
@@ -947,53 +948,84 @@ impl Viewport {
         changed
     }
 
+    /// Walks a world-space path and classifies every sample: where it lands
+    /// on screen, and — with a depth image — whether geometry hides it.
+    ///
+    /// The path's own points are far too coarse for the second question, so
+    /// each segment is subdivided until consecutive samples are a few
+    /// screen points apart: both ends of an axis segment running through a
+    /// link are outside it, and only the middle says otherwise. The walk is
+    /// in **world** space, so the drawn position and the classification
+    /// cannot disagree even when the depth image is a frame behind the
+    /// camera (ADR-0020 §2).
+    fn classify_path(
+        &self,
+        points: &[DVec3],
+        depth: Option<&DepthImage>,
+    ) -> Vec<Option<(egui::Pos2, bool)>> {
+        let sample = |p: DVec3| Some((self.project(p)?, depth.is_some_and(|d| d.hidden(p))));
+        let Some(first) = points.first() else {
+            return Vec::new();
+        };
+        let mut samples = Vec::with_capacity(points.len());
+        samples.push(sample(*first));
+        for pair in points.windows(2) {
+            let (from, to) = (pair[0], pair[1]);
+            // Nothing to find between the ends without a depth image.
+            let steps = match depth {
+                None => 1,
+                Some(_) => overlay::depth_samples(self.project(from), self.project(to)),
+            };
+            for i in 1..=steps {
+                samples.push(sample(from.lerp(to, i as f64 / steps as f64)));
+            }
+        }
+        samples
+    }
+
     /// Projects and strokes every overlay item. Items whose points are all
     /// off screen (behind the camera, outside the depth range) are dropped;
     /// a polyline is split so a partly visible one still draws its visible
     /// run rather than vanishing.
+    ///
+    /// An [`Occlusion::Test`] item is split again at its depth crossings and
+    /// its hidden runs are stroked at [`overlay::HIDDEN_STRENGTH`] — same
+    /// colour, same width, a third of the strength (ADR-0020 §5). A
+    /// [`OverlayItem::Label`] never dims whatever it asks for: text that
+    /// fades behind a part is unreadable rather than informative.
     fn paint_overlay(&self, ui: &egui::Ui, rect: egui::Rect) {
         if self.overlay.is_empty() {
             return;
         }
         let painter = ui.painter().with_clip_rect(rect);
-        let stroke_path = |points: &[DVec3], color: egui::Color32, width: f32| {
-            let mut run: Vec<egui::Pos2> = Vec::with_capacity(points.len());
-            for p in points {
-                match self.project(*p) {
-                    Some(screen) => run.push(screen),
-                    None => {
-                        if run.len() > 1 {
-                            painter.add(egui::Shape::line(
-                                std::mem::take(&mut run),
-                                egui::Stroke::new(width, color),
-                            ));
-                        } else {
-                            run.clear();
-                        }
-                    }
-                }
-            }
-            if run.len() > 1 {
+        // `None` for an item drawn unconditionally on top, and for every
+        // item before the first depth image has landed.
+        let depth_for = |occlusion: Occlusion| match occlusion {
+            Occlusion::Test => self.depth_image.as_ref(),
+            Occlusion::Always => None,
+        };
+        let dim = |color: egui::Color32| color.gamma_multiply(overlay::HIDDEN_STRENGTH);
+        let stroke_path = |points: &[DVec3], color: egui::Color32, width: f32, depth| {
+            for (hidden, run) in overlay::split_runs(&self.classify_path(points, depth)) {
+                let color = if hidden { dim(color) } else { color };
                 painter.add(egui::Shape::line(run, egui::Stroke::new(width, color)));
             }
         };
 
-        // `entry.occlusion` is not read yet: step 3 of
-        // plans/overlay-tells-the-truth splits the paths against
-        // `depth_image` here.
         for entry in &self.overlay.items {
+            let depth = depth_for(entry.occlusion);
             match &entry.item {
                 OverlayItem::Segment {
                     from,
                     to,
                     color,
                     width,
-                } => stroke_path(&[*from, *to], *color, *width),
+                } => stroke_path(&[*from, *to], *color, *width, depth),
                 OverlayItem::Polyline {
                     points,
                     color,
                     width,
-                } => stroke_path(points, *color, *width),
+                } => stroke_path(points, *color, *width, depth),
                 OverlayItem::Arc {
                     center,
                     axis,
@@ -1006,10 +1038,13 @@ impl Viewport {
                     &OverlayItem::arc_points(*center, *axis, *start, *radius, *sweep),
                     *color,
                     *width,
+                    depth,
                 ),
                 OverlayItem::Point { at, radius, color } => {
                     if let Some(screen) = self.project(*at) {
-                        painter.circle_filled(screen, *radius, *color);
+                        let hidden = depth.is_some_and(|d| d.hidden(*at));
+                        let color = if hidden { dim(*color) } else { *color };
+                        painter.circle_filled(screen, *radius, color);
                     }
                 }
                 OverlayItem::Label {

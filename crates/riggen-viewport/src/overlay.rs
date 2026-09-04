@@ -91,6 +91,82 @@ pub struct Overlay {
     pub items: Vec<OverlayEntry>,
 }
 
+/// How strongly a run behind geometry is dimmed: the same colour and the
+/// same width at roughly a third of the strength (ADR-0020 §5).
+///
+/// Dimmed, not dropped, and not thinned: a glyph inside a part still has to
+/// be visible, and `glyph_at` hit-tests the whole screen-space line — a run
+/// drawn narrower or not at all would be a target the user can hit but
+/// cannot see.
+pub const HIDDEN_STRENGTH: f32 = 0.35;
+
+/// How far apart, in screen points, a depth-tested path is sampled.
+///
+/// A path's own points are far too coarse to classify against depth: an
+/// axis segment is two points, and both ends of one running through a link
+/// are outside it. The path is walked in world space and classified per
+/// sample, so the split lands where the line actually enters the geometry.
+const DEPTH_SAMPLE_SPACING: f32 = 4.0;
+
+/// Samples one segment of a depth-tested path may be cut into. Bounds the
+/// work for a segment that runs off to the horizon, or one whose ends do
+/// not project at all.
+const MAX_DEPTH_SAMPLES: usize = 64;
+
+/// How many samples a segment whose ends land at `a` and `b` is cut into.
+/// An end that does not project cannot be measured, so such a segment is
+/// sampled at the cap — it is exactly the case where part of it is on
+/// screen and subdividing is what finds the part.
+pub fn depth_samples(a: Option<egui::Pos2>, b: Option<egui::Pos2>) -> usize {
+    match (a, b) {
+        (Some(a), Some(b)) => {
+            (((a - b).length() / DEPTH_SAMPLE_SPACING).ceil() as usize).clamp(1, MAX_DEPTH_SAMPLES)
+        }
+        _ => MAX_DEPTH_SAMPLES,
+    }
+}
+
+/// Splits a classified, projected path into runs of constant visibility.
+///
+/// `None` is a sample that does not project — behind the camera, outside
+/// the depth range — and ends the run it is in, as an unsplit path already
+/// did. A sample whose classification differs from the run it arrives in
+/// **ends that run and starts the next**, so the two strokes meet at it
+/// instead of leaving a gap. A run of one point is dropped: there is no
+/// line to draw.
+///
+/// Pure, and the reason the split is testable without a GPU (ADR-0020).
+pub fn split_runs(samples: &[Option<(egui::Pos2, bool)>]) -> Vec<(bool, Vec<egui::Pos2>)> {
+    let mut runs: Vec<(bool, Vec<egui::Pos2>)> = Vec::new();
+    let mut current: Vec<egui::Pos2> = Vec::new();
+    let mut hidden = false;
+    for sample in samples {
+        match sample {
+            None => {
+                if current.len() > 1 {
+                    runs.push((hidden, std::mem::take(&mut current)));
+                } else {
+                    current.clear();
+                }
+            }
+            Some((pos, sample_hidden)) => {
+                if current.is_empty() {
+                    hidden = *sample_hidden;
+                } else if *sample_hidden != hidden {
+                    current.push(*pos);
+                    runs.push((hidden, std::mem::take(&mut current)));
+                    hidden = *sample_hidden;
+                }
+                current.push(*pos);
+            }
+        }
+    }
+    if current.len() > 1 {
+        runs.push((hidden, current));
+    }
+    runs
+}
+
 /// Points per tessellated arc segment: fine enough that a limit arc reads as
 /// a curve at any size a glyph is drawn at, cheap enough to rebuild every
 /// frame.
@@ -187,6 +263,87 @@ impl OverlayItem {
 mod tests {
     use super::*;
     use std::f64::consts::{FRAC_PI_2, PI};
+
+    fn visible(x: f32) -> Option<(egui::Pos2, bool)> {
+        Some((egui::pos2(x, 0.0), false))
+    }
+
+    fn behind(x: f32) -> Option<(egui::Pos2, bool)> {
+        Some((egui::pos2(x, 0.0), true))
+    }
+
+    fn xs(run: &[egui::Pos2]) -> Vec<f32> {
+        run.iter().map(|p| p.x).collect()
+    }
+
+    #[test]
+    fn an_unsplit_path_is_one_run() {
+        let runs = split_runs(&[visible(0.0), visible(1.0), visible(2.0)]);
+        assert_eq!(runs.len(), 1);
+        assert!(!runs[0].0);
+        assert_eq!(xs(&runs[0].1), vec![0.0, 1.0, 2.0]);
+        // …whichever side of the geometry it is on.
+        let runs = split_runs(&[behind(0.0), behind(1.0)]);
+        assert_eq!(runs.len(), 1);
+        assert!(runs[0].0);
+    }
+
+    #[test]
+    fn a_path_through_a_part_splits_into_three_meeting_runs() {
+        let runs = split_runs(&[
+            visible(0.0),
+            visible(1.0),
+            behind(2.0),
+            behind(3.0),
+            visible(4.0),
+            visible(5.0),
+        ]);
+        assert_eq!(runs.len(), 3);
+        assert_eq!(
+            runs.iter().map(|(hidden, _)| *hidden).collect::<Vec<_>>(),
+            vec![false, true, false]
+        );
+        // The crossing samples belong to both runs, so the strokes meet.
+        assert_eq!(xs(&runs[0].1), vec![0.0, 1.0, 2.0]);
+        assert_eq!(xs(&runs[1].1), vec![2.0, 3.0, 4.0]);
+        assert_eq!(xs(&runs[2].1), vec![4.0, 5.0]);
+    }
+
+    #[test]
+    fn a_point_that_does_not_project_ends_the_run() {
+        let runs = split_runs(&[visible(0.0), visible(1.0), None, visible(5.0), visible(6.0)]);
+        assert_eq!(runs.len(), 2);
+        assert_eq!(xs(&runs[0].1), vec![0.0, 1.0]);
+        assert_eq!(xs(&runs[1].1), vec![5.0, 6.0]);
+        // A single point either side of a gap is no line at all.
+        assert!(split_runs(&[visible(0.0), None, behind(1.0)]).is_empty());
+        assert!(split_runs(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_one_sample_crossing_meets_the_run_before_it_and_the_one_after() {
+        let runs = split_runs(&[visible(0.0), behind(1.0), visible(2.0)]);
+        // Two runs, not three: the hidden one reaches back to 0's side and
+        // forward to 2, and what is left of the visible run past 2 is a
+        // single point, which is no line.
+        assert_eq!(runs.len(), 2);
+        assert_eq!(xs(&runs[0].1), vec![0.0, 1.0]);
+        assert!(!runs[0].0);
+        assert_eq!(xs(&runs[1].1), vec![1.0, 2.0]);
+        assert!(runs[1].0);
+    }
+
+    #[test]
+    fn a_segment_is_sampled_by_its_screen_length() {
+        let at = |x: f32| Some(egui::pos2(x, 0.0));
+        assert_eq!(depth_samples(at(0.0), at(0.0)), 1, "a degenerate segment");
+        assert_eq!(depth_samples(at(0.0), at(4.0)), 1);
+        assert_eq!(depth_samples(at(0.0), at(5.0)), 2);
+        assert_eq!(depth_samples(at(0.0), at(200.0)), 50);
+        assert_eq!(depth_samples(at(0.0), at(1e6)), MAX_DEPTH_SAMPLES, "capped");
+        assert_eq!(depth_samples(at(0.0), None), MAX_DEPTH_SAMPLES);
+        assert_eq!(depth_samples(None, None), MAX_DEPTH_SAMPLES);
+    }
 
     #[test]
     fn an_arc_starts_and_ends_where_it_says() {

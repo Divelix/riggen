@@ -84,7 +84,7 @@ frame gizmo drag already does.
 - [x] Step 2 — **ADR-0020** from step 1's measurements: the readback, the
   staleness rule, dimmed-not-dropped, the per-item policy, the rejected
   alternatives.
-- [ ] Step 3 — **Hidden runs read as hidden.**
+- [x] Step 3 — **Hidden runs read as hidden.**
   `paint_overlay` splits every path at crossings and strokes
   hidden runs at the dimmed strength (OPEN 2); a depth bias so a glyph
   lying exactly on a surface does not flicker. Unit tests on the splitter;
@@ -147,18 +147,33 @@ hand end to end produces no new entry for the v0.3 list — after which
   ceiling is 4K (33 MB, 5.3 ms of memcpy); downsampling is the lever if it
   ever bites. Recorded in ADR-0020 at step 2; the browser figure is still
   to take, at the acceptance run.
-- ⚠ OPEN 2 (human, at step 3): how a hidden run reads. Recommendation: the
-  same colour at ~35% alpha, same width — the CAD idiom, and it survives
-  both the light scene and the dark one. Alternatives are a thinner stroke
-  or a dashed one (dashes need a new painter idiom; that is why they are
-  not the recommendation).
+- ✔ OPEN 2 (human) — **the same colour at ~35%, same width**
+  (`overlay::HIDDEN_STRENGTH`), over a thinner or a dashed stroke.
+  ADR-0020 §5.
 - ⚠ OPEN 3 (human, at step 4): the driven/actuated idiom. Recommendation: a
   mimic follower's amber goes muted and its label reads `↳ <leader>`; an
   actuated joint keeps full amber and gains a small ring at the pivot with
   the preset's name (`position` / `velocity` / `motor`). A joint that is
   both shows both. Alternative: colour alone, no text — quieter, but a
   screenshot then cannot be read without the panel.
-- ⚠ OPEN 4 (agent, at step 3): confirmed by the snapshot — snap markers,
-  the align pick and readout labels stay `Occlusion::Always`. If the
-  `glyph_behind_part` golden shows a snap marker floating confusingly, this
-  reopens as an ADR amendment rather than a silent change.
+- ✔ OPEN 4 (agent) — **confirmed, and by a better golden than the one
+  named.** `glyph_behind_part` has no live snap marker; the refreshed
+  `gizmo_drag_snaps_to_a_vertex` golden does, and it is the picture the
+  question wanted: the marker's ring, dot and `vertex` label read at full
+  strength on top while the joint glyph behind the same cube dims. Nothing
+  floats confusingly. Snap markers, the align pick and readout labels stay
+  `Occlusion::Always`.
+
+## Findings
+
+- Step 3: every pivot on the sample arm sits inside its own bearing, so
+  "one pivot inside its link and another in front of it" is not a pose the
+  fixture can strike. The golden asserts the two shapes it *does* have,
+  which cover the same ground: `upper_joint`'s axis crosses its bearing
+  (bright, dim, bright — two crossings on one glyph) and
+  `shoulder_joint`'s runs up the column it lives in and is dimmed end to
+  end.
+- Step 3: 20 existing goldens changed, all of them images and none of them
+  state — every scenario whose frames actually render and whose document
+  has a movable joint. The change is the same in all of them and is the
+  point of the plan.
