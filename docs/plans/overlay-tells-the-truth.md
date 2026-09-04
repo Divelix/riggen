@@ -108,7 +108,8 @@ frame gizmo drag already does.
 and `glyph_driven_joint` as new goldens, both shown to the human as images
 before they are committed (ADR-0003); the splitter's unit tests pass with
 no GPU; `wasm32` still builds and the web demo's console stays clean with
-the readback in the loop. Then the cycle's own gate: the M2 arm built by
+the readback in the loop — **all done**; the browser run is recorded in
+ADR-0020 §3. Then the cycle's own gate: the M2 arm built by
 hand end to end produces no new entry for the v0.3 list — after which
 `/retire-plan`, then `/close-cycle` for v0.3.
 

@@ -74,7 +74,12 @@ overlay, and a run that is behind geometry is drawn dimmed, not dropped.**
    | 3840×2160 | 33.2 MB | 18 µs | 5.3 ms | 6.0 ms |
 
    Only the first column is on the render thread; the rest is spread over
-   the following frames, and none of it blocks. What the measurement did
+   the following frames, and none of it blocks. In the browser (the release
+   `web` profile on the same machine, Chromium/WebGPU/Vulkan) the demo
+   holds 60 fps at rest and 62 fps through a sustained left-drag orbit —
+   the case where the memo misses and the readback fires every frame — with
+   a clean console throughout. That is a vsync-bound reading, so it shows
+   no dropped frames rather than how much headroom is left. What the measurement did
    change: widening every texel into a `Vec<f32>` cost about a millisecond
    a readback on its own, so `DepthImage` keeps the **mapped bytes** and a
    lookup steps over the 256-byte row padding. 4K is the known ceiling and
