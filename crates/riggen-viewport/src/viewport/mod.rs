@@ -1,11 +1,13 @@
 //! The embeddable viewport: allocates the egui rect, handles orbit/pan/zoom
 //! input, renders the scene through an `egui_wgpu` paint callback.
 
+pub mod depth;
 pub mod gpu_state;
 pub mod picking;
 pub mod pipelines;
 pub mod render_pass;
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use web_time::Instant;
 
@@ -20,6 +22,7 @@ use crate::overlay::{Overlay, OverlayItem};
 use crate::scene::RenderGroup;
 use crate::scene::{InstanceId, Scene, SceneFull};
 
+use depth::{DepthImage, DepthInputs, MAX_DEPTH_FRAMES, PendingDepth};
 use gpu_state::{
     AXES_GIZMO_MARGIN, AXES_GIZMO_SIZE, CameraUniforms, DEPTH_FORMAT, GpuState, InstanceBuffers,
     ModelUniforms, OffscreenTarget,
@@ -33,7 +36,7 @@ use pipelines::{
     build_axes_pipeline, build_background_pipeline, build_blit_pipeline, build_highlight_pipeline,
     build_render_pipeline,
 };
-use render_pass::{PickPassData, ViewportCallback};
+use render_pass::{DepthPassData, PickPassData, ViewportCallback};
 
 /// Instances the per-instance model uniform has room for before it has to
 /// grow. A robot with more links than this is normal; re-allocating once at
@@ -153,6 +156,21 @@ pub struct Viewport {
     pick_excluded: Vec<InstanceId>,
     pending_pick: Option<PendingPick>,
     last_pick: Option<PickInputs>,
+    /// The scene's depth as the overlay reads it, and the readback that
+    /// will replace it (`depth.rs`, ADR-0020). `None` until an overlay item
+    /// asks for depth and one rendered frame has answered.
+    depth_image: Option<DepthImage>,
+    pending_depth: Option<PendingDepth>,
+    /// The inputs of the last depth readback *issued*: a scene and camera
+    /// that have not moved are not read back again.
+    last_depth: Option<DepthInputs>,
+    /// The readback buffer, handed back after each resolve so an orbit does
+    /// not allocate megabytes a frame.
+    depth_buffer: Option<wgpu::Buffer>,
+    /// Bumped by the paint callback; compared against `last_seen_render` to
+    /// tell a frame that reached the GPU from a logic-only one.
+    rendered_frames: Arc<AtomicU64>,
+    last_seen_render: u64,
     /// The rect allocated by the most recent [`Viewport::ui`] call, in egui
     /// logical points.
     last_rect: Option<egui::Rect>,
@@ -313,6 +331,12 @@ impl Viewport {
             wheel_claimed: false,
             pick_excluded: Vec::new(),
             pending_pick: None,
+            depth_image: None,
+            pending_depth: None,
+            last_depth: None,
+            depth_buffer: None,
+            rendered_frames: Arc::new(AtomicU64::new(0)),
+            last_seen_render: 0,
             last_pick: None,
             last_rect: None,
         }
@@ -605,11 +629,29 @@ impl Viewport {
         self.last_rect
     }
 
+    /// The scene's depth as the overlay reads it (`depth.rs`), or `None`
+    /// before one has landed — no depth-tested item has been drawn yet, or
+    /// no frame has reached the GPU.
+    pub fn depth_image(&self) -> Option<&DepthImage> {
+        self.depth_image.as_ref()
+    }
+
+    /// What the overlay would classify `world` against, and `world`'s own
+    /// depth, both in NDC: `(stored, own)`. `None` without a depth image,
+    /// or for a point the image cannot answer for. The readable half of
+    /// [`DepthImage::hidden`], for `debug_state` and the snapshot suite.
+    pub fn depth_probe(&self, world: DVec3) -> Option<(f32, f32)> {
+        let image = self.depth_image.as_ref()?;
+        let (pos, own) = image.project(world)?;
+        Some((image.depth_at(pos)?, own))
+    }
+
     /// Whether the next frame will look the same as this one absent input:
-    /// nothing animating, no pick readback in flight. The snapshot harness
-    /// pumps frames until this holds.
+    /// nothing animating, no pick readback in flight, no depth readback in
+    /// flight. The snapshot harness pumps frames until this holds — a
+    /// glyph drawn before its depth image lands would be a race.
     pub fn is_settled(&self) -> bool {
-        !self.camera.is_animating() && self.pending_pick.is_none()
+        !self.camera.is_animating() && self.pending_pick.is_none() && self.pending_depth.is_none()
     }
 
     /// Takes a resolved readback, if the one in flight has landed, and
@@ -650,6 +692,71 @@ impl Viewport {
         }
     }
 
+    /// Advances the depth readback: registers the `map_async` once the
+    /// paint callback says its copy is on egui's encoder, then takes the
+    /// mapped pixels whenever wgpu has filled them in. Never blocks.
+    fn resolve_pending_depth(&mut self) {
+        let Some(mut pending) = self.pending_depth.take() else {
+            return;
+        };
+        if !pending.mapping && pending.recorded.load(Ordering::Relaxed) {
+            // egui submits the encoder `prepare` recorded on at the end of
+            // that same paint, so by this `ui()` the copy is in the queue
+            // and mapping the buffer is legal (`DepthPassData`).
+            let result = pending.result.clone();
+            let buffer = pending.buffer.clone();
+            buffer
+                .clone()
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, move |res| {
+                    if res.is_err() {
+                        return;
+                    }
+                    if let Ok(data) = buffer.slice(..).get_mapped_range() {
+                        // One memcpy of the padded rows: the buffer has to
+                        // be unmapped before the next copy can use it, and
+                        // widening every texel to `f32` here is what
+                        // ADR-0020 measured and rejected.
+                        let bytes = data.to_vec();
+                        drop(data);
+                        buffer.unmap();
+                        *result.lock().unwrap() = Some(bytes);
+                    }
+                });
+            pending.mapping = true;
+        }
+        let resolved = pending.result.lock().unwrap().take();
+        match resolved {
+            Some(bytes) => {
+                self.depth_image = Some(DepthImage {
+                    bytes,
+                    size: pending.inputs.size,
+                    view_proj: Mat4::from_cols_array_2d(&pending.inputs.view_proj),
+                    rect: pending.rect,
+                    pixels_per_point: pending.pixels_per_point,
+                    inputs: pending.inputs,
+                });
+                // Unmapped by the callback above, so it can carry the next
+                // readback.
+                self.depth_buffer = Some(pending.buffer);
+            }
+            None => {
+                pending.age += 1;
+                if pending.age <= MAX_DEPTH_FRAMES {
+                    self.pending_depth = Some(pending);
+                } else {
+                    // Nothing will answer it — a logic-only frame whose
+                    // callback never ran, a lost surface. Forget the memo so
+                    // the next *rendered* frame asks again, and drop the
+                    // buffer with the request: a `map_async` that lands late
+                    // would still unmap it, and reusing it before then is
+                    // not worth the bookkeeping.
+                    self.last_depth = None;
+                }
+            }
+        }
+    }
+
     fn ensure_offscreen(&mut self, size: (u32, u32)) {
         if self.offscreen.as_ref().map(|o| o.size) == Some(size) {
             return;
@@ -680,7 +787,9 @@ impl Viewport {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            // `COPY_SRC`: the overlay reads this buffer back to depth-test
+            // itself (ADR-0020).
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
         let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -731,6 +840,7 @@ impl Viewport {
         self.offscreen = Some(OffscreenTarget {
             size,
             color_view,
+            depth_texture,
             depth_view,
             blit_bind_group,
             pick_color_texture,
@@ -868,8 +978,11 @@ impl Viewport {
             }
         };
 
-        for item in &self.overlay.items {
-            match item {
+        // `entry.occlusion` is not read yet: step 3 of
+        // plans/overlay-tells-the-truth splits the paths against
+        // `depth_image` here.
+        for entry in &self.overlay.items {
+            match &entry.item {
                 OverlayItem::Segment {
                     from,
                     to,
@@ -931,6 +1044,16 @@ impl Viewport {
         // `map_async` callback fire. The readback must never stall a frame.
         let _ = self.gpu.device.poll(wgpu::PollType::Poll);
         self.resolve_pending_pick();
+        self.resolve_pending_depth();
+
+        // Whether a frame reached the GPU since the last `ui()`. A depth
+        // readback is only worth asking for on a frame that will render:
+        // the copy rides on the paint callback, and a logic-only harness
+        // pass (`tests/visual/harness.rs::settle`) would queue a request
+        // nobody ever answers (`depth.rs`).
+        let rendered = self.rendered_frames.load(Ordering::Relaxed);
+        let will_render = rendered > self.last_seen_render;
+        self.last_seen_render = rendered;
 
         let (rect, response) =
             ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
@@ -1045,6 +1168,55 @@ impl Viewport {
             ui.ctx().request_repaint();
         }
 
+        // The depth readback (ADR-0020): only when something drawn over the
+        // scene is depth-tested, only when the scene or camera has moved
+        // since the image in hand, and only one at a time.
+        let depth_inputs = DepthInputs {
+            view_proj,
+            size,
+            revision: self.scene.revision(),
+        };
+        let mut depth_pass: Option<DepthPassData> = None;
+        if will_render
+            && self.overlay.wants_depth()
+            && self.pending_depth.is_none()
+            && self.last_depth != Some(depth_inputs)
+        {
+            let needed = depth::readback_size(size);
+            let readback_buffer = match self.depth_buffer.take() {
+                Some(buffer) if buffer.size() == needed => buffer,
+                _ => self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("riggen-viewport depth readback"),
+                    size: needed,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                }),
+            };
+            let recorded = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let result = Arc::new(Mutex::new(None));
+            self.pending_depth = Some(PendingDepth {
+                buffer: readback_buffer.clone(),
+                recorded: recorded.clone(),
+                result,
+                mapping: false,
+                inputs: depth_inputs,
+                rect,
+                pixels_per_point,
+                age: 0,
+            });
+            self.last_depth = Some(depth_inputs);
+            depth_pass = Some(DepthPassData {
+                readback_buffer,
+                size,
+                recorded,
+            });
+        }
+        if self.pending_depth.is_some() {
+            // Same reason as the pick above: the readback needs another
+            // frame to be consumed in.
+            ui.ctx().request_repaint();
+        }
+
         let hover = self
             .hovered
             .and_then(|h| self.scene.visible_instance(h.instance))
@@ -1125,6 +1297,9 @@ impl Viewport {
             pick_color_texture: offscreen.pick_color_texture.clone(),
             pick_depth_view: offscreen.pick_depth_view.clone(),
             pick: pick_pass,
+            depth: depth_pass,
+            depth_texture: offscreen.depth_texture.clone(),
+            rendered_frames: self.rendered_frames.clone(),
         };
         ui.painter()
             .add(egui_wgpu::Callback::new_paint_callback(rect, callback));

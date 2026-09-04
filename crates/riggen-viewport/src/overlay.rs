@@ -11,12 +11,28 @@
 //! The viewport never sees a `Joint`: the app builds the items, the viewport
 //! draws them (`riggen-app/src/app/glyphs.rs`).
 //!
-//! **Not depth-tested.** egui's painter has no depth buffer, so an overlay
-//! is always on top. For a glyph that is the wanted behaviour — a joint
-//! inside a part still has to be reachable — and a depth-tested overlay is
-//! a backlog item, not an oversight.
+//! **Depth is per item.** egui's painter has no depth buffer, so an
+//! overlay is on top by default ([`Occlusion::Always`]) and that is what
+//! cursor feedback wants: a snap marker, an align pick or a readout label
+//! answers "where is the pointer", and hiding it behind the part the
+//! pointer is aiming at would answer nothing. A glyph asks for
+//! [`Occlusion::Test`] instead: it claims to be somewhere in the scene, so
+//! it has to look it (ADR-0020).
 
 use riggen_mesh::glam::DVec3;
+
+/// Whether an item is drawn against the scene's depth (ADR-0020).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Occlusion {
+    /// Full strength wherever it lands. The default, so nothing becomes
+    /// depth-tested by accident.
+    #[default]
+    Always,
+    /// Split at depth crossings; the runs behind geometry are dimmed
+    /// rather than dropped, because a glyph inside a part still has to be
+    /// visible and aimable.
+    Test,
+}
 
 /// One primitive, in world coordinates.
 #[derive(Debug, Clone, PartialEq)]
@@ -62,10 +78,17 @@ pub enum OverlayItem {
     },
 }
 
+/// One item and how it meets the scene's depth.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OverlayEntry {
+    pub item: OverlayItem,
+    pub occlusion: Occlusion,
+}
+
 /// Everything drawn over the scene this frame, in draw order.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Overlay {
-    pub items: Vec<OverlayItem>,
+    pub items: Vec<OverlayEntry>,
 }
 
 /// Points per tessellated arc segment: fine enough that a limit arc reads as
@@ -79,7 +102,34 @@ impl Overlay {
     }
 
     pub fn push(&mut self, item: OverlayItem) {
-        self.items.push(item);
+        self.items.push(OverlayEntry {
+            item,
+            occlusion: Occlusion::Always,
+        });
+    }
+
+    /// Everything `body` pushes is [`Occlusion::Test`].
+    ///
+    /// A scope rather than a mode on the builder: an overlay is assembled
+    /// by several callers in turn (`glyphs.rs`, `snap.rs`, `align.rs`) and
+    /// a sticky flag would leak from one into the next.
+    pub fn depth_tested(&mut self, body: impl FnOnce(&mut Overlay)) {
+        let mut inner = Overlay::default();
+        body(&mut inner);
+        self.items
+            .extend(inner.items.into_iter().map(|entry| OverlayEntry {
+                occlusion: Occlusion::Test,
+                ..entry
+            }));
+    }
+
+    /// Whether anything drawn this frame needs the scene's depth — the
+    /// switch that decides whether the viewport reads the depth buffer back
+    /// at all.
+    pub fn wants_depth(&self) -> bool {
+        self.items
+            .iter()
+            .any(|entry| entry.occlusion == Occlusion::Test)
     }
 
     pub fn segment(&mut self, from: DVec3, to: DVec3, color: egui::Color32, width: f32) {

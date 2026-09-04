@@ -2402,6 +2402,53 @@ fn clicking_through_every_field_adds_no_history_entry() {
     });
 }
 
+/// The depth readback (ADR-0020): the viewport keeps the scene's own depth
+/// buffer, so an overlay can tell a point inside a part from one in front
+/// of it.
+///
+/// Rendered frames, not `settle`: the copy rides on the paint callback, and
+/// a logic-only pass never reaches it (`viewport::depth`).
+#[test]
+fn the_viewport_keeps_the_scenes_depth() {
+    with_app(|harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        pump_rendered(harness, 8);
+
+        let state = harness.state().debug_state();
+        let cube = &state.instances[0];
+        let bounds = cube.bounds.expect("the cube has bounds");
+        // The middle of the base cube, in the world: solid geometry, so the
+        // depth buffer holds the near face in front of it.
+        let inside = DVec3::from_array(std::array::from_fn(|i| {
+            cube.position[i] + (bounds[0][i] + bounds[1][i]) / 2.0
+        }));
+        let (stored, own) = harness
+            .state()
+            .depth_probe(inside)
+            .expect("a depth image, and a point on it");
+        assert!(
+            stored < own,
+            "a point inside the cube reads a nearer depth than its own: {stored} vs {own}"
+        );
+
+        // One cube width beside it — off the geometry, still well inside
+        // the fitted view: nothing was drawn there, so the depth buffer is
+        // still at the far plane it was cleared to.
+        let empty = DVec3::new(bounds[1][0] * 2.0, 0.0, 0.5);
+        let (stored, own) = harness
+            .state()
+            .depth_probe(empty)
+            .expect("a point on the image");
+        assert_eq!(stored, 1.0, "empty space is the cleared far plane");
+        assert!(own < 1.0, "and the probe itself is inside the frustum");
+    });
+}
+
 /// The joint sliders window with the hinge at 45°: the arm cube swings
 /// about +Y through the hinge at (0, 0, 0.5), so its offset (0, 0, 0.5)
 /// becomes (sin 45°, 0, cos 45°) · 0.5 and the instance sits at

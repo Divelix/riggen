@@ -156,6 +156,9 @@ impl ModelUniforms {
 pub struct OffscreenTarget {
     pub size: (u32, u32),
     pub color_view: wgpu::TextureView,
+    /// Kept as well as its view: the overlay copies it back to classify
+    /// glyphs against the depth the scene pass wrote (`viewport::depth`).
+    pub depth_texture: wgpu::Texture,
     pub depth_view: wgpu::TextureView,
     pub blit_bind_group: wgpu::BindGroup,
     pub pick_color_texture: wgpu::Texture,

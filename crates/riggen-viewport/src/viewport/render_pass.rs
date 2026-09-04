@@ -1,7 +1,9 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use egui_wgpu::wgpu;
 
+use super::depth::row_stride;
 use super::gpu_state::{CameraUniforms, InstanceBuffers};
 use super::picking::{PICK_ROW_STRIDE, PickRegion};
 use crate::RenderGroup;
@@ -12,6 +14,20 @@ pub struct PickPassData {
     pub region: PickRegion,
     pub readback_buffer: wgpu::Buffer,
     pub result: Arc<Mutex<Option<Vec<u32>>>>,
+}
+
+/// A depth readback being recorded this frame.
+///
+/// Unlike the pick, the copy goes on **egui's** encoder, right after the
+/// scene pass — it has to see the depth this frame wrote, and our own
+/// encoder is submitted before egui's. That means `map_async` cannot be
+/// called here (a submit that touches a mapping buffer is invalid, see
+/// [`ViewportCallback::pick_pass`]); `recorded` tells the next `ui()` that
+/// the copy is on its way and it is safe to map.
+pub struct DepthPassData {
+    pub readback_buffer: wgpu::Buffer,
+    pub size: (u32, u32),
+    pub recorded: Arc<AtomicBool>,
 }
 
 /// One frame of the viewport, handed to egui as a paint callback.
@@ -55,6 +71,13 @@ pub struct ViewportCallback {
     pub pick_color_texture: wgpu::Texture,
     pub pick_depth_view: wgpu::TextureView,
     pub pick: Option<PickPassData>,
+    pub depth: Option<DepthPassData>,
+    /// The offscreen depth target, as a copy source.
+    pub depth_texture: wgpu::Texture,
+    /// Bumped once per rendered frame, so `Viewport::ui` can tell a logic
+    /// pass from one that reached the GPU: a harness that never renders
+    /// must not queue readbacks nobody will ever answer.
+    pub rendered_frames: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl ViewportCallback {
@@ -267,6 +290,35 @@ impl ViewportCallback {
     }
 }
 
+impl ViewportCallback {
+    /// Copies the whole depth attachment into `depth.readback_buffer`.
+    fn depth_copy(&self, encoder: &mut wgpu::CommandEncoder, depth: &DepthPassData) {
+        let (width, height) = depth.size;
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.depth_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::DepthOnly,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &depth.readback_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(row_stride(width)),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        depth.recorded.store(true, Ordering::Relaxed);
+    }
+}
+
 impl egui_wgpu::CallbackTrait for ViewportCallback {
     fn prepare(
         &self,
@@ -291,6 +343,14 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
         }
 
         self.scene_pass(egui_encoder);
+
+        // After the scene pass, on the same encoder, so the copy sees the
+        // depth this frame wrote (`viewport::depth`).
+        if let Some(depth) = self.depth.as_ref() {
+            self.depth_copy(egui_encoder, depth);
+        }
+
+        self.rendered_frames.fetch_add(1, Ordering::Relaxed);
 
         // Nothing to rasterize ids from with an empty scene, and the axes
         // gizmo is not pickable.

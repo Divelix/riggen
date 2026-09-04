@@ -629,9 +629,18 @@ impl RiggenApp {
         self.decomp_consent
     }
 
+    /// What the overlay classifies `world` against, and `world`'s own
+    /// depth, both in NDC: `(stored, own)` — `stored < own` means opaque
+    /// geometry stands in front of it (ADR-0020). `None` until a depth
+    /// image has landed, and for a point off it or behind the camera.
+    pub fn depth_probe(&self, world: riggen_core::glam::DVec3) -> Option<(f32, f32)> {
+        self.viewport.depth_probe(world)
+    }
+
     /// Whether a snapshot taken now is reproducible: no pick readback in
-    /// flight and no camera animation reading the wall clock. The harness
-    /// pumps frames until this has held for a few in a row.
+    /// flight, no depth readback in flight, and no camera animation reading
+    /// the wall clock. The harness pumps frames until this has held for a
+    /// few in a row.
     pub fn settled(&self) -> bool {
         // A decomposition still on the job thread would change what the
         // collision view draws, so a snapshot taken now is not the one the

@@ -85,6 +85,11 @@ pub struct Scene<M> {
     /// Slots released by `remove`, reused before new ones are minted.
     free_slots: Vec<u32>,
     next_slot: u32,
+    /// Bumped by every change to what is drawn or where it sits. The
+    /// viewport memoises its depth readback on it (`viewport::depth`): a
+    /// scene that has not moved does not need its depth buffer read back
+    /// again.
+    revision: u64,
 }
 
 impl<M> Default for Scene<M> {
@@ -93,6 +98,7 @@ impl<M> Default for Scene<M> {
             instances: Vec::new(),
             free_slots: Vec::new(),
             next_slot: 0,
+            revision: 0,
         }
     }
 }
@@ -110,6 +116,7 @@ impl<M: InstancePayload> Scene<M> {
         mesh: &TriMesh,
     ) -> Result<(), SceneFull> {
         let bounds = mesh.aabb();
+        self.revision += 1;
         if let Some(entry) = self.instances.iter_mut().find(|e| e.key == id) {
             entry.mesh = M::upload(ctx, entry.slot, mesh);
             entry.bounds = bounds;
@@ -145,6 +152,7 @@ impl<M> Scene<M> {
         };
         let entry = self.instances.remove(index);
         self.free_slots.push(entry.slot);
+        self.revision += 1;
         true
     }
 
@@ -153,6 +161,7 @@ impl<M> Scene<M> {
         match self.instances.iter_mut().find(|e| e.key == id) {
             Some(entry) => {
                 entry.visible = visible;
+                self.revision += 1;
                 true
             }
             None => false,
@@ -164,6 +173,7 @@ impl<M> Scene<M> {
         match self.instances.iter_mut().find(|e| e.key == id) {
             Some(entry) => {
                 entry.model = model;
+                self.revision += 1;
                 true
             }
             None => false,
@@ -175,6 +185,7 @@ impl<M> Scene<M> {
         match self.instances.iter_mut().find(|e| e.key == id) {
             Some(entry) => {
                 entry.color = color;
+                self.revision += 1;
                 true
             }
             None => false,
@@ -187,6 +198,7 @@ impl<M> Scene<M> {
         match self.instances.iter_mut().find(|e| e.key == id) {
             Some(entry) => {
                 entry.group = group;
+                self.revision += 1;
                 true
             }
             None => false,
@@ -197,6 +209,14 @@ impl<M> Scene<M> {
         self.instances.clear();
         self.free_slots.clear();
         self.next_slot = 0;
+        self.revision += 1;
+    }
+
+    /// A counter bumped by every change to what is drawn, where it sits or
+    /// whether it is visible: what a cache keyed on "the scene as rendered"
+    /// compares (`viewport::depth::DepthInputs`).
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     pub fn contains(&self, id: InstanceId) -> bool {

@@ -183,10 +183,15 @@ impl RiggenApp {
         for glyph in glyphs {
             let hot = active == Some(glyph.frame);
             let width = if hot { 3.0 } else { 1.5 };
-            overlay.point(glyph.pose.t, if hot { 5.0 } else { 3.5 }, LABEL_COLOR);
-            for (arm, color) in glyph.arms().into_iter().zip(TRIAD_COLORS) {
-                overlay.segment(glyph.pose.t, arm, color, width);
-            }
+            // The triad is geometry and meets the scene's depth; the name
+            // beside it is text, and text that fades behind a part is
+            // unreadable rather than informative (ADR-0020).
+            overlay.depth_tested(|overlay| {
+                overlay.point(glyph.pose.t, if hot { 5.0 } else { 3.5 }, LABEL_COLOR);
+                for (arm, color) in glyph.arms().into_iter().zip(TRIAD_COLORS) {
+                    overlay.segment(glyph.pose.t, arm, color, width);
+                }
+            });
             overlay.label(
                 glyph.pose.t,
                 glyph.name.clone(),
@@ -261,33 +266,37 @@ impl RiggenApp {
     /// pointing at or has selected, drawn brighter and thicker.
     pub(crate) fn glyph_overlay(&self, glyphs: &[JointGlyph], active: Option<JointId>) -> Overlay {
         let mut overlay = Overlay::default();
-        for glyph in glyphs {
-            let hot = active == Some(glyph.joint);
-            let color = if hot { AXIS_COLOR_ACTIVE } else { AXIS_COLOR };
-            let width = if hot { 3.0 } else { 1.5 };
+        // Every part of a joint glyph claims to be somewhere in the scene,
+        // so all of it meets the scene's depth (ADR-0020).
+        overlay.depth_tested(|overlay| {
+            for glyph in glyphs {
+                let hot = active == Some(glyph.joint);
+                let color = if hot { AXIS_COLOR_ACTIVE } else { AXIS_COLOR };
+                let width = if hot { 3.0 } else { 1.5 };
 
-            let (from, to) = glyph.axis_ends();
-            overlay.segment(from, to, color, width);
-            overlay.point(glyph.pivot.t, if hot { 5.0 } else { 3.5 }, color);
+                let (from, to) = glyph.axis_ends();
+                overlay.segment(from, to, color, width);
+                overlay.point(glyph.pivot.t, if hot { 5.0 } else { 3.5 }, color);
 
-            // The pivot's own frame, in the triad's colours.
-            for (i, local) in [DVec3::X, DVec3::Y, DVec3::Z].into_iter().enumerate() {
-                overlay.segment(
-                    glyph.pivot.t,
-                    glyph.pivot.t + glyph.pivot.r * local * glyph.size * TRIAD_LENGTH,
-                    TRIAD_COLORS[i],
-                    width,
-                );
-            }
-
-            match glyph.kind {
-                JointKind::Revolute | JointKind::Continuous => {
-                    self.push_arc(&mut overlay, glyph, color, width)
+                // The pivot's own frame, in the triad's colours.
+                for (i, local) in [DVec3::X, DVec3::Y, DVec3::Z].into_iter().enumerate() {
+                    overlay.segment(
+                        glyph.pivot.t,
+                        glyph.pivot.t + glyph.pivot.r * local * glyph.size * TRIAD_LENGTH,
+                        TRIAD_COLORS[i],
+                        width,
+                    );
                 }
-                JointKind::Prismatic => self.push_slide(&mut overlay, glyph, color, width),
-                JointKind::Fixed => {}
+
+                match glyph.kind {
+                    JointKind::Revolute | JointKind::Continuous => {
+                        self.push_arc(overlay, glyph, color, width)
+                    }
+                    JointKind::Prismatic => self.push_slide(overlay, glyph, color, width),
+                    JointKind::Fixed => {}
+                }
             }
-        }
+        });
         overlay
     }
 
