@@ -5,19 +5,10 @@ One line per raw idea. Picking one up means `/idea` (needs thinking) or
 has committed to, which now lives in `docs/03-roadmap.md` instead. Rejected ideas keep one line
 below with the reason, so the same idea is not re-brainstormed.
 
-- Mimic chains (a follower whose leader also follows), rejected by `validate` today (ADR-0013): `fk::resolve_q` would grow from one pass to a topological one, no schema change
-- MJCF `<tendon><fixed>` for a coupling that really is a cable, beside the `<equality>` a mimic writes (ADR-0013)
-- MJCF `<general>` (and `<adhesion>`, `<muscle>`): the escape hatch beside the three actuator presets, for a user who needs `dyntype` / `gaintype` / `biastype`. The import names and drops one today (ADR-0015 §1), so a round trip through riggen still costs the user their hand-edited XML (ADR-0014)
-- Actuator gains in a `<default class>` rather than on every element, and explicit `ctrllimited` / `forcelimited` beside the `autolimits="true"` we write (ADR-0014)
-- Promote `Joint::actuator` to a top-level `Robot::actuators` map keyed by what it drives, the shape MJCF has: the import warns `ActuatorDropped` on every actuator that drives a tendon or a site because the document has nowhere to put it (ADR-0015 §1); an `upgrade_` step moves each `Some(spec)` into the map (ADR-0014, option F of its idea)
 - `validate` does not check that geom poses or an `Override` inertial's numbers are finite (joint origins, joint limits, frame poses and densities are); a NaN typed into a geom pose reaches the export
 - `MoveJointFrame` re-expresses a link's visual geom poses but not `CollisionPolicy::Meshes` / `Primitives` poses, so a link with imported collision meshes or hand-placed primitives moves its collision in the world when its pivot moves
 - Things that *reference* a site now that frames exist (ADR-0012): MJCF sensors, actuators on a site, equality constraints, cameras, `<touch>`/`<force>`
 - Frames as a snap source — placing a joint or another frame onto an existing frame, and frame-relative geom poses (a frame's parent is a link, always, today)
-- Synthesise massless intermediate links for a `<body>` with several `<joint>`s, so MuJoCo's ball and planar DoFs import instead of being refused as `ImportError::CompositeJoint` — the alternative ADR-0015 §5 turned down because a synthesised link is a link the user did not draw
-- MJCF composition: `<include>`, `<attach>`, `<replicate>` and MuJoCo 3's `<frame>` wrapper, all `ImportError::UnsupportedElement` today (ADR-0015 §5) — a resolver, and for `<frame>` a way to fold its transform into the bodies inside it
-- `.msh` meshes and an inline `<mesh vertex face>` on MJCF import: a `GeomDropped` warning and no geometry today (ADR-0015 §1)
-- MJCF `<joint ref>` moves a joint's zero and the document has no field for it, so it is warned and ignored (ADR-0015 §1); a coupling over such a joint is dropped rather than mis-imported
 - Live joint-state link from a running Python script to the GUI (file or socket)
 - A web worker for `jobs`, so a convex decomposition does not freeze the browser tab: `Jobs` has no thread on wasm and runs the job inline, and the demo asks before starting one rather than fixing it (ADR-0017, 01 §Jobs and threads; RoboCAD's `InlineEval` has the same gap)
 - A WebGL2 fallback for the demo, for browsers without WebGPU: needs a second picking mechanism, because the ID-buffer readback is `copy_texture_to_buffer` on an `R32Uint` target and wgpu's GL backend will not do it (ADR-0017 §7)

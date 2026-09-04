@@ -19,21 +19,22 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**v0.3 — the hand-feel debt — is done but not yet closed (2026-09-04).**
-Scrubbable numbers, panels that stop hiding things, a tree that says what a
-drag will do, orbit on left-drag (ADR-0018), tool keys and a wheel that
-steps a rotate ring (ADR-0019), and an overlay that tells the truth: the
-scene's depth read back so a glyph behind a part dims rather than floating
-over it, and a mimic or an actuator marked on the glyph itself (ADR-0020).
-No new format, no new distribution. **Next: `/close-cycle` for v0.3.**
-**Before that:** v0.2 (tag `v0.2.1`) made "sim-ready" a feature rather than
-a claim — the Python SDK in the one wheel (ADR-0009), V-HACD collision
-(ADR-0011), frames, mimics and actuator presets (ADR-0012/13/14), MJCF
-import (ADR-0015), SDF export (ADR-0016) and the web demo at
-[divelix.github.io/riggen](https://divelix.github.io/riggen/) over one
-`FileSource` seam (ADR-0017); `.riggen` is **schema 3**. Then M4 the wheel;
-M3 the writers, URDF import, inertials, collision; M2 the mouse-only arm;
-M1 the document, commands, history, `.riggen`; M0 the viewport.
+**v0.4 — the round trip keeps what it read — is open (2026-09-04).** A
+foreign MJCF must survive import → edit → export with nothing silently lost:
+a top-level `Robot::actuators` table, `<general>` beside the three presets,
+mimic chains, `<joint ref>`, `<tendon>`, `.msh`, and `<include>` /
+`<attach>` / `<frame>` behind one resolver. **Next: `/idea` or `/plan` for
+its first line;** the section's ⚠ OPEN — synthesised links for a composite
+joint — wants an ADR first. **Before it:** v0.3 (tag `v0.3.0`) paid down the
+hand-feel debt — scrubbers, panels that stop hiding things, left-drag orbit
+(ADR-0018), tool keys and a claimable wheel (ADR-0019), a depth-tested
+overlay that marks a driven joint (ADR-0020). v0.2 (tag `v0.2.1`) made
+"sim-ready" a feature — the SDK in the one wheel (ADR-0009), V-HACD
+(ADR-0011), frames, mimics and actuators (ADR-0012/13/14), MJCF import
+(ADR-0015), SDF export (ADR-0016), the web demo over one `FileSource` seam
+(ADR-0017); `.riggen` is **schema 3**. Then M4 the wheel; M3 the writers,
+URDF import, inertials, collision; M2 the mouse-only arm; M1 the document,
+commands, history, `.riggen`; M0 the viewport.
 
 ## Rules that are not derivable from the code
 

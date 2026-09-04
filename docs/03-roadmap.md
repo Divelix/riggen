@@ -5,7 +5,7 @@ the scariest remaining unknown first. A milestone's "out" list is as binding
 as its "in" list. Calibration: RoboCAD went from empty to 58k lines in three
 weeks; this roadmap is smaller than that.
 
-Spine: M0 → M1 → M2 → M3 → M4, then v0.2 → v0.3.
+Spine: M0 → M1 → M2 → M3 → M4, then v0.2 → v0.3 → v0.4.
 
 ---
 
@@ -217,70 +217,24 @@ slider swings the arm, and its Export is byte-identical to the CLI's.
 exported; what is already there answers the mouse and the keyboard the way
 a CAD tool does.*
 
-Three exit gates (M2, M3, M4) and the by-hand runs have each ended with a
-list of small frictions, and none has been paid down since M2. The public
-demo now puts this UI in front of people who have read no docs, which is
-what turns that debt from a private annoyance into the first impression.
-
-**Status: in progress.** The three panel bullets below landed 2026-09-03
-(plan `panels-and-numbers`, no ADR: its four open questions were decided
-as paragraphs in 01 and 02): every Properties number is a scrubber with a
-per-unit floor, Ctrl+wheel steps it, and a drag is one history entry
-(`History` gestures); the Joints window opens itself, a tool says what it
-needs, empty space clears a joint or frame selection, `Meshes` collision is
-edited geom by geom, a material renames inline and in the SDK; the tree
-shows a ghost and a grab or not-allowed cursor, and `Reparent { at }` keeps
-a posed part where it is. Found on the way and fixed in place: egui's
-`DragValue` re-parses its stashed text the frame after Enter or Escape,
-and its `Slider` writes the display-rounded value back every frame — the
-open Joints window had been quietly rounding `q`. The left-drag landed the
-same day (plan `orbit-left-drag`, ADR-0018): the camera now takes **left =
-orbit, shift+left = pan, right = pan** and keeps the middle pair, and a
-fourth pointer switch, `set_primary_drag_claimed`, lets a gizmo handle take
-the primary drag alone — so a left-drag from a handle moves the part while
-a drag from a joint glyph, or from anywhere else, still orbits.
-Click-to-select survives on egui's own click-versus-drag arbitration, and a
-test reads `max_click_dist` and `max_click_duration` off the context rather
-than trusting the defaults. Found on the way: the kittest harness runs at
-`step_dt` = ¼ s, so a press held past about three frames is a drag whatever
-the distance — the distance threshold needs a three-frame gesture of its own
-(01 §Testing). The three mouse items left after it landed 2026-09-04 (plan
-`viewport-answers-the-mouse`, ADR-0019): the five tools have keys — `V` `G`
-`R` `J` `B`, Blender's `G`/`R` with `W A S D E Q` held back for a fly
-camera — shown in each toolbar button's tooltip; the wheel over one of the
-rotate gizmo's three rings steps that ring by 5°, or 1° with shift, with a
-burst of notches landing as one undo entry; and a translate drag runs the
-snap ladder under the cursor, so a part can be dropped on a vertex, a box
-corner or a bore centre. Two switch-table changes carried it: a fifth
-switch, `set_wheel_claimed` (zoom alone goes quiet over a ring), and
-`set_pointer_blocked` narrowing to `set_camera_blocked`, because blocking
-the whole pointer during a drag was killing the hover pick the ladder reads.
-Found on the way: excluding the dragged part from the *hit* was not enough —
-it follows the cursor and covers the target — so `set_pick_excluded` leaves
-it out of the ID buffer entirely and the drag looks through what it carries;
-and shift is egui's horizontal-scroll modifier as Ctrl is its zoom one, with
-a wheel event's modifiers readable only off the event. The overlay stopped
-lying last, 2026-09-04 (plan `overlay-tells-the-truth`, ADR-0020): the
-viewport reads its own depth buffer back — on egui's encoder so it sees
-this frame's depth, memoised on `(view_proj, size, Scene::revision)` so a
-resting camera pays nothing — and a glyph's runs behind geometry are
-stroked at a third of the strength, dimmed rather than dropped, because a
-pivot inside a link still has to be aimable. Depth is per item, defaulting
-to off: cursor feedback stays on top, where a marker hidden behind the part
-it is aiming at would answer nothing. A mimic follower is now drawn in a
-muted amber and labelled with its leader, an actuated joint keeps the full
-amber and gains a ring named for its preset, and a joint gizmo drag
-previews on the glyph — retiring the M2 exit gate's last backlog line.
-Found on the way: a follower's glyph was reading its **raw** `q`, which is
-never written, so a driven joint's tick sat at zero while its link was
-somewhere else; and egui's bundled fonts have no arrows, so the mimic mark
-reads `»` and not `↳`.
-
-**v0.3 is done.** Every bullet below has landed.
+**Status: done 2026-09-04, tag `v0.3.0`.** The risk — that three exit gates
+(M2, M3, M4) had each ended with a list of small frictions and none had been
+paid down since M2, while the public demo was putting that UI in front of
+people who have read no docs — was retired plan by plan: `panels-and-numbers`,
+`orbit-left-drag`, `viewport-answers-the-mouse`, `overlay-tells-the-truth`.
+The cycle expected one ADR and took three, all of them about who owns the
+pointer or what the user is allowed to believe: ADR-0018 (left = orbit; a
+gizmo handle claims the primary drag), ADR-0019 (the wheel is claimable and
+a drag keeps its hover pick) — both amendments to the switch table ADR-0010
+published, which is now five switches and `set_pick_excluded` — and ADR-0020
+(the overlay reads the scene's depth back). Two decisions were taken as
+paragraphs in 01 and 02 rather than ADRs: history gestures, and `Reparent`
+at the current `q`.
 
 - **The overlay tells the truth.** A depth-tested overlay, so a glyph behind
   a part reads as behind it; a badge or tint on a joint glyph that is driven
-  (ADR-0013) or actuated (ADR-0014), which today look like free joints.
+  (ADR-0013) or actuated (ADR-0014), which before this looked like free
+  joints.
 - **Numbers are editable.** Properties fields as drag/scroll scrubbers
   (Blender-style, wheel to step); the inertial tensor readable — 2.86e-5
   must not render as a clipped `0.000029`.
@@ -292,17 +246,75 @@ reads `»` and not `↳`.
 - **The tree says what a drag will do.** A ghost row at the cursor and a
   grab cursor while reparenting; `Reparent { keep_world_pose }` at the
   current `q` rather than the zero configuration.
+- **The viewport answers the mouse.** Left-drag orbits (shift+left and right
+  pan, the middle pair kept); the five tools have keys `V` `G` `R` `J` `B`;
+  the wheel over a rotate ring steps that ring by 5°, or 1° with shift; a
+  translate drag runs the snap ladder under the cursor.
 
 **Out:** any new format, importer or writer; distribution (crates.io, the
 screencast, notarization); the demo's four gaps (web worker, WebGL2, touch,
-directory drop) — all still backlog lines. This cycle expected one ADR and
-has three: the left-drag rule (ADR-0018) and the wheel-and-drag pointer
-contract (ADR-0019), both amendments to the same switch table ADR-0010
-published, and the depth-tested overlay (ADR-0020). §What not to spend agent time on stands.
+directory drop) — all still backlog lines. §What not to spend agent time on
+stands.
 
 **Accept:** the M2 arm build, run by hand again end to end, produces no new
 entry for this list — and the agent's own snapshot suite covers every
 visible change (ADR-0003).
+
+---
+
+## v0.4 — the round trip keeps what it read
+
+*Goal: a foreign MJCF survives import → edit → export with nothing silently
+lost. What riggen has no field for, it gains a field for.*
+
+SEED §3 says the common case is editing, not building, and §4's fourth
+differentiator is "import existing URDF, edit, export MJCF". ADR-0015 bought
+the first half: a Menagerie-style file opens. The second half is what this
+cycle is for — the import warns and drops, so a round trip through riggen
+still costs the user their hand-edited XML. Every line below is one of those
+drops, and each is a backlog line this section now owns.
+
+- **Actuators become a model-level table.** `Joint::actuator` promoted to a
+  top-level `Robot::actuators` keyed by what it drives — the shape MJCF has
+  (ADR-0014's option F) — so an actuator on a tendon or a site has somewhere
+  to land instead of an `ActuatorDropped` warning. A schema bump whose
+  `upgrade_` step moves each `Some(spec)` into the map.
+- **The escape hatch beside the three presets.** `<general>` — and
+  `<adhesion>`, `<muscle>` — carried through with its `dyntype` / `gaintype`
+  / `biastype`, so a user who needs one is not hand-editing after every
+  export. Actuator gains in a `<default class>` rather than on every
+  element, and explicit `ctrllimited` / `forcelimited` beside the
+  `autolimits="true"` we write.
+- **Couplings the document cannot hold.** Mimic chains — a follower whose
+  leader also follows — turning `fk::resolve_q`'s one pass into a
+  topological one, no schema change; `<joint ref>`, which moves a joint's
+  zero and is warned and ignored today; `<tendon><fixed>` for a coupling
+  that really is a cable, beside the `<equality>` a mimic writes.
+- **Geometry the import refuses.** `.msh` meshes and an inline `<mesh vertex
+  face>`, a `GeomDropped` warning and no geometry today.
+- **Composition.** `<include>`, `<attach>`, `<replicate>` and MuJoCo 3's
+  `<frame>` wrapper — every one an `ImportError::UnsupportedElement`
+  (ADR-0015 §5) — behind one resolver, with `<frame>`'s transform folded
+  into the bodies inside it.
+
+⚠ OPEN: whether a `<body>` with several `<joint>`s synthesises massless
+intermediate links, so MuJoCo's ball and planar DoFs import instead of being
+refused as `ImportError::CompositeJoint`. ADR-0015 §5 turned it down because
+a synthesised link is a link the user did not draw; a cycle about losing
+nothing has to ask again. Needs an ADR before it is planned.
+
+**Out:** SDF import — the reading direction stays URDF and MJCF, and
+`libsdformat` stays a CI test dependency (ADR-0016 §6); a Gazebo model
+package; the demo's four gaps and distribution, both still backlog lines;
+§What not to spend agent time on stands. No new *writer*: this cycle is
+about what survives the way in and back out, not a fourth format.
+
+**Accept:** `menagerie_style.xml`, grown to carry the elements above,
+imported and re-exported loads in MuJoCo with zero warnings, agrees with
+`fk` to 1e-6, and its `<actuator>`, `<equality>` and `<tendon>` blocks name
+what the original's did — no `ElementDropped`, `ActuatorDropped` or
+`GeomDropped` warning left for anything this section lists. The `mujoco`
+job's round-trip model stays held to the *original* document's `fk.json`.
 
 ## What not to spend agent time on
 
