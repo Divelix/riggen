@@ -115,6 +115,24 @@ impl RiggenApp {
         }
     }
 
+    /// The pivot a joint's glyph is drawn at while its gizmo is being
+    /// dragged, the way [`Self::dragged_frame`] does for a frame.
+    ///
+    /// Nothing else in the scene moves with a joint — the geometry stays
+    /// exactly where it is, because a pivot move is a change of `origin`
+    /// and not of the link — so without this the one gesture that moves a
+    /// joint shows nothing at all until the release
+    /// (`docs/BACKLOG.md`, retired here). The drag's pose is the child link
+    /// frame, which *is* the joint frame (AGENTS.md), and `commit_gizmo`
+    /// turns it back into an `origin` against the parent, so the release
+    /// puts the glyph where the drag already had it.
+    pub(crate) fn dragged_pivot(&self, joint: JointId) -> Option<Pose> {
+        match self.gizmo_state.drag {
+            Some((GizmoTarget::Joint(dragged), pose)) if dragged == joint => Some(pose),
+            _ => None,
+        }
+    }
+
     /// Where the gizmo sits: a link's own frame, or — for a joint — the
     /// child link frame, which *is* the joint frame.
     pub fn gizmo_world(&self, target: GizmoTarget) -> Option<Pose> {

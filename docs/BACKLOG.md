@@ -38,7 +38,6 @@ below with the reason, so the same idea is not re-brainstormed.
 
 ### From the M2 exit gate (the by-hand arm build, 2026-08-29)
 
-- A joint gizmo drag previews nothing: the glyph stays on the old pivot until the release commits (`preview_world` covers a link drag only — the glyph should be built from the dragged pose)
 - A ViewCube in the viewport corner with the persp/ortho toggle on it (robocad has one; M0 ships the axes triad and a text label)
 - WASD fly mode, and draw the orbit pivot while the camera moves (rerun's viewer is the reference; M0 ships turntable orbit only)
 

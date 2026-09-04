@@ -95,7 +95,7 @@ frame gizmo drag already does.
   snapshot `glyph_driven_joint` over a document that has both (the
   `bracket`/sample arm already carries a mimic and two actuators — reuse
   it rather than inventing a fixture).
-- [ ] Step 5 — **A joint gizmo drag previews on the glyph**
+- [x] Step 5 — **A joint gizmo drag previews on the glyph**
   (`docs/BACKLOG.md` line "A joint gizmo drag previews nothing"):
   `joint_glyphs` prefers the dragged pivot, so the axis, arc and triad move
   with the drag and the release changes nothing visible. Snapshot or
@@ -128,7 +128,8 @@ hand end to end produces no new entry for the v0.3 list — after which
   depth-tested**" paragraph, replaced by the policy and its default.
 - `docs/02-data-model.md` — only if `JointGlyph`'s new fields need saying
   there; they are derived, not stored, so probably not.
-- `docs/BACKLOG.md` — delete the joint-gizmo-preview line (step 5).
+- ~~`docs/BACKLOG.md` — delete the joint-gizmo-preview line~~ (done in
+  step 5's commit).
 - `docs/03-roadmap.md` §v0.3 — the overlay bullet lands; "Left: the
   overlay" becomes the cycle's closing status.
 - `AGENTS.md` current state — v0.3's last bullet done.

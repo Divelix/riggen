@@ -2521,6 +2521,94 @@ fn glyph_driven_joint() {
     });
 }
 
+/// A joint gizmo drag previews on the glyph (plans/overlay-tells-the-truth
+/// step 5, retiring the M2 exit gate's backlog line).
+///
+/// A pivot move changes the joint's `origin` and nothing else — the
+/// geometry stays exactly where it is — so the glyph is the only thing
+/// that can show the gesture. Mid-drag it is already on the dragged pivot,
+/// nothing is committed, and the release changes nothing visible.
+#[test]
+fn a_joint_gizmo_drag_previews_on_the_glyph() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().expect("the hinge");
+        app.fit_view_now();
+        app.set_tool(Tool::Move);
+        app.select(Selection::Joint(hinge));
+        settle(harness);
+
+        let glyph_origin = |harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>| {
+            DVec3::from_array(harness.state().debug_state().glyphs[0].origin)
+        };
+        let before = glyph_origin(harness);
+        let depth = harness.state().history().undo_depth();
+
+        // Hand-rolled, like `drag_the_arm_onto_the_base_corner`: the drag
+        // has to be examined while the button is still down.
+        let from = gizmo_handle(harness);
+        let to = from + egui::vec2(70.0, 0.0);
+        harness.hover_at(from);
+        pump_rendered(harness, 4);
+        harness.event(egui::Event::PointerButton {
+            pos: from,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        pump_rendered(harness, 2);
+        harness.event(egui::Event::PointerMoved(to));
+        pump_rendered(harness, 6);
+
+        let dragged = harness
+            .state()
+            .gizmo_world(harness.state().gizmo_target().expect("a gizmo"))
+            .expect("a drag in flight");
+        assert!(
+            (dragged.t - before).length() > 1e-6,
+            "the drag moved the pivot somewhere"
+        );
+        // `debug_state` rounds to six decimals, so the tolerance is a
+        // micrometre rather than nothing.
+        let mid_drag = glyph_origin(harness);
+        assert!(
+            (mid_drag - dragged.t).length() < 2e-6,
+            "the glyph is on the dragged pivot, not the old one: {mid_drag} vs {}",
+            dragged.t
+        );
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth,
+            "a drag previews; nothing is committed until the release"
+        );
+        // The geometry has not moved: only the joint frame has.
+        let instances = harness.state().debug_state().instances;
+        assert_eq!(instances[0].position, [0.0, 0.0, 0.0]);
+        assert_eq!(instances[1].position, [0.0, 0.0, 1.0]);
+
+        harness.event(egui::Event::PointerButton {
+            pos: to,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        pump_rendered(harness, 8);
+
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth + 1,
+            "one drag, one command"
+        );
+        let after = glyph_origin(harness);
+        assert!(
+            (after - mid_drag).length() < 2e-6,
+            "the release changes nothing visible: {after} vs {mid_drag}"
+        );
+    });
+}
+
 /// The depth readback (ADR-0020): the viewport keeps the scene's own depth
 /// buffer, so an overlay can tell a point inside a part from one in front
 /// of it.

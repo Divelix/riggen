@@ -167,7 +167,13 @@ impl RiggenApp {
             .iter()
             .filter(|(id, joint)| joint.kind.is_movable() || selected == Some(**id))
             .filter_map(|(&id, joint)| {
-                let pivot = world.get(&joint.parent)?.compose(&joint.origin);
+                // A gizmo drag previews on the glyph: a pivot move changes
+                // `origin` and nothing else, so the geometry does not budge
+                // and the glyph is the only thing that can show the gesture.
+                let pivot = match self.dragged_pivot(id) {
+                    Some(pose) => pose,
+                    None => world.get(&joint.parent)?.compose(&joint.origin),
+                };
                 let axis = (pivot.r * joint.axis).normalize_or_zero();
                 if axis == DVec3::ZERO {
                     return None; // validate refuses these; draw nothing rather than NaN
