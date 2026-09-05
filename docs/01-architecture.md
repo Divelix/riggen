@@ -202,7 +202,8 @@ pub struct RiggenApp {
     preview_world: Option<(LinkId, Pose)>,             // a link's pose while a gizmo drag previews it
     hovered_joint, glyph_hover, snap_candidate,        // resolved every frame from the pointer
     hovered_frame, frame_glyph_hover,                  // the same pair for a frame's triad glyph
-    snap_cache, align_source, toolbar_rect,            // the memoised fit, the align gesture's first pick
+    snap_cache, align_source, chrome_rects,            // the memoised fit, the align gesture's first pick,
+                                                        // and the two corner-chrome rects
     import_scale: f64, pending: Option<PendingAction>,  // File › Import units; New/Open/Quit awaiting the dirty answer
     export_dialog: ExportDialog,                        // File › Export…: options, directory, the resolve errors
     mode, stashed_q, tree, joint_tree, props, materials_window, // View / Edit and the stashed pose; transient panel state
@@ -367,9 +368,10 @@ in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
   Rotate / Place joint / Align — each in a popup frame floating over the
   viewport's top-left corner. Drawn *after* the viewport in the same layer,
   which is what gives them the pointer: egui's hit test prefers the widget
-  registered last. Their joint rect is remembered as `toolbar_rect`: the
-  camera holds still and the picks are off under it, and no glyph is
-  hovered through it.
+  registered last. Their joint rect, and the **visibility row**'s at the
+  top-right, are remembered as `chrome_rects`: the camera holds still and
+  the picks are off under either, and no glyph is hovered through them
+  (`over_chrome`).
 - **Joint glyphs** (in the viewport): a joint has no geometry, so without
   one it exists only in the tree and "which way does this hinge turn?" has
   to be read off two number fields. Each glyph is an axis segment through

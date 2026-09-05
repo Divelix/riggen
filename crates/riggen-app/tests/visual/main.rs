@@ -122,7 +122,7 @@ fn hover_cube() {
     });
 }
 
-/// View › Collision geometry with every arm part on `ConvexHull`: a
+/// The visibility row's collision toggle with every arm part on `ConvexHull`: a
 /// translucent orange hull over each part, drawn after the opaque pass. The
 /// toggle goes through the menu, as a user does it.
 #[test]

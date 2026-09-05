@@ -42,7 +42,11 @@ without a wheel, `pip install` builds the SDK from source with `cargo` on
    tree on the left, the viewport with the robot. Drag with the left
    button to orbit and with the right to pan (shift+left pans too, for a
    trackpad; the middle button orbits and shift+middle pans), zoom with the
-   wheel, `Home` to frame everything.
+   wheel, `Home` to frame everything. The five buttons top-right are the
+   **visibility row**: joints, joint names, frames, links, collision
+   geometry. Switching one off takes it out of the picture *and* out of
+   the cursor's reach, so with joints off you get the robot and nothing
+   else — the status bar says what is hidden.
 2. Pose it: drag a joint's bar in the tree, or turn the wheel over it —
    or over the joint's glyph in the viewport, which steps it by 5° (1°
    with shift) instead of zooming. A click on a glyph selects the joint;

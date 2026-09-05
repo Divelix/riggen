@@ -356,11 +356,14 @@ line this section now owns.
   with the robot alone; `Z` again brings them back. Bare `Z` is free (undo
   is Ctrl+Z, through `consume_key` in the same order), and the mode is the
   same in View and Edit.
-- **A visibility row, top-right of the viewport.** One row of icons,
-  Blender's overlay toggles for riggen's things: joints, joint names,
-  links, frames, collision geometry — View › Collision geometry moves out
-  of the menu into it, and the corner is the one the Joints window vacates.
-  The toolbar keeps the top-left.
+- **A visibility row, top-right of the viewport.** *Landed.* Five toggles
+  in the corner the Joints window vacated — joints, joint names, frames,
+  links, collision — each a drawn mark rather than a word (01 §Panels).
+  The View menu is deleted with its one item. A toggle turns its class off
+  **completely**: the drawing and the pointer target go together, so
+  hiding joints leaves View with nothing under the cursor and the status
+  bar says what is hidden (ADR-0021, amended). The toolbar keeps the
+  top-left.
 
 **Out:** SDF import — the reading direction stays URDF and MJCF, and
 `libsdformat` stays a CI test dependency (ADR-0016 §6); a Gazebo model

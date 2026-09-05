@@ -371,7 +371,7 @@ pub struct InstanceDebug {
     pub position: [f64; 3],
     /// Linear RGBA tint: the link's material colour.
     pub color: [f64; 4],
-    /// A translucent collision shape (View › Collision geometry), drawn
+    /// A translucent collision shape (the visibility row's `collision`), drawn
     /// after the opaque instances and skipped by the pick pass. Omitted
     /// when false, so the M0–M2 goldens are unchanged.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
