@@ -97,7 +97,7 @@ can make it the hover target.
   `LIMIT_ALPHA`, zero to `q` on top at `VALUE_ALPHA`, stops and tick kept,
   `value_sweep` = `q` in metres. `glyph_prismatic` refreshed and shown; 01
   §Joint glyphs updated for the slide.
-- [ ] Step 4 — A glyph's size does not change with `q` (the human,
+- [x] Step 4 — A glyph's size does not change with `q` (the human,
   2026-09-05: "the same was always true for the old joint visualization —
   it's a bug"). `glyph_size` takes the half-diagonal of the child's
   geometry bounds through the **world** matrix, so the axis-aligned box of
@@ -111,6 +111,9 @@ can make it the hover target.
   `debug_state().glyphs[i].size` equal; goldens with a posed joint
   (`glyph_revolute`, `pendulum_swing`, `glyph_driven_joint`,
   `view_wheel_on_glyph`, `view_joint_tree_scrub`) move and are shown.
+  *Landed: **twenty** goldens moved, not five — dropping `world(child)`
+  also drops the rest rotation of every link that has one, so every
+  scenario with a glyph in view shrank a little, not only the posed ones.*
 
 ## Acceptance
 

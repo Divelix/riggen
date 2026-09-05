@@ -28,7 +28,7 @@
 //! link frame, which for a prismatic joint has already slid away by `q`.
 
 use riggen_core::glam::{DQuat, DVec3};
-use riggen_core::{FrameId, JointId, JointKind, LinkId, Pose};
+use riggen_core::{FrameId, JointId, JointKind, JointState, LinkId, Pose};
 use riggen_viewport::{Overlay, OverlayItem};
 
 use super::{Mode, RiggenApp, Selection};
@@ -352,17 +352,28 @@ impl RiggenApp {
     }
 
     /// How big a glyph on `child` is: the half-diagonal of the child link's
-    /// world bounds, so a glyph is the size of the part it belongs to.
-    /// A link with no geometry yet falls back to the scene radius, and an
-    /// empty scene to one metre.
+    /// bounds **in its own frame** — every visual geom's box through its
+    /// geom pose and nothing else — so a glyph is the size of the part it
+    /// belongs to and stays that size as the joint moves. Measured through
+    /// `world(child)` instead, the axis-aligned box of a turned part grows
+    /// and shrinks with `q`, and the band would breathe under the
+    /// scrubber; the part is the same part at either end of its travel.
+    ///
+    /// A link with no geometry yet falls back to
+    /// [`Self::rest_scene_radius`] — the scene's radius at the zero
+    /// configuration, which does not move either — and an empty scene to
+    /// one metre.
     fn glyph_size(&self, child: LinkId) -> f64 {
         let own = self
-            .instances
-            .iter()
-            .filter(|((link, _), _)| *link == child)
-            .filter_map(|(_, id)| {
+            .robot
+            .links
+            .get(&child)
+            .into_iter()
+            .flat_map(|link| link.visuals.iter())
+            .filter_map(|geom| {
+                let id = self.instances.get(&(child, geom.id))?;
                 let state = self.viewport.instance_states().find(|s| s.id == *id)?;
-                Some(state.bounds?.transformed(&state.model))
+                Some(state.bounds?.transformed(&geom.pose.to_mat4()))
             })
             .reduce(|a, b| a.union(&b));
         if let Some(bounds) = own
@@ -370,9 +381,36 @@ impl RiggenApp {
         {
             return bounds.half_diagonal();
         }
-        self.viewport
-            .scene_bounds()
-            .map(|(_, radius)| radius)
+        self.rest_scene_radius()
+    }
+
+    /// The scene's radius with every joint at zero, and one metre for a
+    /// scene that has nothing in it. `Viewport::scene_bounds` measures
+    /// where the parts are *now*, so it moves with `q` — a glyph on a
+    /// geometry-less link sized off it would breathe under the scrubber
+    /// exactly as the world-bounds measure did. One extra `fk` on a
+    /// fallback nobody hits unless a link is empty.
+    fn rest_scene_radius(&self) -> f64 {
+        let rest = riggen_core::fk(&self.robot, &JointState::default());
+        self.instances
+            .iter()
+            .filter_map(|(&(link, geom), id)| {
+                let g = self
+                    .robot
+                    .links
+                    .get(&link)?
+                    .visuals
+                    .iter()
+                    .find(|g| g.id == geom)?;
+                let state = self.viewport.instance_states().find(|s| s.id == *id)?;
+                Some(
+                    state
+                        .bounds?
+                        .transformed(&rest.get(&link)?.compose(&g.pose).to_mat4()),
+                )
+            })
+            .reduce(|a, b| a.union(&b))
+            .map(|bounds| bounds.half_diagonal())
             .filter(|r| *r > 1e-9)
             .unwrap_or(1.0)
     }

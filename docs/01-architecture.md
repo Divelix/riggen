@@ -391,9 +391,14 @@ in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
   the two, since a slide has no travel outside its limits to be faint over.
   The band's centreline (`JointGlyph::band_points`) is View's hover target,
   below.
-  Sized from the child
-  link's own world bounds, so a glyph is the size of the part it belongs
-  to; the scene radius, then one metre, are the fallbacks. Drawn for every
+  Sized from the child link's bounds **in the child's own frame** — its
+  geoms through their geom poses and nothing else — so a glyph is the size
+  of the part it belongs to and keeps that size wherever the joint is:
+  measured through `world(child)`, the axis-aligned box of a turned part
+  grows and shrinks with `q` and the band would breathe under the
+  scrubber. A link with no geometry falls back to the scene's radius at
+  the **zero configuration**, which does not move with `q` either, and an
+  empty scene to one metre. Drawn for every
   movable joint plus the selected one whatever its kind
   (plans/m2-placement-ux OPEN 4) — every weld in a big assembly would be
   noise. Every part of it is **depth-tested** (ADR-0020): the runs behind

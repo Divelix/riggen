@@ -4725,6 +4725,62 @@ fn glyphs_cover_movable_joints_and_the_selection() {
     });
 }
 
+/// A glyph is the size of the part it belongs to, and stays that size
+/// wherever the joint is: the measure is the child's bounds in the child's
+/// own frame, not the axis-aligned box its world pose sweeps out, which
+/// grows and shrinks as the part turns (plans/joint-glyph-range-and-value
+/// step 4). The same holds for a link with no geometry, whose fallback is
+/// the scene's radius at the zero configuration rather than where the
+/// parts happen to be now.
+#[test]
+fn a_glyph_keeps_its_size_as_the_joint_moves() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
+        app.fit_view_now();
+        let hinge = *app.robot().joints.keys().next().unwrap();
+
+        // A quarter turn is the worst case for a box: its world AABB is
+        // widest at 45 degrees and back to the part's own size at 90.
+        let sizes: Vec<f64> = [0.0, std::f64::consts::FRAC_PI_4, 1.0]
+            .into_iter()
+            .map(|q| {
+                app.set_joint_value(hinge, q);
+                app.debug_state().glyphs[0].size
+            })
+            .collect();
+        assert!(
+            sizes.windows(2).all(|w| (w[0] - w[1]).abs() < 1e-12),
+            "the arm cube is the same cube at every angle: {sizes:?}"
+        );
+
+        // A geometry-less child falls back to the scene's rest radius, and
+        // that does not move with `q` either.
+        let arm = app.robot().joints[&hinge].child;
+        let geoms: Vec<_> = app.robot().links[&arm]
+            .visuals
+            .iter()
+            .map(|g| g.id)
+            .collect();
+        for geom in geoms {
+            app.apply(Command::RemoveGeom(arm, geom)).unwrap();
+        }
+        settle(harness);
+        let mut fallback = Vec::new();
+        for q in [0.0, 1.0] {
+            let app = harness.state_mut();
+            app.set_joint_value(hinge, q);
+            fallback.push(app.debug_state().glyphs[0].size);
+            settle(harness);
+        }
+        assert!(fallback[0] > 1e-9);
+        assert!(
+            (fallback[0] - fallback[1]).abs() < 1e-12,
+            "the fallback is the rest scene, not the posed one: {fallback:?}"
+        );
+    });
+}
+
 /// Pointing at a joint's glyph in the viewport: the glyph is drawn hot, the
 /// tree row brightens, and the status bar names the joint instead of the
 /// part behind it.
