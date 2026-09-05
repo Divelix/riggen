@@ -25,7 +25,8 @@ edit → export with nothing lost (`Robot::actuators`, `<general>`, mimic
 chains, `<joint ref>`, `<tendon>`, `.msh`, `<include>` / `<attach>` /
 `<frame>`), and the window opens in a **View** mode — joint tree with
 scrubbers, joints the only pick, wheel drives a hovered joint, a glyph
-showing range and value, a visibility row — with Tab to **Edit**. **Next:
+showing range and value, a visibility row, zen on `Z` — with Tab to
+**Edit**. **Next:
 `/idea` or `/plan` for a first line of either half;** each half's ⚠ OPEN
 wants an ADR (composite joints) or an idea (the glyph) first. **Before it:** v0.3 (tag `v0.3.0`) paid down the
 hand-feel debt — scrubbers, panels that stop hiding things, left-drag orbit

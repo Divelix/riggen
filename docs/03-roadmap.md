@@ -349,6 +349,11 @@ line this section now owns.
   gizmos and tools stay what v0.3 left; joints are highlighted in the tree
   but not posable there — posing is View's — and the gizmo moves a joint
   relative to its parent as it does now.
+- **Zen mode on `Z`.** Every panel — menu bar, tree, properties, status
+  bar, toolbar, the visibility row — hidden, the viewport filling the window
+  with the robot alone; `Z` again brings them back. Bare `Z` is free (undo
+  is Ctrl+Z, through `consume_key` in the same order), and the mode is the
+  same in View and Edit.
 - **A visibility row, top-right of the viewport.** One row of icons,
   Blender's overlay toggles for riggen's things: joints, joint names,
   links, frames, collision geometry — View › Collision geometry moves out
@@ -380,8 +385,9 @@ what the original's did — no `ElementDropped`, `ActuatorDropped` or
 job's round-trip model stays held to the *original* document's `fk.json`.
 And the sample arm, opened cold, is posed with nothing but the wheel over a
 glyph and the joint tree's scrubbers, without a menu or a floating window
-in the way; Tab, and it is the v0.3 editor again — every visible state of
-both modes in the snapshot suite (ADR-0003).
+in the way; `Z`, and the robot is all there is; Tab, and it is the v0.3
+editor again — every visible state of both modes in the snapshot suite
+(ADR-0003).
 
 ## What not to spend agent time on
 

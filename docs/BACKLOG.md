@@ -99,6 +99,7 @@ the wheel driving a hovered joint, a glyph that shows range and value, a
 visibility row top-right — are v0.4's second half now (03 §The window). What
 that half deliberately leaves alone:
 
+- **Custom window chrome, the way rerun draws it.** The native title bar (close / minimise / maximise) replaced by our own top bar with the menu in it: rerun's `re_ui::viewport_with_window_chrome` — `with_decorations(false)` plus a transparent surface for the rounded corners on Windows and Linux, macOS keeping its native buttons over a fullsize content view, a Wayland `xdg-decoration` probe deciding the default — and `native_window_buttons_ui` for the buttons. The surface's alpha mode is fixed at window creation, so it is a startup decision, not a toggle; the web build has no chrome to replace. Not v0.4
 - **Edit beyond locking `q`.** The mode's gesture is "move the joint relative to its parent", and the gizmo on a *link* today moves its parent joint's origin with the subtree (01 §Toolbar, ADR-0007) — a second way to move the same frame that the reading would drop; meshes stay hoverable, movable and rotatable in Edit until this is decided
 
 ## Rejected
