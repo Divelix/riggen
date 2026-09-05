@@ -5,12 +5,13 @@
 //! viewport — the tree is the only place it exists, and "which way does this
 //! hinge turn?" has to be read off two number fields. The glyph answers it
 //! in the picture: an **axis segment** through the pivot, an **origin triad**
-//! in the axes triad's colours, and a **band** (revolute) or **limit
-//! segment** (prismatic) with a tick at the current `q`. The band is an
-//! annulus in the joint's plane drawn as three translucent sectors — the
-//! full circle faint, the limits over it, the run from zero to `q` on top
-//! — so which end of a hinge is the lower limit, how much of the range is
-//! used and whether it is near a stop read without finding the arc's start.
+//! in the axes triad's colours, and a **band** (revolute) or the same band
+//! unrolled into **bars** (prismatic) with a tick at the current `q`. The
+//! band is an annulus in the joint's plane drawn as three translucent
+//! sectors — the full circle faint, the limits over it, the run from zero
+//! to `q` on top — so which end of a hinge is the lower limit, how much of
+//! the range is used and whether it is near a stop read without finding
+//! the arc's start.
 //!
 //! Drawn for every movable joint plus the selected one, whatever its kind
 //! (plans/m2-placement-ux OPEN 4): an unselected `Fixed` joint has nothing
@@ -612,7 +613,15 @@ impl RiggenApp {
         );
     }
 
-    /// The travel of a prismatic joint along its axis, with a tick at `q`.
+    /// The travel of a prismatic joint: the band unrolled into **bars**
+    /// beside the axis, between the same [`BAND_INNER`] and [`ARC_RADIUS`]
+    /// offsets the revolute band spans, so a slide and a hinge are read
+    /// the same way. The limits are one bar reading [`LIMIT_ALPHA`], the
+    /// run from zero to `q` a second on top of it reading [`VALUE_ALPHA`],
+    /// the end stops and the white tick at `q` kept as they were.
+    ///
+    /// No faint full-range bar under the two: a circle has a whole turn to
+    /// be faint over, a slide has no travel beyond its own limits to draw.
     fn push_slide(
         &self,
         overlay: &mut Overlay,
@@ -621,27 +630,33 @@ impl RiggenApp {
         width: f32,
     ) {
         let (lower, upper) = glyph.limits.unwrap_or((0.0, 0.0));
-        let reference = glyph.reference() * glyph.size * ARC_RADIUS * 0.5;
         // Offset off the axis line so the travel is readable beside it
         // rather than drawn on top of the axis segment.
-        let base = glyph.pivot.t + reference;
-        overlay.segment(
-            base + glyph.axis * lower,
-            base + glyph.axis * upper,
-            color,
-            width,
+        let reference = glyph.reference();
+        let inner = reference * glyph.size * BAND_INNER;
+        let outer = reference * glyph.size * ARC_RADIUS;
+        // One rung of a bar: the pair the strip spans at travel `t`.
+        let rung = |t: f64| {
+            let at = glyph.pivot.t + glyph.axis * t;
+            (at + inner, at + outer)
+        };
+        overlay.strip(
+            vec![rung(lower), rung(upper)],
+            color.gamma_multiply(LIMIT_ALPHA),
+        );
+        overlay.strip(
+            vec![rung(0.0), rung(glyph.value_sweep())],
+            color.gamma_multiply(layered(LIMIT_ALPHA, VALUE_ALPHA)),
         );
         for end in [lower, upper] {
-            let at = base + glyph.axis * end;
-            overlay.segment(at - reference * 0.4, at + reference * 0.4, color, width);
+            let (from, to) = rung(end);
+            overlay.segment(from, to, color, width);
         }
-        let at = base + glyph.axis * glyph.q;
-        overlay.segment(
-            at - reference * 0.7,
-            at + reference * 0.7,
-            TICK_COLOR,
-            width,
-        );
+        // The tick, as the revolute's spoke: from the axis out through the
+        // bar and past it, so `q` is one glance even where the value bar
+        // has no length.
+        let at = glyph.pivot.t + glyph.axis * glyph.q;
+        overlay.segment(at, at + outer * TICK_OVERSHOOT, TICK_COLOR, width);
     }
 }
 

@@ -4649,8 +4649,9 @@ fn glyph_revolute() {
     });
 }
 
-/// The same joint made prismatic: the arc becomes a travel segment with end
-/// stops and a tick at `q`, and the arm has slid a quarter metre up.
+/// The same joint made prismatic: the band becomes two bars beside the
+/// axis — the limits, zero to `q` over them — with the end stops and the
+/// tick at `q` kept, and the arm has slid a quarter metre up.
 #[test]
 fn glyph_prismatic() {
     scenario("glyph_prismatic", |harness| {
@@ -4677,6 +4678,10 @@ fn glyph_prismatic() {
         assert_eq!(glyph.axis, [0.0, 0.0, 1.0]);
         assert_eq!(glyph.q, 0.25);
         assert!(!glyph.active, "nothing is selected");
+        // The value bar runs zero to `q`, in metres, and a slide has no
+        // annulus (plans/joint-glyph-range-and-value step 3).
+        assert!((glyph.value_sweep - glyph.q).abs() < 1e-9);
+        assert_eq!(glyph.band, None);
         // The arm rode along: its geom was 0.5 above the link frame.
         assert_eq!(state.instances[1].position, [0.0, 0.0, 1.25]);
     });

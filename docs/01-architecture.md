@@ -384,9 +384,13 @@ in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
   so a joint at zero still points. Which end of a hinge is the lower
   limit, how much of the range is used and whether it sits near a stop
   read without finding the arc's start. A `Continuous` joint has no
-  limits, so its full circle is the limit band. A prismatic joint gets an
-  offset travel segment with end stops and a tick at `q`. The band's
-  centreline (`JointGlyph::band_points`) is View's hover target, below.
+  limits, so its full circle is the limit band. A prismatic joint gets the
+  same band unrolled into **bars** beside the axis, between the same two
+  offsets: the limits at `LIMIT_ALPHA`, zero to `q` over them at
+  `VALUE_ALPHA`, the end stops and the tick kept — and no faint bar under
+  the two, since a slide has no travel outside its limits to be faint over.
+  The band's centreline (`JointGlyph::band_points`) is View's hover target,
+  below.
   Sized from the child
   link's own world bounds, so a glyph is the size of the part it belongs
   to; the scene radius, then one metre, are the fallbacks. Drawn for every

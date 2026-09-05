@@ -93,7 +93,7 @@ can make it the hover target.
   scenario assertion: in `glyph_revolute`, `value_sweep` equals the
   joint's `q` to 1e-9 and `band` sits inside `ARC_RADIUS` and outside
   `ACTUATOR_RING_RADIUS`.
-- [ ] Step 3 — The prismatic bars in `push_slide`: the limits as a bar at
+- [x] Step 3 — The prismatic bars in `push_slide`: the limits as a bar at
   `LIMIT_ALPHA`, zero to `q` on top at `VALUE_ALPHA`, stops and tick kept,
   `value_sweep` = `q` in metres. `glyph_prismatic` refreshed and shown; 01
   §Joint glyphs updated for the slide.
