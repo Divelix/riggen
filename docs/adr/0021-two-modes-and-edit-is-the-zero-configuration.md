@@ -178,3 +178,14 @@ zero configuration.**
   question every time from what was opened, and a remembered Edit would
   make `riggen robot.urdf` open into the editor for the researcher who
   last built something.
+
+## Amendment (2026-09-05, plans/view-edit-modes step 6)
+
+The consequence above that left open what View shows for a document with
+no movable joint is closed: such a document **opens in View all the
+same**, and the joint tree reads `NOTHING_TO_POSE` ("nothing to pose —
+Tab to edit"). §4's rule is therefore one sentence without a condition —
+a document that arrives whole opens in View, New and a mesh drop open in
+Edit — and the mode the user lands in depends on *how* the robot
+arrived, never on what is in it. Decided by the human from the image: a
+rule with a condition the user cannot see is a rule they cannot predict.

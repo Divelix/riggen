@@ -97,6 +97,20 @@ can make it the hover target.
   `LIMIT_ALPHA`, zero to `q` on top at `VALUE_ALPHA`, stops and tick kept,
   `value_sweep` = `q` in metres. `glyph_prismatic` refreshed and shown; 01
   §Joint glyphs updated for the slide.
+- [ ] Step 4 — A glyph's size does not change with `q` (the human,
+  2026-09-05: "the same was always true for the old joint visualization —
+  it's a bug"). `glyph_size` takes the half-diagonal of the child's
+  geometry bounds through the **world** matrix, so the axis-aligned box of
+  a turned part, and the band with it, grows and shrinks as the joint
+  moves. Union the geoms' bounds in the **child link's own frame** — each
+  through its geom pose and scale, never through `world(child)` — so the
+  measure is pose-invariant; the no-geometry fallback (the scene radius,
+  which also moves with `q`) becomes something that does not move — the
+  scene's bounds at the zero configuration, or the fitted radius. A
+  harness test poses a joint at two values and asserts
+  `debug_state().glyphs[i].size` equal; goldens with a posed joint
+  (`glyph_revolute`, `pendulum_swing`, `glyph_driven_joint`,
+  `view_wheel_on_glyph`, `view_joint_tree_scrub`) move and are shown.
 
 ## Acceptance
 
@@ -117,17 +131,17 @@ stop read without finding the arc's start.
   — written in steps 1–3; verify against the code at retirement.
 - `docs/BACKLOG.md` — nothing expected; add whatever step 2's look at the
   gizmo stack turns up.
+- `README.md` — the hero image (`docs/assets/arm.png`, refreshed at
+  plans/view-edit-modes step 6) still shows the limit arcs; retake it with
+  the bands.
 - `AGENTS.md` current state — unchanged (no milestone lands).
 
 ## Open questions
 
-- ⚠ OPEN: the three resulting alphas (0.2 / 0.5 / 0.9 to start) and
-  `BAND_INNER` — the human confirms on step 2's snapshots; the agent
-  proposes from `visual-debug` captures first. *Step 2 proposes 0.2 /
-  0.5 / 0.9 and `BAND_INNER = 0.42` as landed: on `glyph_revolute` the
-  three read as three, and the faint range is still visible over the
-  dark background; over an amber part the band is low-contrast, which
-  the colour non-goal accepts.*
+- Decided (human, 2026-09-05, on step 2's snapshots): the alphas 0.2 /
+  0.5 / 0.9 and `BAND_INNER = 0.42` stay as landed, "fine for now". Over
+  an amber part the band is low-contrast, which the colour non-goal
+  accepts.
 - ⚠ OPEN: a band under the rotate gizmo's ring in `gizmo_rotate_joint` — if
   the two read as competing handles, the band on a gizmo'd joint drops to a
   stroke-weight rendering while the gizmo is on it; the human decides at
