@@ -21,7 +21,7 @@ use harness::{
     scroll_at, settle, synthetic_drag, with_app,
 };
 
-use riggen_app::{RingAxis, Selection, Tool, ZERO_CONFIG_STATUS};
+use riggen_app::{Mode, RingAxis, Selection, Tool};
 use riggen_core::glam::DVec3;
 use riggen_core::{Command, Link, LinkId, Pose};
 
@@ -3009,10 +3009,12 @@ fn toolbar() {
 }
 
 /// Clicking through the toolbar, Esc back to Select, and the
-/// zero-configuration rule: an editing tool rewinds the sliders and says so
-/// (plans/m2-placement-ux OPEN 1).
+/// zero-configuration rule as ADR-0021 §2 states it: Edit *is* the zero
+/// configuration — `Tab` into it stashes the pose and rewinds, no tool
+/// touches `q`, and `Tab` back restores the pose within the limits Edit
+/// may have moved.
 #[test]
-fn tools_switch_and_reset_the_configuration() {
+fn tools_switch_and_edit_is_the_zero_configuration() {
     with_app(|harness| {
         for tool in Tool::ALL {
             click_widget(harness, tool.label());
@@ -3027,27 +3029,39 @@ fn tools_switch_and_reset_the_configuration() {
         let app = harness.state_mut();
         app.open_path(&fixture("pendulum.riggen"))
             .expect("open the corpus file");
+        app.set_mode(Mode::View);
         let hinge = *app.robot().joints.keys().next().unwrap();
         app.set_joint_value(hinge, std::f64::consts::FRAC_PI_4);
         let depth = app.history().undo_depth();
 
-        // Select does not disturb a posed document…
-        app.set_tool(Tool::Select);
-        assert_eq!(app.joint_value(hinge), std::f64::consts::FRAC_PI_4);
-        assert_eq!(app.debug_state().status, None);
-
-        // …an editing tool rewinds it, and says why.
-        app.set_tool(Tool::PlaceJoint);
+        // Tab into Edit rewinds, silently: the mode is the explanation.
+        app.set_mode(Mode::Edit);
         assert_eq!(app.joint_value(hinge), 0.0);
-        assert_eq!(
-            app.debug_state().status.as_deref(),
-            Some(ZERO_CONFIG_STATUS)
-        );
+        assert_eq!(app.debug_state().status, None);
         assert_eq!(app.debug_state().instances[1].position, [0.0, 0.0, 1.0]);
         assert_eq!(
             app.history().undo_depth(),
             depth,
-            "resetting q is not an edit"
+            "rewinding q is not an edit"
+        );
+
+        // A tool has nothing to rewind and touches nothing.
+        app.set_tool(Tool::PlaceJoint);
+        assert_eq!(app.joint_value(hinge), 0.0);
+        assert_eq!(app.history().undo_depth(), depth);
+
+        // Edit narrows the hinge's range under the stashed pose…
+        let mut edited = app.robot().joints[&hinge].clone();
+        edited.limits.as_mut().unwrap().upper = 30f64.to_radians();
+        app.apply(Command::SetJoint(hinge, edited)).unwrap();
+
+        // …and Tab back restores the pose, clamped to it.
+        app.set_mode(Mode::View);
+        assert!((app.joint_value(hinge) - 30f64.to_radians()).abs() < 1e-12);
+        assert_eq!(
+            app.history().undo_depth(),
+            depth + 1,
+            "the limit edit is the only entry"
         );
     });
 }
@@ -3198,7 +3212,7 @@ fn gizmo_rotate_joint() {
 }
 
 /// The five tools have keys, and pressing one is the same gesture as
-/// clicking its toolbar button — the zero-configuration rewind included.
+/// clicking its toolbar button — and neither touches `q` (ADR-0021 §2).
 #[test]
 fn tool_shortcuts_switch_tools() {
     with_app(|harness| {
@@ -3219,8 +3233,9 @@ fn tool_shortcuts_switch_tools() {
             );
         }
 
-        // Entering an editing tool by key rewinds `q`, exactly as the
-        // button does (plans/m2-placement-ux OPEN 1).
+        // Entering an editing tool by key leaves `q` alone, exactly as the
+        // button does: the mode carries the zero configuration, not the
+        // tool.
         harness.key_press(Tool::Select.shortcut());
         harness.step();
         let hinge = *harness.state().robot().joints.keys().next().unwrap();
@@ -3229,11 +3244,13 @@ fn tool_shortcuts_switch_tools() {
         harness.key_press(Tool::Rotate.shortcut());
         harness.step();
         assert_eq!(harness.state().tool(), Tool::Rotate);
+        // Nothing is selected, so the tool's need is the status line — no
+        // rewind line in front of it.
         assert_eq!(
             harness.state().debug_state().status.as_deref(),
-            Some(ZERO_CONFIG_STATUS)
+            Some(riggen_app::ROTATE_NEEDS_TARGET)
         );
-        assert_eq!(harness.state().joint_value(hinge), 0.0);
+        assert_eq!(harness.state().joint_value(hinge), 0.4);
     });
 }
 

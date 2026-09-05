@@ -207,18 +207,19 @@ own child joints' origins, its frames and an `Override` inertial through
 the pivot moves. `CollisionPolicy::Meshes` and `Primitives` poses are not
 re-expressed and do move — a backlog line. `Reparent` moves a link between parents; `MoveJointFrame`
 moves where a link's joint turns. `MoveJointFrame` works in the zero
-configuration (plans/m2-placement-ux OPEN 1); the app resets `q` before
-entering an editing tool. **`Reparent` is the one frame-rewriting command
+configuration, which is what the app's Edit mode is for the whole of its
+stay (ADR-0021 §2). **`Reparent` is the one frame-rewriting command
 allowed off it**: `at: JointState` is the configuration whose world poses
-are kept — the zero configuration by default, the current `q` from the
-tree drop, `q=` in the SDK — and the origin written is
+are kept — the zero configuration by default and from the GUI's tree
+drop, which happens in Edit; a posed `q=` in the SDK, whose caller may be
+mid-pose — and the origin written is
 `world_at(new_parent)⁻¹ ∘ world_at(parent) ∘ origin`: the origin
 re-expressed from the old parent's frame to the new one's, both at `at`
 (the link's own joint value cancels; the joints *above* it are what move
-it), which reduces to the zero-configuration rewrite when `at` is zero. A tree
-edit is made while posing, and the part has to stay where the user sees
-it, not where it would sit at zero (plans/panels-and-numbers OPEN 4,
-decided 2026-09-02: this paragraph, no ADR). `SetActuators` is the whole-model apply (ADR-0014): every movable joint that
+it), which reduces to the zero-configuration rewrite when `at` is zero. The
+off-zero form was first decided for the tree drop (plans/panels-and-numbers
+OPEN 4, 2026-09-02), when a tree edit could be made while posing and the
+part had to stay where the user saw it; ADR-0021 §5 narrows it to the SDK. `SetActuators` is the whole-model apply (ADR-0014): every movable joint that
 does not follow another one gets the same actuator, in one command and one
 undo, because the uniform case is the common one and clicking seven joints is
 the tedium the app exists to remove. A follower is *skipped*, not refused —

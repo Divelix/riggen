@@ -5,8 +5,8 @@
 //! mean. `Select` is the M1 behaviour and the resting state — `Esc` always
 //! comes back to it. The four editing tools rewrite frames, and every
 //! frame-rewriting command in `riggen-core` works in the **zero
-//! configuration** (plans/m2-placement-ux OPEN 1), so entering one with a
-//! joint off zero resets the sliders first and says so in the status bar.
+//! configuration** — which is what Edit mode is for the whole of its
+//! stay (ADR-0021 §2), so a tool never has to rewind anything itself.
 
 use super::{RiggenApp, Selection};
 
@@ -66,18 +66,7 @@ impl Tool {
             Tool::Align => egui::Key::B,
         }
     }
-
-    /// Whether the tool commits frame-rewriting commands, and therefore
-    /// needs the zero configuration.
-    pub fn edits_frames(self) -> bool {
-        !matches!(self, Tool::Select)
-    }
 }
-
-/// What the status bar says when entering an editing tool rewound the
-/// sliders. Public so a test can assert on it rather than on prose.
-pub const ZERO_CONFIG_STATUS: &str =
-    "joint values reset to zero — placement tools edit the zero configuration";
 
 /// What the status bar says while a tool waits for a selection it can
 /// use — set on tool entry and on every selection change while the tool
@@ -108,20 +97,13 @@ impl RiggenApp {
         self.tool
     }
 
-    /// Switches tools, resetting `q` first when the new one edits frames
-    /// and something is off zero (OPEN 1).
+    /// Switches tools. `q` is not touched: Edit is the zero configuration
+    /// already (ADR-0021 §2).
     pub fn set_tool(&mut self, tool: Tool) {
         // A half-finished align belongs to the gesture, not to the app.
         self.cancel_align();
         self.tool = tool;
-        if tool.edits_frames() && self.q.0.values().any(|q| *q != 0.0) {
-            self.reset_joint_values();
-            // The sliders just jumped: that comes first. The need shows at
-            // the next selection change, if it is still unmet.
-            self.status = Some(ZERO_CONFIG_STATUS.to_owned());
-        } else {
-            self.refresh_tool_status();
-        }
+        self.refresh_tool_status();
     }
 
     /// What the active tool is missing, if anything: the selection it

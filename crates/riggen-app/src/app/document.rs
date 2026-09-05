@@ -372,6 +372,7 @@ impl RiggenApp {
         self.collision_instances.clear();
         self.viewport.clear_scene();
         self.q = JointState::default();
+        self.stashed_q = None;
         self.selection = Selection::None;
         self.sync_scene();
         let has_movable = self.has_movable_joint();
@@ -602,11 +603,10 @@ impl RiggenApp {
             .map(|l| l.name.as_str())
     }
 
-    fn after_document_change(&mut self) {
-        let has_movable = self.has_movable_joint();
-        self.joints_window.document_changed(has_movable);
-        // Joints that vanished take their q with them; the rest stay within
-        // limits that may just have moved.
+    /// Joints that vanished take their `q` with them; the rest stay within
+    /// limits that may just have moved. After every command, and on a pose
+    /// restored from the stash after a spell in Edit (`mode.rs`).
+    pub(crate) fn clamp_q_to_document(&mut self) {
         let joints = &self.robot.joints;
         self.q.0.retain(|j, _| joints.contains_key(j));
         for (jid, joint) in joints {
@@ -616,6 +616,12 @@ impl RiggenApp {
                 *q = q.clamp(limits.lower, limits.upper);
             }
         }
+    }
+
+    fn after_document_change(&mut self) {
+        let has_movable = self.has_movable_joint();
+        self.joints_window.document_changed(has_movable);
+        self.clamp_q_to_document();
         if let Selection::Link(l) = self.selection
             && !self.robot.links.contains_key(&l)
         {

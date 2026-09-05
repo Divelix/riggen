@@ -45,11 +45,11 @@ pub use panels::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING, fmt_num};
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 use snap::SnapCache;
 pub use snap::{SNAP_PIXEL_RADIUS, SnapCandidate, SnapKind, placed_status};
+pub use tool::Tool;
 pub use tool::{
     ALIGN_NEEDS_LINK, MOVE_NEEDS_TARGET, MOVE_ROOT, PLACE_JOINT_NEEDS_JOINT, ROTATE_NEEDS_TARGET,
     ROTATE_ROOT,
 };
-pub use tool::{Tool, ZERO_CONFIG_STATUS};
 
 /// The eframe app: one `Robot` and what is derived from it
 /// (docs/01-architecture.md §The document is the only state).
@@ -84,6 +84,9 @@ pub struct RiggenApp {
     selection: Selection,
     /// View or Edit (`mode.rs`, ADR-0021).
     mode: Mode,
+    /// The pose View was showing when `Tab` went to Edit, which is the zero
+    /// configuration for the whole of the mode; restored on the way back.
+    stashed_q: Option<JointState>,
     /// What a viewport gesture means (`tool.rs`).
     tool: Tool,
     /// The transform gizmo and the drag it is in the middle of
@@ -221,6 +224,7 @@ impl RiggenApp {
             selection: Selection::None,
             // Edit until the open rule lands (plans/view-edit-modes step 6).
             mode: Mode::Edit,
+            stashed_q: None,
             tool: Tool::default(),
             gizmo_state: GizmoState::default(),
             hovered_joint: None,

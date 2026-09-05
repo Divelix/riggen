@@ -99,7 +99,7 @@ contract is ADR-0021.
   `UiDebug::mode`. No visible change yet — a harness test presses `Tab`
   and reads `debug_state().ui.mode` both ways, and a focused rename field
   keeps its `Tab`.
-- [ ] Step 3 — Edit is the zero configuration: `set_mode(Edit)` stashes `q`
+- [x] Step 3 — Edit is the zero configuration: `set_mode(Edit)` stashes `q`
   and rewinds, `set_mode(View)` restores; `set_tool`'s reset and
   `ZERO_CONFIG_STATUS` removed and the tests that asserted the status line
   rewritten to assert the stash. 01 §Panels' zero-configuration paragraph
