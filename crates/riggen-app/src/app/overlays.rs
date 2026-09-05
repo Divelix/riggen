@@ -222,10 +222,6 @@ impl RiggenApp {
         if let Some(overlay) = toggled {
             let on = !self.overlays.get(overlay);
             self.set_overlay(overlay, on);
-            self.status = Some(match self.overlays.hidden().as_slice() {
-                [] => "everything shown".to_owned(),
-                hidden => format!("hidden: {}", hidden.join(", ")),
-            });
         }
         response.response.rect
     }
@@ -299,6 +295,23 @@ fn paint_mark(painter: &egui::Painter, rect: egui::Rect, overlay: Overlay, color
             painter.rect_filled(rect.shrink(3.0), 1.0, color.gamma_multiply(0.55));
             painter.rect_stroke(rect.shrink(0.5), 2.0, stroke, egui::StrokeKind::Inside);
         }
+    }
+}
+
+impl RiggenApp {
+    /// What the status bar says about the row: the classes the user has
+    /// switched off, so a viewport with nothing in it — or a View that
+    /// answers nothing because its joints are hidden (ADR-0021, amended)
+    /// — is a state that can be read rather than a fault to guess at.
+    ///
+    /// Collision alone is the default and is not news; the note is for
+    /// something that was turned off on purpose.
+    pub(crate) fn hidden_note(&self) -> Option<String> {
+        let hidden = self.overlays.hidden();
+        if hidden.is_empty() || hidden == [Overlay::Collision.name()] {
+            return None;
+        }
+        Some(format!("hidden: {}", hidden.join(", ")))
     }
 }
 

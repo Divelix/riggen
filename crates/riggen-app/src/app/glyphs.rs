@@ -223,6 +223,12 @@ impl FrameGlyph {
 impl RiggenApp {
     /// Every glyph the viewport should draw this frame.
     pub fn joint_glyphs(&self) -> Vec<JointGlyph> {
+        // The visibility row's `joints` toggle empties the list, which
+        // takes out the drawing *and* `glyph_at` in one place: a hidden
+        // thing answers nothing (ADR-0021, amended).
+        if !self.overlays().joints {
+            return Vec::new();
+        }
         let world = riggen_core::fk(&self.robot, &self.q);
         // Resolved, not raw: a mimic follower's own entry in `self.q` is
         // never written, so the tick of a driven joint would sit at zero
@@ -269,6 +275,11 @@ impl RiggenApp {
     /// all of them are drawn all the time: a frame is a thing the user
     /// placed on purpose and there are a handful, not one per weld.
     pub fn frame_glyphs(&self) -> Vec<FrameGlyph> {
+        // As for joints: hidden takes the triad and `frame_glyph_at`
+        // together (ADR-0021, amended).
+        if !self.overlays().frames {
+            return Vec::new();
+        }
         let world = riggen_core::frames(&self.robot, &self.q);
         self.robot
             .frames
@@ -307,12 +318,16 @@ impl RiggenApp {
                     overlay.segment(glyph.pose.t, arm, color, width);
                 }
             });
-            overlay.label(
-                glyph.pose.t,
-                glyph.name.clone(),
-                if hot { AXIS_COLOR_ACTIVE } else { LABEL_COLOR },
-                egui::vec2(8.0, -8.0),
-            );
+            // A frame's name is a name, so it goes with the row's
+            // `joint names` toggle rather than with the triad.
+            if self.overlays().joint_names {
+                overlay.label(
+                    glyph.pose.t,
+                    glyph.name.clone(),
+                    if hot { AXIS_COLOR_ACTIVE } else { LABEL_COLOR },
+                    egui::vec2(8.0, -8.0),
+                );
+            }
         }
     }
 
@@ -507,8 +522,10 @@ impl RiggenApp {
             }
         });
         // The labels last and undepthed: text that fades behind a part is
-        // unreadable rather than informative (ADR-0020 §4).
-        for glyph in glyphs {
+        // unreadable rather than informative (ADR-0020 §4). The row's
+        // `joint names` toggle drops them and nothing else — a name is a
+        // decoration on a glyph, not a target of its own.
+        for glyph in glyphs.iter().filter(|_| self.overlays().joint_names) {
             let color = Self::axis_color(glyph, active == Some(glyph.joint));
             for (i, mark) in self.driven_marks(glyph).into_iter().enumerate() {
                 overlay.label(

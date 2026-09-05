@@ -106,7 +106,7 @@ reports it, so a scenario asserts the state and not only the pixels.
   View, everything on) and `overlay_row_links_off` (the glyphs alone over
   the background). Look at the marks before they are fixed
   (`visual-debug`) and settle the ⚠ OPEN below from the image.
-- [ ] Step 3 — **The three glyph toggles, and the empty-viewport line.**
+- [x] Step 3 — **The three glyph toggles, and the empty-viewport line.**
   `overlays.joints` and `overlays.frames` empty `joint_glyphs()` /
   `frame_glyphs()`, so drawing and the hover test go together;
   `overlays.joint_names` gates the two label loops. The status bar names

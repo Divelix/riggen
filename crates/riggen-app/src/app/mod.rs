@@ -444,6 +444,7 @@ impl eframe::App for RiggenApp {
             },
         };
         let selected = self.viewport.selected().map(|h| self.describe_hit(h));
+        let hidden = self.hidden_note();
         let document = format!(
             "{}{}",
             self.document_label(),
@@ -458,6 +459,7 @@ impl eframe::App for RiggenApp {
                 hovered: hovered.as_deref(),
                 selected: selected.as_deref(),
                 instance_count: self.viewport.instance_count(),
+                hidden: hidden.as_deref(),
                 message: self.status.as_deref(),
                 frame_dt: self.show_frame_hud.then_some(self.last_frame_dt).flatten(),
             },

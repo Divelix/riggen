@@ -453,7 +453,9 @@ in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
   each is drawn as a triad in the axes triad's colours at its world pose
   (`world(parent) ∘ frame.pose`) with its name as a label beside it. Every
   frame is drawn, always — there are a handful and the user placed each on
-  purpose, unlike a weld. Sized from its link's glyph size. Hover runs both
+  purpose, unlike a weld — until the row's **frames** toggle empties
+  `frame_glyphs()`, triad and hover test together. Sized from its link's
+  glyph size. Hover runs both
   ways as it does for joints — row ↔ glyph, nearest triad arm within
   `GLYPH_HOVER_RADIUS`, `tcp (frame)` in the status bar beside a joint's
   `hinge (joint)`, picking

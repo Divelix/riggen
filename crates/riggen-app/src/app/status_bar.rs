@@ -18,6 +18,9 @@ pub(crate) struct StatusView<'a> {
     /// `arm (i1/t120)`-style readout of the hovered link and triangle.
     pub hovered: Option<&'a str>,
     pub selected: Option<&'a str>,
+    /// `hidden: joints, frames` — what the visibility row has switched
+    /// off, absent when the row is at its default (`app/overlays.rs`).
+    pub hidden: Option<&'a str>,
     pub instance_count: usize,
     /// A one-off message — a load error, an export destination.
     pub message: Option<&'a str>,
@@ -64,6 +67,10 @@ pub(crate) fn status_bar(ui: &mut egui::Ui, view: &StatusView<'_>) {
             };
             ui.separator();
             ui.label(format!("{} instances", view.instance_count));
+            if let Some(hidden) = view.hidden {
+                ui.separator();
+                ui.label(hidden);
+            }
             if let Some(message) = view.message {
                 ui.separator();
                 ui.label(message);

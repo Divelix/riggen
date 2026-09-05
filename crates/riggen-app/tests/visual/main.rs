@@ -1488,18 +1488,106 @@ fn overlay_row_toggles_by_click() {
             harness.state().debug_state().ui.overlays,
             vec!["frames", "collision"]
         );
-        assert!(
-            harness
-                .state()
-                .debug_state()
-                .status
-                .is_some_and(|s| s.contains("frames")),
-            "the status bar names what went"
-        );
 
         harness.get_by_label("frames").click();
         settle(harness);
         assert!(harness.state().overlays().frames);
+    });
+}
+
+/// Joints off in View: the glyphs go, and with them the only thing the
+/// mode has under the cursor (ADR-0021, amended). The status bar names
+/// what is hidden, so a viewport that answers nothing is a state the user
+/// can read rather than a fault to guess at.
+#[test]
+fn overlay_row_joints_off() {
+    scenario("overlay_row_joints_off", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        harness.state_mut().fit_view_now();
+        // Where a glyph was, before it goes.
+        let at = {
+            let glyph = harness.state().joint_glyphs()[0];
+            harness
+                .state()
+                .project_world(glyph.pivot.t)
+                .expect("the pivot is on screen")
+        };
+        assert!(
+            harness
+                .state()
+                .glyph_at(&harness.state().joint_glyphs(), at)
+                .is_some()
+        );
+
+        harness
+            .state_mut()
+            .set_overlay(riggen_app::Overlay::Joints, false);
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert!(state.glyphs.is_empty(), "no glyph is built at all");
+        assert_eq!(state.ui.overlays, vec!["joints", "collision"]);
+        // The bar's `hidden: joints` segment is drawn from that list and
+        // pinned by this scenario's golden.
+        // The hover test has nothing to iterate, so the same point that
+        // was a target is not one any more — and View suppresses the
+        // viewport's own pick unconditionally, so nothing replaces it.
+        assert!(
+            harness
+                .state()
+                .glyph_at(&harness.state().joint_glyphs(), at)
+                .is_none()
+        );
+        assert!(harness.state().debug_state().input.pick_suppressed);
+    });
+}
+
+/// Joint names off: the mimic and actuator labels and the frame names go,
+/// while the glyphs and triads they sat beside stay — a name is a
+/// decoration, not a target.
+#[test]
+fn overlay_row_names_off() {
+    scenario("overlay_row_names_off", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        harness.state_mut().fit_view_now();
+        harness
+            .state_mut()
+            .set_overlay(riggen_app::Overlay::JointNames, false);
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.glyphs.len(), 3, "every glyph is still drawn");
+        assert_eq!(state.frame_glyphs.len(), 2, "every frame triad too");
+        assert_eq!(state.ui.overlays, vec!["joint names", "collision"]);
+    });
+}
+
+/// Frames off: the triads and their names go together, and so does the
+/// frame hover test — `frame_glyph_at` iterates the same list.
+#[test]
+fn overlay_row_hides_frames_and_their_hover() {
+    with_app(|harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        settle(harness);
+        assert_eq!(harness.state().frame_glyphs().len(), 2);
+
+        harness
+            .state_mut()
+            .set_overlay(riggen_app::Overlay::Frames, false);
+        settle(harness);
+        assert!(harness.state().frame_glyphs().is_empty());
+        assert!(harness.state().debug_state().frame_glyphs.is_empty());
+        // Joints are untouched: the toggles are independent.
+        assert_eq!(harness.state().joint_glyphs().len(), 3);
     });
 }
 

@@ -23,7 +23,7 @@
     "far": 145.494766,
     "projection": "Perspective",
     "animating": false,
-    "aspect": 0.955504,
+    "aspect": 1.405152,
     "view": [
       [
         0.707107,
@@ -52,7 +52,7 @@
     ],
     "proj": [
       [
-        2.52664,
+        1.718115,
         0.0,
         0.0,
         0.0
@@ -80,7 +80,7 @@
   "document": {
     "file": "arm.riggen",
     "name": "arm",
-    "dirty": true,
+    "dirty": false,
     "import_scale": 1.0,
     "links": [
       {
@@ -190,12 +190,16 @@
     "selection": null
   },
   "ui": {
-    "mode": "Edit",
+    "mode": "View",
     "tool": "Select",
     "renaming": null,
     "windows": [],
     "modal": null,
-    "title": "arm.riggen* — riggen"
+    "title": "arm.riggen — riggen",
+    "overlays": [
+      "joint names",
+      "collision"
+    ]
   },
   "instances": [
     {
@@ -317,130 +321,6 @@
         0.2,
         1.0
       ]
-    },
-    {
-      "id": 4,
-      "link": "l3",
-      "geom": null,
-      "visible": true,
-      "triangles": 60,
-      "bounds": [
-        [
-          -0.03,
-          -0.03,
-          0.0
-        ],
-        [
-          0.03,
-          0.03,
-          0.06
-        ]
-      ],
-      "position": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "color": [
-        0.9,
-        0.4,
-        0.1,
-        0.35
-      ],
-      "collision": true
-    },
-    {
-      "id": 5,
-      "link": "l7",
-      "geom": null,
-      "visible": true,
-      "triangles": 108,
-      "bounds": [
-        [
-          -0.01,
-          -0.035,
-          0.06
-        ],
-        [
-          0.01,
-          0.035,
-          0.103
-        ]
-      ],
-      "position": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "color": [
-        0.9,
-        0.4,
-        0.1,
-        0.35
-      ],
-      "collision": true
-    },
-    {
-      "id": 6,
-      "link": "l11",
-      "geom": null,
-      "visible": true,
-      "triangles": 108,
-      "bounds": [
-        [
-          -0.01,
-          -0.035,
-          0.095
-        ],
-        [
-          0.01,
-          0.035,
-          0.203
-        ]
-      ],
-      "position": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "color": [
-        0.9,
-        0.4,
-        0.1,
-        0.35
-      ],
-      "collision": true
-    },
-    {
-      "id": 7,
-      "link": "l15",
-      "geom": null,
-      "visible": true,
-      "triangles": 100,
-      "bounds": [
-        [
-          0.076,
-          0.058,
-          0.121
-        ],
-        [
-          0.104,
-          0.082,
-          0.215
-        ]
-      ],
-      "position": [
-        -0.103028,
-        -0.07,
-        0.069659
-      ],
-      "color": [
-        0.9,
-        0.4,
-        0.1,
-        0.35
-      ],
-      "collision": true
     }
   ],
   "selection": {
@@ -450,7 +330,7 @@
   "input": {
     "pick_suppressed": true,
     "select_suppressed": false,
-    "camera_blocked": true,
+    "camera_blocked": false,
     "primary_drag_claimed": false,
     "wheel_claimed": false
   },
@@ -478,7 +358,7 @@
         0.025366
       ],
       "screen": [
-        652.0,
+        840.0,
         626.179993
       ],
       "active": false,
@@ -507,7 +387,7 @@
         0.039074
       ],
       "screen": [
-        652.0,
+        840.0,
         531.577026
       ],
       "active": false,
@@ -536,7 +416,7 @@
         0.030293
       ],
       "screen": [
-        652.0,
+        840.0,
         329.770752
       ],
       "active": false,
@@ -555,7 +435,7 @@
       ],
       "size": 0.027768,
       "screen": [
-        667.090515,
+        855.090515,
         136.905548
       ],
       "active": false,
@@ -571,7 +451,7 @@
       ],
       "size": 0.028579,
       "screen": [
-        696.036621,
+        884.03656,
         695.189148
       ],
       "active": false,
@@ -581,9 +461,9 @@
   "snap": null,
   "status": null,
   "viewport_rect": [
-    244.0,
+    240.0,
     23.0,
-    1060.0,
+    1440.0,
     877.0
   ]
 }
