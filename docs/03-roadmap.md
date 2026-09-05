@@ -338,13 +338,15 @@ line this section now owns.
   `set_wheel_claimed`, claimed by a glyph the way a rotate ring claims it,
   with the ring's 5° / 1° steps. Today a hovered glyph leaves the wheel to
   the camera (ADR-0010).
-- **The glyph shows the range and the value.** An axis line, a limit arc
-  and a tick (01 §Joint glyphs) become one shape that reads both at a
-  glance: the proposal is a stacked ring — full range translucent, the
-  limits a denser sector over it, the current value denser still, the
-  three adding up to solid — sized as today from the part it belongs to,
-  depth-tested as today (ADR-0020). Snapshot scenarios for every state of
-  it (ADR-0003), and `glyph_driven_joint`'s amber survives the redesign.
+- **The glyph shows the range and the value.** *Landed.* The limit arc is
+  a **band** (01 §Joint glyphs): an annulus of three translucent sectors
+  resulting in the full circle at 0.2, the limits over it at 0.5 and the
+  run from zero to `q` at 0.9, the white spoke kept, a slide getting the
+  same two as bars beside its axis. Sized from the part it belongs to —
+  and now from the part's *own* frame, so the size no longer breathes as
+  the joint turns — and depth-tested quad by quad (ADR-0020). Every state
+  of it is in the snapshot suite (ADR-0003) and `glyph_driven_joint`'s
+  amber survived.
 - **Edit: the tree as it is, `q` locked.** The link tree, properties,
   gizmos and tools stay what v0.3 left; joints are highlighted in the tree
   but not posable there — posing is View's — and the gizmo moves a joint
@@ -359,14 +361,6 @@ line this section now owns.
   links, frames, collision geometry — View › Collision geometry moves out
   of the menu into it, and the corner is the one the Joints window vacates.
   The toolbar keeps the top-left.
-
-⚠ OPEN: the glyph's exact idiom — plans/joint-glyph-range-and-value is
-landing the band, with the ring's opacities (20 / 30 / 50 % was the
-starting point) settled by looking at it. The hover target is settled
-(plans/view-edit-modes step 7): in View, where a mesh answers nothing, it
-is the band and its interior; in Edit it stays the axis segment within
-`GLYPH_HOVER_RADIUS`, since a wider target would swallow the mesh hover
-the tools aim at (01 §Joint glyphs).
 
 **Out:** SDF import — the reading direction stays URDF and MJCF, and
 `libsdformat` stays a CI test dependency (ADR-0016 §6); a Gazebo model

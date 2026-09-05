@@ -91,6 +91,17 @@ The by-hand half was done headlessly: the manylinux wheel installed into
 
 - The depth readback is full-resolution; at 4K it is 33 MB and about 5 ms of memcpy per copy, against 0.28 ms at 1440×900 (ADR-0020 §3). Downsample — which needs a second pass, and would misclassify a thin glyph's ends by a pixel — only if a 4K viewport actually bites
 
+### From the glyph band (plans/joint-glyph-range-and-value, 2026-09-05)
+
+- A band under the **rotate gizmo's** rings (`gizmo_rotate_joint`) was the
+  plan's one open question: if the filled band and the stroked handles ever
+  read as competing handles, drop the band to a stroke while a gizmo is on
+  the joint. Left as landed — a fill and thin rings did not compete in the
+  golden — so this is a line to revisit, not a decision to make again
+- Over an amber part the band is low-contrast (the alphas 0.2 / 0.5 / 0.9,
+  "fine for now" — the human, 2026-09-05). A second colour, or a thin
+  outline on the limit sector's ends, if it starts costing readings
+
 ### From the human's GUI notes (the View / Edit split, 2026-09-05)
 
 The notes themselves — two modes with Tab between them, the joint tree with

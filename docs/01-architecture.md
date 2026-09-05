@@ -381,9 +381,11 @@ in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
   at `RANGE_ALPHA`, the limits over it at `LIMIT_ALPHA`, and the run from
   the zero position to `q` on top at `VALUE_ALPHA` (`layered` derives each
   layer's own alpha from the one below), with the white spoke at `q` kept
-  so a joint at zero still points. Which end of a hinge is the lower
-  limit, how much of the range is used and whether it sits near a stop
-  read without finding the arc's start. A `Continuous` joint has no
+  so a joint at zero still points. Where a hinge's range sits, how much of
+  it is used and whether `q` is near a stop read at a glance, without
+  tracing a stroke from its start; *which* stop is the lower one is the
+  value sector's direction, so it reads only off zero — the scrubber's
+  number is what says it at rest. A `Continuous` joint has no
   limits, so its full circle is the limit band. A prismatic joint gets the
   same band unrolled into **bars** beside the axis, between the same two
   offsets: the limits at `LIMIT_ALPHA`, zero to `q` over them at

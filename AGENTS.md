@@ -27,11 +27,11 @@ chains, `<joint ref>`, `<tendon>`, `.msh`, `<include>` / `<attach>` /
 scrubbers, joints the only pick, wheel drives a hovered joint, a glyph
 showing range and value, a visibility row, zen on `Z` — with Tab to
 **Edit**. Landed so far: the two modes, the joint tree, joints-only
-picking and the wheel on a glyph (ADR-0021; plan retired 2026-09-05), and
-the revolute band (`plans/joint-glyph-range-and-value`, steps 1–2).
-**Next: `/work` that plan's step 3 (prismatic bars) and step 4 (a glyph's
-size must not change with `q`);** then `/idea` for the visibility row or
-zen, and an ADR (composite joints) before the file half is planned. **Before it:** v0.3 (tag `v0.3.0`) paid down the
+picking and the wheel on a glyph (ADR-0021), and the glyph band — range,
+limits and value, for a hinge and a slide, at a size that no longer moves
+with `q` (both plans retired 2026-09-05). **Next: `/idea` for the
+visibility row or zen;** and an ADR (composite joints) before the file
+half is planned. **Before it:** v0.3 (tag `v0.3.0`) paid down the
 hand-feel debt — scrubbers, panels that stop hiding things, left-drag orbit
 (ADR-0018), tool keys and a claimable wheel (ADR-0019), a depth-tested
 overlay that marks a driven joint (ADR-0020). v0.2 (tag `v0.2.1`) made
