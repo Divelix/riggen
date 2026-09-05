@@ -17,7 +17,8 @@
 //! answers "where is the pointer", and hiding it behind the part the
 //! pointer is aiming at would answer nothing. A glyph asks for
 //! [`Occlusion::Test`] instead: it claims to be somewhere in the scene, so
-//! it has to look it (ADR-0020).
+//! it has to look it (ADR-0020). A stroke is split at its depth crossings;
+//! a fill ([`OverlayItem::Strip`]) is dimmed quad by quad ([`split_strip`]).
 
 use riggen_mesh::glam::DVec3;
 
@@ -62,6 +63,15 @@ pub enum OverlayItem {
         sweep: f64,
         color: egui::Color32,
         width: f32,
+    },
+    /// A filled quad strip: each pair is one **rung** (inner, outer) and
+    /// consecutive rungs bound one quad. The fill carries its alpha in
+    /// `color`, so a translucent band is a strip and nothing more. A
+    /// two-rung strip is a bar; [`Overlay::sector`] tessellates an annulus
+    /// sector into one.
+    Strip {
+        pairs: Vec<(DVec3, DVec3)>,
+        color: egui::Color32,
     },
     /// A filled dot of `radius` **screen** points.
     Point {
@@ -167,6 +177,67 @@ pub fn split_runs(samples: &[Option<(egui::Pos2, bool)>]) -> Vec<(bool, Vec<egui
     runs
 }
 
+/// Splits a classified, projected strip into runs of constant visibility —
+/// the fill's analogue of [`split_runs`] (ADR-0020 §5, extended).
+///
+/// A rung is `(inner, outer, hidden)`, or `None` when it does not project.
+/// Visibility belongs to a **quad**, not a rung: the quad between two rungs
+/// is hidden when **both** are, so a crossing lands on a rung and the
+/// visible and the dimmed fill meet at it without a gap — that rung ends
+/// the run it is in and begins the next. A rung that does not project
+/// ends its run without joining the next; a run of one rung bounds no
+/// quad and is dropped.
+///
+/// "Both", not "either": a fill's rungs are a few points apart, and a
+/// single hidden rung between two visible ones is a part's silhouette
+/// grazing the band, not the band going in — dimming the two quads either
+/// side of it would flicker as the camera turns.
+#[allow(clippy::type_complexity)]
+pub fn split_strip(
+    rungs: &[Option<(egui::Pos2, egui::Pos2, bool)>],
+) -> Vec<(bool, Vec<(egui::Pos2, egui::Pos2)>)> {
+    let mut runs: Vec<(bool, Vec<(egui::Pos2, egui::Pos2)>)> = Vec::new();
+    let mut current: Vec<(egui::Pos2, egui::Pos2)> = Vec::new();
+    let mut current_hidden = false;
+    // The previous rung's own classification, while it is in `current`.
+    let mut previous: Option<bool> = None;
+    for rung in rungs {
+        match rung {
+            None => {
+                if current.len() > 1 {
+                    runs.push((current_hidden, std::mem::take(&mut current)));
+                } else {
+                    current.clear();
+                }
+                previous = None;
+            }
+            Some((inner, outer, hidden)) => {
+                let pair = (*inner, *outer);
+                match previous {
+                    None => current.push(pair),
+                    Some(previous_hidden) => {
+                        let quad_hidden = previous_hidden && *hidden;
+                        if current.len() == 1 {
+                            current_hidden = quad_hidden;
+                        } else if quad_hidden != current_hidden {
+                            let crossing = current[current.len() - 1];
+                            runs.push((current_hidden, std::mem::take(&mut current)));
+                            current.push(crossing);
+                            current_hidden = quad_hidden;
+                        }
+                        current.push(pair);
+                    }
+                }
+                previous = Some(*hidden);
+            }
+        }
+    }
+    if current.len() > 1 {
+        runs.push((current_hidden, current));
+    }
+    runs
+}
+
 /// Points per tessellated arc segment: fine enough that a limit arc reads as
 /// a curve at any size a glyph is drawn at, cheap enough to rebuild every
 /// frame.
@@ -235,6 +306,33 @@ impl Overlay {
             offset,
         });
     }
+
+    /// A filled quad strip; see [`OverlayItem::Strip`].
+    pub fn strip(&mut self, pairs: Vec<(DVec3, DVec3)>, color: egui::Color32) {
+        self.push(OverlayItem::Strip { pairs, color });
+    }
+
+    /// A filled annulus sector of `sweep` radians about `axis`, between
+    /// radii `inner` and `outer`, beginning at `center + start * r` and
+    /// turning right-handed about `axis` — the same arc as
+    /// [`OverlayItem::Arc`], with a width. Tessellated here at the arc's
+    /// own step, so no caller repeats the trigonometry.
+    #[allow(clippy::too_many_arguments)]
+    pub fn sector(
+        &mut self,
+        center: DVec3,
+        axis: DVec3,
+        start: DVec3,
+        inner: f64,
+        outer: f64,
+        sweep: f64,
+        color: egui::Color32,
+    ) {
+        self.strip(
+            OverlayItem::sector_rungs(center, axis, start, inner, outer, sweep),
+            color,
+        );
+    }
 }
 
 impl OverlayItem {
@@ -254,6 +352,30 @@ impl OverlayItem {
                 let angle = sweep * i as f64 / steps as f64;
                 let dir = riggen_mesh::glam::DQuat::from_axis_angle(axis, angle) * start;
                 center + dir * radius
+            })
+            .collect()
+    }
+
+    /// The rungs of an annulus sector, inner then outer, one per point of
+    /// the arc [`Self::arc_points`] would draw at either radius — so a
+    /// sector and the arc on its edge share their tessellation and their
+    /// ends land on the same points.
+    pub fn sector_rungs(
+        center: DVec3,
+        axis: DVec3,
+        start: DVec3,
+        inner: f64,
+        outer: f64,
+        sweep: f64,
+    ) -> Vec<(DVec3, DVec3)> {
+        let steps = ((sweep.abs() / ARC_STEP).ceil() as usize).max(1);
+        let axis = axis.normalize_or_zero();
+        let start = start.normalize_or_zero();
+        (0..=steps)
+            .map(|i| {
+                let angle = sweep * i as f64 / steps as f64;
+                let dir = riggen_mesh::glam::DQuat::from_axis_angle(axis, angle) * start;
+                (center + dir * inner, center + dir * outer)
             })
             .collect()
     }
@@ -331,6 +453,133 @@ mod tests {
         assert!(!runs[0].0);
         assert_eq!(xs(&runs[1].1), vec![1.0, 2.0]);
         assert!(runs[1].0);
+    }
+
+    fn rung(x: f32, hidden: bool) -> Option<(egui::Pos2, egui::Pos2, bool)> {
+        Some((egui::pos2(x, 0.0), egui::pos2(x, 1.0), hidden))
+    }
+
+    fn rung_xs(run: &[(egui::Pos2, egui::Pos2)]) -> Vec<f32> {
+        run.iter().map(|(inner, _)| inner.x).collect()
+    }
+
+    #[test]
+    fn an_unsplit_strip_is_one_run() {
+        let runs = split_strip(&[rung(0.0, false), rung(1.0, false), rung(2.0, false)]);
+        assert_eq!(runs.len(), 1);
+        assert!(!runs[0].0);
+        assert_eq!(rung_xs(&runs[0].1), vec![0.0, 1.0, 2.0]);
+        let runs = split_strip(&[rung(0.0, true), rung(1.0, true)]);
+        assert_eq!(runs.len(), 1);
+        assert!(runs[0].0);
+        // One rung bounds no quad.
+        assert!(split_strip(&[rung(0.0, true)]).is_empty());
+        assert!(split_strip(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_strip_through_a_part_splits_at_the_rungs_either_side_of_the_hidden_stretch() {
+        let runs = split_strip(&[
+            rung(0.0, false),
+            rung(1.0, false),
+            rung(2.0, true),
+            rung(3.0, true),
+            rung(4.0, true),
+            rung(5.0, false),
+            rung(6.0, false),
+        ]);
+        assert_eq!(
+            runs.iter().map(|(hidden, _)| *hidden).collect::<Vec<_>>(),
+            vec![false, true, false]
+        );
+        // A quad is hidden only when both its rungs are, so the quads
+        // 1–2 and 4–5 stay visible and the crossings land on rungs 2 and
+        // 4 — which belong to both runs, so the fills meet.
+        assert_eq!(rung_xs(&runs[0].1), vec![0.0, 1.0, 2.0]);
+        assert_eq!(rung_xs(&runs[1].1), vec![2.0, 3.0, 4.0]);
+        assert_eq!(rung_xs(&runs[2].1), vec![4.0, 5.0, 6.0]);
+        // Every rung keeps both its ends.
+        for (_, run) in &runs {
+            for (inner, outer) in run {
+                assert_eq!(inner.y, 0.0);
+                assert_eq!(outer.y, 1.0);
+            }
+        }
+    }
+
+    #[test]
+    fn a_single_hidden_rung_dims_no_quad() {
+        let runs = split_strip(&[rung(0.0, false), rung(1.0, true), rung(2.0, false)]);
+        assert_eq!(runs.len(), 1);
+        assert!(!runs[0].0);
+        assert_eq!(rung_xs(&runs[0].1), vec![0.0, 1.0, 2.0]);
+        // Two hidden rungs are one hidden quad, meeting both neighbours.
+        let runs = split_strip(&[
+            rung(0.0, false),
+            rung(1.0, true),
+            rung(2.0, true),
+            rung(3.0, false),
+        ]);
+        assert_eq!(
+            runs.iter().map(|(hidden, _)| *hidden).collect::<Vec<_>>(),
+            vec![false, true, false]
+        );
+        assert_eq!(rung_xs(&runs[1].1), vec![1.0, 2.0]);
+    }
+
+    #[test]
+    fn a_rung_that_does_not_project_ends_the_strip_run() {
+        let runs = split_strip(&[
+            rung(0.0, false),
+            rung(1.0, false),
+            None,
+            rung(5.0, true),
+            rung(6.0, true),
+        ]);
+        assert_eq!(runs.len(), 2);
+        assert_eq!(rung_xs(&runs[0].1), vec![0.0, 1.0]);
+        assert!(!runs[0].0);
+        assert_eq!(rung_xs(&runs[1].1), vec![5.0, 6.0]);
+        assert!(runs[1].0);
+        // A lone rung either side of a gap bounds nothing.
+        assert!(split_strip(&[rung(0.0, false), None, rung(1.0, true)]).is_empty());
+    }
+
+    #[test]
+    fn a_sector_has_a_rung_per_arc_point_at_both_radii() {
+        let arc = OverlayItem::arc_points(DVec3::Z, DVec3::Z, DVec3::X, 2.0, FRAC_PI_2);
+        let rungs = OverlayItem::sector_rungs(DVec3::Z, DVec3::Z, DVec3::X, 1.0, 2.0, FRAC_PI_2);
+        assert_eq!(rungs.len(), arc.len());
+        for ((inner, outer), on_arc) in rungs.iter().zip(&arc) {
+            assert!((*outer - *on_arc).length() < 1e-12, "outer edge is the arc");
+            assert!(
+                ((*inner - DVec3::Z).length() - 1.0).abs() < 1e-12,
+                "{inner}"
+            );
+            assert!(
+                ((*outer - DVec3::Z).length() - 2.0).abs() < 1e-12,
+                "{outer}"
+            );
+            // The rung is radial: inner and outer share a direction.
+            let (di, do_) = (
+                (*inner - DVec3::Z).normalize(),
+                (*outer - DVec3::Z).normalize(),
+            );
+            assert!((di - do_).length() < 1e-12);
+        }
+        assert!((rungs[0].1 - DVec3::new(2.0, 0.0, 1.0)).length() < 1e-12);
+        assert!((rungs[rungs.len() - 1].1 - DVec3::new(0.0, 2.0, 1.0)).length() < 1e-12);
+    }
+
+    #[test]
+    fn a_negative_sector_turns_the_other_way() {
+        let rungs =
+            OverlayItem::sector_rungs(DVec3::ZERO, DVec3::Z, DVec3::X, 0.5, 1.0, -FRAC_PI_2);
+        assert!((rungs[rungs.len() - 1].1 - DVec3::NEG_Y).length() < 1e-12);
+        assert!((rungs[rungs.len() - 1].0 - DVec3::NEG_Y * 0.5).length() < 1e-12);
+        let none = OverlayItem::sector_rungs(DVec3::ZERO, DVec3::Z, DVec3::X, 0.5, 1.0, 0.0);
+        assert_eq!(none.len(), 2);
+        assert_eq!(none[0], none[1]);
     }
 
     #[test]

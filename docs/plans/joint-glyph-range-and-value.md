@@ -48,7 +48,9 @@ can make it the hover target.
   against the `DepthImage`, and a quad is dimmed (`HIDDEN_STRENGTH`) when
   **both** its rungs are hidden, so a crossing lands on a rung and the
   visible and dimmed quads meet without a gap — the strip analogue of
-  `split_runs`, pure and unit-tested without a GPU. Painted as one
+  `split_runs`, pure and unit-tested without a GPU. Two rungs far apart
+  on screen (a bar's two) are subdivided in world space first, as a
+  path's segment is, so a bar dims where it enters a part. Painted as one
   `egui::Mesh` per visibility run.
 - **`docs/01-architecture.md` §Layer map**, the overlay paragraph: the
   per-item depth rule gains its fill half — a stroke is split at its
@@ -74,7 +76,7 @@ can make it the hover target.
 
 ## Steps
 
-- [ ] Step 1 — `OverlayItem::Strip` and `Overlay::sector` in
+- [x] Step 1 — `OverlayItem::Strip` and `Overlay::sector` in
   `riggen-viewport`, with the quad-wise depth rule and its painter; unit
   tests for the sector's tessellation (rung count, inner/outer radii, sweep
   sign) and for the run split on a strip crossing a hidden stretch (pure,

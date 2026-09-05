@@ -49,8 +49,14 @@ runs behind geometry stroked at a third of the strength — dimmed, not
 dropped, because a joint inside a part still has to be visible and
 aimable — while cursor feedback (snap markers, the align pick, readout
 labels) stays unconditionally on top, where "where is the pointer" is the
-only question it answers. The viewport never sees a `Joint` — the app
-builds the items (`app/glyphs.rs`).
+only question it answers. A stroke is split at its depth crossings; a
+fill (`OverlayItem::Strip`, a quad strip of inner/outer rungs that
+`Overlay::sector` tessellates an annulus sector into) is dimmed **quad by
+quad** — each rung's midpoint is classified, a quad is dimmed when both its
+rungs are hidden, so a crossing lands on a rung and the visible and dimmed
+fills meet without a gap (`split_strip`, pure and tested like
+`split_runs`); each run is one `egui::Mesh`. The viewport never sees a
+`Joint` — the app builds the items (`app/glyphs.rs`).
 
 `riggen-core` depends on `riggen-mesh` for the `glam` re-export and for
 `mass_properties`: a link's computed inertial is a function of its meshes,

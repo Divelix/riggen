@@ -983,6 +983,50 @@ impl Viewport {
         samples
     }
 
+    /// Walks a strip's rungs and classifies each: where its ends land on
+    /// screen, and — with a depth image — whether geometry hides its
+    /// midpoint. A rung with an end off screen is `None`.
+    ///
+    /// Two rungs far apart on screen (a bar is two) are subdivided in
+    /// world space like a path's segment is (`classify_path`), so a bar
+    /// running into a part dims where it enters and not only when both its
+    /// ends are inside.
+    #[allow(clippy::type_complexity)]
+    fn classify_strip(
+        &self,
+        pairs: &[(DVec3, DVec3)],
+        depth: Option<&DepthImage>,
+    ) -> Vec<Option<(egui::Pos2, egui::Pos2, bool)>> {
+        let rung = |(inner, outer): (DVec3, DVec3)| {
+            let hidden = depth.is_some_and(|d| d.hidden((inner + outer) * 0.5));
+            Some((self.project(inner)?, self.project(outer)?, hidden))
+        };
+        let Some(first) = pairs.first() else {
+            return Vec::new();
+        };
+        let mut rungs = Vec::with_capacity(pairs.len());
+        rungs.push(rung(*first));
+        for pair in pairs.windows(2) {
+            let ((from_inner, from_outer), (to_inner, to_outer)) = (pair[0], pair[1]);
+            let steps = match depth {
+                None => 1,
+                Some(_) => {
+                    overlay::depth_samples(self.project(from_inner), self.project(to_inner)).max(
+                        overlay::depth_samples(self.project(from_outer), self.project(to_outer)),
+                    )
+                }
+            };
+            for i in 1..=steps {
+                let t = i as f64 / steps as f64;
+                rungs.push(rung((
+                    from_inner.lerp(to_inner, t),
+                    from_outer.lerp(to_outer, t),
+                )));
+            }
+        }
+        rungs
+    }
+
     /// Projects and strokes every overlay item. Items whose points are all
     /// off screen (behind the camera, outside the depth range) are dropped;
     /// a polyline is split so a partly visible one still draws its visible
@@ -991,6 +1035,8 @@ impl Viewport {
     /// An [`Occlusion::Test`] item is split again at its depth crossings and
     /// its hidden runs are stroked at [`overlay::HIDDEN_STRENGTH`] — same
     /// colour, same width, a third of the strength (ADR-0020 §5). A
+    /// [`OverlayItem::Strip`] is a fill, so it is dimmed quad by quad
+    /// instead ([`overlay::split_strip`]), one `egui::Mesh` per run. A
     /// [`OverlayItem::Label`] never dims whatever it asks for: text that
     /// fades behind a part is unreadable rather than informative.
     fn paint_overlay(&self, ui: &egui::Ui, rect: egui::Rect) {
@@ -1040,6 +1086,24 @@ impl Viewport {
                     *width,
                     depth,
                 ),
+                OverlayItem::Strip { pairs, color } => {
+                    for (hidden, run) in overlay::split_strip(&self.classify_strip(pairs, depth)) {
+                        let color = if hidden { dim(*color) } else { *color };
+                        let mut mesh = egui::Mesh::default();
+                        mesh.reserve_vertices(run.len() * 2);
+                        mesh.reserve_triangles((run.len() - 1) * 2);
+                        for (inner, outer) in &run {
+                            mesh.colored_vertex(*inner, color);
+                            mesh.colored_vertex(*outer, color);
+                        }
+                        for i in 0..run.len() as u32 - 1 {
+                            let (a, b, c, d) = (2 * i, 2 * i + 1, 2 * i + 2, 2 * i + 3);
+                            mesh.add_triangle(a, b, c);
+                            mesh.add_triangle(b, d, c);
+                        }
+                        painter.add(egui::Shape::mesh(mesh));
+                    }
+                }
                 OverlayItem::Point { at, radius, color } => {
                     if let Some(screen) = self.project(*at) {
                         let hidden = depth.is_some_and(|d| d.hidden(*at));
