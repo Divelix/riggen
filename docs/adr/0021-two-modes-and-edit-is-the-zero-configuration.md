@@ -227,3 +227,45 @@ piece of **corner chrome** beside the `View | Edit` control — both rects
 block the camera and suppress picks under them (01 §Picking and
 snapping), which is why the app tracks a list of chrome rects rather than
 the toolbar's one.
+
+## Amendment (2026-09-05, plans/zen step 1)
+
+**Zen is orthogonal to the mode.** `Z` empties the window of everything
+that is not the robot — the menu bar, the status bar, the left panel
+(View's joint tree or Edit's link tree), the properties panel, and both
+pieces of corner chrome: the `View | Edit` control, the toolbar beside
+it, and the visibility row. `Z` again brings all of them back. It is one
+boolean over §1–§4 and changes none of them: the mode is whatever it was,
+`Tab` still switches it inside zen, the row's five toggles stay exactly
+as the user set them, and the switch table is set from the mode and the
+hover as it always was. Zen is not a sixth toggle and does not join
+`Overlays`; it is not persisted, for §4's reason — the window's furniture
+is answered fresh on every run, never remembered from the last one.
+
+Two consequences follow, and this amendment settles both.
+
+**`chrome_rects` is empty in zen.** The list exists because two rects
+float in the viewport's own egui layer and have to block the camera and
+suppress picks under them (§6, the second amendment's last paragraph).
+With neither drawn there is nothing to block: the list is cleared rather
+than left holding the previous frame's rects, and the mode's own rules
+are then the whole of what answers the cursor.
+
+**`Esc` leaves zen, before it leaves a tool.** The second amendment's
+guarantee was that *the status bar names what is hidden*, so a viewport
+that answers nothing is a state the user can read rather than a fault
+they have to guess at. In zen there is no status bar to read, and the
+combination the amendment worried about — joints hidden, so nothing under
+the cursor — is now a window with no chrome, no readout and no visible
+way out. `Esc` is the key a user presses at exactly that window, so it
+leaves zen; a tool active in zen therefore takes two presses, which is
+the smaller cost. `Z` remains the key the mode is named for.
+
+Nothing is painted on entry: no toast, no timed hint. An empty window is
+what was asked for, and a fading overlay would put a clock into every
+golden (ADR-0003). If the by-hand run finds the empty window reads as a
+hang, the fallback is a hint drawn in a viewport corner for as long as
+zen is on, not a timed one — and that would be a new amendment.
+
+§6 holds once more: the viewport crate does not change. Zen is which
+panels the app draws.
