@@ -306,11 +306,12 @@ drops, and each is a backlog line this section now owns.
   (ADR-0015 §5) — behind one resolver, with `<frame>`'s transform folded
   into the bodies inside it.
 
-⚠ OPEN: whether a `<body>` with several `<joint>`s synthesises massless
-intermediate links, so MuJoCo's ball and planar DoFs import instead of being
-refused as `ImportError::CompositeJoint`. ADR-0015 §5 turned it down because
-a synthesised link is a link the user did not draw; a cycle about losing
-nothing has to ask again. Needs an ADR before it is planned.
+A `<body>` with several `<joint>`s stays `ImportError::CompositeJoint`,
+asked again and answered no in **ADR-0022**: the synthesis opens five
+Menagerie directories, three of them not robots, and the cheap version
+does not round-trip at all — MuJoCo refuses a massless moving body, as our
+own `ZeroMassMovableLink` already does. The ADR names A2 as the shape if
+it is ever reopened.
 
 ### The window: View and Edit
 
