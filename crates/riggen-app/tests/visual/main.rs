@@ -18,10 +18,10 @@ mod harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use harness::{
     camera_drag, click_at, click_widget, middle_drag, press_move_release, pump_rendered, scenario,
-    scroll_at, settle, synthetic_drag, with_app,
+    scroll_at, scroll_at_with, settle, synthetic_drag, with_app,
 };
 
-use riggen_app::{Mode, RingAxis, Selection, Tool};
+use riggen_app::{Mode, RingAxis, Selection, Tool, VIEW_TOOL_HINT};
 use riggen_core::glam::DVec3;
 use riggen_core::{Command, Link, LinkId, Pose};
 
@@ -7148,5 +7148,133 @@ fn tab_switches_the_mode() {
             riggen_app::Mode::Edit,
             "Tab in a text field is the field's"
         );
+    });
+}
+
+/// In View only the glyphs answer the cursor (ADR-0021 §1): the picks are
+/// off, so the mesh under the cursor is neither hover-tinted nor selected
+/// by a click, while the same point hovers and selects the part in Edit.
+#[test]
+fn view_ignores_the_mesh() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        settle(harness);
+
+        // A point on a part and off the glyph — the hinge's axis runs
+        // through the middle of a fitted view, so probe around it in Edit.
+        let center = harness
+            .state()
+            .viewport_center()
+            .expect("viewport laid out");
+        let at = [
+            (0.0, 0.0),
+            (40.0, 0.0),
+            (-40.0, 0.0),
+            (0.0, 60.0),
+            (0.0, -60.0),
+        ]
+        .into_iter()
+        .map(|(dx, dy)| center + egui::vec2(dx, dy))
+        .find(|&pos| {
+            harness.hover_at(pos);
+            pump_rendered(harness, 8);
+            let state = harness.state().debug_state();
+            state.selection.hovered.is_some() && !state.glyphs[0].hovered
+        })
+        .expect("a point on the mesh and off the glyph");
+
+        harness.state_mut().set_mode(Mode::View);
+        harness.hover_at(at);
+        pump_rendered(harness, 8);
+        let state = harness.state().debug_state();
+        assert!(state.input.pick_suppressed, "View turns both picks off");
+        assert_eq!(state.selection.hovered, None, "a mesh is not hovered");
+        click_at(harness, at);
+        assert_eq!(harness.state().selection(), Selection::None);
+
+        // Tab back, and the same click selects the part.
+        harness.state_mut().set_mode(Mode::Edit);
+        click_at(harness, at);
+        assert!(
+            matches!(harness.state().selection(), Selection::Link(_)),
+            "Edit selects the mesh: {:?}",
+            harness.state().selection()
+        );
+    });
+}
+
+/// The wheel over a hovered glyph poses its joint in View: a notch is the
+/// rotate ring's 5°, shift makes it 1°, the camera does not zoom, and
+/// nothing lands in the history (ADR-0021 §1).
+#[test]
+fn view_wheel_on_glyph() {
+    scenario("view_wheel_on_glyph", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        app.set_mode(Mode::View);
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        settle(harness);
+        let depth = harness.state().history().undo_depth();
+        let distance = harness.state().debug_state().camera.distance;
+
+        let at = glyph_axis_point(harness, 0.8);
+        scroll_at(harness, at, 1.0);
+        let state = harness.state().debug_state();
+        assert!(state.glyphs[0].hovered, "the glyph is hot");
+        assert!(
+            state.input.wheel_claimed,
+            "a hovered glyph claims the wheel"
+        );
+        assert!((harness.state().joint_value(hinge) - 5f64.to_radians()).abs() < 1e-12);
+
+        scroll_at_with(harness, at, 1.0, egui::Modifiers::SHIFT);
+        assert!((harness.state().joint_value(hinge) - 6f64.to_radians()).abs() < 1e-12);
+        scroll_at(harness, at, -2.0);
+        assert!((harness.state().joint_value(hinge) + 4f64.to_radians()).abs() < 1e-12);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.camera.distance, distance, "the wheel did not zoom");
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth,
+            "posing is not an edit"
+        );
+        // Left hovering: the golden shows the hot glyph at its new value.
+        pump_rendered(harness, 4);
+    });
+}
+
+/// A tool key in View changes nothing and says whose the keys are; Tab
+/// into View itself lands on Select, so there is nothing for Esc to leave.
+#[test]
+fn view_tool_keys_hint() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.set_tool(Tool::Rotate);
+        app.set_mode(Mode::View);
+        assert_eq!(app.tool(), Tool::Select, "View is the resting tool");
+        settle(harness);
+
+        harness.key_press(Tool::Move.shortcut());
+        harness.step();
+        assert_eq!(harness.state().tool(), Tool::Select);
+        assert_eq!(
+            harness.state().debug_state().status.as_deref(),
+            Some(VIEW_TOOL_HINT)
+        );
+
+        // The same key in Edit is the tool.
+        harness.key_press(egui::Key::Tab);
+        harness.step();
+        harness.key_press(Tool::Move.shortcut());
+        harness.step();
+        assert_eq!(harness.state().tool(), Tool::Move);
     });
 }

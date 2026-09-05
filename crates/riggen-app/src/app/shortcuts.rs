@@ -59,11 +59,19 @@ impl RiggenApp {
         // The five tools, on the keys `Tool::shortcut` names. Bare keys, so
         // Ctrl+V and friends are still whatever they were, and after the
         // text-field guard above so typing a name does not change the tool.
+        //
+        // In View the keys are consumed all the same — so a bare letter
+        // never leaks to a widget — and do nothing but say whose they are
+        // (ADR-0021 §1).
         if let Some(tool) = crate::app::Tool::ALL
             .into_iter()
             .find(|tool| ctx.input_mut(|i| i.consume_key(Modifiers::NONE, tool.shortcut())))
         {
-            self.set_tool(tool);
+            if self.mode == crate::app::Mode::View {
+                self.status = Some(crate::app::VIEW_TOOL_HINT.to_owned());
+            } else {
+                self.set_tool(tool);
+            }
         }
         let delete = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete));
         if delete {

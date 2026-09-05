@@ -105,7 +105,7 @@ contract is ADR-0021.
   rewritten to assert the stash. 01 §Panels' zero-configuration paragraph
   and 02 §Commands' `Reparent` paragraph updated in the same commit. Golden
   changes only where a scenario entered a tool posed.
-- [ ] Step 4 — View's pointer policy (the riskiest interaction): in View the
+- [x] Step 4 — View's pointer policy (the riskiest interaction): in View the
   picks are off, a glyph click selects the joint, the wheel over a hovered
   glyph steps `q` at the ring's quantum, the tool keys hint. Harness tests
   through `debug_state`: no hover over a mesh in View; `q` after
@@ -159,9 +159,13 @@ demo's first frame is View. `debug_state().ui.windows` never contains
 
 ## Open questions
 
-- ⚠ OPEN: the prismatic wheel quantum — 5° has no metre analogue; the
-  proposal is properties' `STEP_M` floor scaled as `scrub_speed` does.
-  Agent, step 4.
+- Decided (step 4): the prismatic wheel quantum is **one percent of the
+  travel** between the limits (±1 m when there are none), never under
+  properties' `STEP_M` floor, a tenth of that with shift — `mode.rs::
+  wheel_step`. Scaled by the range rather than by the value as
+  `scrub_speed` is, because the ring's 5° is a fixed fraction of a turn
+  and a value-scaled notch would shrink to nothing at zero, which is
+  where every pose starts.
 - ⚠ OPEN: what View shows for a document with **no** movable joint that
   arrived as a document (an all-fixed import): an empty joint tree with a
   "nothing to pose — Tab to edit" line, or Edit directly. Proposal: the

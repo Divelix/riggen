@@ -2,7 +2,36 @@
 //! is the v0.3 editor at the zero configuration. `Tab` switches them
 //! (`shortcuts.rs`).
 
-use super::{RiggenApp, Selection};
+use riggen_core::{JointKind, Limits};
+
+use super::gizmo::{WHEEL_STEP, WHEEL_STEP_FINE, wheel_notches};
+use super::panels::STEP_M;
+use super::{RiggenApp, Selection, Tool};
+
+/// What the status bar says when a tool key is pressed in View: the tools
+/// are Edit's, and the key does nothing else (ADR-0021 §1). Public so a
+/// test asserts on the constant, not on prose.
+pub const VIEW_TOOL_HINT: &str = "the tools are Edit's — Tab to edit";
+
+/// A prismatic joint's wheel quantum, as a fraction of its travel: the
+/// ring's 5° is 1.4 % of a turn, and a slide has no turn to take a
+/// fraction of, so a notch is one percent of the way from one limit to the
+/// other, never less than the properties panel's metre floor, and a tenth
+/// of that with shift (plans/view-edit-modes OPEN 1).
+const PRISMATIC_TRAVEL_FRACTION: f64 = 0.01;
+
+/// What one wheel notch adds to a joint's `q` in View: 5° (1° with shift)
+/// for a hinge, a fraction of the travel for a slide.
+pub(crate) fn wheel_step(kind: JointKind, limits: Option<Limits>, fine: bool) -> f64 {
+    match kind {
+        JointKind::Prismatic => {
+            let travel = limits.map_or(2.0, |l| (l.upper - l.lower).abs());
+            let step = (travel * PRISMATIC_TRAVEL_FRACTION).max(STEP_M);
+            if fine { step / 10.0 } else { step }
+        }
+        _ => (if fine { WHEEL_STEP_FINE } else { WHEEL_STEP }).to_radians(),
+    }
+}
 
 /// Which of the two windows the user is looking at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,11 +86,75 @@ impl RiggenApp {
                     // Edit may have removed a joint or moved its limits.
                     self.clamp_q_to_document();
                 }
+                // The tools are Edit's: no gizmo, no snap, nothing for Esc
+                // to leave.
+                self.set_tool(Tool::Select);
             }
         }
         self.sync_scene();
         if matches!(self.selection, Selection::Link(_) | Selection::Frame(_)) {
             self.select(Selection::None);
         }
+    }
+}
+
+impl RiggenApp {
+    /// In View, the wheel over a hovered glyph poses that joint — a notch
+    /// at the rotate ring's quantum (ADR-0021 §1, ADR-0019 §2). The
+    /// viewport has already been told not to zoom (`set_wheel_claimed`),
+    /// so the notches are ours to read. Not a command: `q` is derived
+    /// state, so there is no history entry and no burst to coalesce.
+    pub(crate) fn step_hovered_joint_with_wheel(&mut self, ui: &egui::Ui) {
+        if self.mode != Mode::View {
+            return;
+        }
+        let Some(joint) = self.glyph_hover else {
+            return;
+        };
+        let (notches, fine) = wheel_notches(ui);
+        if notches == 0 {
+            return;
+        }
+        let Some(j) = self.robot.joints.get(&joint) else {
+            return;
+        };
+        // A follower's value is its leader's to set (ADR-0013).
+        if j.mimic.is_some() {
+            return;
+        }
+        let step = wheel_step(j.kind, j.limits, fine);
+        let q = self.joint_value(joint) + f64::from(notches) * step;
+        self.set_joint_value(joint, q);
+        ui.ctx().request_repaint();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wheel_quantum_by_kind() {
+        let deg = |d: f64| d.to_radians();
+        assert!((wheel_step(JointKind::Revolute, None, false) - deg(5.0)).abs() < 1e-12);
+        assert!((wheel_step(JointKind::Continuous, None, true) - deg(1.0)).abs() < 1e-12);
+        let limits = |lower, upper| {
+            Some(Limits {
+                lower,
+                upper,
+                effort: 0.0,
+                velocity: 0.0,
+            })
+        };
+        // One percent of the travel, and a tenth of that with shift.
+        assert!((wheel_step(JointKind::Prismatic, limits(-0.2, 0.3), false) - 0.005).abs() < 1e-12);
+        assert!((wheel_step(JointKind::Prismatic, limits(-0.2, 0.3), true) - 0.0005).abs() < 1e-12);
+        // Never under the metre floor: a 5 cm slide still steps a millimetre.
+        assert_eq!(
+            wheel_step(JointKind::Prismatic, limits(0.0, 0.05), false),
+            STEP_M
+        );
+        // No limits: the ±1 m the slider assumes.
+        assert!((wheel_step(JointKind::Prismatic, None, false) - 0.02).abs() < 1e-12);
     }
 }

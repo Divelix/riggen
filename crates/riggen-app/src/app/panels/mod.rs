@@ -10,6 +10,6 @@ mod tree;
 
 pub(crate) use joints::JointsWindow;
 pub(crate) use materials::MaterialsWindow;
-pub(crate) use properties::PropertiesState;
 pub use properties::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING, fmt_num};
+pub(crate) use properties::{PropertiesState, STEP_M};
 pub(crate) use tree::{RenameTarget, TreeState};

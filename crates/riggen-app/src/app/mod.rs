@@ -40,7 +40,7 @@ use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use gizmo::GizmoState;
 pub use gizmo::{GizmoTarget, RingAxis};
 pub use glyphs::{FrameGlyph, GLYPH_HOVER_RADIUS, JointGlyph};
-pub use mode::Mode;
+pub use mode::{Mode, VIEW_TOOL_HINT};
 pub use panels::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING, fmt_num};
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 use snap::SnapCache;
@@ -493,8 +493,14 @@ impl eframe::App for RiggenApp {
                 // The exception is a translate drag: it *wants* the hover
                 // pick, because the snap ladder under the cursor is what it
                 // lands on (ADR-0019 §4).
+                //
+                // In View the picks are off outright: only the glyphs answer
+                // the cursor, and a mesh is neither tinted nor selectable
+                // (ADR-0021 §1). The glyph hover is the app's own
+                // screen-space test and does not go through this switch.
+                let view = self.mode == Mode::View;
                 self.viewport.set_pick_suppressed(
-                    over_toolbar
+                    view || over_toolbar
                         || self.glyph_hover.is_some()
                         || self.frame_glyph_hover.is_some()
                         || (self.gizmo_state.captured && !self.translate_dragging()),
@@ -524,8 +530,14 @@ impl eframe::App for RiggenApp {
                 // cursor, where a notch steps the ring instead of zooming
                 // (ADR-0019). Like the others, last frame's answer: the
                 // gizmo cannot say which ring it is until it has run.
-                self.viewport
-                    .set_wheel_claimed(self.hovered_ring().is_some());
+                //
+                // In View a hovered *glyph* claims it the same way, and the
+                // notch poses the joint instead (ADR-0021 §1).
+                self.viewport.set_wheel_claimed(if view {
+                    self.glyph_hover.is_some()
+                } else {
+                    self.hovered_ring().is_some()
+                });
                 // And what a drag is carrying is left out of the ID buffer
                 // entirely: it follows the cursor, so the drag would
                 // otherwise only ever find itself under it (ADR-0019 §5).
@@ -540,6 +552,7 @@ impl eframe::App for RiggenApp {
                 // on the frames a handle is under the cursor, which is what
                 // `contains_pointer` is for (ADR-0010).
                 self.gizmo_ui(ui, rect, response.contains_pointer());
+                self.step_hovered_joint_with_wheel(ui);
                 self.tool_bar(ui, rect);
                 // The viewport's pick is suppressed while a glyph is
                 // hovered, so these clicks are unambiguous, and a hovered

@@ -538,8 +538,8 @@ fn gizmo_visuals() -> GizmoVisuals {
 /// Degrees a wheel notch turns a ring, and what shift makes of it
 /// (ADR-0019 §2). Twelve notches to a quarter turn is fine enough that the
 /// shifted step is for the last degree or two.
-const WHEEL_STEP: f64 = 5.0;
-const WHEEL_STEP_FINE: f64 = 1.0;
+pub(crate) const WHEEL_STEP: f64 = 5.0;
+pub(crate) const WHEEL_STEP_FINE: f64 = 1.0;
 
 /// Seconds between notches that still count as one gesture — the same
 /// number, for the same reason, as the Properties scrubbers' `WHEEL_BURST`.
@@ -571,7 +571,7 @@ fn wheel_gesture(target: GizmoTarget, ring: RingAxis) -> GestureId {
 /// carries the modifiers as they were when it happened, which is what a
 /// gesture means by "with shift held", and it needs no key event to have
 /// been seen first.
-fn wheel_notches(ui: &egui::Ui) -> (i32, bool) {
+pub(crate) fn wheel_notches(ui: &egui::Ui) -> (i32, bool) {
     let options = ui.ctx().options(|o| o.input_options);
     let ignored = options.zoom_modifier;
     ui.input(|input| {

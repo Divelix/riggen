@@ -253,7 +253,9 @@ standing in for the initials of the other two: `W A S D E Q` are reserved
 for a fly camera and the digits are the viewport's (`Num1/3/5/7/0`, `P`,
 `Home`). The binding lives in each toolbar button's tooltip rather than on
 its face — a shortcut nobody can find is folklore, and five keys printed on
-a toolbar is a toolbar nobody can read.
+a toolbar is a toolbar nobody can read. In View the five keys are consumed
+all the same and do nothing but put `VIEW_TOOL_HINT` in the status bar —
+the tools are Edit's (ADR-0021 §1).
 
 The four editing tools commit frame-rewriting
 commands, which work in the **zero configuration** — and Edit mode *is*
@@ -703,6 +705,19 @@ geometry that would answer a pick, but a drag from a glyph orbits like a
 drag from anywhere else. Only the gizmo's claim withholds the left drag,
 only a ring withholds the wheel, and nothing withholds the middle or right
 drag.
+
+**The mode is a policy on the table, not a row in it** (ADR-0021 §1, §6).
+In **View** the first switch is set unconditionally — only the glyphs
+answer the cursor, and a mesh is neither tinted nor selectable — and the
+fifth is set while a *joint glyph* is hovered, the way a ring sets it in
+Edit: a notch then poses the hovered joint by the ring's quantum, 5° or
+1° with shift, a slide by one percent of its travel (never under the
+metre floor, a tenth with shift), through `set_joint_value` and therefore
+with no history entry, since `q` is derived state. A follower's glyph
+takes no notch (ADR-0013). View's tool is always Select — `Tab` into it
+resets the tool — so the gizmo's two switches and `snapping()` are off for
+the whole of the mode. The viewport crate does not know which mode it is
+in; it never needs to.
 
 A gizmo *drag* is the one case that blocks the camera while keeping the
 hover pick: the drag is solved against the projection it started in, so the

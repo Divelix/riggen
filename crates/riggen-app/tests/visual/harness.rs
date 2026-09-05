@@ -285,13 +285,26 @@ pub fn press_move_release(harness: &mut Harness<'_, RiggenApp>, from: egui::Pos2
 /// `lines` scrolls the way a wheel pulled towards the user does.
 #[allow(dead_code, reason = "used from the camera scenarios on")]
 pub fn scroll_at(harness: &mut Harness<'_, RiggenApp>, pos: egui::Pos2, lines: f32) {
+    scroll_at_with(harness, pos, lines, egui::Modifiers::NONE);
+}
+
+/// [`scroll_at`] with `modifiers` on the wheel event — shift for the fine
+/// step of a ring or a glyph (ADR-0019 §2). The modifier rides on the
+/// event, which is where the app reads it.
+#[allow(dead_code, reason = "used from the View scenarios on")]
+pub fn scroll_at_with(
+    harness: &mut Harness<'_, RiggenApp>,
+    pos: egui::Pos2,
+    lines: f32,
+    modifiers: egui::Modifiers,
+) {
     harness.hover_at(pos);
     pump_rendered(harness, 4);
     harness.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Line,
         delta: egui::vec2(0.0, lines),
         phase: egui::TouchPhase::Move,
-        modifiers: egui::Modifiers::NONE,
+        modifiers,
     });
     pump_rendered(harness, 4);
 }

@@ -53,7 +53,7 @@ const WHEEL_BURST: f64 = 0.4;
 /// The floor of a scrubber's speed, per unit: what one point of drag is
 /// worth when the value is near zero and one percent of it would be
 /// nothing. Metres, degrees, kilograms, kg·m², plain numbers, kg/m³, counts.
-const STEP_M: f64 = 1e-3;
+pub(crate) const STEP_M: f64 = 1e-3;
 const STEP_DEG: f64 = 0.1;
 const STEP_KG: f64 = 1e-3;
 const STEP_KGM2: f64 = 1e-9;
