@@ -91,6 +91,23 @@ The by-hand half was done headlessly: the manylinux wheel installed into
 
 - The depth readback is full-resolution; at 4K it is 33 MB and about 5 ms of memcpy per copy, against 0.28 ms at 1440×900 (ADR-0020 §3). Downsample — which needs a second pass, and would misclassify a thin glyph's ends by a pixel — only if a 4K viewport actually bites
 
+### From the human's GUI notes (the View / Edit split, 2026-09-05)
+
+The window after v0.3: what a researcher does with a robot most of the
+time is *look at it and pose it*, and the window still opens in the one
+mode that exists, the editing one, with a floating slider window over it.
+The notes below are one direction, not a list of independent frictions;
+the first line is the frame the others hang from.
+
+- **Two modes, View and Edit, Tab switches them** and a document opens in View. Tab is egui's focus-traversal key, so it goes through `consume_key` like the tool keys (ADR-0019, the RoboCAD lesson)
+- **View: the left panel is the joint tree.** The movable joints as a tree (the kinematic order, not the link tree), each row a slider aligned right that scrubs by drag or wheel and shows the value *and* the limits; it replaces the floating Joints window, which is deleted outright (01 §Panels: the window that opens itself, plans/panels-and-numbers OPEN 3)
+- **View: only joints hover and select.** A mesh under the cursor is neither highlighted nor pickable; the glyph is the only thing that answers (today `set_pick_suppressed` suppresses the geometry pick only while a glyph is hovered, ADR-0010)
+- **View: the wheel over a hovered joint drives it, not the camera.** ADR-0019's `set_wheel_claimed` for a joint glyph, the way a rotate ring claims it; today a hovered glyph leaves the wheel to zoom
+- **The joint glyph shows the range and the value.** Today it is an axis line, a limit arc and a tick (01 §Joint glyphs); the proposal is a stacked ring — a translucent full ring, the limit sector on top of it less translucent, the value sector on top of that, opacities adding up to solid (20 / 30 / 50 % as a starting point) — so limits and `q` read off one shape. Another idiom is welcome if it reads better
+- **A ring is a thin thing to aim at.** Hover through an invisible sphere at the pivot rather than the ring's stroke — debatable: the glyph's axis segment is already the hover target, `GLYPH_HOVER_RADIUS` in screen points, and a sphere would hide the mesh hover in Edit mode too
+- **Edit: the tree as today, joints highlighted but `q` not editable** — posing is View's job; a joint in Edit is moved or rotated *relative to its parent* with the gizmo. Meshes and joints stay hoverable, movable, rotatable as they are for now; the gizmo on a *link* today moves its parent joint's origin with the subtree (01 §Toolbar, ADR-0007), which is the one gesture the "only the joint itself" reading would drop — decide when Edit is reworked, not now
+- **A visibility row in the viewport's top-right**, Blender's overlay toggles but for riggen's things — joints, joint names, links, frames, collision geometry (View › Collision geometry moves out of the menu) — a single row of icons. The corner is where the Joints window floats today, and that window goes with the line above; the toolbar keeps the top-left
+
 ## Rejected
 
 - `SetRoot` across a movable joint — a URDF always has a root, and the reversed-pivot convention is a design question nothing in M3 needed (plans/m3-sim-ready OPEN 2, 2026-08-29)
