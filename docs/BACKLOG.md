@@ -113,6 +113,19 @@ that half deliberately leaves alone:
 - **Custom window chrome, the way rerun draws it.** The native title bar (close / minimise / maximise) replaced by our own top bar with the menu in it: rerun's `re_ui::viewport_with_window_chrome` — `with_decorations(false)` plus a transparent surface for the rounded corners on Windows and Linux, macOS keeping its native buttons over a fullsize content view, a Wayland `xdg-decoration` probe deciding the default — and `native_window_buttons_ui` for the buttons. The surface's alpha mode is fixed at window creation, so it is a startup decision, not a toggle; the web build has no chrome to replace. Not v0.4
 - **Edit beyond locking `q`.** The mode's gesture is "move the joint relative to its parent", and the gizmo on a *link* today moves its parent joint's origin with the subtree (01 §Toolbar, ADR-0007) — a second way to move the same frame that the reading would drop; meshes stay hoverable, movable and rotatable in Edit until this is decided
 
+### From zen (plans/zen, 2026-09-05)
+
+- **Full-screen on a key of its own.** `Z` empties the window of riggen's
+  chrome inside the OS window it has; the window keeps its decorations and
+  its size. `ViewportCommand::Fullscreen` on a second key would be the
+  other half of "the robot and nothing else", and the two are independent
+  — the web build has neither. Not decided against, just not asked for
+- **A hint in zen if the empty window ever reads as a hang.** Nothing is
+  painted on entry so no golden carries a clock (ADR-0021, amended). If a
+  by-hand run says the empty window looks broken, the fallback is a mark
+  drawn in a viewport corner *for as long as zen is on*, never a timed
+  toast — and it would be a new amendment
+
 ## Rejected
 
 - `SetRoot` across a movable joint — a URDF always has a root, and the reversed-pivot convention is a design question nothing in M3 needed (plans/m3-sim-ready OPEN 2, 2026-08-29)

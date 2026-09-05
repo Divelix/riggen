@@ -26,12 +26,13 @@ chains, `<joint ref>`, `<tendon>`, `.msh`, `<include>` / `<attach>` /
 `<frame>`), and the window opens in a **View** mode — joint tree with
 scrubbers, joints the only pick, wheel drives a hovered joint, a glyph
 showing range and value, a visibility row, zen on `Z` — with Tab to
-**Edit**. Landed so far: the two modes, the joint tree, joints-only
-picking and the wheel on a glyph (ADR-0021), the glyph band — range,
-limits and value, for a hinge and a slide — and the visibility row, whose
-five toggles take a class's drawing and its pointer target together
-(ADR-0021 amended; three plans retired 2026-09-05). **Next: `/plan` zen on
-`Z`,** then an ADR (composite joints) before the file half. **Before it:** v0.3 (tag `v0.3.0`) paid down the
+**Edit**. **The window half is done** (four plans retired 2026-09-05):
+the two modes, the joint tree, joints-only picking and the wheel on a
+glyph (ADR-0021), the glyph band, the visibility row whose toggles take a
+class's drawing and its pointer target together, and **zen on `Z`** —
+every panel gone, orthogonal to the mode, `Esc` out of it too (ADR-0021,
+amended three times). **Next: an ADR (composite joints), then the file
+half.** **Before it:** v0.3 (tag `v0.3.0`) paid down the
 hand-feel debt — scrubbers, panels that stop hiding things, left-drag orbit
 (ADR-0018), tool keys and a claimable wheel (ADR-0019), a depth-tested
 overlay that marks a driven joint (ADR-0020). v0.2 (tag `v0.2.1`) made

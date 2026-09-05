@@ -206,7 +206,7 @@ pub struct RiggenApp {
                                                         // and the two corner-chrome rects
     import_scale: f64, pending: Option<PendingAction>,  // File › Import units; New/Open/Quit awaiting the dirty answer
     export_dialog: ExportDialog,                        // File › Export…: options, directory, the resolve errors
-    mode, stashed_q, tree, joint_tree, props, materials_window, // View / Edit and the stashed pose; transient panel state
+    mode, zen, stashed_q, tree, joint_tree, props, materials_window, // View / Edit, zen, the stashed pose; transient panel state
     viewport, next_instance, status, …
 }
 ```
@@ -322,6 +322,8 @@ whole — Open, a dropped `.riggen` / `.urdf` / `.xml`, the two imports, the
 CLI's argument, the demo's sample — opens in View, an all-fixed one too
 (the joint tree reads `NOTHING_TO_POSE`); File › New and a mesh drop open
 in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
+Over both sits **zen** (`Z`), which draws no panel at all — the bullet
+below.
 
 - **Links** (left, in Edit): one row per link with its parent joint's name and kind
   (`hinge · revolute`), and under it — before its child links — a row per
@@ -381,8 +383,10 @@ in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
   them, its `open` flag untouched. Zen is **orthogonal to the mode**: it
   is the same key and the same state in View and Edit, `Tab` still
   switches modes inside it, the visibility row's five toggles stay
-  exactly as the user set them, and not one switch of the table is set
-  differently (ADR-0021, amended). It is transient — never in the
+  exactly as the user set them, and the five switches are derived from
+  the mode and the hover exactly as before — there is simply no chrome
+  rect left to block the camera or suppress a pick under (ADR-0021,
+  amended). It is transient — never in the
   document and, unlike the row's toggles, never in eframe storage: the
   window's furniture is answered fresh on every run, the way the open
   rule answers the mode. Because there is no status bar left to name what
@@ -848,7 +852,9 @@ neither, sets `set_camera_blocked` **and** `set_pick_suppressed`. There
 are two pieces of it — the mode control with the toolbar beside it at the
 top-left, the visibility row at the top-right — so the app keeps a list of
 `chrome_rects` and asks whether the cursor is on any of them
-(`over_chrome`).
+(`over_chrome`). In **zen** neither piece is drawn and the list is empty,
+so nothing is blocked by position and the mode's own rules are the whole
+of what answers the cursor (ADR-0021, amended).
 
 The gizmo's switches are one frame late — it cannot say whether it owns the
 cursor, or which ring is under it, until it has run, and the viewport runs

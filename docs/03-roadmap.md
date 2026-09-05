@@ -319,25 +319,26 @@ pose it; building and fixing it is the rarer, more dangerous thing, and the
 window makes no difference between the two. Every line below is a backlog
 line this section now owns.
 
-- **Two modes, Tab between them.** A document opens in **View**. Tab goes
-  through `consume_key` like the tool keys (the RoboCAD lesson), and the
-  status bar names the mode. The switch table ADR-0010 published and
-  ADR-0018/0019 amended gains a mode dimension — which picks answer, who
-  owns the wheel — so this half's pointer rules want an ADR as its first
-  line, the way v0.3's did.
-- **View: the joint tree, with the sliders.** The left panel shows the
-  movable joints as a tree in kinematic order, each row a scrubber aligned
+- **Two modes, Tab between them.** *Landed.* A document opens in **View**.
+  Tab goes through `consume_key` like the tool keys (the RoboCAD lesson),
+  and the status bar names the mode. The switch table ADR-0010 published
+  and ADR-0018/0019 amended gained a mode dimension — which picks answer,
+  who owns the wheel — written as **ADR-0021**, this half's first line the
+  way v0.3's was.
+- **View: the joint tree, with the sliders.** *Landed.* The left panel
+  shows the movable joints as a tree in kinematic order, each row a scrubber aligned
   right — drag or wheel, the value and both limits readable on it, the
   scrubber idiom v0.3 built. It replaces the floating Joints window, which
-  is deleted with its open-itself rule (01 §Panels, plans/panels-and-numbers
+  went with its open-itself rule (01 §Panels, plans/panels-and-numbers
   OPEN 3). A follower's row stays what its slider was: read-only, at the
   resolved `q` (ADR-0013).
-- **View: joints are the only thing under the cursor.** A mesh is neither
-  hover-tinted nor selectable; the glyph is what answers, and the wheel
-  over a hovered joint **drives it** instead of zooming — ADR-0019's
-  `set_wheel_claimed`, claimed by a glyph the way a rotate ring claims it,
-  with the ring's 5° / 1° steps. Today a hovered glyph leaves the wheel to
-  the camera (ADR-0010).
+- **View: joints are the only thing under the cursor.** *Landed.* A mesh
+  is neither hover-tinted nor selectable; the glyph is what answers, and
+  the wheel over a hovered joint **drives it** instead of zooming —
+  ADR-0019's `set_wheel_claimed`, claimed by a glyph the way a rotate ring
+  claims it, with the ring's 5° / 1° steps, and no history entry because
+  `q` is derived state. In Edit the wheel is still the camera's unless a
+  rotate ring takes it (ADR-0010).
 - **The glyph shows the range and the value.** *Landed.* The limit arc is
   a **band** (01 §Joint glyphs): an annulus of three translucent sectors
   resulting in the full circle at 0.2, the limits over it at 0.5 and the
@@ -347,15 +348,21 @@ line this section now owns.
   the joint turns — and depth-tested quad by quad (ADR-0020). Every state
   of it is in the snapshot suite (ADR-0003) and `glyph_driven_joint`'s
   amber survived.
-- **Edit: the tree as it is, `q` locked.** The link tree, properties,
-  gizmos and tools stay what v0.3 left; joints are highlighted in the tree
-  but not posable there — posing is View's — and the gizmo moves a joint
-  relative to its parent as it does now.
-- **Zen mode on `Z`.** Every panel — menu bar, tree, properties, status
-  bar, toolbar, the visibility row — hidden, the viewport filling the window
-  with the robot alone; `Z` again brings them back. Bare `Z` is free (undo
-  is Ctrl+Z, through `consume_key` in the same order), and the mode is the
-  same in View and Edit.
+- **Edit: the tree as it is, `q` locked.** *Landed.* The link tree,
+  properties, gizmos and tools stayed what v0.3 left; joints are
+  highlighted in the tree but not posable there — posing is View's — and
+  the gizmo moves a joint relative to its parent as it did. `q` is zero
+  for the whole of the mode, stashed on the way in and restored on the way
+  out (ADR-0021 §2), which retired the per-tool reset.
+- **Zen mode on `Z`.** *Landed.* Every panel — menu bar, tree, properties,
+  status bar, toolbar, the visibility row — hidden, the viewport filling the
+  window with the robot alone; `Z` again brings them back, byte-for-byte,
+  and the Materials window with them. Bare `Z` is free (undo is Ctrl+Z,
+  read first, `consume_key` in the same order), and zen is **orthogonal to
+  the mode**: the same key and the same state in View and Edit, `Tab` still
+  switching between them from inside it, the row's toggles and the five
+  switches untouched. Never persisted, and `Esc` leaves it too — there is
+  no status bar left in it to read (ADR-0021, amended a third time).
 - **A visibility row, top-right of the viewport.** *Landed.* Five toggles
   in the corner the Joints window vacated — joints, joint names, frames,
   links, collision — each a drawn mark rather than a word (01 §Panels).
