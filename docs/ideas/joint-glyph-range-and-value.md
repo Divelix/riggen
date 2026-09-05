@@ -97,8 +97,8 @@ for fills, and every glyph golden. A band across a bore hides a little of
 what is behind it, at 0.2 alpha — the reason for the annulus and for
 keeping the alphas low until the value band.
 
-Cost: ~4 plan steps — the primitive with its per-vertex depth (01 §Overlay
-gains a paragraph), the revolute / continuous glyph with its snapshots, the
+Cost: ~4 plan steps — the primitive with its per-vertex depth (01 §Layer map's
+overlay paragraph gains the rule), the revolute / continuous glyph with its snapshots, the
 prismatic one, and the hover target below. Forecloses nothing.
 
 ### B — Weighted strokes: the value as a heavier run of the arc
