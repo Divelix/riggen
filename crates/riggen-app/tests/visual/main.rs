@@ -1630,6 +1630,147 @@ fn zen_view() {
     });
 }
 
+/// The same key in Edit (ADR-0021, amended — zen is orthogonal to the
+/// mode): the link tree, the properties panel and the toolbar go with the
+/// rest, and the floating Materials window goes too while its `open` flag
+/// stays set, so it comes back with the chrome. The mode is still Edit and
+/// the tool is still the one that was picked.
+#[test]
+fn zen_edit() {
+    scenario("zen_edit", |harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("arm/arm.riggen")).expect("the sample arm opens");
+        let arm = *app.robot().links.keys().last().expect("a link");
+        app.select(Selection::Link(arm));
+        app.set_tool(Tool::Rotate);
+        app.set_materials_window_open(true);
+        app.fit_view_now();
+        settle(harness);
+        harness.get_by_label("Properties");
+        harness.get_by_label("Materials");
+
+        harness.key_press(egui::Key::Z);
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert!(state.ui.zen);
+        assert_eq!(state.ui.mode, "Edit", "zen did not change the mode");
+        assert_eq!(state.ui.tool, "Rotate", "nor the tool");
+        assert_eq!(
+            state.ui.windows,
+            vec!["materials"],
+            "the window is still open — it is simply not drawn"
+        );
+        for label in ["Properties", "Materials", "Rotate", "joints"] {
+            assert!(
+                harness.query_by_label(label).is_none(),
+                "`{label}` is chrome and zen takes it"
+            );
+        }
+        // The gizmo is on the selected link and drawn by the viewport's
+        // overlay, not by a panel, so it survives.
+        assert!(harness.state().debug_state().gizmo.is_some());
+    });
+}
+
+/// `Z` `Z` puts the window back exactly as it was — every panel, the
+/// camera, the selection, the tool and the visibility row — and `Esc` is
+/// the second way out, which is what a window with no status bar in it
+/// needs (ADR-0021, amended).
+#[test]
+fn zen_round_trip_and_esc() {
+    with_app(|harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        // The glyphs' `pivot_hidden` comes from a depth readback that
+        // resolves a frame or two later (ADR-0020), so both sides of the
+        // comparison are taken after the same number of *rendered* frames.
+        pump_rendered(harness, 8);
+        let before = harness.state().debug_state_json();
+        let before_pixels = harness.render().expect("render").clone();
+
+        harness.key_press(egui::Key::Z);
+        settle(harness);
+        assert!(harness.state().zen());
+        harness.key_press(egui::Key::Z);
+        settle(harness);
+        pump_rendered(harness, 8);
+        assert_eq!(
+            harness.state().debug_state_json(),
+            before,
+            "the round trip restored the window, the camera and the selection"
+        );
+        assert!(
+            harness.render().expect("render").as_raw() == before_pixels.as_raw(),
+            "and the window renders byte-for-byte as it did"
+        );
+
+        // Esc leaves zen, and only zen: the tool it would otherwise leave
+        // waits for the second press.
+        harness.state_mut().set_mode(riggen_app::Mode::Edit);
+        let arm = *harness.state().robot().links.keys().next().unwrap();
+        harness.state_mut().select(Selection::Link(arm));
+        harness.state_mut().set_tool(Tool::Rotate);
+        harness.key_press(egui::Key::Z);
+        settle(harness);
+        harness.key_press(egui::Key::Escape);
+        settle(harness);
+        assert!(!harness.state().zen(), "Esc left zen");
+        assert_eq!(harness.state().tool(), Tool::Rotate, "and only zen");
+        harness.key_press(egui::Key::Escape);
+        settle(harness);
+        assert_eq!(harness.state().tool(), Tool::Select, "the second press");
+    });
+}
+
+/// Zen changed no switch (ADR-0021, amended): in zen the wheel over a
+/// hovered glyph still poses the joint instead of zooming, exactly as it
+/// does with the chrome up, and `Tab` still switches the mode from inside
+/// it.
+#[test]
+fn zen_poses_and_switches_modes_as_before() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
+        app.fit_view_now();
+        app.set_mode(Mode::View);
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        settle(harness);
+
+        harness.key_press(egui::Key::Z);
+        settle(harness);
+        let distance = harness.state().debug_state().camera.distance;
+        let depth = harness.state().history().undo_depth();
+
+        // The viewport fills the window now, so the glyph is somewhere
+        // else on screen; the rule about what it does is unchanged.
+        let at = glyph_axis_point(harness, 0.8);
+        scroll_at(harness, at, 1.0);
+        let state = harness.state().debug_state();
+        assert!(
+            state.input.wheel_claimed,
+            "the glyph still claims the wheel"
+        );
+        assert!((harness.state().joint_value(hinge) - 5f64.to_radians()).abs() < 1e-12);
+        assert_eq!(state.camera.distance, distance, "the wheel did not zoom");
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth,
+            "posing is not an edit, in zen as anywhere"
+        );
+
+        harness.key_press(egui::Key::Tab);
+        settle(harness);
+        let state = harness.state().debug_state();
+        assert_eq!(state.ui.mode, "Edit", "Tab still switches from inside zen");
+        assert!(state.ui.zen, "and leaves zen alone");
+    });
+}
+
 /// `Z` is bare, so it is read *after* `Ctrl+Z` (egui matches modifiers
 /// logically, the RoboCAD `consume_key` lesson) and it yields to a focused
 /// text field like every other bare key here.

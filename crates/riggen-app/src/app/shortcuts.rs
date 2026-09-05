@@ -57,10 +57,19 @@ impl RiggenApp {
         if self.pending.is_none() && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Z)) {
             self.toggle_zen();
         }
-        // Esc leaves an editing tool. It is consumed only when a tool is
-        // active, so the rename / modal / field-revert uses of Escape (all
+        // Esc leaves zen first, then an editing tool. Zen first because
+        // there is no status bar in it to say what is going on and no
+        // chrome to click, so Esc has to be the way out of the emptier
+        // state (ADR-0021, amended); a tool active in zen therefore takes
+        // two presses. Both are consumed only when there is something to
+        // leave, so the rename / modal / field-revert uses of Escape (all
         // of which read it after this runs) still see it otherwise.
-        if self.tool != crate::app::Tool::Select
+        if self.zen
+            && self.pending.is_none()
+            && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
+        {
+            self.set_zen(false);
+        } else if self.tool != crate::app::Tool::Select
             && self.pending.is_none()
             && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
         {

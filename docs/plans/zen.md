@@ -101,7 +101,7 @@ suite.
   in a focused `TextEdit` types a `z`. Golden: `zen_view` — the sample arm
   in View with nothing but the viewport. Look at it (`visual-debug`)
   before it is fixed. 01 §Panels, §Picking and §Shortcuts written here.
-- [ ] Step 3 — **Zen in Edit, `Esc`, and coming back.** The same key in
+- [x] Step 3 — **Zen in Edit, `Esc`, and coming back.** The same key in
   Edit takes the toolbar, the link tree and the properties panel with the
   rest; the Materials window is skipped while zen is on and returns with
   its `open` flag intact; `Esc` leaves zen before it leaves a tool. A
@@ -115,9 +115,13 @@ suite.
 viewport alone in the window with the robot in it and
 `debug_state().ui.zen` true; the wheel over a glyph still poses the joint
 and the camera still orbits, because zen changed no switch; `Z` again
-renders the window **byte-for-byte** as `view_opens_with_the_document`'s
-golden, which proves the round trip restores every panel and the camera
-untouched. `Tab` inside zen still switches modes and `Esc` leaves zen.
+renders the window **byte-for-byte** as it did before the first press —
+asserted in `zen_round_trip_and_esc` against the frame it captured
+itself, both the rendered pixels and `debug_state_json()`, rather than
+against another scenario's golden, since two scenarios do not share a
+setup. Both sides are taken after the same number of *rendered* frames:
+`pivot_hidden` comes from a depth readback that resolves a frame or two
+later (ADR-0020). `Tab` inside zen still switches modes and `Esc` leaves zen.
 The same in Edit for `zen_edit`.
 
 ## Docs to update on completion
