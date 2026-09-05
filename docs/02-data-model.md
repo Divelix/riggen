@@ -750,7 +750,10 @@ are its edges), a joint on the root body (whose link has no parent joint),
 `type="ball"` and a `type="free"` anywhere but the root, and `<include>` /
 `<replicate>` / `<attach>` / `<frame>` / `<compiler
 coordinate="global">`. Each of those would change the robot if imported
-anyway, which is the line ADR-0015 §5 draws. A `<freejoint>` on the root
+anyway, which is the line ADR-0015 §5 draws. The composite one was asked
+again in v0.4 and refused again with the corpus behind it (ADR-0022): its
+message says what the shape means and that splitting the body into nested
+bodies with one joint each is the same model, imported. A `<freejoint>` on the root
 is a *warning*, not a refusal: it costs an `ExportOptions` field, not a
 document one.
 

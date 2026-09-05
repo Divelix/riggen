@@ -310,8 +310,9 @@ A `<body>` with several `<joint>`s stays `ImportError::CompositeJoint`,
 asked again and answered no in **ADR-0022**: the synthesis opens five
 Menagerie directories, three of them not robots, and the cheap version
 does not round-trip at all — MuJoCo refuses a massless moving body, as our
-own `ZeroMassMovableLink` already does. The ADR names A2 as the shape if
-it is ever reopened.
+own `ZeroMassMovableLink` already does. The refusal says what the shape
+means and how to split the body; the ADR names A2 as the shape if it is
+ever reopened.
 
 ### The window: View and Edit
 

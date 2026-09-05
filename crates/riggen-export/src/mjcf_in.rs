@@ -2097,6 +2097,24 @@ mod tests {
         );
     }
 
+    /// The composite refusal is the one a real Menagerie file hits
+    /// (`hello_robot_stretch`'s rubber tips), and it is a dead end unless
+    /// it says what the shape means and how to get past it (ADR-0022 §2).
+    #[test]
+    fn the_composite_refusal_names_the_body_and_the_way_out() {
+        let message = load(&model(
+            r#"<body name="a"><body name="w"><joint name="w0"/><joint name="w1"/></body></body>"#,
+        ))
+        .unwrap_err()
+        .to_string();
+        for part in ["\"w\"", "w0", "w1", "2 joints", "nested bodies"] {
+            assert!(message.contains(part), "{part:?} missing from {message:?}");
+        }
+        // It reaches the user as the status bar's one line (the app's
+        // `finish_import` hands the `Display` string on as a `String`).
+        assert!(!message.contains('\n'), "{message:?}");
+    }
+
     #[test]
     fn the_shapes_the_document_cannot_hold_are_refused_by_name() {
         assert_eq!(

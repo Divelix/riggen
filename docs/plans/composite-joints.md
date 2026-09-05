@@ -99,7 +99,7 @@ into nested bodies — a MuJoCo-equivalent edit — and import.
   it). Add its row to `docs/adr/README.md` and amend 0015's row. Replace
   the ⚠ OPEN paragraph in `docs/03-roadmap.md` §v0.4 with one sentence
   citing ADR-0022. `docs(adr):` commit, no code.
-- [ ] **Step 2 — the refusal tells the user what to do.** One `Display`
+- [x] **Step 2 — the refusal tells the user what to do.** One `Display`
   arm in `crates/riggen-export/src/import.rs`; extend
   `the_shapes_the_document_cannot_hold_are_refused_by_name`
   (`mjcf_in.rs:2100`) — or a sibling test next to it — to assert the

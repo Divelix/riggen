@@ -218,7 +218,9 @@ pub enum ImportError {
     MultipleRoots(Vec<String>),
     /// Several `<joint>`s in one `<body>` — MuJoCo's way of spelling a ball
     /// or planar DoF, against a document whose joints are the edges of the
-    /// link tree (ADR-0005, ADR-0015 §5).
+    /// link tree (ADR-0005, ADR-0015 §5, re-affirmed with the corpus in
+    /// ADR-0022). The message says how to split the body, because this is
+    /// the refusal a real Menagerie file hits.
     CompositeJoint {
         body: String,
         joints: Vec<String>,
@@ -258,7 +260,10 @@ impl fmt::Display for ImportError {
             }
             Self::CompositeJoint { body, joints } => write!(
                 f,
-                "body \"{body}\" has {} joints ({}); the link tree holds one per body",
+                "body \"{body}\" has {} joints ({}); MuJoCo spells a multi-DoF \
+                 joint this way, and the link tree holds one joint per body \
+                 — split it into nested bodies with one joint each, the same \
+                 model, and import that",
                 joints.len(),
                 joints.join(", ")
             ),
