@@ -193,9 +193,7 @@
     "mode": "Edit",
     "tool": "Select",
     "renaming": null,
-    "windows": [
-      "joints"
-    ],
+    "windows": [],
     "modal": "export",
     "title": "arm.riggen — riggen"
   },

@@ -99,6 +99,49 @@ impl RiggenApp {
 }
 
 impl RiggenApp {
+    /// The `View | Edit` control, in the viewport's top-left corner in both
+    /// modes with `Tab` in its tooltip, and the toolbar to its right in
+    /// Edit. Drawn after the viewport in the same layer so egui's hit test
+    /// gives it the pointer (`tool.rs`). Returns the rect the two cover,
+    /// which the switch block treats as the toolbar's: camera blocked and
+    /// picks suppressed under it, no glyph hovered through it.
+    pub(crate) fn viewport_chrome(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        const MARGIN: f32 = 8.0;
+        let corner = egui::Rect::from_min_max(rect.min + egui::Vec2::splat(MARGIN), rect.max);
+        let mut chosen_mode = None;
+        let mut chosen_tool = None;
+        let response = ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(corner)
+                .layout(egui::Layout::left_to_right(egui::Align::TOP)),
+            |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for mode in [Mode::View, Mode::Edit] {
+                            if ui
+                                .selectable_label(self.mode == mode, mode.label())
+                                .on_hover_text(format!("{} (Tab)", mode.label()))
+                                .clicked()
+                            {
+                                chosen_mode = Some(mode);
+                            }
+                        }
+                    });
+                });
+                if self.mode == Mode::Edit {
+                    chosen_tool = self.tool_bar(ui);
+                }
+            },
+        );
+        self.toolbar_rect = Some(response.response.rect);
+        if let Some(mode) = chosen_mode {
+            self.set_mode(mode);
+        }
+        if let Some(tool) = chosen_tool {
+            self.set_tool(tool);
+        }
+    }
+
     /// In View, the wheel over a hovered glyph poses that joint — a notch
     /// at the rotate ring's quantum (ADR-0021 §1, ADR-0019 §2). The
     /// viewport has already been told not to zoom (`set_wheel_claimed`),

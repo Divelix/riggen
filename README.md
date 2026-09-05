@@ -7,13 +7,13 @@
 Drop meshes in, get a simulation-ready MJCF, URDF or SDF out — in a
 window, or from ten lines of Python.
 
-![The sample arm in riggen: the link tree, the viewport with joint glyphs, the Joints window](https://raw.githubusercontent.com/Divelix/riggen/main/docs/assets/arm.png)
+![The sample arm in riggen, opened in View: the joint tree with its scrubbers, the viewport with joint glyphs](https://raw.githubusercontent.com/Divelix/riggen/main/docs/assets/arm.png)
 
 ## Try it in the browser
 
 **[divelix.github.io/riggen](https://divelix.github.io/riggen/)** — the real
-app, wasm, with the sample arm already in it. Orbit it, swing the joint
-sliders, drop your own `.stl` / `.obj` / `.riggen` / `.urdf` / `.xml` onto
+app, wasm, with the sample arm already in it. Orbit it, pose it from the
+joint tree or with the wheel over a joint, drop your own `.stl` / `.obj` / `.riggen` / `.urdf` / `.xml` onto
 the page, and Export to get the same MJCF, URDF and SDF the desktop writes,
 as one zip. Needs a browser with WebGPU (Chrome/Edge 113+, Firefox 141+,
 Safari 26+); the desktop app does not.
@@ -38,21 +38,25 @@ without a wheel, `pip install` builds the SDK from source with `cargo` on
 
 ## The first minute
 
-1. `riggen --example arm` opens a four-part arm: link tree on the left,
-   the viewport in the middle, Properties on the right. Drag with the left
+1. `riggen --example arm` opens a four-part arm in **View**: the joint
+   tree on the left, the viewport with the robot. Drag with the left
    button to orbit and with the right to pan (shift+left pans too, for a
    trackpad; the middle button orbits and shift+middle pans), zoom with the
-   wheel, `Home` to frame everything. A click still selects — only a drag
-   turns the camera.
-2. The five tools on the toolbar have keys: `V` select, `G` move, `R`
-   rotate, `J` place joint, `B` align, and `Esc` back to select. With
+   wheel, `Home` to frame everything.
+2. Pose it: drag a joint's bar in the tree, or turn the wheel over it —
+   or over the joint's glyph in the viewport, which steps it by 5° (1°
+   with shift) instead of zooming. A click on a glyph selects the joint;
+   in View a mesh is not a thing to click. That is the kinematic tree you
+   will build for your own robot.
+3. `Tab` (or the **View | Edit** control top-left) switches to **Edit**:
+   the robot at its zero configuration, the link tree, Properties, and the
+   five tools on the toolbar with their keys — `V` select, `G` move, `R`
+   rotate, `J` place joint, `B` align, `Esc` back to select. With
    **Rotate** up, the wheel over one of the gizmo's three rings steps that
    ring by 5° — 1° with shift — instead of zooming; with **Move** up, a
    drag snaps to the vertex, box corner or bore centre under the cursor,
-   looking through the part it is carrying.
-3. Drag the sliders in the **Joints** window, which opened with the arm
-   (**Window › Joints** brings it back) — the arm moves; that is the
-   kinematic tree you will build for your own robot.
+   looking through the part it is carrying. `Tab` again brings the pose
+   back.
 4. **File › Export…**, tick the formats you want (all three by default),
    choose a directory. The dialog lists anything that would stop the
    export (a link with no mass, a joint with no axis) and writes

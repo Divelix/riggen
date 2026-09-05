@@ -442,13 +442,10 @@ impl RiggenApp {
                     .renaming
                     .as_ref()
                     .map(|(l, text)| (l.to_string(), text.clone())),
-                windows: [
-                    self.joints_window_open().then_some("joints"),
-                    self.materials_window_open().then_some("materials"),
-                ]
-                .into_iter()
-                .flatten()
-                .collect(),
+                windows: [self.materials_window_open().then_some("materials")]
+                    .into_iter()
+                    .flatten()
+                    .collect(),
                 modal: if self.export_dialog().open {
                     Some("export")
                 } else {

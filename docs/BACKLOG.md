@@ -82,8 +82,8 @@ The by-hand half was done headlessly: the manylinux wheel installed into
 
 ### From the panels (plans/panels-and-numbers, 2026-09-03)
 
-- Two egui widget quirks are worked around in place, not upstream: `DragValue` stashes the edited text and parses it again the frame after the editor closes (a second commit, and a commit after Escape — the field clears the stash), and `Slider` with its default clamping writes the display-rounded value back every frame (the Joints sliders clamp on edits only). Check both on the next egui bump, or file them.
-- The Materials window opens over the toolbar (both anchor at the viewport's top-left); anchor it beside the Joints window instead
+- One egui widget quirk is worked around in place, not upstream: `DragValue` stashes the edited text and parses it again the frame after the editor closes (a second commit, and a commit after Escape — the field clears the stash). Check it on the next egui bump, or file it. (The `Slider` half of this line went with the Joints window, ADR-0021.)
+- The Materials window opens over the corner chrome — the `View | Edit` control and the toolbar, all anchored at the viewport's top-left; anchor it at the top-right instead, the corner the Joints window vacated
 - Collision › "Add file…" and "Add mesh to this link…" open no dialog in the browser — the seam reads a dropped file, but there is no picker; `rfd::AsyncFileDialog` would give the web build one
 - A scrubber's speed is one percent of the value with a per-unit floor (`STEP_M`, `STEP_DEG`, …); a field cannot say its own step beyond those constants, and a joint limit in degrees near zero scrubs slowly
 

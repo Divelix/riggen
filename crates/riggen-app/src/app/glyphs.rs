@@ -16,7 +16,7 @@
 //! follower** (ADR-0013) is drawn in a muted amber and labelled with its
 //! leader, an **actuated** joint (ADR-0014) keeps the full amber and gains
 //! a ring at the pivot labelled with the preset. Without that the viewport
-//! draws a driven hinge exactly like a free one and only the Joints window
+//! draws a driven hinge exactly like a free one and only the joint tree
 //! knows the difference (ADR-0020).
 //!
 //! The anchor is the **pivot** — `world(parent) ∘ origin` — not the child
@@ -330,8 +330,8 @@ impl RiggenApp {
     /// `»` and not `↳`: egui's bundled fonts have no arrows, and a mark
     /// that renders as a tofu box says nothing at all. `»` reads as
     /// "follows" without claiming the equality `=` would — the multiplier
-    /// and offset are the Joints window's to state
-    /// (`panels/joints.rs::mimic_rule`).
+    /// and offset are the joint tree's to state
+    /// (`panels/joint_tree.rs::mimic_rule`).
     fn driven_marks(&self, glyph: &JointGlyph) -> Vec<String> {
         let mut marks = Vec::new();
         if let Some(leader) = glyph.mimic {

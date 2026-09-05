@@ -198,7 +198,7 @@ pub struct RiggenApp {
     snap_cache, align_source, toolbar_rect,            // the memoised fit, the align gesture's first pick
     import_scale: f64, pending: Option<PendingAction>,  // File › Import units; New/Open/Quit awaiting the dirty answer
     export_dialog: ExportDialog,                        // File › Export…: options, directory, the resolve errors
-    tree, props, joints_window, materials_window,       // transient panel state (a rename in progress, drafts)
+    mode, stashed_q, tree, joint_tree, props, materials_window, // View / Edit and the stashed pose; transient panel state
     viewport, next_instance, status, …
 }
 ```
@@ -298,7 +298,24 @@ closes.
 
 ### Panels and menus
 
-- **Links** (left): one row per link with its parent joint's name and kind
+The window has **two modes** (ADR-0021; `app/mode.rs`), and the panel set
+is the mode's. **View** is the posed robot: the joint tree at the left,
+nothing at the right, the viewport with only its glyphs answering the
+cursor (§Picking and snapping). **Edit** is the v0.3 editor at the zero
+configuration: the link tree, the properties panel, the toolbar, the
+gizmos. `Tab` switches — `set_mode` stashes `q` on the way into Edit and
+restores it on the way back (§Tools above) — and so does a **`View |
+Edit`** segmented control in the viewport's top-left corner, drawn in both
+modes with `Tab` in its tooltip, the toolbar to its right in Edit
+(`viewport_chrome`); the status bar names the mode after `riggen`. A
+selected joint survives the switch, a selected link or frame clears. The
+**open rule** (ADR-0021 §4, `replace_document`): a document that arrives
+whole — Open, a dropped `.riggen` / `.urdf` / `.xml`, the two imports, the
+CLI's argument, the demo's sample — opens in View, an all-fixed one too
+(the joint tree reads `NOTHING_TO_POSE`); File › New and a mesh drop open
+in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
+
+- **Links** (left, in Edit): one row per link with its parent joint's name and kind
   (`hinge · revolute`), and under it — before its child links — a row per
   named frame (`⌖ tcp   frame`, ADR-0012); click selects the link, the
   joint or the frame, double-click or F2 renames a link or a frame inline,
@@ -311,8 +328,8 @@ closes.
   highlights, and the cursor reads `Grabbing`, or `NotAllowed` over a drop
   the document would refuse (the root as the source, the link's own
   subtree as the target); `debug_state().ui.drag` reports the drag —
-  reparents with `keep_world_pose` **at the current `q`**, so a part
-  dragged while posed stays where it is seen (02 §Commands and history). Every row is a `dnd_drop_zone` around a
+  reparents with `keep_world_pose` at the zero configuration, which is
+  what Edit shows (02 §Commands and history, ADR-0021 §5). Every row is a `dnd_drop_zone` around a
   `Button::selectable(..).sense(click_and_drag())` that sets its own
   payload with `dnd_set_drag_payload` — egui's `dnd_drag_source` lays a
   drag-only widget over its content and the hit test then swallows clicks
@@ -338,10 +355,14 @@ closes.
   dimmed and not draggable, sits at the value `fk::resolve_q` derives, and
   carries the rule under it (ADR-0013). "Reset all" puts every joint back
   to zero.
-- **Toolbar**: five buttons — Select / Move / Rotate / Place joint /
-  Align — in a popup frame floating over the viewport's top-left corner.
-  Drawn *after* the viewport in the same layer, which is what gives it the
-  pointer: egui's hit test prefers the widget registered last.
+- **The corner chrome** (`mode.rs::viewport_chrome`): the `View | Edit`
+  control and, in Edit, the **toolbar** — five buttons, Select / Move /
+  Rotate / Place joint / Align — each in a popup frame floating over the
+  viewport's top-left corner. Drawn *after* the viewport in the same layer,
+  which is what gives them the pointer: egui's hit test prefers the widget
+  registered last. Their joint rect is remembered as `toolbar_rect`: the
+  camera holds still and the picks are off under it, and no glyph is
+  hovered through it.
 - **Joint glyphs** (in the viewport): a joint has no geometry, so without
   one it exists only in the tree and "which way does this hinge turn?" has
   to be read off two number fields. Each glyph is an axis segment through
@@ -383,7 +404,7 @@ closes.
   suppressed so a click selects the frame — and a frame glyph wins the
   pointer over a joint's, whose long axis line often runs straight through
   it.
-- **Properties** (right): a link's name, material, and per geom the pose
+- **Properties** (right, in Edit): a link's name, material, and per geom the pose
   (xyz m, RPY °), asset scale and fix-up, "Add mesh to this link…"; then
   **Inertial** — the `InertialSpec` mode combo (Computed / Override /
   Hybrid) with its fields (density override; mass, CoM and the six tensor
@@ -415,14 +436,9 @@ closes.
   `1e-12` (round-off; the writers keep twelve decimals, so nothing
   smaller reaches a file), and a field sized to its text accepts either
   spelling — "changed" means changed at that precision.
-- **Window › Joints** / **Materials**: floating windows. Joints: one
-  slider per movable joint in its limits (Continuous ±180°), writing `q`
-  and syncing every frame, "Reset all". It **opens itself**: when a
-  document with a movable joint replaces the current one (and closes when
-  one without does), and when a command creates the document's first
-  movable joint; the user closing it — the title bar, the menu — is
-  respected until the next document (plans/panels-and-numbers OPEN 3).
-  Materials is closed until asked for. Materials: name /
+- **Window › Materials**: a floating window, closed until asked for. (The
+  Joints window it used to sit beside, and its open-itself rule, went with
+  ADR-0021: posing has the joint tree.) Name /
   density / colour rows, add and remove (refused while a link uses it),
   and the name renamed inline — double-click it or press F2 over it, the
   tree's idiom; Enter commits one `RenameMaterial` (refused onto a taken
@@ -453,7 +469,8 @@ closes.
   Export and Debug › Save state each hand the browser a file (§The web
   build, ADR-0017).
 - **Shortcuts** (`shortcuts.rs`, run before the panels each frame): Ctrl+N
-  / O / S / Shift+S fire always; Delete, F2, Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y
+  / O / S / Shift+S fire always; Tab, the tool keys, Delete, F2, Ctrl+Z,
+  Ctrl+Shift+Z and Ctrl+Y
   yield while a `TextEdit` has focus (`TextEdit::load_state` on the focused
   id — a clicked button holds focus too and must not block Delete), and the
   shifted pattern is consumed before the bare one because egui matches
@@ -467,7 +484,7 @@ input ──► shortcuts ──► menu bar, status bar, tree, properties
              joint + frame glyphs from (Robot, q) ──► glyph hover ──► snap candidate
              viewport.set_overlay(glyphs + frame triads + align pick + snap marker)
              viewport pointer policy: five switches + set_pick_excluded
-             viewport.ui ──► gizmo ──► toolbar   (registration order = pointer precedence)
+             viewport.ui ──► gizmo ──► corner chrome   (registration order = pointer precedence)
              a click ──► select a joint or frame / place a joint or frame / align
        ──► Commands ──► History ──► Robot
 Robot ──► fk(robot, q) ──► world pose per link
@@ -705,8 +722,8 @@ Click-only, the hit test reports `click: gizmo, drag: viewport` — so the
 handle under the cursor claims it (`set_primary_drag_claimed`, below), so a
 left-drag from a handle moves the part instead of orbiting the camera under
 it (ADR-0018). Everywhere else the viewport keeps the pointer it always had.
-The toolbar is registered after the gizmo in turn: viewport < gizmo <
-toolbar.
+The corner chrome — the mode control and, in Edit, the toolbar — is
+registered after the gizmo in turn: viewport < gizmo < chrome.
 
 The viewport takes that policy through **five** switches, each one channel
 and no more, because "the pointer is busy" has five different meanings:
@@ -741,8 +758,8 @@ in; it never needs to.
 A gizmo *drag* is the one case that blocks the camera while keeping the
 hover pick: the drag is solved against the projection it started in, so the
 camera must hold still, but the snap ladder under the cursor is exactly
-what the drag is aiming at (ADR-0019 §4). The toolbar, which wants neither,
-sets `set_camera_blocked` **and** `set_pick_suppressed`.
+what the drag is aiming at (ADR-0019 §4). The corner chrome, which wants
+neither, sets `set_camera_blocked` **and** `set_pick_suppressed`.
 
 The gizmo's switches are one frame late — it cannot say whether it owns the
 cursor, or which ring is under it, until it has run, and the viewport runs
@@ -750,7 +767,7 @@ first — which is the same lag egui's own interaction has. Camera input keys
 on `Response::contains_pointer` rather than `hovered`, as the hover pick
 does: `contains_pointer` filters *layers* covering the cursor but not
 same-layer widgets, so a floating window still takes the wheel while a
-gizmo handle no longer freezes the camera — and the toolbar, being
+gizmo handle no longer freezes the camera — and the corner chrome, being
 same-layer, is what `set_camera_blocked` is for.
 
 **The wheel over a rotate ring** steps that ring by 5°, or 1° with shift,
@@ -1259,6 +1276,8 @@ measured size is in 03 §v0.2.
   `three_parts`, `pendulum`, `mm_scale_part`, `tree_pendulum`,
   `tree_reparent`, `properties_link`, `properties_joint`, `pendulum_swing`,
   `materials`, `toolbar`, `gizmo_move_link`, `gizmo_rotate_joint`,
+  the View-mode set `view_opens_with_the_document`, `view_joint_tree`,
+  `view_joint_tree_scrub` and `view_wheel_on_glyph` (ADR-0021),
   `glyph_revolute`, `glyph_prismatic`, `glyph_hover`, `snap_vertex`,
   `snap_circle`, `place_joint_bore`, `align_concentric`, `five_minute_arm`,
   `dirty_title`, `unsaved_confirm`, `file_menu`, `debug_menu`, and M3's
@@ -1267,15 +1286,14 @@ measured size is in 03 §v0.2.
   `properties_inertial`, `properties_inertial_open_mesh`,
   `properties_collision`, `export_dialog`, `export_blocked`, `import_urdf`,
   v0.2's `collision_decomposition`, `properties_collision_decomposition`,
-  the mimic and actuator set — `joints_window_mimic`,
-  `properties_joint_mimic`, `properties_joint_actuator`,
+  the mimic and actuator set — `properties_joint_mimic`, `properties_joint_actuator`,
   `properties_joint_actuator_applied` —
   and the frame set — `frames_tree`, `frame_properties`,
   `add_frame_button`, `gizmo_move_frame` — and `decomp_needs_consent`, the
   browser's half of the Collision block, which a native runner renders by
   turning `set_decomp_consent` off, and v0.3's panel set —
   `properties_scrub` (a drag on a field, one undo entry),
-  `properties_wheel` (three Ctrl+wheel notches), `joints_window_opens_itself`,
+  `properties_wheel` (three Ctrl+wheel notches),
   `tools_say_what_they_need`, `click_empty_clears`,
   `properties_collision_meshes`, `materials_rename`, `tree_drag_ghost`
   (captured mid-drag), `tree_reparent_posed` (a drop with the arm
@@ -1323,6 +1341,13 @@ measured size is in 03 §v0.2.
     AccessKit nodes exist at once, its pixels one frame later. `settle()`
     (or one more `step()`) before a capture, or the menu is missing from
     the PNG while every query on it passes.
+  - A document opens in **View** (ADR-0021 §4), so every scenario that
+    builds or fixes a robot starts with `open_for_editing(app, path)` —
+    `open_path` and the `set_mode` that `Tab` makes — and a scenario that
+    opens a document with `open_path` alone is a View scenario on purpose.
+    A mesh opens in Edit by itself. The menu bar's "View" and "Edit" share
+    their text with the mode control's labels: `click_menu` takes the
+    top-most.
   - `click_widget(harness, label)` clicks a widget that floats **over** the
     viewport (the toolbar, later the gizmo) with a real pointer, through
     `click_at`. `Node::click()` cannot: it queues press and release

@@ -1,5 +1,6 @@
 //! The active tool and the toolbar that floats in the viewport's top-left
-//! corner (docs/01-architecture.md §Panels and menus).
+//! corner beside the `View | Edit` control, in Edit only
+//! (docs/01-architecture.md §Panels and menus, ADR-0021).
 //!
 //! A tool is *modal*: it decides what a click and a drag in the viewport
 //! mean. `Select` is the M1 behaviour and the resting state — `Esc` always
@@ -98,11 +99,16 @@ impl RiggenApp {
     }
 
     /// Switches tools. `q` is not touched: Edit is the zero configuration
-    /// already (ADR-0021 §2).
+    /// already (ADR-0021 §2). In View the tools are Edit's and the only
+    /// tool is Select, whatever was asked for.
     pub fn set_tool(&mut self, tool: Tool) {
         // A half-finished align belongs to the gesture, not to the app.
         self.cancel_align();
-        self.tool = tool;
+        self.tool = if self.mode == super::Mode::View {
+            Tool::Select
+        } else {
+            tool
+        };
         self.refresh_tool_status();
     }
 
@@ -153,47 +159,29 @@ impl RiggenApp {
         }
     }
 
-    /// The toolbar, drawn over the viewport's top-left corner **after** the
-    /// viewport itself so egui's hit test gives it the pointer: a widget
-    /// registered later in a layer is the top-most one under the cursor,
-    /// which is the same rule the gizmo relies on.
-    pub(crate) fn tool_bar(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
-        const MARGIN: f32 = 8.0;
-        let corner = egui::Rect::from_min_max(rect.min + egui::Vec2::splat(MARGIN), rect.max);
+    /// The toolbar: five buttons in a popup frame, drawn beside the
+    /// `View | Edit` control in Edit (`mode.rs::viewport_chrome`) and
+    /// returning the tool a click chose, applied by the caller after both
+    /// have drawn.
+    pub(crate) fn tool_bar(&self, ui: &mut egui::Ui) -> Option<Tool> {
         let mut chosen = None;
-        let response = ui.scope_builder(
-            egui::UiBuilder::new()
-                .max_rect(corner)
-                .layout(egui::Layout::top_down(egui::Align::LEFT)),
-            |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        for tool in Tool::ALL {
-                            // The key is in the tooltip, not on the button:
-                            // a binding nobody can find is folklore, and a
-                            // toolbar that spells out five of them is a
-                            // toolbar nobody can read.
-                            if ui
-                                .selectable_label(self.tool == tool, tool.label())
-                                .on_hover_text(format!(
-                                    "{} ({})",
-                                    tool.label(),
-                                    tool.shortcut().name()
-                                ))
-                                .clicked()
-                            {
-                                chosen = Some(tool);
-                            }
-                        }
-                    });
-                });
-            },
-        );
-        // Remembered so a joint glyph *behind* the toolbar is not treated as
-        // hovered through it (`update_glyph_hover`).
-        self.toolbar_rect = Some(response.response.rect);
-        if let Some(tool) = chosen {
-            self.set_tool(tool);
-        }
+        egui::Frame::popup(ui.style()).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                for tool in Tool::ALL {
+                    // The key is in the tooltip, not on the button: a
+                    // binding nobody can find is folklore, and a toolbar
+                    // that spells out five of them is a toolbar nobody
+                    // can read.
+                    if ui
+                        .selectable_label(self.tool == tool, tool.label())
+                        .on_hover_text(format!("{} ({})", tool.label(), tool.shortcut().name()))
+                        .clicked()
+                    {
+                        chosen = Some(tool);
+                    }
+                }
+            });
+        });
+        chosen
     }
 }

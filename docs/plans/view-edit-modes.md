@@ -81,8 +81,11 @@ contract is ADR-0021.
   goes with the window.
 - **`debug/mod.rs`**: `UiDebug::mode: &'static str`, `UiDebug::windows`
   loses `"joints"`; `GlyphDebug` unchanged.
-- **`tests/visual/harness.rs`**: `open_for_editing(path)` = `open_path` +
-  `Tab`, the helper every editing scenario switches to; `press_tab`.
+- **`tests/visual/harness.rs`**: `open_for_editing(app, path)` =
+  `open_path` + the `set_mode(Edit)` that `Tab` makes, the helper every
+  editing scenario switches to (the key itself has its own scenario, so
+  no `press_tab`); `click_menu` in `main.rs` for the menu titles that now
+  share text with the control.
 - **`docs/01-architecture.md`**: §Panels and menus (the mode, the joint
   tree, the toolbar and properties per mode, the Joints window paragraph
   removed, the zero-configuration paragraph rewritten), §Picking and
@@ -117,7 +120,7 @@ contract is ADR-0021.
   same quantum. New goldens `view_joint_tree` (the arm: three rows, one a
   follower with its rule) and `view_joint_tree_scrub` (a row mid-drag). The
   Joints window still exists and is untouched, so no other golden moves.
-- [ ] Step 6 — Panels per mode and the open rule, **the one full refresh**:
+- [x] Step 6 — Panels per mode and the open rule, **the one full refresh**:
   the `View | Edit` control top-left, the status bar's mode, properties and
   toolbar hidden in View, the Joints window deleted with its rule and menu
   item, `replace_document`'s open rule (document / import / demo → View,
@@ -167,10 +170,10 @@ demo's first frame is View. `debug_state().ui.windows` never contains
   `scrub_speed` is, because the ring's 5° is a fixed fraction of a turn
   and a value-scaled notch would shrink to nothing at zero, which is
   where every pose starts.
-- ⚠ OPEN: what View shows for a document with **no** movable joint that
-  arrived as a document (an all-fixed import): an empty joint tree with a
-  "nothing to pose — Tab to edit" line, or Edit directly. Proposal: the
-  line; the open rule stays one sentence. Human, before step 6.
+- Decided (human, 2026-09-05, step 6): a document with **no** movable
+  joint that arrived as a document opens in View with the joint tree
+  reading `NOTHING_TO_POSE` ("nothing to pose — Tab to edit"); the open
+  rule stays one sentence.
 - ⚠ OPEN: ordering with the glyph plan — step 7 here waits on that plan's
   step 2, and that plan's step 2 should run after step 6 here so its
   goldens are refreshed in View once. Agent sequences; the human is told

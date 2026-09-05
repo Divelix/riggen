@@ -129,9 +129,7 @@
     "mode": "Edit",
     "tool": "Select",
     "renaming": null,
-    "windows": [
-      "joints"
-    ],
+    "windows": [],
     "modal": "unsaved_changes",
     "title": "pendulum.riggen* — riggen"
   },

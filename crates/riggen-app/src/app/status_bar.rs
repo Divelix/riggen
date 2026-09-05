@@ -1,5 +1,5 @@
-//! Bottom status bar: `riggen | pendulum.riggen* | import: mm | hover: arm
-//! (i1/t120) | selected: … | 2 instances | 4.10 ms (244 fps)`.
+//! Bottom status bar: `riggen | View | pendulum.riggen* | import: mm |
+//! hover: arm (i1/t120) | selected: … | 2 instances | 4.10 ms (244 fps)`.
 //!
 //! `hovered`/`selected` reflect the *previous* frame's viewport state — this
 //! panel is drawn before the viewport so the central panel gets whatever
@@ -9,6 +9,8 @@
 /// Everything the bar shows, pre-formatted by the app so this module never
 /// names viewport or document types.
 pub(crate) struct StatusView<'a> {
+    /// `View` or `Edit` (ADR-0021 §3).
+    pub mode: &'a str,
     /// `name.riggen`, with `*` when there are unsaved changes.
     pub document: &'a str,
     /// What a dropped mesh is read as: `mm`, `m`, …
@@ -44,6 +46,8 @@ pub(crate) fn status_bar(ui: &mut egui::Ui, view: &StatusView<'_>) {
     egui::Panel::bottom("status_bar").show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label("riggen");
+            ui.separator();
+            ui.label(view.mode);
             ui.separator();
             ui.label(view.document);
             ui.separator();

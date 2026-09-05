@@ -132,9 +132,7 @@
     "mode": "Edit",
     "tool": "Move",
     "renaming": null,
-    "windows": [
-      "joints"
-    ],
+    "windows": [],
     "modal": null,
     "title": "pendulum.riggen* — riggen"
   },

@@ -341,7 +341,7 @@ rule rather than the writer with itself.
 `fk` resolves mimic joints first, through `resolve_q`: a follower's `q` is
 `multiplier · q(leader) + offset` (ADR-0013) and whatever the caller put in
 the follower's own slot is ignored, not an error — it is derived state.
-`resolve_q` is the **single implementation** of that rule; the Joints window
+`resolve_q` is the **single implementation** of that rule; the joint tree
 and `--fk-samples` read it too, so the number the viewport draws and the
 number the export writes cannot drift apart. One pass suffices, not a fixed
 point, because `validate` rejects a leader that itself mimics.

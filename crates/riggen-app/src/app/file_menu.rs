@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 
 use riggen_core::Robot;
 
-use super::RiggenApp;
 use super::file_io::DOCUMENT_EXTENSION;
+use super::{Mode, RiggenApp};
 
 /// What the user asked for while the document was dirty, waiting on the
 /// Save / Don't save / Cancel answer.
@@ -116,7 +116,8 @@ impl RiggenApp {
 
     /// An empty document named `robot`, untitled.
     pub fn new_document(&mut self) {
-        self.replace_document(Robot::new("robot"), None);
+        // Nothing to pose yet: the editor (ADR-0021 §4).
+        self.replace_document(Robot::new("robot"), None, Mode::Edit);
         self.status = None;
     }
 

@@ -98,6 +98,20 @@ fn app_harness() -> Harness<'static, RiggenApp> {
     harness
 }
 
+/// Opens a document and switches to **Edit**: what every scenario that
+/// builds or fixes a robot starts with, since a document opens in View
+/// (ADR-0021 §4). The switch is `set_mode`, the same call `Tab` makes —
+/// the key itself is covered by its own scenario.
+#[allow(dead_code, reason = "used from the editing scenarios on")]
+pub fn open_for_editing(
+    app: &mut RiggenApp,
+    path: &std::path::Path,
+) -> Result<Option<riggen_core::LinkId>, String> {
+    let opened = app.open_path(path)?;
+    app.set_mode(riggen_app::Mode::Edit);
+    Ok(opened)
+}
+
 /// Pumps frames until the app reports itself settled for a few in a row.
 ///
 /// This does **no** GPU work: `Harness::step` only runs egui's logic pass, and

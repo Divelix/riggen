@@ -13,7 +13,7 @@
 //! under it. The panel never computes that value itself — the viewport and
 //! the export read the same helper.
 
-use riggen_core::{JointId, JointKind, Limits, LinkId};
+use riggen_core::{JointId, JointKind, Limits, LinkId, Mimic};
 
 use crate::app::mode::wheel_step;
 use crate::app::{RiggenApp, Selection, fmt_num};
@@ -74,6 +74,18 @@ fn from_bar(kind: JointKind, v: f64) -> f64 {
 /// The bar's height.
 const BAR_HEIGHT: f32 = 14.0;
 
+/// What the panel says for a document with nothing to pose — an all-fixed
+/// assembly opened as a document still opens in View (ADR-0021 §4; plans/
+/// view-edit-modes OPEN 2). Public so a test asserts on the constant.
+pub const NOTHING_TO_POSE: &str = "nothing to pose — Tab to edit";
+
+/// Six decimals, trailing zeros dropped, no `-0` — the same shape the
+/// properties panel writes a number in.
+fn num(v: f64) -> String {
+    let r = (v * 1e6).round() / 1e6;
+    format!("{}", if r == 0.0 { 0.0 } else { r })
+}
+
 /// The value as the row prints it: a tenth of a degree, a millimetre —
 /// a pose readout, not a field to be typed into.
 fn shown(kind: JointKind, v: f64) -> String {
@@ -85,6 +97,23 @@ fn shown(kind: JointKind, v: f64) -> String {
 }
 
 impl RiggenApp {
+    /// `= -0.5 × upper_joint + 0.1`, the rule as the document holds it —
+    /// radians or meters, the units `Mimic` is in, not the row's
+    /// (ADR-0013). A zero offset is left off rather than written `+ 0`.
+    pub(crate) fn mimic_rule(&self, m: &Mimic) -> String {
+        let leader = self
+            .robot
+            .joints
+            .get(&m.joint)
+            .map_or_else(|| m.joint.to_string(), |j| j.name.clone());
+        let rule = format!("= {} × {leader}", num(m.multiplier));
+        match m.offset {
+            0.0 => rule,
+            o if o < 0.0 => format!("{rule} - {}", num(-o)),
+            o => format!("{rule} + {}", num(o)),
+        }
+    }
+
     /// View's left panel: the heading, "Reset all", and the rows from the
     /// root down.
     pub(crate) fn joint_tree_panel(&mut self, ui: &mut egui::Ui) {
@@ -111,7 +140,7 @@ impl RiggenApp {
                 });
                 ui.separator();
                 if !self.has_movable_joint() {
-                    ui.weak("no movable joints");
+                    ui.weak(NOTHING_TO_POSE);
                     return;
                 }
                 // The wheel over a bar steps the joint; the area must not
@@ -234,6 +263,19 @@ impl RiggenApp {
         }
         if response.clicked() {
             actions.push(RowAction::Select(joint));
+        }
+        // The bar is a slider to assistive technology, and takes a value
+        // set through it (in the bar's unit, like egui's own `Slider`).
+        let set_values: Vec<f64> = ui.input(|i| {
+            i.accesskit_action_requests(response.id, egui::accesskit::Action::SetValue)
+                .filter_map(|request| match request.data {
+                    Some(egui::accesskit::ActionData::NumericValue(v)) => Some(v),
+                    _ => None,
+                })
+                .collect()
+        });
+        for v in set_values {
+            actions.push(RowAction::Set(joint, from_bar(j.kind, v)));
         }
         // A drag moves the value across the bar: the whole width is the
         // whole range, a tenth of that with Ctrl.

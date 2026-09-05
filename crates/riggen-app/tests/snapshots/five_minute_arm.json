@@ -159,9 +159,7 @@
     "mode": "Edit",
     "tool": "Place joint",
     "renaming": null,
-    "windows": [
-      "joints"
-    ],
+    "windows": [],
     "modal": null,
     "title": "untitled* — riggen"
   },

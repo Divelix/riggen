@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use riggen_core::{Command, Disk, FileSource, Geom, GeomId, Link, LinkId, MeshAsset, MeshId, Pose};
 
 use super::document::name_from_stem;
-use super::{LoadedMesh, RiggenApp};
+use super::{LoadedMesh, Mode, RiggenApp};
 
 /// The directory dropped files are given, so that every path in the
 /// document is absolute exactly as it is on disk (docs/01-architecture.md
@@ -217,7 +217,7 @@ impl RiggenApp {
         let text = self.read_text(at)?;
         let (robot, warnings) =
             riggen_core::load_from(&text, at, &self.files).map_err(|e| e.to_string())?;
-        self.replace_document(robot, file);
+        self.replace_document(robot, file, Mode::View);
         if let Some(first) = warnings.first() {
             self.status = Some(match warnings.len() {
                 1 => first.to_string(),
@@ -262,7 +262,7 @@ impl RiggenApp {
         >,
     ) -> Result<(), String> {
         let (robot, warnings) = imported.map_err(|e| e.to_string())?;
-        self.replace_document(robot, None);
+        self.replace_document(robot, None, Mode::View);
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -323,6 +323,8 @@ impl RiggenApp {
         link.visuals.push(geom);
         let parent = self.insertion_parent();
         let added = self.add_link(link, parent).map_err(|e| e.to_string())?;
+        // A mesh drop is building, not looking (ADR-0021 §4, ADR-0006).
+        self.set_mode(Mode::Edit);
         // An open shell has no volume to weigh: say so at the drop, since
         // the export will refuse it later (docs/02-data-model.md §Inertials).
         let closed = self

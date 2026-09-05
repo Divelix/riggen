@@ -74,8 +74,8 @@ impl DecompSource for AppDecomp<'_> {
     }
 }
 
-use super::RiggenApp;
 use super::file_io::Files;
+use super::{Mode, RiggenApp, Tool};
 
 /// A mesh asset's bytes through the app's [`Files`], parsed by the name it
 /// carries — the one place the app turns a `MeshAsset::path` into geometry.
@@ -360,10 +360,13 @@ impl RiggenApp {
         done
     }
 
-    /// Swaps in a new document (New, Open, a dropped `.riggen`): fresh
-    /// history, no selection, joint values at zero, meshes loaded from the
-    /// assets. The old mesh store is dropped — a file's assets are its own.
-    pub(crate) fn replace_document(&mut self, robot: Robot, file: Option<PathBuf>) {
+    /// Swaps in a new document (New, Open, a dropped `.riggen`, an import):
+    /// fresh history, no selection, joint values at zero, meshes loaded
+    /// from the assets. The old mesh store is dropped — a file's assets are
+    /// its own. `mode` is the open rule's answer (ADR-0021 §4): View for a
+    /// document that arrived whole, Edit for File › New — set directly,
+    /// since there is no pose to stash and no tool to keep.
+    pub(crate) fn replace_document(&mut self, robot: Robot, file: Option<PathBuf>, mode: Mode) {
         self.robot = robot;
         self.file = file;
         self.history = History::new();
@@ -374,9 +377,12 @@ impl RiggenApp {
         self.q = JointState::default();
         self.stashed_q = None;
         self.selection = Selection::None;
+        self.mode = mode;
+        if mode == Mode::View {
+            self.cancel_align();
+            self.tool = Tool::Select;
+        }
         self.sync_scene();
-        let has_movable = self.has_movable_joint();
-        self.joints_window.document_replaced(has_movable);
         self.refresh_tool_status();
     }
 
@@ -619,8 +625,6 @@ impl RiggenApp {
     }
 
     fn after_document_change(&mut self) {
-        let has_movable = self.has_movable_joint();
-        self.joints_window.document_changed(has_movable);
         self.clamp_q_to_document();
         if let Selection::Link(l) = self.selection
             && !self.robot.links.contains_key(&l)

@@ -129,9 +129,7 @@
     "mode": "Edit",
     "tool": "Select",
     "renaming": null,
-    "windows": [
-      "joints"
-    ],
+    "windows": [],
     "modal": null,
     "title": "pendulum.riggen* — riggen",
     "drag": {

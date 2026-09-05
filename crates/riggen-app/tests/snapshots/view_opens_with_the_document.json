@@ -23,7 +23,7 @@
     "far": 145.494766,
     "projection": "Perspective",
     "animating": false,
-    "aspect": 0.955504,
+    "aspect": 1.405152,
     "view": [
       [
         0.707107,
@@ -52,7 +52,7 @@
     ],
     "proj": [
       [
-        2.52664,
+        1.718115,
         0.0,
         0.0,
         0.0
@@ -190,12 +190,10 @@
     "selection": null
   },
   "ui": {
-    "mode": "Edit",
+    "mode": "View",
     "tool": "Select",
     "renaming": null,
-    "windows": [
-      "joints"
-    ],
+    "windows": [],
     "modal": null,
     "title": "arm.riggen — riggen"
   },
@@ -325,6 +323,13 @@
     "hovered": null,
     "selected": null
   },
+  "input": {
+    "pick_suppressed": true,
+    "select_suppressed": false,
+    "camera_blocked": false,
+    "primary_drag_claimed": false,
+    "wheel_claimed": false
+  },
   "gizmo": null,
   "glyphs": [
     {
@@ -344,7 +349,7 @@
       "size": 0.042276,
       "q": 0.0,
       "screen": [
-        652.0,
+        840.0,
         626.179993
       ],
       "active": false,
@@ -368,7 +373,7 @@
       "size": 0.065123,
       "q": 0.0,
       "screen": [
-        652.0,
+        840.0,
         531.577026
       ],
       "active": false,
@@ -392,7 +397,7 @@
       "size": 0.053014,
       "q": 0.1,
       "screen": [
-        652.0,
+        840.0,
         329.770752
       ],
       "active": false,
@@ -411,7 +416,7 @@
       ],
       "size": 0.029158,
       "screen": [
-        667.090515,
+        855.090515,
         136.905548
       ],
       "active": false,
@@ -427,7 +432,7 @@
       ],
       "size": 0.028579,
       "screen": [
-        696.036621,
+        884.03656,
         695.189148
       ],
       "active": false,
@@ -437,9 +442,9 @@
   "snap": null,
   "status": null,
   "viewport_rect": [
-    244.0,
+    240.0,
     23.0,
-    1060.0,
+    1440.0,
     877.0
   ]
 }

@@ -2,7 +2,8 @@
 //! name and kind, a row per named frame under the link it hangs on, click
 //! to select, double-click or F2 to rename inline, drag a row (a ghost with
 //! its name follows the cursor; the row under it says yes or no) onto another
-//! to reparent it (`keep_world_pose: true`, so the part stays where it is).
+//! to reparent it (`keep_world_pose: true`, so the part stays where it is —
+//! at the zero configuration, which is what Edit shows; ADR-0021 §5).
 //! The panel draws from the document and pushes every edit through a
 //! command *after* drawing, so nothing mutates the tree while it is being
 //! walked.
@@ -226,13 +227,14 @@ impl RiggenApp {
                     }
                 }
                 TreeAction::Reparent { link, new_parent } => {
-                    // At the current `q`: a drop while posing keeps the part
-                    // where the user sees it, not where it would sit at zero.
+                    // The tree is Edit's panel and Edit is the zero
+                    // configuration, so the drop keeps the world pose at
+                    // zero; the off-zero `at` is the SDK's (ADR-0021 §5).
                     let _ = self.apply(Command::Reparent {
                         link,
                         new_parent,
                         keep_world_pose: true,
-                        at: self.q.clone(),
+                        at: riggen_core::JointState::default(),
                     });
                 }
             }

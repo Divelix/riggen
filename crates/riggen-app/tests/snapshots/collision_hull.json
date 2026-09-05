@@ -193,9 +193,7 @@
     "mode": "Edit",
     "tool": "Select",
     "renaming": null,
-    "windows": [
-      "joints"
-    ],
+    "windows": [],
     "modal": null,
     "title": "arm.riggen* — riggen",
     "collision_view": true

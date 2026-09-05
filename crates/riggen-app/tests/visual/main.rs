@@ -17,8 +17,8 @@ mod harness;
 
 use egui_kittest::kittest::{NodeT, Queryable};
 use harness::{
-    camera_drag, click_at, click_widget, middle_drag, press_move_release, pump_rendered, scenario,
-    scroll_at, scroll_at_with, settle, synthetic_drag, with_app,
+    camera_drag, click_at, click_widget, middle_drag, open_for_editing, press_move_release,
+    pump_rendered, scenario, scroll_at, scroll_at_with, settle, synthetic_drag, with_app,
 };
 
 use riggen_app::{Mode, RingAxis, Selection, Tool, VIEW_TOOL_HINT};
@@ -29,6 +29,20 @@ fn fixture(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../assets/fixtures")
         .join(name)
+}
+
+/// Clicks a menu-bar title. "View" and "Edit" are also the mode control's
+/// labels (ADR-0021 §3), so the top-most node with the text is the menu's.
+fn click_menu(harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>, label: &str) {
+    let y = |b: Option<egui::accesskit::Rect>| b.map_or(f64::MAX, |b| b.y0);
+    harness
+        .get_all_by_label(label)
+        .min_by(|a, b| {
+            y(a.accesskit_node().bounding_box()).total_cmp(&y(b.accesskit_node().bounding_box()))
+        })
+        .unwrap_or_else(|| panic!("no menu {label:?}"))
+        .click();
+    harness.step();
 }
 
 /// Opens a mesh as a new link, or panics with the loader's message.
@@ -114,9 +128,7 @@ fn hover_cube() {
 #[test]
 fn collision_hull() {
     scenario("collision_hull", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("arm/arm.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("arm/arm.riggen"))
             .expect("the sample arm opens");
         let links: Vec<LinkId> = harness
             .state()
@@ -141,8 +153,7 @@ fn collision_hull() {
             "the view is off: visuals only"
         );
 
-        harness.get_by_label("View").click();
-        harness.step();
+        click_menu(harness, "View");
         harness.get_by_label("Collision geometry").click();
         harness.step();
         harness.state_mut().fit_view_now();
@@ -498,9 +509,7 @@ fn three_parts() {
 #[test]
 fn pendulum() {
     scenario("pendulum", |harness| {
-        let opened = harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        let opened = open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         assert_eq!(opened, None, "a document opens as a document, not a link");
         harness.state_mut().fit_view_now();
@@ -571,9 +580,7 @@ fn bad_path_reports_and_adds_nothing() {
         assert!(err.contains("unsupported format"), "{err}");
         assert!(app.debug_state().instances.is_empty());
 
-        let err = app
-            .open_path(&fixture("does_not_exist.riggen"))
-            .unwrap_err();
+        let err = open_for_editing(app, &fixture("does_not_exist.riggen")).unwrap_err();
         assert!(err.contains("does_not_exist.riggen"), "{err}");
         assert_eq!(app.debug_state().document.file, None);
 
@@ -669,9 +676,7 @@ fn open_document_replaces_the_scene() {
 #[test]
 fn tree_pendulum() {
     scenario("tree_pendulum", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -708,8 +713,7 @@ fn tree_pendulum() {
 fn tree_reparent() {
     scenario("tree_reparent", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let cube = open_link(app, "cube.obj");
         let cube_joint = app.robot().parent_joint(cube).unwrap();
         let mut edited = app.robot().joints[&cube_joint].clone();
@@ -768,9 +772,7 @@ fn tree_reparent() {
 #[test]
 fn tree_add_rename_delete() {
     with_app(|harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         settle(harness);
         harness.get_by_label("arm").click();
@@ -856,9 +858,7 @@ fn tree_add_rename_delete() {
 #[test]
 fn properties_link() {
     scenario("properties_link", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -889,8 +889,7 @@ fn properties_link() {
 fn tree_drag_ghost() {
     scenario("tree_drag_ghost", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let cube = open_link(app, "cube.obj");
         let arm = *app
             .robot()
@@ -999,70 +998,6 @@ fn tree_drag_ghost() {
     });
 }
 
-/// A drop while posing keeps the part where the user sees it: with the
-/// hinge swung 45°, dragging `cube` onto the swung `arm` reparents at the
-/// current `q`, every instance stays put, and the origin is not the one
-/// the zero configuration would have written.
-#[test]
-fn tree_reparent_posed() {
-    scenario("tree_reparent_posed", |harness| {
-        let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
-        let cube = open_link(app, "cube.obj");
-        let cube_joint = app.robot().parent_joint(cube).unwrap();
-        let mut edited = app.robot().joints[&cube_joint].clone();
-        edited.origin = Pose::from_translation(DVec3::new(1.5, 0.0, 0.0));
-        app.apply(Command::SetJoint(cube_joint, edited)).unwrap();
-        let arm = *app
-            .robot()
-            .links
-            .iter()
-            .find(|(_, l)| l.name == "arm")
-            .map(|(id, _)| id)
-            .unwrap();
-        let hinge = app.robot().parent_joint(arm).unwrap();
-        app.set_joint_value(hinge, std::f64::consts::FRAC_PI_4);
-        app.fit_view_now();
-        settle(harness);
-        let before = harness.state().debug_state();
-        let depth = harness.state().history().undo_depth();
-
-        let from = harness.get_by_label("cube").rect().center();
-        let to = harness.get_by_label("arm").rect().center();
-        synthetic_drag(harness, from, to, 6);
-        settle(harness);
-
-        let app = harness.state();
-        let state = app.debug_state();
-        assert_eq!(app.history().undo_depth(), depth + 1, "one Reparent");
-        assert_eq!(app.robot().joints[&cube_joint].parent, arm);
-        assert!(
-            (app.joint_value(hinge) - std::f64::consts::FRAC_PI_4).abs() < 1e-12,
-            "still posed"
-        );
-        for (was, is) in before.instances.iter().zip(&state.instances) {
-            assert_eq!(was.link, is.link);
-            for k in 0..3 {
-                assert!(
-                    (was.position[k] - is.position[k]).abs() < 1e-5,
-                    "{:?} moved: {:?} → {:?}",
-                    was.link,
-                    was.position,
-                    is.position
-                );
-            }
-        }
-        // In the zero configuration the cube would sit at (1.5, 0, -0.5) in
-        // the arm's frame; posed, the arm's frame is turned 45° about y.
-        let origin = app.robot().joints[&cube_joint].origin.t;
-        assert!(
-            (origin - DVec3::new(1.5, 0.0, -0.5)).length() > 1e-3,
-            "{origin}"
-        );
-    });
-}
-
 /// Materials can be renamed: a double-click on the name in the Materials
 /// window opens the tree's inline field, Enter commits one
 /// `RenameMaterial`, and the link's Properties combo shows the new name
@@ -1071,8 +1006,7 @@ fn tree_reparent_posed() {
 fn materials_rename() {
     scenario("materials_rename", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.set_materials_window_open(true);
         let arm = *app
             .robot()
@@ -1162,8 +1096,7 @@ fn materials_rename() {
 fn f2_over_a_material_name_renames_it() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.set_materials_window_open(true);
         settle(harness);
         let name = harness
@@ -1215,8 +1148,7 @@ fn f2_over_a_material_name_renames_it() {
 fn properties_collision_meshes() {
     scenario("properties_collision_meshes", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("arm/arm.urdf"))
-            .expect("the sample URDF opens");
+        open_for_editing(app, &fixture("arm/arm.urdf")).expect("the sample URDF opens");
         app.set_show_collision(true);
         let fore = *app
             .robot()
@@ -1289,8 +1221,7 @@ fn export_writes_the_collision_meshes_that_remain() {
     with_app(|harness| {
         let dir = scratch_dir("collision_meshes_export");
         let app = harness.state_mut();
-        app.open_path(&fixture("arm/arm.urdf"))
-            .expect("the sample URDF opens");
+        open_for_editing(app, &fixture("arm/arm.urdf")).expect("the sample URDF opens");
         let fore = *app
             .robot()
             .links
@@ -1335,8 +1266,7 @@ fn export_writes_the_collision_meshes_that_remain() {
 fn click_on_empty_space_clears_a_joint_selection() {
     scenario("click_empty_clears", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
         settle(harness);
         let hinge = *harness.state().robot().joints.keys().next().unwrap();
@@ -1385,8 +1315,7 @@ fn tools_say_what_they_need() {
     };
     scenario("tools_say_what_they_need", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let root = app.robot().root;
         let arm = *app
             .robot()
@@ -1452,98 +1381,121 @@ fn tools_say_what_they_need() {
     });
 }
 
-/// The Joints window opens itself (plans/panels-and-numbers OPEN 3):
-/// loading the sample arm shows it without the menu — the golden — and
-/// the rest of the rule is asserted without a picture below.
+/// A document opens in View (ADR-0021 §4): the sample arm cold — the
+/// joint tree at the left, the `View | Edit` control alone in the corner,
+/// no properties panel, the status bar naming the mode, and nothing
+/// floating over the robot. The golden of the first thing a researcher
+/// sees.
 #[test]
-fn joints_window_opens_itself() {
-    scenario("joints_window_opens_itself", |harness| {
-        assert!(!harness.state().joints_window_open(), "an empty document");
+fn view_opens_with_the_document() {
+    scenario("view_opens_with_the_document", |harness| {
+        assert_eq!(harness.state().mode(), Mode::Edit, "an empty document");
         harness
             .state_mut()
             .open_path(&fixture("arm/arm.riggen"))
             .expect("the sample arm opens");
         harness.state_mut().fit_view_now();
         settle(harness);
-        assert!(harness.state().joints_window_open());
-        assert_eq!(harness.state().debug_state().ui.windows, vec!["joints"]);
+        let state = harness.state().debug_state();
+        assert_eq!(state.ui.mode, "View");
+        assert_eq!(state.ui.tool, "Select");
+        assert!(state.ui.windows.is_empty(), "nothing floats");
+        assert!(state.input.pick_suppressed, "only the glyphs answer");
         harness.get_by_label("Reset all");
+        harness.get_by_role_and_label(egui::accesskit::Role::Slider, "shoulder_joint");
+        assert!(harness.query_by_label("Properties").is_none());
+        assert!(harness.query_by_label("Place joint").is_none());
     });
 }
 
-/// The user's close is respected until the next document; the first
-/// movable joint a command creates opens it; a new empty document does
-/// not.
+/// The open rule (ADR-0021 §4): a document, an import and the demo's drop
+/// open in View — an all-fixed one too, with the "nothing to pose" line —
+/// while File › New and a drop of meshes alone open in Edit. The mode is
+/// decided on every open, whatever it was before.
 #[test]
-fn joints_window_respects_a_close_until_the_next_document() {
+fn the_open_rule() {
+    with_app(|harness| {
+        let open = |harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>, name: &str| {
+            harness.state_mut().open_path(&fixture(name)).expect(name);
+            harness.step();
+            harness.state().mode()
+        };
+        assert_eq!(open(harness, "pendulum.riggen"), Mode::View);
+        assert_eq!(open(harness, "arm/arm.urdf"), Mode::View, "an import");
+        assert_eq!(
+            open(harness, "menagerie_style.xml"),
+            Mode::View,
+            "an import"
+        );
+        assert_eq!(open(harness, "cube_binary.stl"), Mode::Edit, "a mesh drop");
+        assert_eq!(open(harness, "pendulum.riggen"), Mode::View, "and back");
+
+        harness.state_mut().new_document();
+        harness.step();
+        assert_eq!(harness.state().mode(), Mode::Edit, "File › New");
+
+        // An all-fixed assembly saved and reopened: View, with the line.
+        open_link(harness.state_mut(), "cube_binary.stl");
+        let path = scratch_dir("open_rule").join("fixed.riggen");
+        assert!(harness.state_mut().save_to(&path));
+        assert_eq!(harness.state().mode(), Mode::Edit);
+        harness.state_mut().open_path(&path).expect("reopen");
+        harness.step();
+        assert_eq!(
+            harness.state().mode(),
+            Mode::View,
+            "a document is a document"
+        );
+        harness.get_by_label(riggen_app::NOTHING_TO_POSE);
+
+        // The demo: the arm as a drop, then a mesh alone. (Last: a drop
+        // makes the dropped set the app's file source, ADR-0017.)
+        harness
+            .state_mut()
+            .load_dropped(riggen_app::example::Example::Arm.dropped());
+        harness.step();
+        assert_eq!(harness.state().mode(), Mode::View, "the demo");
+        let cube = std::fs::read(fixture("cube_binary.stl")).unwrap();
+        harness
+            .state_mut()
+            .load_dropped(vec![(std::path::PathBuf::from("cube_binary.stl"), cube)]);
+        harness.step();
+        assert_eq!(harness.state().mode(), Mode::Edit, "meshes alone");
+    });
+}
+
+/// The `View | Edit` control in the viewport's corner switches modes by a
+/// click, the same as `Tab`; its labels share their text with the menu
+/// bar's, so the one inside the viewport is the one clicked.
+#[test]
+fn the_mode_control_switches_modes() {
     with_app(|harness| {
         harness
             .state_mut()
-            .open_path(&fixture("arm/arm.riggen"))
-            .expect("the sample arm opens");
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
         settle(harness);
-        assert!(harness.state().joints_window_open());
-
-        // Closed by the user, then another joint becomes movable: stays shut.
-        harness.state_mut().set_joints_window_open(false);
-        let fixed = *harness
-            .state()
-            .robot()
-            .joints
-            .iter()
-            .find(|(_, j)| !j.kind.is_movable())
-            .expect("the arm has a fixed joint")
-            .0;
-        let mut edited = harness.state().robot().joints[&fixed].clone();
-        edited.kind = riggen_core::JointKind::Revolute;
-        edited.axis = DVec3::Z;
-        edited.limits = Some(riggen_core::Limits {
-            lower: -1.0,
-            upper: 1.0,
-            effort: 0.0,
-            velocity: 0.0,
-        });
-        harness
-            .state_mut()
-            .apply(Command::SetJoint(fixed, edited))
-            .unwrap();
-        harness.step();
+        assert_eq!(harness.state().mode(), Mode::View);
+        let viewport = harness.state().debug_state().viewport_rect.unwrap();
+        let in_viewport = |harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+                           label: &str| {
+            harness
+                .get_all_by_label(label)
+                .filter_map(|n| n.accesskit_node().bounding_box())
+                .find(|b| b.x0 >= viewport[0] && b.y0 >= viewport[1])
+                .map(|b| egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32))
+                .unwrap_or_else(|| panic!("no {label:?} in the viewport"))
+        };
+        let edit = in_viewport(harness, "Edit");
+        click_at(harness, edit);
+        assert_eq!(harness.state().mode(), Mode::Edit);
         assert!(
-            !harness.state().joints_window_open(),
-            "the close is respected"
+            harness.query_by_label("Place joint").is_some(),
+            "the toolbar is Edit's"
         );
-
-        // A new empty document does not open it — and forgets the close.
-        harness.state_mut().new_document();
-        harness.step();
-        assert!(!harness.state().joints_window_open());
-        assert!(harness.state().debug_state().ui.windows.is_empty());
-
-        // The first movable joint created by a command opens it.
-        let cube = open_link(harness.state_mut(), "cube_binary.stl");
-        harness.step();
-        assert!(
-            !harness.state().joints_window_open(),
-            "a fixed joint is nothing to slide"
-        );
-        let joint = harness.state().robot().parent_joint(cube).unwrap();
-        let mut edited = harness.state().robot().joints[&joint].clone();
-        edited.kind = riggen_core::JointKind::Continuous;
-        edited.axis = DVec3::Z;
-        harness
-            .state_mut()
-            .apply(Command::SetJoint(joint, edited))
-            .unwrap();
-        harness.step();
-        assert!(
-            harness.state().joints_window_open(),
-            "the first movable joint"
-        );
-        // Undo takes it away again but does not close the window; the
-        // redo is not a *first* joint either.
-        assert!(harness.state_mut().undo());
-        harness.step();
-        assert!(harness.state().joints_window_open());
+        let view = in_viewport(harness, "View");
+        click_at(harness, view);
+        assert_eq!(harness.state().mode(), Mode::View);
     });
 }
 
@@ -1555,9 +1507,7 @@ fn joints_window_respects_a_close_until_the_next_document() {
 #[test]
 fn properties_scrub() {
     scenario("properties_scrub", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -1632,9 +1582,7 @@ fn properties_scrub() {
 #[test]
 fn properties_wheel() {
     scenario("properties_wheel", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         let arm = *harness
             .state()
@@ -1721,9 +1669,7 @@ fn properties_wheel() {
 #[test]
 fn properties_inertial() {
     scenario("properties_inertial", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -1845,9 +1791,7 @@ fn properties_inertial_open_mesh() {
 #[test]
 fn properties_collision() {
     scenario("properties_collision", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         harness.state_mut().set_show_collision(true);
         harness.state_mut().fit_view_now();
@@ -1970,9 +1914,7 @@ fn properties_collision() {
 #[test]
 fn frames_tree() {
     scenario("frames_tree", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("arm/arm.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("arm/arm.riggen"))
             .expect("open the sample arm");
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -2035,9 +1977,7 @@ fn frames_tree() {
 #[test]
 fn frame_properties() {
     scenario("frame_properties", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("arm/arm.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("arm/arm.riggen"))
             .expect("open the sample arm");
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -2097,9 +2037,7 @@ fn frame_properties() {
 #[test]
 fn add_frame_button() {
     scenario("add_frame_button", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -2143,9 +2081,7 @@ fn add_frame_button() {
 #[test]
 fn properties_joint() {
     scenario("properties_joint", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -2224,9 +2160,7 @@ fn type_into(
 #[test]
 fn typing_origin_and_rpy_moves_the_arm() {
     with_app(|harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         settle(harness);
         harness.get_by_label("hinge · revolute").click();
@@ -2334,9 +2268,7 @@ fn typing_origin_and_rpy_moves_the_arm() {
 #[test]
 fn clicking_through_every_field_adds_no_history_entry() {
     with_app(|harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         settle(harness);
         for row in ["hinge · revolute", "arm"] {
@@ -2422,9 +2354,7 @@ fn glyph_axis_ends(glyph: &riggen_app::debug::GlyphDebug) -> (DVec3, DVec3) {
 #[test]
 fn glyph_behind_part() {
     scenario("glyph_behind_part", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("arm/arm.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("arm/arm.riggen"))
             .expect("the sample arm opens");
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -2480,9 +2410,7 @@ fn glyph_behind_part() {
 #[test]
 fn glyph_driven_joint() {
     scenario("glyph_driven_joint", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("arm/arm.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("arm/arm.riggen"))
             .expect("the sample arm opens");
         let leader = joint_named(harness, "upper_joint");
         let follower = joint_named(harness, "fore_joint");
@@ -2532,8 +2460,7 @@ fn glyph_driven_joint() {
 fn a_joint_gizmo_drag_previews_on_the_glyph() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let hinge = *app.robot().joints.keys().next().expect("the hinge");
         app.fit_view_now();
         app.set_tool(Tool::Move);
@@ -2618,9 +2545,7 @@ fn a_joint_gizmo_drag_previews_on_the_glyph() {
 #[test]
 fn the_viewport_keeps_the_scenes_depth() {
     with_app(|harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -2656,7 +2581,7 @@ fn the_viewport_keeps_the_scenes_depth() {
     });
 }
 
-/// The joint sliders window with the hinge at 45°: the arm cube swings
+/// View with the hinge at 45° on the joint tree: the arm cube swings
 /// about +Y through the hinge at (0, 0, 0.5), so its offset (0, 0, 0.5)
 /// becomes (sin 45°, 0, cos 45°) · 0.5 and the instance sits at
 /// (0.353553, 0, 0.853553).
@@ -2666,21 +2591,20 @@ fn pendulum_swing() {
         let app = harness.state_mut();
         app.open_path(&fixture("pendulum.riggen"))
             .expect("open the corpus file");
-        app.set_joints_window_open(true);
         let hinge = *app.robot().joints.keys().next().unwrap();
         app.set_joint_value(hinge, std::f64::consts::FRAC_PI_4);
         app.fit_view_now();
         settle(harness);
 
         let state = harness.state().debug_state();
-        assert_eq!(state.ui.windows, vec!["joints"]);
+        assert_eq!(state.ui.mode, "View");
         assert_eq!(
             state.document.joints[0].q,
             riggen_app::debug::round(std::f64::consts::FRAC_PI_4)
         );
         assert_eq!(state.instances[0].position, [0.0, 0.0, 0.0]);
         assert_eq!(state.instances[1].position, [0.353553, 0.0, 0.853553]);
-        // The slider reads 45°.
+        // The row's bar reads 45°.
         let slider = harness.get_by_role(egui::accesskit::Role::Slider);
         let value = slider.accesskit_node().numeric_value();
         assert!(value.is_some_and(|v| (v - 45.0).abs() < 1e-6), "{value:?}");
@@ -2688,14 +2612,12 @@ fn pendulum_swing() {
 }
 
 /// `q` follows the limits: editing the upper limit below the current
-/// value clamps it and moves the instance; "Reset all" zeroes it; the
-/// Window menu toggles the window.
+/// value clamps it and moves the instance; "Reset all" zeroes it.
 #[test]
 fn joint_value_clamps_to_edited_limits() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let hinge = *app.robot().joints.keys().next().unwrap();
         app.set_joint_value(hinge, std::f64::consts::FRAC_PI_4);
         let mut edited = app.robot().joints[&hinge].clone();
@@ -2712,27 +2634,11 @@ fn joint_value_clamps_to_edited_limits() {
         app.set_joint_value(hinge, 10.0);
         assert!((app.joint_value(hinge) - 30f64.to_radians()).abs() < 1e-12);
 
-        // The window opened itself with the document; Window › Joints
-        // toggles it; Reset all zeroes q.
+        // "Reset all" on the joint tree zeroes q.
         let depth = app.history().undo_depth();
-        assert!(app.joints_window_open(), "a movable document opens it");
-        // "Joints" is both the menu item and the open window's title.
-        harness.get_by_label("Window").click();
+        app.set_mode(Mode::View);
         harness.step();
-        harness
-            .get_by_role_and_label(egui::accesskit::Role::CheckBox, "Joints")
-            .click();
-        harness.step();
-        assert!(!harness.state().joints_window_open());
         assert!(harness.state().debug_state().ui.windows.is_empty());
-        harness.get_by_label("Window").click();
-        harness.step();
-        harness
-            .get_by_role_and_label(egui::accesskit::Role::CheckBox, "Joints")
-            .click();
-        harness.step();
-        assert!(harness.state().joints_window_open());
-        assert_eq!(harness.state().debug_state().ui.windows, vec!["joints"]);
         harness.get_by_label("Reset all").click();
         harness.step();
         let app = harness.state();
@@ -2746,67 +2652,6 @@ fn joint_value_clamps_to_edited_limits() {
     });
 }
 
-/// The Joints window with a follower in it: `fore_joint` follows
-/// `upper_joint` at `-0.5 q + 0.1` (ADR-0013), so its slider is a
-/// read-out — disabled, at the derived value, with the rule under it —
-/// and only the two free joints can be dragged.
-#[test]
-fn joints_window_mimic() {
-    scenario("joints_window_mimic", |harness| {
-        let app = harness.state_mut();
-        app.open_path(&fixture("arm/arm.riggen"))
-            .expect("open the sample arm");
-        app.set_joints_window_open(true);
-        let joint = |app: &riggen_app::RiggenApp, name: &str| {
-            *app.robot()
-                .joints
-                .iter()
-                .find(|(_, j)| j.name == name)
-                .unwrap_or_else(|| panic!("{name}"))
-                .0
-        };
-        let upper = joint(app, "upper_joint");
-        let fore = joint(app, "fore_joint");
-        app.set_joint_value(upper, 1.0);
-        app.fit_view_now();
-        settle(harness);
-
-        let app = harness.state();
-        // The slider rounds `q` to the tenth of a degree it shows, so the
-        // assertion is the rule, not the round number that went in.
-        let (upper_q, fore_q) = (app.joint_value(upper), app.joint_value(fore));
-        assert!((upper_q - 1.0).abs() < 1e-3, "{upper_q}");
-        assert!(
-            (fore_q - (-0.5 * upper_q + 0.1)).abs() < 1e-12,
-            "{fore_q} does not follow {upper_q}"
-        );
-        let state = app.debug_state();
-        let q = |name: &str| {
-            state
-                .document
-                .joints
-                .iter()
-                .find(|j| j.name == name)
-                .unwrap()
-                .q
-        };
-        assert_eq!(
-            q("fore_joint"),
-            riggen_app::debug::round(fore_q),
-            "the debug state reports the derived value, not the stale slot"
-        );
-
-        // The rule is on the screen, and the follower's slider is not a
-        // control: two of the three are draggable.
-        harness.get_by_label("= -0.5 × upper_joint + 0.1");
-        let sliders: Vec<bool> = harness
-            .get_all_by_role(egui::accesskit::Role::Slider)
-            .map(|n| n.accesskit_node().is_disabled())
-            .collect();
-        assert_eq!(sliders, vec![false, false, true], "{sliders:?}");
-    });
-}
-
 /// Properties › Joint for a follower: the Mimic section reads the rule
 /// the document holds, the leader combo offers exactly the joints
 /// `validate` would accept, and a new coefficient is one `SetJoint`
@@ -2814,9 +2659,7 @@ fn joints_window_mimic() {
 #[test]
 fn properties_joint_mimic() {
     scenario("properties_joint_mimic", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("arm/arm.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("arm/arm.riggen"))
             .expect("open the sample arm");
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -2886,9 +2729,7 @@ fn properties_joint_mimic() {
 #[test]
 fn properties_joint_actuator() {
     scenario("properties_joint_actuator", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("arm/arm.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("arm/arm.riggen"))
             .expect("open the sample arm");
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -2924,9 +2765,7 @@ fn properties_joint_actuator() {
 #[test]
 fn properties_joint_actuator_applied_to_the_model() {
     scenario("properties_joint_actuator_applied", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("arm/arm.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("arm/arm.riggen"))
             .expect("open the sample arm");
         harness.state_mut().fit_view_now();
         settle(harness);
@@ -2990,8 +2829,7 @@ fn properties_joint_actuator_applied_to_the_model() {
 fn toolbar() {
     scenario("toolbar", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
         settle(harness);
         assert_eq!(harness.state().debug_state().ui.tool, "Select");
@@ -3027,8 +2865,7 @@ fn tools_switch_and_edit_is_the_zero_configuration() {
         assert_eq!(harness.state().tool(), Tool::Select);
 
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.set_mode(Mode::View);
         let hinge = *app.robot().joints.keys().next().unwrap();
         app.set_joint_value(hinge, std::f64::consts::FRAC_PI_4);
@@ -3086,8 +2923,7 @@ fn gizmo_handle(harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>) -> e
 fn gizmo_move_link() {
     scenario("gizmo_move_link", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let arm = *app
             .robot()
             .links
@@ -3118,8 +2954,7 @@ fn gizmo_move_link() {
 fn gizmo_move_frame() {
     scenario("gizmo_move_frame", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let arm = *app
             .robot()
             .links
@@ -3195,8 +3030,7 @@ fn gizmo_move_frame() {
 fn gizmo_rotate_joint() {
     scenario("gizmo_rotate_joint", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let hinge = *app.robot().joints.keys().next().unwrap();
         app.fit_view_now();
         app.set_tool(Tool::Rotate);
@@ -3217,8 +3051,7 @@ fn gizmo_rotate_joint() {
 fn tool_shortcuts_switch_tools() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         settle(harness);
 
         for tool in Tool::ALL {
@@ -3260,8 +3093,7 @@ fn tool_shortcuts_switch_tools() {
 fn tool_shortcuts_yield_to_a_text_field() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let arm = *app
             .robot()
             .links
@@ -3301,8 +3133,7 @@ fn tool_shortcuts_yield_to_a_text_field() {
 fn gizmo_ring_hover() {
     scenario("gizmo_ring_hover", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let hinge = *app.robot().joints.keys().next().unwrap();
         app.fit_view_now();
         app.set_tool(Tool::Rotate);
@@ -3365,8 +3196,7 @@ fn gizmo_ring_hover() {
 fn a_ring_drag_turns_about_the_ring_the_hover_named() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let hinge = *app.robot().joints.keys().next().unwrap();
         app.fit_view_now();
         app.set_tool(Tool::Rotate);
@@ -3479,8 +3309,7 @@ fn gizmo_pose(harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>) -> rig
 fn wheel_steps_the_hovered_ring() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let hinge = *app.robot().joints.keys().next().unwrap();
         app.fit_view_now();
         app.set_tool(Tool::Rotate);
@@ -3527,8 +3356,7 @@ fn wheel_steps_the_hovered_ring() {
 fn a_wheel_burst_is_one_history_entry() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let hinge = *app.robot().joints.keys().next().unwrap();
         app.fit_view_now();
         app.set_tool(Tool::Rotate);
@@ -3570,8 +3398,7 @@ fn a_wheel_burst_is_one_history_entry() {
 fn the_wheel_still_zooms_beside_a_ring() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let hinge = *app.robot().joints.keys().next().unwrap();
         app.fit_view_now();
         app.set_tool(Tool::Rotate);
@@ -3664,8 +3491,7 @@ fn drag_the_arm_onto_the_base_corner(
     harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
 ) -> (LinkId, DVec3, usize) {
     let app = harness.state_mut();
-    app.open_path(&fixture("pendulum.riggen"))
-        .expect("open the corpus file");
+    open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
     let arm = *app
         .robot()
         .links
@@ -3712,8 +3538,7 @@ fn drag_the_arm_onto_the_base_corner(
 fn a_drag_looks_through_the_part_it_is_moving() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let arm = *app
             .robot()
             .links
@@ -3765,8 +3590,7 @@ fn a_drag_looks_through_the_part_it_is_moving() {
 fn a_rotate_drag_does_not_snap() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let arm = *app
             .robot()
             .links
@@ -3817,8 +3641,7 @@ fn a_rotate_drag_does_not_snap() {
 fn gizmo_leaves_the_pointer_alone() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let base = app.robot().root;
         let arm = *app
             .robot()
@@ -3894,8 +3717,7 @@ fn label_center(
 /// state every gizmo-pointer scenario starts from.
 fn pendulum_with_move_armed(harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>) {
     let app = harness.state_mut();
-    app.open_path(&fixture("pendulum.riggen"))
-        .expect("open the corpus file");
+    open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
     let arm = *app
         .robot()
         .links
@@ -3978,9 +3800,9 @@ fn the_toolbar_does_not_zoom_the_camera() {
         );
 
         // OPEN 3: a floating window is a layer of its own.
-        harness.state_mut().set_joints_window_open(true);
+        harness.state_mut().set_materials_window_open(true);
         settle(harness);
-        let on_window = label_center(harness, "Joints");
+        let on_window = label_center(harness, "Materials");
         assert!(
             harness
                 .state()
@@ -4000,7 +3822,7 @@ fn the_toolbar_does_not_zoom_the_camera() {
         );
         assert_eq!(
             state.camera.distance, before,
-            "the wheel over the Joints window left the camera alone"
+            "the wheel over the Materials window left the camera alone"
         );
     });
 }
@@ -4087,8 +3909,7 @@ fn orbit_works_from_a_gizmo_handle() {
 fn left_drag_orbits_and_a_click_still_selects() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
         settle(harness);
 
@@ -4344,8 +4165,7 @@ fn left_drag_from_a_gizmo_handle_moves_the_part() {
 fn a_left_drag_from_a_glyph_still_orbits() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
         settle(harness);
 
@@ -4395,8 +4215,7 @@ fn a_left_drag_from_a_glyph_still_orbits() {
 fn the_camera_answers_every_button() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
         settle(harness);
 
@@ -4504,8 +4323,7 @@ fn the_camera_answers_every_button() {
 fn a_left_drag_turns_the_sample_arm() {
     scenario("orbit_left_drag", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("arm/arm.riggen"))
-            .expect("open the sample arm");
+        open_for_editing(app, &fixture("arm/arm.riggen")).expect("open the sample arm");
         app.fit_view_now();
         settle(harness);
         let before = harness.state().debug_state().camera;
@@ -4555,7 +4373,7 @@ fn gizmo_shares_the_viewport() {
         let document = riggen_app::example::Example::Arm
             .extract_into(&temp)
             .unwrap();
-        harness.state_mut().open_path(&document).unwrap();
+        open_for_editing(harness.state_mut(), &document).unwrap();
         harness.state_mut().fit_view_now();
         harness.state_mut().set_tool(Tool::Move);
         // The deepest link: it has a parent joint, so it has a gizmo.
@@ -4696,8 +4514,7 @@ fn gizmo_shares_the_viewport() {
 fn gizmo_drag_moves_the_link_in_one_command() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let arm = *app
             .robot()
             .links
@@ -4761,8 +4578,7 @@ fn gizmo_drag_moves_the_link_in_one_command() {
 fn gizmo_drag_on_a_joint_moves_only_the_pivot() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let hinge = *app.robot().joints.keys().next().unwrap();
         app.fit_view_now();
         app.set_tool(Tool::Move);
@@ -4805,8 +4621,7 @@ fn gizmo_drag_on_a_joint_moves_only_the_pivot() {
 fn glyph_revolute() {
     scenario("glyph_revolute", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let hinge = *app.robot().joints.keys().next().unwrap();
         app.set_joint_value(hinge, 30f64.to_radians());
         app.select(Selection::Joint(hinge));
@@ -4832,8 +4647,7 @@ fn glyph_revolute() {
 fn glyph_prismatic() {
     scenario("glyph_prismatic", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let hinge = *app.robot().joints.keys().next().unwrap();
         let mut joint = app.robot().joints[&hinge].clone();
         joint.kind = riggen_core::JointKind::Prismatic;
@@ -4867,8 +4681,7 @@ fn glyph_prismatic() {
 fn glyphs_cover_movable_joints_and_the_selection() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
         let hinge = *app.robot().joints.keys().next().unwrap();
 
@@ -4906,8 +4719,7 @@ fn glyphs_cover_movable_joints_and_the_selection() {
 fn glyph_hover() {
     scenario("glyph_hover", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
         settle(harness);
 
@@ -4936,8 +4748,7 @@ fn glyph_hover() {
 fn a_hovered_glyph_leaves_the_camera_alone() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
         settle(harness);
 
@@ -4992,8 +4803,7 @@ fn glyph_axis_point(
 fn hover_runs_both_ways_and_a_glyph_click_selects_the_joint() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
         let hinge = *app.robot().joints.keys().next().unwrap();
         settle(harness);
@@ -5945,14 +5755,13 @@ fn five_minute_arm() {
 fn materials() {
     scenario("materials", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.set_materials_window_open(true);
         app.fit_view_now();
         settle(harness);
 
         let state = harness.state().debug_state();
-        assert_eq!(state.ui.windows, vec!["joints", "materials"]);
+        assert_eq!(state.ui.windows, vec!["materials"]);
         let robot = harness.state().robot();
         let expect = |name: &str| robot.materials[name].color.map(riggen_app::debug::round32);
         assert_eq!(state.instances[0].color, expect("aluminium"));
@@ -5969,8 +5778,7 @@ fn materials() {
 fn materials_table_edits() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.set_materials_window_open(true);
         settle(harness);
         let app = harness.state();
@@ -6099,8 +5907,7 @@ fn scratch_dir(name: &str) -> std::path::PathBuf {
 fn dirty_title() {
     scenario("dirty_title", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         assert_eq!(app.window_title(), "pendulum.riggen — riggen");
         let arm = *app
             .robot()
@@ -6127,8 +5934,7 @@ fn dirty_title() {
 fn unsaved_confirm() {
     scenario("unsaved_confirm", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         open_link(app, "cube.obj");
         app.request_new();
         app.fit_view_now();
@@ -6156,8 +5962,7 @@ fn unsaved_confirm() {
 fn import_urdf() {
     scenario("import_urdf", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("arm/arm.urdf"))
-            .expect("the URDF imports");
+        open_for_editing(app, &fixture("arm/arm.urdf")).expect("the URDF imports");
         app.set_show_collision(true);
         app.fit_view_now();
         settle(harness);
@@ -6251,8 +6056,7 @@ fn import_mjcf() {
 fn file_menu() {
     scenario("file_menu", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
         settle(harness);
 
@@ -6270,9 +6074,7 @@ fn file_menu() {
 #[test]
 fn export_dialog() {
     scenario("export_dialog", |harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("arm/arm.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("arm/arm.riggen"))
             .expect("the sample arm opens");
         harness.state_mut().fit_view_now();
         harness.get_by_label("File").click();
@@ -6305,8 +6107,7 @@ fn export_dialog() {
 fn export_blocked() {
     scenario("export_blocked", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let root = app.robot().root;
         let arm = *app
             .robot()
@@ -6367,8 +6168,7 @@ fn export_writes_the_files() {
     with_app(|harness| {
         let dir = scratch_dir("export");
         let app = harness.state_mut();
-        app.open_path(&fixture("arm/arm.riggen"))
-            .expect("the sample arm opens");
+        open_for_editing(app, &fixture("arm/arm.riggen")).expect("the sample arm opens");
         app.open_export_dialog();
         app.set_export_dir(&dir);
         app.set_export_options(riggen_export::ExportOptions {
@@ -6396,8 +6196,7 @@ fn export_writes_the_files() {
 fn no_format_ticked_is_not_a_ready_export() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("arm/arm.riggen"))
-            .expect("the sample arm opens");
+        open_for_editing(app, &fixture("arm/arm.riggen")).expect("the sample arm opens");
         app.open_export_dialog();
         app.set_export_dir(std::path::Path::new("/tmp/arm_export"));
         // Nothing is wrong with the document: the dialog resolves clean.
@@ -6430,8 +6229,7 @@ fn save_reopen_and_confirm_answers() {
     with_app(|harness| {
         let dir = scratch_dir("save_reopen");
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let arm = *app
             .robot()
             .links
@@ -6530,8 +6328,7 @@ fn file_shortcuts() {
     with_app(|harness| {
         let dir = scratch_dir("shortcuts");
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         let file = dir.join("keys.riggen");
         assert!(app.save_to(&file));
         open_link(app, "cube.obj");
@@ -6621,13 +6418,11 @@ fn undo_redo_shortcuts() {
         harness.step();
 
         // Edit › Undo through the menu.
-        harness.get_by_label("Edit").click();
-        harness.step();
+        click_menu(harness, "Edit");
         harness.get_by_label("Undo").click();
         harness.step();
         assert_eq!(harness.state().history().undo_depth(), 1);
-        harness.get_by_label("Edit").click();
-        harness.step();
+        click_menu(harness, "Edit");
         harness.get_by_label("Redo").click();
         harness.step();
         assert_eq!(harness.state().history().undo_depth(), 2);
@@ -6657,8 +6452,8 @@ fn set_slider_value(harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenAp
 
 /// The M1 acceptance (docs/03-roadmap.md §M1): two cube fixtures dropped
 /// as base and arm, the joint typed numerically in the properties panel
-/// (kind, origin, axis, limits), the slider swung to 45° within its
-/// limits, undo twice / redo twice back to the same document, saved to a
+/// (kind, origin, axis, limits), the joint tree's bar swung to 45° within
+/// its limits, undo twice / redo twice back to the same document, saved to a
 /// temp dir and reopened equal and clean.
 #[test]
 fn build_pendulum_numerically() {
@@ -6716,9 +6511,10 @@ fn build_pendulum_numerically() {
         let built = app.robot().clone();
         let depth = app.history().undo_depth();
 
-        // The slider at 45°, inside the ±90° limits: the arm swings and
-        // the document is untouched. 120° is clamped by the slider range.
-        harness.state_mut().set_joints_window_open(true);
+        // The joint tree's bar at 45°, inside the ±90° limits: the arm
+        // swings and the document is untouched. 120° is clamped by the
+        // limits. Posing is View's (ADR-0021), so Tab there first.
+        harness.state_mut().set_mode(Mode::View);
         harness.step();
         set_slider_value(harness, 45.0);
         let app = harness.state();
@@ -6766,8 +6562,7 @@ fn build_pendulum_numerically() {
 fn debug_menu() {
     scenario("debug_menu", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
         settle(harness);
 
@@ -7098,9 +6893,7 @@ fn consenting_once_starts_the_decomposition() {
 #[test]
 fn tab_switches_the_mode() {
     with_app(|harness| {
-        harness
-            .state_mut()
-            .open_path(&fixture("pendulum.riggen"))
+        open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
         settle(harness);
         assert_eq!(harness.state().debug_state().ui.mode, "Edit");
@@ -7161,8 +6954,7 @@ fn tab_switches_the_mode() {
 fn view_ignores_the_mesh() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
         settle(harness);
 
@@ -7216,8 +7008,7 @@ fn view_ignores_the_mesh() {
 fn view_wheel_on_glyph() {
     scenario("view_wheel_on_glyph", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
         app.set_mode(Mode::View);
         let hinge = *app.robot().joints.keys().next().unwrap();
@@ -7258,8 +7049,7 @@ fn view_wheel_on_glyph() {
 fn view_tool_keys_hint() {
     with_app(|harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("pendulum.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.set_tool(Tool::Rotate);
         app.set_mode(Mode::View);
         assert_eq!(app.tool(), Tool::Select, "View is the resting tool");
@@ -7310,8 +7100,7 @@ fn slider_center(
 fn view_joint_tree() {
     scenario("view_joint_tree", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("arm/arm.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("arm/arm.riggen")).expect("open the corpus file");
         app.fit_view_now();
         app.set_mode(Mode::View);
         settle(harness);
@@ -7368,8 +7157,7 @@ fn view_joint_tree() {
 fn view_joint_tree_scrub() {
     scenario("view_joint_tree_scrub", |harness| {
         let app = harness.state_mut();
-        app.open_path(&fixture("arm/arm.riggen"))
-            .expect("open the corpus file");
+        open_for_editing(app, &fixture("arm/arm.riggen")).expect("open the corpus file");
         app.fit_view_now();
         app.set_mode(Mode::View);
         settle(harness);

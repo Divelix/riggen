@@ -41,8 +41,8 @@ use gizmo::GizmoState;
 pub use gizmo::{GizmoTarget, RingAxis};
 pub use glyphs::{FrameGlyph, GLYPH_HOVER_RADIUS, JointGlyph};
 pub use mode::{Mode, VIEW_TOOL_HINT};
-pub use panels::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING, fmt_num};
-use panels::{JointTreeState, JointsWindow, MaterialsWindow, PropertiesState, TreeState};
+pub use panels::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING, NOTHING_TO_POSE, fmt_num};
+use panels::{JointTreeState, MaterialsWindow, PropertiesState, TreeState};
 use snap::SnapCache;
 pub use snap::{SNAP_PIXEL_RADIUS, SnapCandidate, SnapKind, placed_status};
 pub use tool::Tool;
@@ -103,7 +103,9 @@ pub struct RiggenApp {
     /// click then selects the joint, and the viewport's own pick is
     /// suppressed so it does not select the part behind it instead.
     glyph_hover: Option<JointId>,
-    /// The toolbar's rect, so a glyph behind it is not "hovered" through it.
+    /// The rect of the `View | Edit` control and, in Edit, the toolbar
+    /// beside it (`mode.rs::viewport_chrome`), so a glyph behind them is
+    /// not "hovered" through them and the camera holds still under them.
     toolbar_rect: Option<egui::Rect>,
     /// What the cursor is really pointing at, for the placement tools
     /// (`snap.rs`). Rebuilt every frame from the hovered pick.
@@ -126,8 +128,6 @@ pub struct RiggenApp {
     pub(crate) joint_tree: JointTreeState,
     /// Transient state of the properties panel (fields being typed into).
     pub(crate) props: PropertiesState,
-    /// The joint sliders window: open or not.
-    pub(crate) joints_window: JointsWindow,
     /// The materials table window and its in-progress edits.
     pub(crate) materials_window: MaterialsWindow,
     /// Whether a V-HACD run may start (ADR-0011, docs/01-architecture.md
@@ -243,7 +243,6 @@ impl RiggenApp {
             tree: TreeState::default(),
             joint_tree: JointTreeState::default(),
             props: PropertiesState::default(),
-            joints_window: JointsWindow::default(),
             materials_window: MaterialsWindow::default(),
             decomp_consent: !cfg!(target_arch = "wasm32"),
             files: if cfg!(target_arch = "wasm32") {
@@ -321,10 +320,6 @@ impl RiggenApp {
                     }
                 });
                 ui.menu_button("Window", |ui| {
-                    let mut joints = self.joints_window.open;
-                    if ui.checkbox(&mut joints, "Joints").changed() {
-                        self.joints_window.set_open(joints);
-                    }
                     ui.checkbox(&mut self.materials_window.open, "Materials");
                 });
                 ui.menu_button("Debug", |ui| self.debug_menu(ui));
@@ -454,6 +449,7 @@ impl eframe::App for RiggenApp {
         status_bar::status_bar(
             ui,
             &status_bar::StatusView {
+                mode: self.mode.label(),
                 document: &document,
                 import_units: &status_bar::import_units_label(self.import_scale),
                 hovered: hovered.as_deref(),
@@ -468,9 +464,11 @@ impl eframe::App for RiggenApp {
         // the link tree to build in Edit (ADR-0021).
         match self.mode {
             Mode::View => self.joint_tree_panel(ui),
-            Mode::Edit => self.tree_panel(ui),
+            Mode::Edit => {
+                self.tree_panel(ui);
+                self.properties_panel(ui);
+            }
         }
-        self.properties_panel(ui);
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
@@ -495,9 +493,10 @@ impl eframe::App for RiggenApp {
                     .is_some_and(|pos| self.toolbar_rect.is_some_and(|rect| rect.contains(pos)));
                 // One frame behind for the gizmo, which cannot say whether it
                 // owns the cursor until it has run, and the viewport runs
-                // first. Picking only: a handle, a glyph or the toolbar over
-                // the cursor hides the geometry that would answer for it, but
-                // the camera has no reason to stop (ADR-0010).
+                // first. Picking only: a handle, a glyph or the corner chrome
+                // (the mode control and the toolbar) over the cursor hides
+                // the geometry that would answer for it, but the camera has
+                // no reason to stop (ADR-0010).
                 //
                 // The exception is a translate drag: it *wants* the hover
                 // pick, because the snap ladder under the cursor is what it
@@ -562,7 +561,7 @@ impl eframe::App for RiggenApp {
                 // `contains_pointer` is for (ADR-0010).
                 self.gizmo_ui(ui, rect, response.contains_pointer());
                 self.step_hovered_joint_with_wheel(ui);
-                self.tool_bar(ui, rect);
+                self.viewport_chrome(ui, rect);
                 // The viewport's pick is suppressed while a glyph is
                 // hovered, so these clicks are unambiguous, and a hovered
                 // glyph and a snap are mutually exclusive.
@@ -590,7 +589,6 @@ impl eframe::App for RiggenApp {
             });
         self.sync_selection_from_viewport();
         // Windows float over everything, so they go last.
-        self.joints_window(ui.ctx());
         self.materials_window(ui.ctx());
         self.unsaved_changes_modal(ui.ctx());
         self.export_modal(ui.ctx());
