@@ -319,6 +319,25 @@ closes.
   (`hit_test.rs`: a top-most widget that senses only drags hides the
   click-widget under it). The panel draws from the document and applies
   its actions after drawing.
+- **Joints** (left, in View — the link tree is Edit's; both draw into the
+  one `tree_panel`, so a width the user chose survives `Tab`): one row per
+  movable joint in kinematic order, a child joint's row indented under its
+  parent's and fixed joints collapsed through (`panels/joint_tree.rs`,
+  ADR-0021 §1). A row is the name (click selects the joint, hover lights
+  its glyph, both ways as in the link tree) with the value at the right
+  to a tenth of a degree or a millimetre, and under them a bar the width
+  of the row: the range as a trough with the limits in small text at its
+  ends (Continuous ±180°; ±π / ±1 m when there are none), a tick at zero,
+  the value as a fill from that tick. The bar is a `Slider` to the
+  accessibility tree, labelled with the joint's name. A drag moves the
+  value across it — the whole width is the whole range, a tenth of that
+  with Ctrl — and the bare wheel over it steps by the ring's quantum
+  (`mode::wheel_step`; the scroll area's own wheel is off while a bar is
+  hovered, so the panel does not scroll under a notch). Both write `q`
+  through `set_joint_value` and neither is a command. A follower's row is
+  dimmed and not draggable, sits at the value `fk::resolve_q` derives, and
+  carries the rule under it (ADR-0013). "Reset all" puts every joint back
+  to zero.
 - **Toolbar**: five buttons — Select / Move / Rotate / Place joint /
   Align — in a popup frame floating over the viewport's top-left corner.
   Drawn *after* the viewport in the same layer, which is what gives it the

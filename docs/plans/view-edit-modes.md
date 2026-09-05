@@ -62,10 +62,11 @@ contract is ADR-0021.
 - **`tool.rs`**: `set_tool` no longer resets `q`; `ZERO_CONFIG_STATUS` and
   `edits_frames()`'s reset role go; in View the tool keys set a status hint
   (`VIEW_TOOL_HINT`, public for tests) and change nothing.
-- **`panels/joints.rs` → `panels/joint_tree.rs`**: the View left panel. A
-  `JointRow` scrubber widget (name, a bar with the limits at its ends and
-  the value as a fill and a number, drag and wheel), rows nested by the
-  kinematic chain, "Reset all". `JointsWindow` and its open-itself state
+- **`panels/joint_tree.rs`** (new at step 5; `joints.rs` goes at step 6):
+  the View left panel. A row is a scrubber (name and number on one line, a
+  bar the row's width under them with the limits at its ends and the value
+  as a fill from zero; drag and wheel), rows nested by the kinematic
+  chain, "Reset all". `JointsWindow` and its open-itself state
   deleted; Window › Joints leaves the menu.
 - **`panels/mod.rs` / `mod.rs` frame order**: the left panel draws the
   joint tree in View and the link tree in Edit; the properties panel and
@@ -111,7 +112,7 @@ contract is ADR-0021.
   through `debug_state`: no hover over a mesh in View; `q` after
   `scroll_at` a glyph; the hint after `G`. New golden `view_wheel_on_glyph`
   (a scenario that `Tab`s into View, since Edit is still the default).
-- [ ] Step 5 — The joint tree panel, drawn in View only: `JointRow`, the
+- [x] Step 5 — The joint tree panel, drawn in View only: `JointRow`, the
   kinematic nesting, follower rows, "Reset all", the wheel on a row at the
   same quantum. New goldens `view_joint_tree` (the arm: three rows, one a
   follower with its rule) and `view_joint_tree_scrub` (a row mid-drag). The

@@ -42,7 +42,7 @@ pub use gizmo::{GizmoTarget, RingAxis};
 pub use glyphs::{FrameGlyph, GLYPH_HOVER_RADIUS, JointGlyph};
 pub use mode::{Mode, VIEW_TOOL_HINT};
 pub use panels::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING, fmt_num};
-use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
+use panels::{JointTreeState, JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 use snap::SnapCache;
 pub use snap::{SNAP_PIXEL_RADIUS, SnapCandidate, SnapKind, placed_status};
 pub use tool::Tool;
@@ -119,8 +119,11 @@ pub struct RiggenApp {
     /// `MeshAsset::scale` for a dropped mesh. Millimetres by default: that
     /// is what most STL exporters write.
     import_scale: f64,
-    /// Transient state of the tree panel (an inline rename in progress).
+    /// Transient state of the link tree panel (an inline rename in
+    /// progress); its hover fields serve the joint tree too.
     pub(crate) tree: TreeState,
+    /// Transient state of the joint tree panel, View's left panel.
+    pub(crate) joint_tree: JointTreeState,
     /// Transient state of the properties panel (fields being typed into).
     pub(crate) props: PropertiesState,
     /// The joint sliders window: open or not.
@@ -238,6 +241,7 @@ impl RiggenApp {
             preview_world: None,
             import_scale,
             tree: TreeState::default(),
+            joint_tree: JointTreeState::default(),
             props: PropertiesState::default(),
             joints_window: JointsWindow::default(),
             materials_window: MaterialsWindow::default(),
@@ -460,7 +464,12 @@ impl eframe::App for RiggenApp {
             },
         );
 
-        self.tree_panel(ui);
+        // The left panel is the mode's: the joint tree to pose in View,
+        // the link tree to build in Edit (ADR-0021).
+        match self.mode {
+            Mode::View => self.joint_tree_panel(ui),
+            Mode::Edit => self.tree_panel(ui),
+        }
         self.properties_panel(ui);
 
         egui::CentralPanel::default()

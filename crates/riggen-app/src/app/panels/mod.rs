@@ -3,11 +3,13 @@
 //! document state of its own, only transient UI state (an inline rename in
 //! progress).
 
+mod joint_tree;
 mod joints;
 mod materials;
 mod properties;
 mod tree;
 
+pub(crate) use joint_tree::JointTreeState;
 pub(crate) use joints::JointsWindow;
 pub(crate) use materials::MaterialsWindow;
 pub use properties::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING, fmt_num};

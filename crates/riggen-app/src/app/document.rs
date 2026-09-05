@@ -381,7 +381,7 @@ impl RiggenApp {
     }
 
     /// Whether anything in the document can be slid.
-    fn has_movable_joint(&self) -> bool {
+    pub(crate) fn has_movable_joint(&self) -> bool {
         self.robot.joints.values().any(|j| j.kind.is_movable())
     }
 

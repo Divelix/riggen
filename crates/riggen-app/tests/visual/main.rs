@@ -7120,8 +7120,10 @@ fn tab_switches_the_mode() {
         assert_eq!(harness.state().mode(), riggen_app::Mode::View);
         assert_eq!(harness.state().selection(), Selection::Joint(hinge));
 
-        // A link has no row in View.
+        // A link has no row in View. (A frame first: the link tree is
+        // Edit's panel and comes back with it.)
         harness.state_mut().set_mode(riggen_app::Mode::Edit);
+        harness.step();
         harness.get_by_label("arm").click();
         harness.step();
         assert!(matches!(harness.state().selection(), Selection::Link(_)));
@@ -7132,6 +7134,7 @@ fn tab_switches_the_mode() {
 
         // A rename field owns Tab while it has focus.
         harness.state_mut().set_mode(riggen_app::Mode::Edit);
+        harness.step();
         harness.get_by_label("arm").click();
         harness.step();
         harness.key_press(egui::Key::F2);
@@ -7276,5 +7279,138 @@ fn view_tool_keys_hint() {
         harness.key_press(Tool::Move.shortcut());
         harness.step();
         assert_eq!(harness.state().tool(), Tool::Move);
+    });
+}
+
+/// Centre of an accessibility node found by role and label — a joint
+/// tree row's scrubber bar is a `Slider` labelled with the joint's name.
+fn slider_center(
+    harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+    label: &str,
+) -> (egui::Pos2, f32) {
+    let bounds = harness
+        .get_by_role_and_label(egui::accesskit::Role::Slider, label)
+        .accesskit_node()
+        .bounding_box()
+        .unwrap_or_else(|| panic!("slider {label:?} has no bounds"));
+    (
+        egui::pos2(
+            ((bounds.x0 + bounds.x1) / 2.0) as f32,
+            ((bounds.y0 + bounds.y1) / 2.0) as f32,
+        ),
+        (bounds.x1 - bounds.x0) as f32,
+    )
+}
+
+/// The joint tree, View's left panel (ADR-0021 §1): the arm's three
+/// revolute joints as nested rows, the fore joint a follower at its
+/// resolved value with the rule under it; the wheel over a row steps the
+/// joint by the ring's quantum, and hovering a row lights its glyph.
+#[test]
+fn view_joint_tree() {
+    scenario("view_joint_tree", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("arm/arm.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        app.set_mode(Mode::View);
+        settle(harness);
+        let robot = harness.state().robot();
+        let by_name = |name: &str| {
+            *robot
+                .joints
+                .iter()
+                .find(|(_, j)| j.name == name)
+                .map(|(id, _)| id)
+                .unwrap()
+        };
+        let shoulder = by_name("shoulder_joint");
+        let upper = by_name("upper_joint");
+        let fore = by_name("fore_joint");
+
+        // Six notches up on the shoulder's row: 30°.
+        let (at, _) = slider_center(harness, "shoulder_joint");
+        scroll_at(harness, at, 6.0);
+        assert!((harness.state().joint_value(shoulder) - 30f64.to_radians()).abs() < 1e-9);
+        // The wheel stepped the joint and did not scroll the panel: the
+        // row is where it was.
+        assert_eq!(slider_center(harness, "shoulder_joint").0, at);
+
+        // The follower shows what its leader implies (ADR-0013).
+        let (at, _) = slider_center(harness, "upper_joint");
+        scroll_at(harness, at, 4.0);
+        let expected = -0.5 * harness.state().joint_value(upper) + 0.1;
+        assert!((harness.state().joint_value(fore) - expected).abs() < 1e-9);
+        // …and its row takes no notch.
+        let (at, _) = slider_center(harness, "fore_joint");
+        scroll_at(harness, at, 3.0);
+        assert!((harness.state().joint_value(fore) - expected).abs() < 1e-9);
+
+        // Hovering the row lights the glyph, both ways.
+        let (at, _) = slider_center(harness, "upper_joint");
+        harness.hover_at(at);
+        pump_rendered(harness, 4);
+        let state = harness.state().debug_state();
+        let glyph = state
+            .glyphs
+            .iter()
+            .find(|g| g.name == "upper_joint")
+            .expect("the upper joint's glyph");
+        assert!(glyph.hovered && glyph.active);
+        assert_eq!(state.ui.mode, "View");
+        assert_eq!(state.selection.hovered, None, "no mesh hover in View");
+    });
+}
+
+/// A row mid-drag: the value follows the pointer across the bar — the
+/// whole width is the whole range — with nothing in the history.
+#[test]
+fn view_joint_tree_scrub() {
+    scenario("view_joint_tree_scrub", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("arm/arm.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        app.set_mode(Mode::View);
+        settle(harness);
+        let upper = *harness
+            .state()
+            .robot()
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "upper_joint")
+            .map(|(id, _)| id)
+            .unwrap();
+        let limits = harness.state().robot().joints[&upper].limits.unwrap();
+        let depth = harness.state().history().undo_depth();
+
+        let (from, width) = slider_center(harness, "upper_joint");
+        let to = from + egui::vec2(60.0, 0.0);
+        harness.hover_at(from);
+        pump_rendered(harness, 4);
+        harness.event(egui::Event::PointerButton {
+            pos: from,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        pump_rendered(harness, 2);
+        for i in 1..=4 {
+            let t = i as f32 / 4.0;
+            harness.event(egui::Event::PointerMoved(from + (to - from) * t));
+            pump_rendered(harness, 2);
+        }
+        // Still pressed: the golden is the drag in flight.
+        let expected = 60.0 / f64::from(width) * (limits.upper - limits.lower);
+        let got = harness.state().joint_value(upper);
+        assert!(
+            (got - expected).abs() < 1e-3,
+            "60 points across a {width} pt bar: {got} vs {expected}"
+        );
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth,
+            "posing is not an edit"
+        );
     });
 }

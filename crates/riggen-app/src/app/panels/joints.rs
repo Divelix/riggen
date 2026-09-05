@@ -119,7 +119,7 @@ impl RiggenApp {
     /// `= -0.5 × upper_joint + 0.1`, the rule as the document holds it —
     /// radians or meters, the units `Mimic` is in, not the slider's
     /// (ADR-0013). A zero offset is left off rather than written `+ 0`.
-    fn mimic_rule(&self, m: &Mimic) -> String {
+    pub(crate) fn mimic_rule(&self, m: &Mimic) -> String {
         let leader = self
             .robot
             .joints
