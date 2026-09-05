@@ -89,7 +89,7 @@ reports it, so a scenario asserts the state and not only the pixels.
 
 ## Steps
 
-- [ ] Step 1 — **ADR-0021's amendment**: a hidden thing answers nothing —
+- [x] Step 1 — **ADR-0021's amendment**: a hidden thing answers nothing —
   §1's "only joint glyphs answer the cursor" becomes "and nothing at all
   when joints are hidden", §6's switch table gains the row's rect, and the
   reasoning cites ADR-0020 §5. `docs/adr/README.md` updated. Docs only, no

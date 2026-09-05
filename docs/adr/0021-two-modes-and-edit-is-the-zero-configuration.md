@@ -189,3 +189,41 @@ a document that arrives whole opens in View, New and a mesh drop open in
 Edit — and the mode the user lands in depends on *how* the robot
 arrived, never on what is in it. Decided by the human from the image: a
 rule with a condition the user cannot see is a rule they cannot predict.
+
+## Amendment (2026-09-05, plans/visibility-row step 1)
+
+**A hidden thing answers nothing.** The visibility row (03 §The window)
+gives the user five class toggles — joints, joint names, links, frames,
+collision — and the question this ADR has to settle is what a toggle
+turns off: the drawing, or the drawing and the pointer target together.
+It is **both**.
+
+§1 said that in View *only joint glyphs answer the cursor*. With joints
+hidden that becomes **nothing answers**: `set_pick_suppressed` stays on
+unconditionally — meshes do not come back as a fallback — the glyphs'
+own screen-space test has nothing to iterate, and the wheel goes back to
+the camera because no glyph is there to claim it (§6's fifth switch).
+The mode's rule is unchanged; the mode simply has nothing left to point
+at, which is what "hide the joints" asked for. The status bar names what
+is hidden, so an unresponsive viewport is a state the user can read
+rather than a fault they have to guess at. The same holds one mode over:
+with links hidden, Edit's mesh-aiming tools find nothing, because the
+pick buffer has nothing in it.
+
+The reason is ADR-0020 §5's, one layer up. A run behind geometry is
+**dimmed rather than dropped** there because "a run drawn narrower or
+not at all would be a target the user can hit but cannot see". A toggle
+that hid the drawing while leaving the target live would build exactly
+that: a joint the user has turned off, still taking their click, still
+turning under their wheel. The alternative — hiding as a pure overlay
+declutter — also makes "hidden" mean two different things depending on
+which toggle it is, since a hidden *link* cannot be picked whatever we
+decide (the ID buffer has nothing in it) while a hidden glyph would go
+on answering.
+
+§6 holds: the viewport crate still does not change. Visibility is one
+more app-side policy on the same five switches, and the row is a second
+piece of **corner chrome** beside the `View | Edit` control — both rects
+block the camera and suppress picks under them (01 §Picking and
+snapping), which is why the app tracks a list of chrome rects rather than
+the toolbar's one.
