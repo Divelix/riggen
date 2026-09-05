@@ -132,6 +132,9 @@
     "windows": [],
     "modal": null,
     "title": "pendulum.riggen* — riggen",
+    "overlays": [
+      "collision"
+    ],
     "drag": {
       "link": "l5",
       "over": "l0",

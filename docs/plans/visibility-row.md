@@ -94,7 +94,7 @@ reports it, so a scenario asserts the state and not only the pixels.
   when joints are hidden", §6's switch table gains the row's rect, and the
   reasoning cites ADR-0020 §5. `docs/adr/README.md` updated. Docs only, no
   code, no goldens.
-- [ ] Step 2 — **The row, and the two instance-backed toggles.**
+- [x] Step 2 — **The row, and the two instance-backed toggles.**
   `app/overlays.rs` with the `Overlays` struct, its per-field eframe
   persistence (old `SHOW_COLLISION_KEY` profiles read as default), and the
   corner widget at the viewport's top-right: five toggle buttons with
@@ -148,14 +148,12 @@ With everything off, `debug_state().glyphs` is empty, `glyph_at` answers
 
 ## Open questions
 
-- ⚠ OPEN: **drawn marks or short text labels.** The agent lands the drawn
-  marks in step 2 — a band-and-spoke for joints, an `A` for names, a box
-  for links, a triad for frames, a dashed box for collision — and shows
-  the image. If they read as mud at that size the row falls back to
-  `joints · names · links · frames · collision` as text in the same
-  corner, which the idea named as the fallback rather than an icon font.
-  The human decides from step 2's golden; **recommended: keep whichever
-  the image says is legible, drawn marks first.**
+- Decided (agent, step 2, from the golden, on the human's "use recommended
+  option"): the **drawn marks stay** — four of the five read at twelve
+  points. The one that did not was the frames triad, which at that size
+  reads as an arrow; it became the link tree's own `⌖` (ADR-0012), which
+  is the mark the app already uses for a frame. No text fallback, no icon
+  font.
 - ⚠ OPEN: **what View picks when joints are hidden.** The plan takes the
   idea's recommendation — nothing at all, `set_pick_suppressed` unchanged
   — and step 1 writes it into ADR-0021. The alternative the human may

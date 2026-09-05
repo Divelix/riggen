@@ -131,7 +131,10 @@
     "renaming": null,
     "windows": [],
     "modal": "unsaved_changes",
-    "title": "pendulum.riggen* — riggen"
+    "title": "pendulum.riggen* — riggen",
+    "overlays": [
+      "collision"
+    ]
   },
   "instances": [
     {

@@ -195,7 +195,10 @@
     "renaming": null,
     "windows": [],
     "modal": "export",
-    "title": "arm.riggen — riggen"
+    "title": "arm.riggen — riggen",
+    "overlays": [
+      "collision"
+    ]
   },
   "instances": [
     {

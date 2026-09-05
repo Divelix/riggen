@@ -244,7 +244,7 @@ impl RiggenApp {
         }
         let hit = self.viewport.hovered()?;
         let cursor = ctx.pointer_hover_pos()?;
-        if self.toolbar_rect.is_some_and(|r| r.contains(cursor)) {
+        if self.over_chrome(cursor) {
             return None;
         }
         let link = self.link_of_instance(hit.instance)?;

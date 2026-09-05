@@ -1086,7 +1086,7 @@ impl RiggenApp {
                 ui.weak("the visual meshes collide (MuJoCo takes their convex hulls)");
             }
             CollisionPolicy::ConvexHull => {
-                ui.weak("one convex hull per visual mesh (View › Collision geometry shows them)");
+                ui.weak("one convex hull per visual mesh (the visibility row shows them)");
             }
             CollisionPolicy::ConvexDecomposition {
                 max_hulls,

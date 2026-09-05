@@ -190,7 +190,8 @@ pub struct RiggenApp {
                                                         // its welded adjacency and convex hull, cached on first use
     instances: BTreeMap<(LinkId, GeomId), InstanceId>,  // the only map between document and scene
     collision_instances: BTreeMap<(LinkId, usize), (InstanceId, CollisionSource)>, // translucent shapes,
-    show_collision: bool,                               // per link and shape index, while View › Collision geometry is on
+    overlays: Overlays,                                 // per link and shape index, while the row's collision toggle is on;
+                                                        // the visibility row's five toggles (§Panels and menus)
     jobs: Jobs,                                         // the job thread (§Jobs and threads), drained once per frame
     decomp: HashMap<(MeshId, DecompParams), DecompState>, // convex pieces it produced; the document holds the
                                                         // parameters and never the pieces (ADR-0011)
@@ -225,7 +226,7 @@ per `(LinkId, GeomId)` visual is added or removed, a mesh whose asset scale
 changed is re-uploaded, every model matrix is written from
 `fk(robot, q)[link] ∘ geom.pose`, and every instance's colour from the
 geom's own colour, else the link's material, else the viewport default.
-With View › Collision geometry on, `sync_collision` derives one translucent
+With the visibility row's **collision** toggle on, `sync_collision` derives one translucent
 instance per collision shape the link's policy resolves to — a cached hull
 per visual mesh for `ConvexHull`, **every piece** of the cached
 decomposition for `ConvexDecomposition` (nothing until its job lands, and
@@ -430,6 +431,24 @@ in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
   (`set_pick_suppressed`), so the part behind it is not highlighted as well
   and a click selects the *joint* — the camera keeps the pointer, and the
   wheel still zooms (ADR-0010).
+- **The visibility row** (viewport, top-right — the corner the Joints
+  window vacated): five toggles, `app/overlays.rs`, drawn in both modes.
+  **joints**, **joint names**, **frames**, **links**, **collision**, each
+  a small mark rather than a word — a band and its spoke, an `A`, the link
+  tree's own `⌖`, a filled box, a hull round a box — because egui
+  bundles no icon set worth the name and each of these is the thing it
+  switches as the viewport draws it. The two that are scene instances go
+  through `set_instance_visible` in `sync_scene`; the three overlay ones
+  are read where the glyphs are built (§Joint glyphs). **A hidden thing
+  answers nothing** (ADR-0021, amended): the drawing and the pointer
+  target go together, so a hidden link leaves the ID buffer and Edit's
+  tools find nothing where it was, and hidden joints leave View with
+  nothing under the cursor at all. The row's rect is **corner chrome**
+  beside the mode control's (§Picking and snapping). The five are
+  remembered through eframe storage, one key each, and never enter the
+  document: what a robot *is* does not depend on what the window is
+  showing. `debug_state().ui.overlays` lists what is off, in the row's
+  order.
 - **Frame glyphs** (in the viewport): a frame has no geometry either, so
   each is drawn as a triad in the axes triad's colours at its world pose
   (`world(parent) ∘ frame.pose`) with its name as a label beside it. Every
@@ -487,8 +506,10 @@ in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
   reached by hand rather than by a scenario.
 - **File**: New, Open…, Save (Save As when untitled), Save As…, Import
   URDF…, Import MJCF…, Export…, Import units, Quit; **Edit**: Undo, Redo, Delete, greyed
-  out when idle; **View**: Collision geometry (off by default, remembered
-  through eframe storage). The window title is `name.riggen* — riggen`.
+  out when idle. There is no **View** menu: its one item, Collision
+  geometry, is a button in the visibility row, and a menu with nothing
+  else in it is a menu nobody opens. The window title is
+  `name.riggen* — riggen`.
   Every route that would drop a dirty document — New, Open, a dropped
   `.riggen`, `.urdf` or `.xml`, Import URDF…, Import MJCF…, Quit, the OS
   close button (refused
@@ -798,7 +819,11 @@ A gizmo *drag* is the one case that blocks the camera while keeping the
 hover pick: the drag is solved against the projection it started in, so the
 camera must hold still, but the snap ladder under the cursor is exactly
 what the drag is aiming at (ADR-0019 §4). The corner chrome, which wants
-neither, sets `set_camera_blocked` **and** `set_pick_suppressed`.
+neither, sets `set_camera_blocked` **and** `set_pick_suppressed`. There
+are two pieces of it — the mode control with the toolbar beside it at the
+top-left, the visibility row at the top-right — so the app keeps a list of
+`chrome_rects` and asks whether the cursor is on any of them
+(`over_chrome`).
 
 The gizmo's switches are one frame late — it cannot say whether it owns the
 cursor, or which ring is under it, until it has run, and the viewport runs

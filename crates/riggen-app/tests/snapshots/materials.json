@@ -118,7 +118,10 @@
       "materials"
     ],
     "modal": null,
-    "title": "pendulum.riggen — riggen"
+    "title": "pendulum.riggen — riggen",
+    "overlays": [
+      "collision"
+    ]
   },
   "instances": [
     {

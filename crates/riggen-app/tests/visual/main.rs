@@ -153,14 +153,18 @@ fn collision_hull() {
             "the view is off: visuals only"
         );
 
-        click_menu(harness, "View");
-        harness.get_by_label("Collision geometry").click();
+        // The visibility row's collision toggle, which is where the
+        // View menu's checkbox went (plans/visibility-row step 2).
+        harness.get_by_label("collision").click();
         harness.step();
         harness.state_mut().fit_view_now();
         settle(harness);
 
         let state = harness.state().debug_state();
-        assert!(state.ui.collision_view);
+        assert!(
+            !state.ui.overlays.contains(&"collision"),
+            "the hulls are shown"
+        );
         let hulls: Vec<_> = state.instances.iter().filter(|i| i.collision).collect();
         assert_eq!(hulls.len(), 4, "one hull per part");
         assert_eq!(state.instances.len(), 8);
@@ -306,13 +310,18 @@ fn collision_decomposition() {
                 },
             ))
             .unwrap();
-        harness.state_mut().set_show_collision(true);
+        harness
+            .state_mut()
+            .set_overlay(riggen_app::Overlay::Collision, true);
         harness.state_mut().fit_view_now();
         // `settled()` is false until the job lands, so this waits for it.
         settle(harness);
 
         let state = harness.state().debug_state();
-        assert!(state.ui.collision_view);
+        assert!(
+            !state.ui.overlays.contains(&"collision"),
+            "the hulls are shown"
+        );
         let pieces: Vec<_> = state.instances.iter().filter(|i| i.collision).collect();
         assert!(
             (2..=4).contains(&pieces.len()),
@@ -405,7 +414,9 @@ fn collision_primitives() {
                 ]),
             ))
             .unwrap();
-        harness.state_mut().set_show_collision(true);
+        harness
+            .state_mut()
+            .set_overlay(riggen_app::Overlay::Collision, true);
         harness.state_mut().fit_view_now();
         settle(harness);
 
@@ -1149,7 +1160,7 @@ fn properties_collision_meshes() {
     scenario("properties_collision_meshes", |harness| {
         let app = harness.state_mut();
         open_for_editing(app, &fixture("arm/arm.urdf")).expect("the sample URDF opens");
-        app.set_show_collision(true);
+        app.set_overlay(riggen_app::Overlay::Collision, true);
         let fore = *app
             .robot()
             .links
@@ -1405,6 +1416,90 @@ fn view_opens_with_the_document() {
         harness.get_by_role_and_label(egui::accesskit::Role::Slider, "shoulder_joint");
         assert!(harness.query_by_label("Properties").is_none());
         assert!(harness.query_by_label("Place joint").is_none());
+    });
+}
+
+/// The visibility row, everything lit: the five toggles in the viewport's
+/// top-right, collision switched on so no button is dim and the hulls are
+/// in the picture. The marks are drawn rather than typed — a band and its
+/// spoke, an `A`, the link tree's own `⌖`, a box, a hull round a box
+/// (plans/visibility-row step 2).
+#[test]
+fn overlay_row() {
+    scenario("overlay_row", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        harness.state_mut().fit_view_now();
+        harness
+            .state_mut()
+            .set_overlay(riggen_app::Overlay::Collision, true);
+        settle(harness);
+        let state = harness.state().debug_state();
+        assert!(state.ui.overlays.is_empty(), "nothing is hidden");
+        // Every toggle is a named widget, so the row is clickable by name.
+        for name in ["joints", "joint names", "frames", "links", "collision"] {
+            harness.get_by_label(name);
+        }
+    });
+}
+
+/// Links off: the meshes leave the render pass **and** the ID buffer, so
+/// the glyphs stand alone over the background and there is nothing left
+/// for a pick to find (ADR-0021, amended — a hidden thing answers
+/// nothing).
+#[test]
+fn overlay_row_links_off() {
+    scenario("overlay_row_links_off", |harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("arm/arm.riggen")).expect("the sample arm opens");
+        app.fit_view_now();
+        app.set_overlay(riggen_app::Overlay::Links, false);
+        settle(harness);
+        let state = harness.state().debug_state();
+        assert_eq!(state.ui.overlays, vec!["links", "collision"]);
+        assert!(
+            state.instances.iter().all(|i| !i.visible),
+            "every visual instance left the scene"
+        );
+        // The glyphs are untouched: this toggle is about the meshes.
+        assert!(!state.glyphs.is_empty());
+    });
+}
+
+/// A click on a toggle flips it, says so in the status bar, and the choice
+/// is remembered the way `View › Collision geometry` was — one eframe
+/// storage key per toggle (`app/overlays.rs`).
+#[test]
+fn overlay_row_toggles_by_click() {
+    with_app(|harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        settle(harness);
+        assert!(harness.state().overlays().frames);
+
+        harness.get_by_label("frames").click();
+        settle(harness);
+        assert!(!harness.state().overlays().frames);
+        assert_eq!(
+            harness.state().debug_state().ui.overlays,
+            vec!["frames", "collision"]
+        );
+        assert!(
+            harness
+                .state()
+                .debug_state()
+                .status
+                .is_some_and(|s| s.contains("frames")),
+            "the status bar names what went"
+        );
+
+        harness.get_by_label("frames").click();
+        settle(harness);
+        assert!(harness.state().overlays().frames);
     });
 }
 
@@ -1793,7 +1888,9 @@ fn properties_collision() {
     scenario("properties_collision", |harness| {
         open_for_editing(harness.state_mut(), &fixture("pendulum.riggen"))
             .expect("open the corpus file");
-        harness.state_mut().set_show_collision(true);
+        harness
+            .state_mut()
+            .set_overlay(riggen_app::Overlay::Collision, true);
         harness.state_mut().fit_view_now();
         settle(harness);
         harness.get_by_label("arm").click();
@@ -6125,7 +6222,7 @@ fn import_urdf() {
     scenario("import_urdf", |harness| {
         let app = harness.state_mut();
         open_for_editing(app, &fixture("arm/arm.urdf")).expect("the URDF imports");
-        app.set_show_collision(true);
+        app.set_overlay(riggen_app::Overlay::Collision, true);
         app.fit_view_now();
         settle(harness);
 
@@ -6183,7 +6280,7 @@ fn import_mjcf() {
         let app = harness.state_mut();
         app.open_path(&dir.join("arm.xml"))
             .expect("the MJCF imports");
-        app.set_show_collision(true);
+        app.set_overlay(riggen_app::Overlay::Collision, true);
         app.fit_view_now();
         settle(harness);
 

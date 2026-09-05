@@ -195,8 +195,7 @@
     "renaming": null,
     "windows": [],
     "modal": null,
-    "title": "arm.riggen* — riggen",
-    "collision_view": true
+    "title": "arm.riggen* — riggen"
   },
   "instances": [
     {
@@ -448,6 +447,13 @@
     "hovered": null,
     "selected": null
   },
+  "input": {
+    "pick_suppressed": true,
+    "select_suppressed": false,
+    "camera_blocked": true,
+    "primary_drag_claimed": false,
+    "wheel_claimed": false
+  },
   "gizmo": null,
   "glyphs": [
     {
@@ -573,7 +579,7 @@
     }
   ],
   "snap": null,
-  "status": null,
+  "status": "everything shown",
   "viewport_rect": [
     244.0,
     23.0,

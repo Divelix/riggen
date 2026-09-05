@@ -106,9 +106,12 @@ pub struct UiDebug {
     pub modal: Option<&'static str>,
     /// What the OS window title reads.
     pub title: String,
-    /// View › Collision geometry; omitted when off.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub collision_view: bool,
+    /// The visibility row: the names of the classes that are switched
+    /// **off**, in the row's order, omitted when everything is shown
+    /// (`app/overlays.rs`). Collision is off by default, so the quiet
+    /// state reads `["collision"]`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub overlays: Vec<&'static str>,
     /// A tree row being dragged, if one is; omitted otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drag: Option<TreeDragDebug>,
@@ -460,7 +463,7 @@ impl RiggenApp {
                     self.pending_action().map(|_| "unsaved_changes")
                 },
                 title: self.window_title(),
-                collision_view: self.show_collision(),
+                overlays: self.overlays().hidden(),
             },
             instances: self
                 .viewport

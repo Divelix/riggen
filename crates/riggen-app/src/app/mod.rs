@@ -10,6 +10,7 @@ mod file_menu;
 mod gizmo;
 mod glyphs;
 mod mode;
+mod overlays;
 mod panels;
 mod shortcuts;
 mod snap;
@@ -25,8 +26,6 @@ use riggen_mesh::DecompParams;
 use crate::jobs::Jobs;
 use riggen_viewport::{InstanceId, PickHit, Viewport};
 
-/// eframe storage key for View › Collision geometry.
-pub(crate) const SHOW_COLLISION_KEY: &str = "riggen.show_collision";
 use web_time::Instant;
 
 pub use align::{ALIGN_PROMPT, ALIGN_WRONG_LINK, align_transform, aligned_status};
@@ -43,6 +42,7 @@ pub use glyphs::{
     ACTUATOR_RING_RADIUS, ARC_RADIUS, BAND_INNER, FrameGlyph, GLYPH_HOVER_RADIUS, JointGlyph,
 };
 pub use mode::{Mode, VIEW_TOOL_HINT};
+pub use overlays::{Overlay, Overlays};
 pub use panels::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING, NOTHING_TO_POSE, fmt_num};
 use panels::{JointTreeState, MaterialsWindow, PropertiesState, TreeState};
 use snap::SnapCache;
@@ -67,12 +67,13 @@ pub struct RiggenApp {
     /// §Geom): the only map between document and scene.
     instances: BTreeMap<(LinkId, GeomId), InstanceId>,
     /// The translucent instance per collision shape, keyed by the link and
-    /// the shape's index in its resolved collision list; empty while View ›
-    /// Collision geometry is off. Beside each, what was uploaded for it.
+    /// the shape's index in its resolved collision list; empty while the
+    /// row's collision toggle is off. Beside each, what was uploaded for it.
     collision_instances: BTreeMap<(LinkId, usize), (InstanceId, CollisionSource)>,
-    /// View › Collision geometry. Off by default, remembered through eframe
-    /// storage.
-    show_collision: bool,
+    /// What the viewport is drawing, class by class: the visibility row's
+    /// five toggles (`overlays.rs`). Remembered through eframe storage,
+    /// never in the document.
+    overlays: Overlays,
     /// The job thread (`crate::jobs`, docs/01-architecture.md §Jobs and
     /// threads). Drained once per frame.
     jobs: Jobs,
@@ -105,10 +106,11 @@ pub struct RiggenApp {
     /// click then selects the joint, and the viewport's own pick is
     /// suppressed so it does not select the part behind it instead.
     glyph_hover: Option<JointId>,
-    /// The rect of the `View | Edit` control and, in Edit, the toolbar
-    /// beside it (`mode.rs::viewport_chrome`), so a glyph behind them is
-    /// not "hovered" through them and the camera holds still under them.
-    toolbar_rect: Option<egui::Rect>,
+    /// The rects of the **corner chrome**: the `View | Edit` control with
+    /// the toolbar beside it at the left (`mode.rs::viewport_chrome`), the
+    /// visibility row at the right (`overlays.rs`). A glyph behind either
+    /// is not "hovered" through it and the camera holds still under it.
+    chrome_rects: Vec<egui::Rect>,
     /// What the cursor is really pointing at, for the placement tools
     /// (`snap.rs`). Rebuilt every frame from the hovered pick.
     snap_candidate: Option<SnapCandidate>,
@@ -207,10 +209,7 @@ impl RiggenApp {
                     .any(|(_, known)| (known - s).abs() < 1e-12)
             })
             .unwrap_or(Self::DEFAULT_IMPORT_SCALE);
-        let show_collision = cc
-            .storage
-            .and_then(|s| s.get_string(SHOW_COLLISION_KEY))
-            .is_some_and(|s| s == "true");
+        let overlays = Overlays::load(cc.storage);
 
         Self {
             robot: Robot::new("robot"),
@@ -219,7 +218,7 @@ impl RiggenApp {
             mesh_store: HashMap::new(),
             instances: BTreeMap::new(),
             collision_instances: BTreeMap::new(),
-            show_collision,
+            overlays,
             jobs: Jobs::new({
                 let ctx = cc.egui_ctx.clone();
                 move || ctx.request_repaint()
@@ -236,7 +235,7 @@ impl RiggenApp {
             glyph_hover: None,
             hovered_frame: None,
             frame_glyph_hover: None,
-            toolbar_rect: None,
+            chrome_rects: Vec::new(),
             snap_candidate: None,
             snap_cache: SnapCache::default(),
             align_source: None,
@@ -302,6 +301,14 @@ impl RiggenApp {
         }
     }
 
+    /// Whether `pos` is on the corner chrome — the mode control and the
+    /// toolbar at the left, the visibility row at the right. Both float in
+    /// the viewport's own egui layer, which `contains_pointer` cannot see
+    /// through, so the app has to ask (01 §Picking and snapping).
+    pub(crate) fn over_chrome(&self, pos: egui::Pos2) -> bool {
+        self.chrome_rects.iter().any(|rect| rect.contains(pos))
+    }
+
     fn tick_frame_clock(&mut self) {
         let now = Instant::now();
         if let Some(last) = self.last_frame_instant.replace(now) {
@@ -315,12 +322,6 @@ impl RiggenApp {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| self.file_menu(ui));
                 ui.menu_button("Edit", |ui| self.edit_menu(ui));
-                ui.menu_button("View", |ui| {
-                    let mut show = self.show_collision;
-                    if ui.checkbox(&mut show, "Collision geometry").changed() {
-                        self.set_show_collision(show);
-                    }
-                });
                 ui.menu_button("Window", |ui| {
                     ui.checkbox(&mut self.materials_window.open, "Materials");
                 });
@@ -387,7 +388,7 @@ impl RiggenApp {
                 .viewport
                 .viewport_rect()
                 .is_some_and(|r| r.contains(pos))
-            && !self.toolbar_rect.is_some_and(|r| r.contains(pos))
+            && !self.over_chrome(pos)
         {
             // A frame glyph is a small triad the user placed on purpose; a
             // joint glyph is a long axis line that often runs through it.
@@ -415,7 +416,7 @@ impl RiggenApp {
 impl eframe::App for RiggenApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         storage.set_string(IMPORT_SCALE_KEY, self.import_scale.to_string());
-        storage.set_string(SHOW_COLLISION_KEY, self.show_collision.to_string());
+        self.overlays.save(storage);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -492,7 +493,7 @@ impl eframe::App for RiggenApp {
                 let over_toolbar = ui
                     .ctx()
                     .pointer_hover_pos()
-                    .is_some_and(|pos| self.toolbar_rect.is_some_and(|rect| rect.contains(pos)));
+                    .is_some_and(|pos| self.over_chrome(pos));
                 // One frame behind for the gizmo, which cannot say whether it
                 // owns the cursor until it has run, and the viewport runs
                 // first. Picking only: a handle, a glyph or the corner chrome

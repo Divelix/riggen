@@ -116,7 +116,10 @@
     "renaming": null,
     "windows": [],
     "modal": null,
-    "title": "untitled* — riggen"
+    "title": "untitled* — riggen",
+    "overlays": [
+      "collision"
+    ]
   },
   "instances": [
     {

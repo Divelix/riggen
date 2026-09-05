@@ -218,8 +218,7 @@ impl RiggenApp {
         let cursor = ui.ctx().pointer_hover_pos();
         let over_handle = viewport_has_pointer
             && cursor.is_some_and(|c| {
-                !self.toolbar_rect.is_some_and(|r| r.contains(c))
-                    && self.gizmo_state.gizmo.pick_preview((c.x, c.y))
+                !self.over_chrome(c) && self.gizmo_state.gizmo.pick_preview((c.x, c.y))
             });
         // Which ring, for the wheel. Gated on `over_handle`, so the crate
         // has already said a handle is there and this only says *which* —

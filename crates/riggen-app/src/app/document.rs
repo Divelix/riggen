@@ -582,18 +582,6 @@ impl RiggenApp {
         compose_inertial(data, &AppMeshes(&self.mesh_store), &self.robot.materials)
     }
 
-    /// View › Collision geometry.
-    pub fn show_collision(&self) -> bool {
-        self.show_collision
-    }
-
-    pub fn set_show_collision(&mut self, show: bool) {
-        if self.show_collision != show {
-            self.show_collision = show;
-            self.sync_scene();
-        }
-    }
-
     pub(crate) fn geom_of_instance(&self, instance: InstanceId) -> Option<GeomId> {
         self.instances
             .iter()
@@ -752,6 +740,10 @@ impl RiggenApp {
                 })
                 .unwrap_or(riggen_viewport::DEFAULT_INSTANCE_COLOR);
             self.viewport.set_instance_color(id, color);
+            // The row's `links` toggle. Hidden means gone: the instance
+            // leaves the render pass *and* the ID buffer, so the Edit
+            // tools find nothing where it was (ADR-0021, amended).
+            self.viewport.set_instance_visible(id, self.overlays.links);
         }
 
         self.sync_collision(&world);
@@ -765,7 +757,7 @@ impl RiggenApp {
     fn sync_collision(&mut self, world: &BTreeMap<LinkId, Pose>) {
         // (key, source, mesh to upload if the source is new, pose in link)
         let mut wanted: Vec<((LinkId, usize), CollisionSource, Pose)> = Vec::new();
-        if self.show_collision {
+        if self.overlays.collision {
             for (&lid, link) in &self.robot.links {
                 let mut shapes: Vec<(CollisionSource, Pose)> = Vec::new();
                 match &link.collision {

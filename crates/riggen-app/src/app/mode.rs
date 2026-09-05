@@ -99,12 +99,13 @@ impl RiggenApp {
 }
 
 impl RiggenApp {
-    /// The `View | Edit` control, in the viewport's top-left corner in both
-    /// modes with `Tab` in its tooltip, and the toolbar to its right in
-    /// Edit. Drawn after the viewport in the same layer so egui's hit test
-    /// gives it the pointer (`tool.rs`). Returns the rect the two cover,
-    /// which the switch block treats as the toolbar's: camera blocked and
-    /// picks suppressed under it, no glyph hovered through it.
+    /// The corner chrome: the `View | Edit` control in the viewport's
+    /// top-left in both modes with `Tab` in its tooltip, the toolbar to its
+    /// right in Edit, and the **visibility row** at the top-right
+    /// (`overlays.rs`). Drawn after the viewport in the same layer so
+    /// egui's hit test gives it the pointer (`tool.rs`). Records both rects
+    /// in `chrome_rects`: camera blocked and picks suppressed under either,
+    /// no glyph hovered through them.
     pub(crate) fn viewport_chrome(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
         const MARGIN: f32 = 8.0;
         let corner = egui::Rect::from_min_max(rect.min + egui::Vec2::splat(MARGIN), rect.max);
@@ -133,7 +134,7 @@ impl RiggenApp {
                 }
             },
         );
-        self.toolbar_rect = Some(response.response.rect);
+        self.chrome_rects = vec![response.response.rect, self.overlay_row(ui, rect)];
         if let Some(mode) = chosen_mode {
             self.set_mode(mode);
         }
