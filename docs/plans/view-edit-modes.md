@@ -129,7 +129,7 @@ contract is ADR-0021.
   become View scenarios. Every golden refreshed once; `snapshots:` in the
   message and the images shown to the human. 01 §Panels and §Picking
   rewritten in the same commit.
-- [ ] Step 7 — The View hover target grows to the glyph's band and its
+- [x] Step 7 — The View hover target grows to the glyph's band and its
   interior (the glyph plan's "hover" section), **after
   plans/joint-glyph-range-and-value step 2 has landed** and `band_points()`
   exists; in Edit the target stays the axis segment. Golden `glyph_hover`

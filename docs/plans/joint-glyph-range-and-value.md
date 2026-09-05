@@ -27,10 +27,9 @@ can make it the hover target.
 
 ## Non-goals
 
-- The hover target and the wheel claim: `glyph_at` keeps hit-testing the
-  axis segment; growing the target to the band and its interior is
-  mode-dependent and belongs to the View-mode plan (the idea's hover
-  section, 03 §The window).
+- The hover target and the wheel claim: growing the target to the band
+  and its interior was mode-dependent and landed in the View-mode plan's
+  step 7 (View only; Edit keeps the axis segment).
 - The rotate gizmo's rings (ADR-0007, ADR-0010) — not touched; step 2 only
   looks at the two stacked.
 - Frame glyphs, the `Fixed` glyph, the labels, the depth readback's
@@ -110,9 +109,10 @@ stop read without finding the arc's start.
 
 ## Docs to update on completion
 
-- `docs/03-roadmap.md` §v0.4 §The window — the glyph bullet's ⚠ OPEN (idiom
-  and hover target) reduced to the hover half, which the View-mode plan
-  owns; the bullet itself stays until the cycle closes.
+- `docs/03-roadmap.md` §v0.4 §The window — the glyph bullet's ⚠ OPEN is
+  already reduced to the idiom half (the View-mode plan's step 7 settled
+  the hover half); close it once the alphas are confirmed. The bullet
+  itself stays until the cycle closes.
 - `docs/01-architecture.md` §Layer map (overlay paragraph) and §Joint glyphs
   — written in steps 1–3; verify against the code at retirement.
 - `docs/BACKLOG.md` — nothing expected; add whatever step 2's look at the

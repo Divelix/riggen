@@ -386,9 +386,8 @@ in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
   read without finding the arc's start. A `Continuous` joint has no
   limits, so its full circle is the limit band. A prismatic joint gets an
   offset travel segment with end stops and a tick at `q`. The band's
-  centreline (`JointGlyph::band_points`) is exposed for a hit-test that
-  aims at the band; `glyph_at` still measures the axis segment (03 §The
-  window: the View-mode plan owns the hover target). Sized from the child
+  centreline (`JointGlyph::band_points`) is View's hover target, below.
+  Sized from the child
   link's own world bounds, so a glyph is the size of the part it belongs
   to; the scene radius, then one metre, are the fallbacks. Drawn for every
   movable joint plus the selected one whatever its kind
@@ -405,10 +404,17 @@ in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
   takes the posing away. The tick sits at the *resolved* `q`, so a
   follower's points where its link actually is. **Hover runs both ways**: a
   hovered tree row (the link's name or the joint's label) draws that
-  joint's glyph hot, and a glyph under the cursor — nearest axis segment
-  within `GLYPH_HOVER_RADIUS` screen points, measured in screen space
-  because what the user aims at is the line they can see — brightens the
-  tree row and names the joint in the status bar. While a glyph is
+  joint's glyph hot, and a glyph under the cursor brightens the tree row
+  and names the joint in the status bar. **The target depends on the
+  mode** (ADR-0021 §6): in Edit it is the axis segment within
+  `GLYPH_HOVER_RADIUS` screen points and nothing more, since the mesh
+  behind it is what Edit's tools aim at; in View, where a mesh answers
+  nothing, it grows to the **band and its interior** — the pointer inside
+  the band's projected centreline or within the same radius of it — so a
+  joint is a disc to aim a wheel at rather than a line. Measured in
+  screen space because what the user aims at is what they can see; the
+  score is the distance to the axis or the centreline, so a small glyph
+  inside a large band's disc still wins near its own ring. While a glyph is
   hovered the viewport's own **picking** is suppressed
   (`set_pick_suppressed`), so the part behind it is not highlighted as well
   and a click selects the *joint* — the camera keeps the pointer, and the
@@ -770,7 +776,9 @@ Edit: a notch then poses the hovered joint by the ring's quantum, 5° or
 1° with shift, a slide by one percent of its travel (never under the
 metre floor, a tenth with shift), through `set_joint_value` and therefore
 with no history entry, since `q` is derived state. A follower's glyph
-takes no notch (ADR-0013). View's tool is always Select — `Tab` into it
+takes no notch (ADR-0013). The glyph's own hover test is wider in View —
+the band and its interior, not the axis line alone (§Joint glyphs) — which
+the viewport never sees. View's tool is always Select — `Tab` into it
 resets the tool — so the gizmo's two switches and `snapping()` are off for
 the whole of the mode. The viewport crate does not know which mode it is
 in; it never needs to.

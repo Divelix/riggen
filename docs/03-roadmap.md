@@ -360,12 +360,13 @@ line this section now owns.
   of the menu into it, and the corner is the one the Joints window vacates.
   The toolbar keeps the top-left.
 
-⚠ OPEN: the glyph's exact idiom and its hover target. A ring's stroke is a
-thin thing to aim at, and the human's suggestion of an invisible sphere at
-the pivot trades that for a target that would swallow the mesh hover in
-Edit; the axis segment within `GLYPH_HOVER_RADIUS` is the target today.
-Wants an idea (`docs/ideas/`) before it is planned, with the ring's
-opacities (20 / 30 / 50 % was the starting point) settled by looking at it.
+⚠ OPEN: the glyph's exact idiom — plans/joint-glyph-range-and-value is
+landing the band, with the ring's opacities (20 / 30 / 50 % was the
+starting point) settled by looking at it. The hover target is settled
+(plans/view-edit-modes step 7): in View, where a mesh answers nothing, it
+is the band and its interior; in Edit it stays the axis segment within
+`GLYPH_HOVER_RADIUS`, since a wider target would swallow the mesh hover
+the tools aim at (01 §Joint glyphs).
 
 **Out:** SDF import — the reading direction stays URDF and MJCF, and
 `libsdformat` stays a CI test dependency (ADR-0016 §6); a Gazebo model

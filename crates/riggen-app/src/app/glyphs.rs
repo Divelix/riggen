@@ -30,7 +30,7 @@ use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{FrameId, JointId, JointKind, LinkId, Pose};
 use riggen_viewport::{Overlay, OverlayItem};
 
-use super::{RiggenApp, Selection};
+use super::{Mode, RiggenApp, Selection};
 
 /// Colour of the axis segment and the limit arc: amber, which nothing in
 /// the scene or the triad already means.
@@ -180,10 +180,10 @@ impl JointGlyph {
     }
 
     /// The band's centreline as world points — the full circle midway
-    /// between its edges, starting at the zero position — for a hit-test
-    /// that aims at the band rather than the axis (03 §The window: the
-    /// View-mode plan owns the hover target; `glyph_at` still measures
-    /// the axis segment). Empty for a joint without a band.
+    /// between its edges, starting at the zero position. In View this is
+    /// the hover target: the pointer inside the circle, or within
+    /// [`GLYPH_HOVER_RADIUS`] of it, is on the joint (`glyph_at`,
+    /// ADR-0021 §6). Empty for a joint without a band.
     pub fn band_points(&self) -> Vec<DVec3> {
         let Some((inner, outer)) = self.band() else {
             return Vec::new();
@@ -497,24 +497,57 @@ impl RiggenApp {
         self.hovered_joint
     }
 
-    /// The joint whose glyph is under `pos`, by screen distance to its axis
-    /// segment; the nearest within [`GLYPH_HOVER_RADIUS`] wins.
+    /// The joint whose glyph is under `pos`; the nearest wins.
     ///
-    /// Screen space, not a ray cast: the glyph is a line drawn at a fixed
-    /// pixel width and what the user is aiming at is the line they can see,
-    /// not a cylinder around it that shrinks with distance.
+    /// In **Edit** the target is the axis segment within
+    /// [`GLYPH_HOVER_RADIUS`] screen points, and nothing more: the mesh
+    /// under the cursor is what Edit's tools aim at, and a target that
+    /// swallowed the part behind it would take the hover pick away. In
+    /// **View** the mesh answers nothing (ADR-0021 §1), so the target grows
+    /// to the **band and its interior** — the pointer inside the band's
+    /// projected centreline, or within the same radius of it — because a
+    /// joint is what the user came to pose and a thin line is a poor thing
+    /// to aim a wheel at. A prismatic joint, having no band, keeps the
+    /// axis in both.
+    ///
+    /// Screen space, not a ray cast: the glyph is drawn at a fixed pixel
+    /// width and what the user is aiming at is what they can see, not a
+    /// solid around it that shrinks with distance. The score is the
+    /// distance to the axis or to the centreline, so where one band's disc
+    /// contains a smaller glyph the nearer ring wins.
     pub fn glyph_at(&self, glyphs: &[JointGlyph], pos: egui::Pos2) -> Option<JointId> {
         glyphs
             .iter()
-            .filter_map(|glyph| {
-                let (from, to) = glyph.axis_ends();
-                let a = self.project_world(from)?;
-                let b = self.project_world(to)?;
-                let distance = distance_to_segment(pos, a, b);
-                (distance <= GLYPH_HOVER_RADIUS).then_some((distance, glyph.joint))
-            })
+            .filter_map(|glyph| Some((self.glyph_distance(glyph, pos)?, glyph.joint)))
             .min_by(|a, b| a.0.total_cmp(&b.0))
             .map(|(_, joint)| joint)
+    }
+
+    /// How far `pos` is from `glyph`'s hover target, or `None` when it is
+    /// not on it — see [`Self::glyph_at`] for what the target is in each
+    /// mode.
+    fn glyph_distance(&self, glyph: &JointGlyph, pos: egui::Pos2) -> Option<f32> {
+        let (from, to) = glyph.axis_ends();
+        let axis = match (self.project_world(from), self.project_world(to)) {
+            (Some(a), Some(b)) => Some(distance_to_segment(pos, a, b)),
+            _ => None,
+        }
+        .filter(|d| *d <= GLYPH_HOVER_RADIUS);
+        if self.mode != Mode::View {
+            return axis;
+        }
+        let ring: Vec<egui::Pos2> = glyph
+            .band_points()
+            .into_iter()
+            .filter_map(|p| self.project_world(p))
+            .collect();
+        let band = (ring.len() >= 3)
+            .then(|| distance_to_polygon(pos, &ring))
+            .filter(|d| *d <= GLYPH_HOVER_RADIUS || point_in_polygon(pos, &ring));
+        match (axis, band) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     /// The band of a revolute joint: three filled sectors of the annulus
@@ -612,6 +645,31 @@ impl RiggenApp {
     }
 }
 
+/// Distance in screen points from `pos` to the closed polygon through
+/// `ring` — the nearest of its edges, the closing one included.
+pub(crate) fn distance_to_polygon(pos: egui::Pos2, ring: &[egui::Pos2]) -> f32 {
+    ring.iter()
+        .zip(ring.iter().cycle().skip(1))
+        .map(|(a, b)| distance_to_segment(pos, *a, *b))
+        .fold(f32::INFINITY, f32::min)
+}
+
+/// Whether `pos` is inside the closed polygon through `ring`, by the
+/// even–odd rule: a ray cast to +x crosses an odd number of edges. A
+/// projected circle is convex, but the rule needs no such promise.
+pub(crate) fn point_in_polygon(pos: egui::Pos2, ring: &[egui::Pos2]) -> bool {
+    let mut inside = false;
+    for (a, b) in ring.iter().zip(ring.iter().cycle().skip(1)) {
+        if (a.y > pos.y) != (b.y > pos.y) {
+            let x = a.x + (pos.y - a.y) / (b.y - a.y) * (b.x - a.x);
+            if pos.x < x {
+                inside = !inside;
+            }
+        }
+    }
+    inside
+}
+
 /// Distance in screen points from `pos` to the segment `a`–`b`; the
 /// distance to the nearer end when the projection falls outside it.
 pub(crate) fn distance_to_segment(pos: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
@@ -676,6 +734,32 @@ mod tests {
             ..glyph
         };
         assert_eq!(weld.value_sweep(), 0.0);
+    }
+
+    #[test]
+    fn a_point_is_inside_a_polygon_or_near_its_edge() {
+        // A unit square from (10, 10) to (20, 20).
+        let square = [
+            pos2(10.0, 10.0),
+            pos2(20.0, 10.0),
+            pos2(20.0, 20.0),
+            pos2(10.0, 20.0),
+        ];
+        assert!(point_in_polygon(pos2(15.0, 15.0), &square));
+        assert!(point_in_polygon(pos2(10.5, 19.5), &square));
+        assert!(!point_in_polygon(pos2(25.0, 15.0), &square));
+        assert!(!point_in_polygon(pos2(15.0, 5.0), &square));
+        // The closing edge counts: a point just left of the square is
+        // nearest to the (10, 20)–(10, 10) edge, not to a corner.
+        assert!((distance_to_polygon(pos2(7.0, 15.0), &square) - 3.0).abs() < 1e-5);
+        assert!((distance_to_polygon(pos2(15.0, 24.0), &square) - 4.0).abs() < 1e-5);
+        // Inside, the distance is to the nearest edge.
+        assert!((distance_to_polygon(pos2(12.0, 15.0), &square) - 2.0).abs() < 1e-5);
+        // A degenerate ring is no target.
+        assert!(!point_in_polygon(
+            pos2(15.0, 15.0),
+            &[pos2(10.0, 10.0), pos2(20.0, 20.0)]
+        ));
     }
 
     #[test]

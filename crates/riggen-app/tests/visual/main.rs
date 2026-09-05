@@ -4744,6 +4744,99 @@ fn glyph_hover() {
     });
 }
 
+/// A point in the band's disc, off the axis: `t` of the glyph's size along
+/// the joint's own Z, which for the pendulum's Y hinge lies in the band's
+/// plane. `t` inside `BAND_INNER` is the bore, past `ARC_RADIUS` is off
+/// the band.
+fn glyph_band_point(
+    harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+    t: f64,
+) -> egui::Pos2 {
+    let glyph = harness.state().joint_glyphs()[0];
+    let in_plane = glyph.pivot.r * DVec3::Z;
+    harness
+        .state()
+        .project_world(glyph.pivot.t + in_plane * glyph.size * t)
+        .expect("the glyph is on screen")
+}
+
+/// In View the hover target is the band and its interior; in Edit it is the
+/// axis segment alone (plans/view-edit-modes step 7, ADR-0021 §6). The
+/// same screen point — in the band's bore, well off the axis — is on the
+/// joint in one mode and on nothing in the other, and a point past the
+/// band's outer edge is on nothing in either.
+#[test]
+fn the_band_is_the_hover_target_in_view_and_not_in_edit() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
+        app.fit_view_now();
+        settle(harness);
+
+        let in_bore = glyph_band_point(harness, 0.3);
+        let axis = glyph_axis_point(harness, 0.8);
+        let past_band = glyph_band_point(harness, 1.0);
+        assert!(
+            (in_bore - axis).length() > riggen_app::GLYPH_HOVER_RADIUS * 2.0,
+            "the probe is well off the axis"
+        );
+
+        harness.hover_at(in_bore);
+        harness.step();
+        assert!(
+            !harness.state().debug_state().glyphs[0].hovered,
+            "Edit: the axis alone"
+        );
+
+        harness.state_mut().set_mode(Mode::View);
+        harness.hover_at(in_bore);
+        harness.step();
+        assert!(
+            harness.state().debug_state().glyphs[0].hovered,
+            "View: the band's interior"
+        );
+        harness.hover_at(past_band);
+        harness.step();
+        assert!(
+            !harness.state().debug_state().glyphs[0].hovered,
+            "View: outside the band is outside the target"
+        );
+        harness.hover_at(axis);
+        harness.step();
+        assert!(
+            harness.state().debug_state().glyphs[0].hovered,
+            "View: the axis still counts"
+        );
+    });
+}
+
+/// `glyph_hover`'s View twin: the pointer in the band's bore, off the axis,
+/// has the glyph hot and the joint named in the status bar.
+#[test]
+fn view_glyph_hover_band() {
+    scenario("view_glyph_hover_band", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        app.fit_view_now();
+        settle(harness);
+        assert_eq!(
+            harness.state().mode(),
+            Mode::View,
+            "a document opens in View"
+        );
+
+        let at = glyph_band_point(harness, 0.3);
+        harness.hover_at(at);
+        pump_rendered(harness, 6);
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert!(state.glyphs[0].hovered && state.glyphs[0].active);
+        assert_eq!(state.selection.hovered, None);
+    });
+}
+
 /// A hovered glyph suppresses the *picks* and nothing else
 /// (ADR-0010). It hides the part behind it, so tinting that
 /// part would be a lie — but the wheel has no reason to stop, and under the
