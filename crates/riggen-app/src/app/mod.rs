@@ -9,6 +9,7 @@ mod file_io;
 mod file_menu;
 mod gizmo;
 mod glyphs;
+mod mode;
 mod panels;
 mod shortcuts;
 mod snap;
@@ -39,6 +40,7 @@ use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use gizmo::GizmoState;
 pub use gizmo::{GizmoTarget, RingAxis};
 pub use glyphs::{FrameGlyph, GLYPH_HOVER_RADIUS, JointGlyph};
+pub use mode::Mode;
 pub use panels::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING, fmt_num};
 use panels::{JointsWindow, MaterialsWindow, PropertiesState, TreeState};
 use snap::SnapCache;
@@ -80,6 +82,8 @@ pub struct RiggenApp {
     /// Current joint values — slider state, never saved.
     q: JointState,
     selection: Selection,
+    /// View or Edit (`mode.rs`, ADR-0021).
+    mode: Mode,
     /// What a viewport gesture means (`tool.rs`).
     tool: Tool,
     /// The transform gizmo and the drag it is in the middle of
@@ -215,6 +219,8 @@ impl RiggenApp {
             decomp: HashMap::new(),
             q: JointState::default(),
             selection: Selection::None,
+            // Edit until the open rule lands (plans/view-edit-modes step 6).
+            mode: Mode::Edit,
             tool: Tool::default(),
             gizmo_state: GizmoState::default(),
             hovered_joint: None,

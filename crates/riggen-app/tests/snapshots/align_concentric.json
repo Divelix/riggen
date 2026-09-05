@@ -126,6 +126,7 @@
     "selection": "link l7"
   },
   "ui": {
+    "mode": "Edit",
     "tool": "Align",
     "renaming": null,
     "windows": [],

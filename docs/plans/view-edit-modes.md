@@ -49,8 +49,9 @@ contract is ADR-0021.
   (plans/m2-placement-ux OPEN 1) and narrows 02 §Commands' "`Reparent` at
   the current `q`" to the SDK's `q=` (the GUI's tree drag is in Edit, at
   zero).
-- **`riggen-app/src/app/mod.rs`**: `Mode { View, Edit }` on `RiggenApp`,
-  `stashed_q: Option<JointState>`; `set_mode` does the stash / rewind /
+- **`riggen-app/src/app/mod.rs`** (the field) and **`mode.rs`** (the enum
+  and `set_mode`, its own module like `tool.rs`): `Mode { View, Edit }` on
+  `RiggenApp`, `stashed_q: Option<JointState>`; `set_mode` does the stash / rewind /
   restore and the selection carry-over (a joint selection survives, a link
   or frame selection clears). `handle_shortcuts` consumes bare `Tab`,
   yielding to a focused `TextEdit` as every bare key does. The per-frame
@@ -93,7 +94,7 @@ contract is ADR-0021.
 - [x] Step 1 — ADR-0021 written and accepted: the mode contract as the
   Goal states it, its Context the idea's Problem, its Alternatives the
   idea's B and C. Docs only; the later steps cite it.
-- [ ] Step 2 — `Mode` on the app, default **Edit** for now: `set_mode`,
+- [x] Step 2 — `Mode` on the app, default **Edit** for now: `set_mode`,
   bare `Tab` in `handle_shortcuts` (yielding to a focused text field),
   `UiDebug::mode`. No visible change yet — a harness test presses `Tab`
   and reads `debug_state().ui.mode` both ways, and a focused rename field

@@ -94,6 +94,8 @@ pub struct TimingDebug {
 /// What the panels are in the middle of.
 #[derive(Debug, Clone, Serialize)]
 pub struct UiDebug {
+    /// `"View"` or `"Edit"` (ADR-0021).
+    pub mode: &'static str,
     /// The active tool, by its toolbar label.
     pub tool: &'static str,
     /// The link an inline rename is editing, as `"l3"`, and the text so far.
@@ -433,6 +435,7 @@ impl RiggenApp {
                     over: d.over.map(|l| l.to_string()),
                     allowed: d.allowed,
                 }),
+                mode: self.mode().label(),
                 tool: self.tool().label(),
                 renaming: self
                     .tree

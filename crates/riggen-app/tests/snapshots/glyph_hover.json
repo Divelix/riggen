@@ -111,6 +111,7 @@
     "selection": null
   },
   "ui": {
+    "mode": "Edit",
     "tool": "Select",
     "renaming": null,
     "windows": [

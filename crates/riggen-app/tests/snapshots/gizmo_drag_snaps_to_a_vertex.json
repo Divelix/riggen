@@ -111,6 +111,7 @@
     "selection": "link l5"
   },
   "ui": {
+    "mode": "Edit",
     "tool": "Move",
     "renaming": null,
     "windows": [

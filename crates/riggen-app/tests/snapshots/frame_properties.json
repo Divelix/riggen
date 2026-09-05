@@ -190,6 +190,7 @@
     "selection": "frame f18"
   },
   "ui": {
+    "mode": "Edit",
     "tool": "Select",
     "renaming": null,
     "windows": [

@@ -111,6 +111,7 @@
     "selection": "joint j6"
   },
   "ui": {
+    "mode": "Edit",
     "tool": "Place joint",
     "renaming": null,
     "windows": [

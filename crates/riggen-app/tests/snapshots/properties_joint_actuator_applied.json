@@ -190,6 +190,7 @@
     "selection": "joint j8"
   },
   "ui": {
+    "mode": "Edit",
     "tool": "Select",
     "renaming": null,
     "windows": [

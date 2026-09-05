@@ -33,6 +33,11 @@ impl RiggenApp {
         if text_field_focused(ctx) {
             return;
         }
+        // Tab switches the mode (ADR-0021 §3). After the guard: in a text
+        // field, Tab is the field's own focus traversal.
+        if self.pending.is_none() && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab)) {
+            self.set_mode(self.mode.other());
+        }
         // Ctrl+Shift+Z before Ctrl+Z: egui matches modifiers logically, so
         // the bare pattern would swallow the shifted one.
         if ctx.input_mut(|i| i.consume_key(cmd | Modifiers::SHIFT, Key::Z))

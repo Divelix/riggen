@@ -145,6 +145,7 @@
     "selection": "frame f7"
   },
   "ui": {
+    "mode": "Edit",
     "tool": "Select",
     "renaming": [
       "f7",

@@ -7074,3 +7074,62 @@ fn consenting_once_starts_the_decomposition() {
         );
     });
 }
+
+/// `Tab` switches View ↔ Edit (ADR-0021 §3): a joint selection survives
+/// the switch, a link selection clears, and a focused rename field keeps
+/// its `Tab` — the mode does not move while a name is being typed.
+#[test]
+fn tab_switches_the_mode() {
+    with_app(|harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        settle(harness);
+        assert_eq!(harness.state().debug_state().ui.mode, "Edit");
+
+        harness.key_press(egui::Key::Tab);
+        harness.step();
+        assert_eq!(harness.state().debug_state().ui.mode, "View");
+        harness.key_press(egui::Key::Tab);
+        harness.step();
+        assert_eq!(harness.state().debug_state().ui.mode, "Edit");
+
+        // A joint is a thing in both modes.
+        let hinge = *harness.state().robot().joints.keys().next().unwrap();
+        harness.state_mut().select(Selection::Joint(hinge));
+        harness.key_press(egui::Key::Tab);
+        harness.step();
+        assert_eq!(harness.state().mode(), riggen_app::Mode::View);
+        assert_eq!(harness.state().selection(), Selection::Joint(hinge));
+
+        // A link has no row in View.
+        harness.state_mut().set_mode(riggen_app::Mode::Edit);
+        harness.get_by_label("arm").click();
+        harness.step();
+        assert!(matches!(harness.state().selection(), Selection::Link(_)));
+        harness.key_press(egui::Key::Tab);
+        harness.step();
+        assert_eq!(harness.state().mode(), riggen_app::Mode::View);
+        assert_eq!(harness.state().selection(), Selection::None);
+
+        // A rename field owns Tab while it has focus.
+        harness.state_mut().set_mode(riggen_app::Mode::Edit);
+        harness.get_by_label("arm").click();
+        harness.step();
+        harness.key_press(egui::Key::F2);
+        harness.step();
+        harness.step();
+        assert!(
+            harness.state().debug_state().ui.renaming.is_some(),
+            "F2 starts a rename"
+        );
+        harness.key_press(egui::Key::Tab);
+        harness.step();
+        assert_eq!(
+            harness.state().mode(),
+            riggen_app::Mode::Edit,
+            "Tab in a text field is the field's"
+        );
+    });
+}
