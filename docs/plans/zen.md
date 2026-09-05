@@ -93,7 +93,7 @@ suite.
   empty `chrome_rects`, and `Esc` beside `Z` because there is no status
   bar left to read. `docs/adr/README.md` updated. Docs only, no code, no
   goldens.
-- [ ] Step 2 — **`Z`, and the empty window.** `zen` on `RiggenApp` with
+- [x] Step 2 — **`Z`, and the empty window.** `zen` on `RiggenApp` with
   its three methods in `mode.rs`; the five panel calls and
   `viewport_chrome` gated in `ui`, `chrome_rects` cleared; bare `Z` in
   `handle_shortcuts` in the ordering above; `debug_state().ui.zen`. A unit

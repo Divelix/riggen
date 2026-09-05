@@ -87,6 +87,10 @@ pub struct RiggenApp {
     selection: Selection,
     /// View or Edit (`mode.rs`, ADR-0021).
     mode: Mode,
+    /// Zen: every panel and both pieces of corner chrome hidden, the robot
+    /// alone in the window (`mode.rs`, ADR-0021 amended). Orthogonal to
+    /// the mode and never persisted.
+    zen: bool,
     /// The pose View was showing when `Tab` went to Edit, which is the zero
     /// configuration for the whole of the mode; restored on the way back.
     stashed_q: Option<JointState>,
@@ -228,6 +232,7 @@ impl RiggenApp {
             selection: Selection::None,
             // Edit until the open rule lands (plans/view-edit-modes step 6).
             mode: Mode::Edit,
+            zen: false,
             stashed_q: None,
             tool: Tool::default(),
             gizmo_state: GizmoState::default(),
@@ -432,46 +437,53 @@ impl eframe::App for RiggenApp {
         self.handle_shortcuts(ui.ctx());
         self.update_title(ui.ctx());
 
-        self.menu_bar(ui);
+        // Zen takes every panel and both pieces of corner chrome; what is
+        // left is the viewport with the robot in it (ADR-0021, amended).
+        // The mode underneath is unchanged, and so is everything the
+        // switches below are set from.
+        if !self.zen {
+            self.menu_bar(ui);
 
-        // A hovered glyph names its joint; otherwise the ID buffer's hit.
-        // Both are last frame's — this panel is drawn before the viewport.
-        let hovered = match self.hovered_frame.and_then(|f| self.robot.frames.get(&f)) {
-            Some(frame) => Some(format!("{} (frame)", frame.name)),
-            None => match self.hovered_joint.and_then(|j| self.robot.joints.get(&j)) {
-                Some(joint) => Some(format!("{} (joint)", joint.name)),
-                None => self.viewport.hovered().map(|h| self.describe_hit(h)),
-            },
-        };
-        let selected = self.viewport.selected().map(|h| self.describe_hit(h));
-        let hidden = self.hidden_note();
-        let document = format!(
-            "{}{}",
-            self.document_label(),
-            if self.history.is_dirty() { "*" } else { "" }
-        );
-        status_bar::status_bar(
-            ui,
-            &status_bar::StatusView {
-                mode: self.mode.label(),
-                document: &document,
-                import_units: &status_bar::import_units_label(self.import_scale),
-                hovered: hovered.as_deref(),
-                selected: selected.as_deref(),
-                instance_count: self.viewport.instance_count(),
-                hidden: hidden.as_deref(),
-                message: self.status.as_deref(),
-                frame_dt: self.show_frame_hud.then_some(self.last_frame_dt).flatten(),
-            },
-        );
+            // A hovered glyph names its joint; otherwise the ID buffer's
+            // hit. Both are last frame's — this panel is drawn before the
+            // viewport.
+            let hovered = match self.hovered_frame.and_then(|f| self.robot.frames.get(&f)) {
+                Some(frame) => Some(format!("{} (frame)", frame.name)),
+                None => match self.hovered_joint.and_then(|j| self.robot.joints.get(&j)) {
+                    Some(joint) => Some(format!("{} (joint)", joint.name)),
+                    None => self.viewport.hovered().map(|h| self.describe_hit(h)),
+                },
+            };
+            let selected = self.viewport.selected().map(|h| self.describe_hit(h));
+            let hidden = self.hidden_note();
+            let document = format!(
+                "{}{}",
+                self.document_label(),
+                if self.history.is_dirty() { "*" } else { "" }
+            );
+            status_bar::status_bar(
+                ui,
+                &status_bar::StatusView {
+                    mode: self.mode.label(),
+                    document: &document,
+                    import_units: &status_bar::import_units_label(self.import_scale),
+                    hovered: hovered.as_deref(),
+                    selected: selected.as_deref(),
+                    instance_count: self.viewport.instance_count(),
+                    hidden: hidden.as_deref(),
+                    message: self.status.as_deref(),
+                    frame_dt: self.show_frame_hud.then_some(self.last_frame_dt).flatten(),
+                },
+            );
 
-        // The left panel is the mode's: the joint tree to pose in View,
-        // the link tree to build in Edit (ADR-0021).
-        match self.mode {
-            Mode::View => self.joint_tree_panel(ui),
-            Mode::Edit => {
-                self.tree_panel(ui);
-                self.properties_panel(ui);
+            // The left panel is the mode's: the joint tree to pose in
+            // View, the link tree to build in Edit (ADR-0021).
+            match self.mode {
+                Mode::View => self.joint_tree_panel(ui),
+                Mode::Edit => {
+                    self.tree_panel(ui);
+                    self.properties_panel(ui);
+                }
             }
         }
 
@@ -566,7 +578,14 @@ impl eframe::App for RiggenApp {
                 // `contains_pointer` is for (ADR-0010).
                 self.gizmo_ui(ui, rect, response.contains_pointer());
                 self.step_hovered_joint_with_wheel(ui);
-                self.viewport_chrome(ui, rect);
+                if self.zen {
+                    // Nothing is drawn there, so nothing may go on
+                    // blocking the camera or suppressing picks under a
+                    // rect from the frame before (ADR-0021, amended).
+                    self.chrome_rects.clear();
+                } else {
+                    self.viewport_chrome(ui, rect);
+                }
                 // The viewport's pick is suppressed while a glyph is
                 // hovered, so these clicks are unambiguous, and a hovered
                 // glyph and a snap are mutually exclusive.

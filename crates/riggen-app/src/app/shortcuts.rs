@@ -47,6 +47,16 @@ impl RiggenApp {
         } else if ctx.input_mut(|i| i.consume_key(cmd, Key::Z)) {
             self.undo();
         }
+        // Bare `Z` is zen (ADR-0021, amended) — every panel and both
+        // pieces of corner chrome away, and back again. It is matched
+        // *after* the undo pair above for the same `consume_key` reason
+        // the shifted pattern comes first: egui matches modifiers
+        // logically, so a bare `Z` read first would swallow `Ctrl+Z`.
+        // Guarded on `pending` like `Tab`: a modal is a question the user
+        // is owed an answer to, not a window to declutter.
+        if self.pending.is_none() && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Z)) {
+            self.toggle_zen();
+        }
         // Esc leaves an editing tool. It is consumed only when a tool is
         // active, so the rename / modal / field-revert uses of Escape (all
         // of which read it after this runs) still see it otherwise.

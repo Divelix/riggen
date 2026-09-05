@@ -371,7 +371,25 @@ in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
   registered last. Their joint rect, and the **visibility row**'s at the
   top-right, are remembered as `chrome_rects`: the camera holds still and
   the picks are off under either, and no glyph is hovered through them
-  (`over_chrome`).
+  (`over_chrome`). In **zen** neither is drawn and the list is *cleared*
+  rather than left holding the previous frame's rects: nothing is there,
+  so nothing may go on blocking (ADR-0021, amended).
+- **Zen** (`Z`, `mode.rs`): every panel — the menu bar, the status bar,
+  the left panel, the properties panel — and both pieces of corner chrome
+  hidden, so the viewport fills the window with the robot alone; `Z`
+  again brings all of them back, and the floating Materials window with
+  them, its `open` flag untouched. Zen is **orthogonal to the mode**: it
+  is the same key and the same state in View and Edit, `Tab` still
+  switches modes inside it, the visibility row's five toggles stay
+  exactly as the user set them, and not one switch of the table is set
+  differently (ADR-0021, amended). It is transient — never in the
+  document and, unlike the row's toggles, never in eframe storage: the
+  window's furniture is answered fresh on every run, the way the open
+  rule answers the mode. Because there is no status bar left to name what
+  is hidden, **`Esc` leaves zen** before it leaves a tool, so a window
+  with no chrome in it always has a way out. Nothing is painted on entry:
+  a fading hint would put a clock into every golden (ADR-0003).
+  `debug_state().ui.zen` reports it.
 - **Joint glyphs** (in the viewport): a joint has no geometry, so without
   one it exists only in the tree and "which way does this hinge turn?" has
   to be read off two number fields. Each glyph is an axis segment through
@@ -531,22 +549,25 @@ in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
   Export and Debug › Save state each hand the browser a file (§The web
   build, ADR-0017).
 - **Shortcuts** (`shortcuts.rs`, run before the panels each frame): Ctrl+N
-  / O / S / Shift+S fire always; Tab, the tool keys, Delete, F2, Ctrl+Z,
-  Ctrl+Shift+Z and Ctrl+Y
+  / O / S / Shift+S fire always; Tab, `Z`, the tool keys, Delete, F2,
+  Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y
   yield while a `TextEdit` has focus (`TextEdit::load_state` on the focused
   id — a clicked button holds focus too and must not block Delete), and the
   shifted pattern is consumed before the bare one because egui matches
-  modifiers logically.
+  modifiers logically. Bare `Z` (zen) is read **after** the `Ctrl+Z` pair
+  for that same reason, the way the shifted `Z` is read before the bare
+  `Ctrl+Z`; like `Tab` it is skipped while a modal is up.
 
 ## Frame loop
 
 ```
-input ──► shortcuts ──► menu bar, status bar, tree, properties
+input ──► shortcuts ──► menu bar, status bar, tree, properties   (none of them in zen)
        ──► central panel:
              joint + frame glyphs from (Robot, q) ──► glyph hover ──► snap candidate
              viewport.set_overlay(glyphs + frame triads + align pick + snap marker)
              viewport pointer policy: five switches + set_pick_excluded
-             viewport.ui ──► gizmo ──► corner chrome   (registration order = pointer precedence)
+             viewport.ui ──► gizmo ──► corner chrome   (registration order = pointer precedence;
+                                                       in zen no chrome, and `chrome_rects` cleared)
              a click ──► select a joint or frame / place a joint or frame / align
        ──► Commands ──► History ──► Robot
 Robot ──► fk(robot, q) ──► world pose per link

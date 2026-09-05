@@ -1,6 +1,13 @@
 //! The window's two modes (ADR-0021): **View** is the posed robot, **Edit**
 //! is the v0.3 editor at the zero configuration. `Tab` switches them
 //! (`shortcuts.rs`).
+//!
+//! And **zen**, which is orthogonal to both: `Z` hides every panel and
+//! both pieces of corner chrome, leaving the viewport filling the window
+//! with the robot alone. It lives here because it is the same policy the
+//! mode is — which panels are drawn — and is read in the same places. It
+//! changes nothing else: not the mode, not the visibility row's toggles,
+//! not one switch of the table (ADR-0021, amended).
 
 use riggen_core::{JointKind, Limits};
 
@@ -66,6 +73,25 @@ impl RiggenApp {
         self.mode
     }
 
+    /// Whether the window is in **zen**: every panel and both pieces of
+    /// corner chrome hidden, the viewport filling the window with the
+    /// robot alone (ADR-0021, amended).
+    pub fn zen(&self) -> bool {
+        self.zen
+    }
+
+    /// Enter or leave zen. Orthogonal to the mode: nothing else about the
+    /// window changes, so there is no scene to sync and no selection to
+    /// clear — only which panels `ui` draws. Never persisted.
+    pub fn set_zen(&mut self, zen: bool) {
+        self.zen = zen;
+    }
+
+    /// What `Z` does.
+    pub fn toggle_zen(&mut self) {
+        self.zen = !self.zen;
+    }
+
     /// Switches modes. Edit is the zero configuration (ADR-0021 §2): going
     /// there stashes `q` and rewinds, coming back restores it — a rewind,
     /// not an edit, so no history entry either way. A selected joint is a
@@ -105,7 +131,9 @@ impl RiggenApp {
     /// (`overlays.rs`). Drawn after the viewport in the same layer so
     /// egui's hit test gives it the pointer (`tool.rs`). Records both rects
     /// in `chrome_rects`: camera blocked and picks suppressed under either,
-    /// no glyph hovered through them.
+    /// no glyph hovered through them. Not called at all in zen, where
+    /// `chrome_rects` is cleared instead: nothing is drawn there, so
+    /// nothing may go on blocking (ADR-0021, amended).
     pub(crate) fn viewport_chrome(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
         const MARGIN: f32 = 8.0;
         let corner = egui::Rect::from_min_max(rect.min + egui::Vec2::splat(MARGIN), rect.max);

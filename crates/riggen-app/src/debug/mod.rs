@@ -96,6 +96,11 @@ pub struct TimingDebug {
 pub struct UiDebug {
     /// `"View"` or `"Edit"` (ADR-0021).
     pub mode: &'static str,
+    /// Zen: every panel and both pieces of corner chrome hidden
+    /// (ADR-0021, amended). Omitted when false, so no golden taken with
+    /// the chrome up gains a line.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub zen: bool,
     /// The active tool, by its toolbar label.
     pub tool: &'static str,
     /// The link an inline rename is editing, as `"l3"`, and the text so far.
@@ -447,6 +452,7 @@ impl RiggenApp {
                     allowed: d.allowed,
                 }),
                 mode: self.mode().label(),
+                zen: self.zen(),
                 tool: self.tool().label(),
                 renaming: self
                     .tree

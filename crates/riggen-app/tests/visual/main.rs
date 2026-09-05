@@ -1591,6 +1591,83 @@ fn overlay_row_hides_frames_and_their_hover() {
     });
 }
 
+/// Zen on `Z` (ADR-0021, amended): the sample arm in View with the menu
+/// bar, the status bar, the joint tree and both pieces of corner chrome
+/// gone — the viewport filling the window with the robot alone. The mode
+/// underneath is untouched, and so is every switch it sets.
+#[test]
+fn zen_view() {
+    scenario("zen_view", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        assert!(!harness.state().zen(), "a document opens with its chrome");
+
+        harness.key_press(egui::Key::Z);
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        assert!(state.ui.zen, "`Z` entered zen");
+        assert_eq!(state.ui.mode, "View", "zen is orthogonal to the mode");
+        assert!(
+            state.input.pick_suppressed,
+            "View's rule is unchanged: only the glyphs answer"
+        );
+        // Nothing riggen draws over the robot is left: no menu, no status
+        // bar, no joint tree, no mode control, no visibility row.
+        for label in ["File", "Reset all", "Edit", "joints", "collision"] {
+            assert!(
+                harness.query_by_label(label).is_none(),
+                "`{label}` is chrome and zen takes it"
+            );
+        }
+        // The glyphs are the viewport's own and stay: zen hid panels, not
+        // the robot.
+        assert_eq!(harness.state().joint_glyphs().len(), 3);
+    });
+}
+
+/// `Z` is bare, so it is read *after* `Ctrl+Z` (egui matches modifiers
+/// logically, the RoboCAD `consume_key` lesson) and it yields to a focused
+/// text field like every other bare key here.
+#[test]
+fn zen_key_yields_to_ctrl_z_and_to_a_field() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        open_link(app, "cube_binary.stl");
+        open_link(app, "cube_ascii.stl");
+        assert_eq!(app.history().undo_depth(), 2);
+        settle(harness);
+
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        harness.step();
+        let app = harness.state();
+        assert_eq!(app.history().undo_depth(), 1, "Ctrl+Z undid");
+        assert!(!app.zen(), "Ctrl+Z is not zen");
+
+        harness.key_press(egui::Key::Z);
+        harness.step();
+        let app = harness.state();
+        assert!(app.zen(), "bare Z is zen");
+        assert_eq!(app.history().undo_depth(), 1, "zen is not a history entry");
+        harness.key_press(egui::Key::Z);
+        harness.step();
+        assert!(!harness.state().zen(), "and `Z` again brings it back");
+
+        // A focused name field owns its letters.
+        harness.get_by_label("cube_binary").click();
+        harness.step();
+        harness.get_by_label("name").focus();
+        harness.step();
+        harness.key_press(egui::Key::Z);
+        harness.step();
+        assert!(!harness.state().zen(), "text field owns a bare Z");
+    });
+}
+
 /// The open rule (ADR-0021 §4): a document, an import and the demo's drop
 /// open in View — an all-fixed one too, with the "nothing to pose" line —
 /// while File › New and a drop of meshes alone open in Edit. The mode is
