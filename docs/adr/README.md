@@ -15,7 +15,7 @@ Consequences, Alternatives considered.
 | [0007](0007-transform-gizmo-crate-over-our-own.md) | The gizmo comes from `transform-gizmo-egui`, bridged through `mint` | Accepted, amended by 0010 |
 | [0008](0008-export-conventions.md) | Export conventions: meshes baked to meters as STL, `fullinertia`, a headless CLI export | Accepted |
 | [0009](0009-one-wheel-abi3-extension-plus-binary-as-data.md) | One wheel: a PyO3 abi3 extension module plus the binary as wheel data | Accepted |
-| [0010](0010-gizmo-egui-glue-is-ours.md) | The gizmo's egui glue is ours; the pointer is shared per handle | Accepted, §3 amended by 0018 and 0019 |
+| [0010](0010-gizmo-egui-glue-is-ours.md) | The gizmo's egui glue is ours; the pointer is shared per handle | Accepted, §3 amended by 0018 and 0019, a mode policy over it in 0021 |
 | [0011](0011-convex-decomposition-from-parry-vhacd.md) | Convex decomposition from `parry3d-f64`'s V-HACD; the merge step is ours; the document stores parameters, not pieces | Accepted |
 | [0012](0012-frames-as-mjcf-sites-and-urdf-dummy-links.md) | A frame is an MJCF `<site>` and a URDF massless dummy link; the import does not reverse the second; frames and links share one namespace | Accepted |
 | [0013](0013-mimic-joints-as-urdf-mimic-and-mjcf-equality.md) | A mimic joint is URDF's `<mimic>` and an MJCF `<equality><joint polycoef>`; no chains; a removed leader frees its followers | Accepted |
@@ -26,3 +26,4 @@ Consequences, Alternatives considered.
 | [0018](0018-left-drag-orbits-gizmo-claims-the-primary-drag.md) | The bare left-drag belongs to the camera; the gizmo claims the primary drag; amends 0010 §3 | Accepted, §3 amended by 0019 |
 | [0019](0019-the-wheel-is-claimable-and-a-drag-keeps-the-hover-pick.md) | The wheel can be claimed by a rotate ring, and a gizmo drag keeps the hover pick; amends 0010 §3 and 0018 §3 | Accepted |
 | [0020](0020-the-overlay-reads-the-scenes-depth-back.md) | The overlay reads the scene's depth back, and hidden runs dim rather than vanish | Accepted |
+| [0021](0021-two-modes-and-edit-is-the-zero-configuration.md) | The window has two modes, `Tab` between them; View poses through the joint tree and the glyphs alone, Edit is the zero configuration; supersedes the per-tool `q` reset | Accepted |

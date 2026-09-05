@@ -90,7 +90,7 @@ contract is ADR-0021.
 
 ## Steps
 
-- [ ] Step 1 — ADR-0021 written and accepted: the mode contract as the
+- [x] Step 1 — ADR-0021 written and accepted: the mode contract as the
   Goal states it, its Context the idea's Problem, its Alternatives the
   idea's B and C. Docs only; the later steps cite it.
 - [ ] Step 2 — `Mode` on the app, default **Edit** for now: `set_mode`,
