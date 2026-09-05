@@ -19,13 +19,15 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**v0.4 — the round trip keeps what it read — is open (2026-09-04).** A
-foreign MJCF must survive import → edit → export with nothing silently lost:
-a top-level `Robot::actuators` table, `<general>` beside the three presets,
-mimic chains, `<joint ref>`, `<tendon>`, `.msh`, and `<include>` /
-`<attach>` / `<frame>` behind one resolver. **Next: `/idea` or `/plan` for
-its first line;** the section's ⚠ OPEN — synthesised links for a composite
-joint — wants an ADR first. **Before it:** v0.3 (tag `v0.3.0`) paid down the
+**v0.4 — the round trip keeps what it read, and the window has two modes
+— is open (2026-09-04).** Two halves: a foreign MJCF survives import →
+edit → export with nothing lost (`Robot::actuators`, `<general>`, mimic
+chains, `<joint ref>`, `<tendon>`, `.msh`, `<include>` / `<attach>` /
+`<frame>`), and the window opens in a **View** mode — joint tree with
+scrubbers, joints the only pick, wheel drives a hovered joint, a glyph
+showing range and value, a visibility row — with Tab to **Edit**. **Next:
+`/idea` or `/plan` for a first line of either half;** each half's ⚠ OPEN
+wants an ADR (composite joints) or an idea (the glyph) first. **Before it:** v0.3 (tag `v0.3.0`) paid down the
 hand-feel debt — scrubbers, panels that stop hiding things, left-drag orbit
 (ADR-0018), tool keys and a claimable wheel (ADR-0019), a depth-tested
 overlay that marks a driven joint (ADR-0020). v0.2 (tag `v0.2.1`) made

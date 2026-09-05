@@ -262,10 +262,19 @@ visible change (ADR-0003).
 
 ---
 
-## v0.4 — the round trip keeps what it read
+## v0.4 — the round trip keeps what it read, and the window has two modes
 
 *Goal: a foreign MJCF survives import → edit → export with nothing silently
-lost. What riggen has no field for, it gains a field for.*
+lost — what riggen has no field for, it gains a field for — and the window
+that opens it opens in the mode a researcher wants first, the one for
+looking and posing.*
+
+Two halves, one cycle. The first is the file's; the second is the window's,
+and it came out of the human's notes after v0.3 closed rather than an exit
+gate: the window still has one mode, the editing one, and a floating slider
+window over it is how a robot gets posed.
+
+### The file: nothing silently lost
 
 SEED §3 says the common case is editing, not building, and §4's fourth
 differentiator is "import existing URDF, edit, export MJCF". ADR-0015 bought
@@ -303,11 +312,65 @@ refused as `ImportError::CompositeJoint`. ADR-0015 §5 turned it down because
 a synthesised link is a link the user did not draw; a cycle about losing
 nothing has to ask again. Needs an ADR before it is planned.
 
+### The window: View and Edit
+
+What a researcher does with a robot most of the time is look at it and
+pose it; building and fixing it is the rarer, more dangerous thing, and the
+window makes no difference between the two. Every line below is a backlog
+line this section now owns.
+
+- **Two modes, Tab between them.** A document opens in **View**. Tab goes
+  through `consume_key` like the tool keys (the RoboCAD lesson), and the
+  status bar names the mode. The switch table ADR-0010 published and
+  ADR-0018/0019 amended gains a mode dimension — which picks answer, who
+  owns the wheel — so this half's pointer rules want an ADR as its first
+  line, the way v0.3's did.
+- **View: the joint tree, with the sliders.** The left panel shows the
+  movable joints as a tree in kinematic order, each row a scrubber aligned
+  right — drag or wheel, the value and both limits readable on it, the
+  scrubber idiom v0.3 built. It replaces the floating Joints window, which
+  is deleted with its open-itself rule (01 §Panels, plans/panels-and-numbers
+  OPEN 3). A follower's row stays what its slider was: read-only, at the
+  resolved `q` (ADR-0013).
+- **View: joints are the only thing under the cursor.** A mesh is neither
+  hover-tinted nor selectable; the glyph is what answers, and the wheel
+  over a hovered joint **drives it** instead of zooming — ADR-0019's
+  `set_wheel_claimed`, claimed by a glyph the way a rotate ring claims it,
+  with the ring's 5° / 1° steps. Today a hovered glyph leaves the wheel to
+  the camera (ADR-0010).
+- **The glyph shows the range and the value.** An axis line, a limit arc
+  and a tick (01 §Joint glyphs) become one shape that reads both at a
+  glance: the proposal is a stacked ring — full range translucent, the
+  limits a denser sector over it, the current value denser still, the
+  three adding up to solid — sized as today from the part it belongs to,
+  depth-tested as today (ADR-0020). Snapshot scenarios for every state of
+  it (ADR-0003), and `glyph_driven_joint`'s amber survives the redesign.
+- **Edit: the tree as it is, `q` locked.** The link tree, properties,
+  gizmos and tools stay what v0.3 left; joints are highlighted in the tree
+  but not posable there — posing is View's — and the gizmo moves a joint
+  relative to its parent as it does now.
+- **A visibility row, top-right of the viewport.** One row of icons,
+  Blender's overlay toggles for riggen's things: joints, joint names,
+  links, frames, collision geometry — View › Collision geometry moves out
+  of the menu into it, and the corner is the one the Joints window vacates.
+  The toolbar keeps the top-left.
+
+⚠ OPEN: the glyph's exact idiom and its hover target. A ring's stroke is a
+thin thing to aim at, and the human's suggestion of an invisible sphere at
+the pivot trades that for a target that would swallow the mesh hover in
+Edit; the axis segment within `GLYPH_HOVER_RADIUS` is the target today.
+Wants an idea (`docs/ideas/`) before it is planned, with the ring's
+opacities (20 / 30 / 50 % was the starting point) settled by looking at it.
+
 **Out:** SDF import — the reading direction stays URDF and MJCF, and
 `libsdformat` stays a CI test dependency (ADR-0016 §6); a Gazebo model
 package; the demo's four gaps and distribution, both still backlog lines;
-§What not to spend agent time on stands. No new *writer*: this cycle is
-about what survives the way in and back out, not a fourth format.
+§What not to spend agent time on stands. No new *writer*: the file half is
+about what survives the way in and back out, not a fourth format. On the
+window side: no rework of Edit beyond locking `q` — whether the gizmo on a
+*link* (which moves its parent joint's origin with the subtree, ADR-0007)
+survives a mode whose gesture is "move the joint relative to its parent"
+is a backlog line, not this cycle's; no docking, no theming.
 
 **Accept:** `menagerie_style.xml`, grown to carry the elements above,
 imported and re-exported loads in MuJoCo with zero warnings, agrees with
@@ -315,6 +378,10 @@ imported and re-exported loads in MuJoCo with zero warnings, agrees with
 what the original's did — no `ElementDropped`, `ActuatorDropped` or
 `GeomDropped` warning left for anything this section lists. The `mujoco`
 job's round-trip model stays held to the *original* document's `fk.json`.
+And the sample arm, opened cold, is posed with nothing but the wheel over a
+glyph and the joint tree's scrubbers, without a menu or a floating window
+in the way; Tab, and it is the v0.3 editor again — every visible state of
+both modes in the snapshot suite (ADR-0003).
 
 ## What not to spend agent time on
 
