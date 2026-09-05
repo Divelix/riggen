@@ -168,9 +168,12 @@ of egui and rerun under `~/Documents/code/rust/` are reference reading only;
 no `path =` or `[patch]` unless an unreleased fix is needed, and then with a
 comment saying which one. Profile settings carried from RoboCAD:
 `opt-level = 1` for our crates in dev, `3` for dependencies — an unoptimized
-wgpu is felt. A dependency's default features are checked against the wasm
-build (`tobj`'s `ahash` default pulled `getrandom` in, which does not compile
-for `wasm32-unknown-unknown`; it is off).
+wgpu is felt — and `debug = false` on those dependencies, because their DWARF
+was 93% of every debug binary (596 MB, 39 MB stripped) and cargo never
+collects the old copies; their names still appear in backtraces, which come
+from the symbol table. A dependency's default features are checked against
+the wasm build (`tobj`'s `ahash` default pulled `getrandom` in, which does
+not compile for `wasm32-unknown-unknown`; it is off).
 
 `riggen-export`'s `lib.rs` carries the "no egui/wgpu" rule in its doc
 comment and nothing else — the crate is its modules; `riggen-core` keeps
