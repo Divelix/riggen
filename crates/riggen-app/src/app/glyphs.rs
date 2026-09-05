@@ -5,8 +5,12 @@
 //! viewport — the tree is the only place it exists, and "which way does this
 //! hinge turn?" has to be read off two number fields. The glyph answers it
 //! in the picture: an **axis segment** through the pivot, an **origin triad**
-//! in the axes triad's colours, and a **limit arc** (revolute) or **limit
-//! segment** (prismatic) with a tick at the current `q`.
+//! in the axes triad's colours, and a **band** (revolute) or **limit
+//! segment** (prismatic) with a tick at the current `q`. The band is an
+//! annulus in the joint's plane drawn as three translucent sectors — the
+//! full circle faint, the limits over it, the run from zero to `q` on top
+//! — so which end of a hinge is the lower limit, how much of the range is
+//! used and whether it is near a stop read without finding the arc's start.
 //!
 //! Drawn for every movable joint plus the selected one, whatever its kind
 //! (plans/m2-placement-ux OPEN 4): an unselected `Fixed` joint has nothing
@@ -64,12 +68,39 @@ const AXIS_HALF_LENGTH: f64 = 1.15;
 /// the triad *is* the frame glyph, so it has to be aimable on its own.
 const FRAME_TRIAD_LENGTH: f64 = 0.55;
 const TRIAD_LENGTH: f64 = 0.4;
-const ARC_RADIUS: f64 = 0.6;
-/// The actuated-joint ring, well inside the limit arc so the two never
-/// read as one.
-const ACTUATOR_RING_RADIUS: f64 = 0.16;
-/// How far past the arc the current-`q` tick sticks out.
+/// The band's outer edge — where the limit arc used to be stroked.
+pub const ARC_RADIUS: f64 = 0.6;
+/// The band's inner edge: inside [`ARC_RADIUS`], and outside
+/// [`ACTUATOR_RING_RADIUS`] with room to spare, so the actuator ring and
+/// the pivot triad stay in the clear bore and never read as part of the
+/// band.
+pub const BAND_INNER: f64 = 0.42;
+/// The actuated-joint ring, well inside the band so the two never read as
+/// one.
+pub const ACTUATOR_RING_RADIUS: f64 = 0.16;
+const _: () = assert!(ACTUATOR_RING_RADIUS < BAND_INNER && BAND_INNER < ARC_RADIUS);
+/// How far past the band the current-`q` tick sticks out.
 const TICK_OVERSHOOT: f64 = 1.25;
+
+/// The band's three opacities as they **result** on screen, not as
+/// layers: the full circle, the limits over it, the run from the zero
+/// position to `q` on top of that. The layers are drawn stacked in the
+/// one colour, each at the alpha that lands on the number below
+/// (`layered`), so the constants are what the eye gets. Settled by eye on
+/// the goldens (plans/joint-glyph-range-and-value OPEN).
+const RANGE_ALPHA: f32 = 0.2;
+const LIMIT_ALPHA: f32 = 0.5;
+const VALUE_ALPHA: f32 = 0.9;
+
+/// The alpha a layer of the same colour is drawn at over a fill already
+/// at `base` so the stack reads as `target`: `base + a·(1 − base) =
+/// target`. Exact for the one-colour stack; a value sector that runs
+/// outside the limits (a zero position off the range) lands a shade
+/// lighter over the faint circle than over the limits, which is the truth
+/// of it.
+fn layered(base: f32, target: f32) -> f32 {
+    ((target - base) / (1.0 - base)).clamp(0.0, 1.0)
+}
 
 /// One joint's glyph, already placed in the world: what the overlay draws
 /// and what a hover hit-test measures against.
@@ -124,6 +155,46 @@ impl JointGlyph {
         };
         let perpendicular = (reference - axis_local * reference.dot(axis_local)).normalize();
         (self.pivot.r * perpendicular).normalize()
+    }
+
+    /// The band's inner and outer radius, in metres, for a joint that has
+    /// one — a revolute or continuous joint. A prismatic joint's bars and
+    /// a weld have no band.
+    pub fn band(&self) -> Option<(f64, f64)> {
+        match self.kind {
+            JointKind::Revolute | JointKind::Continuous => {
+                Some((self.size * BAND_INNER, self.size * ARC_RADIUS))
+            }
+            JointKind::Prismatic | JointKind::Fixed => None,
+        }
+    }
+
+    /// The signed sweep of the value sector: from the zero position to `q`,
+    /// in the joint's own unit. What the drawing sweeps, exposed so a
+    /// scenario asserts the shape and not only the pixels.
+    pub fn value_sweep(&self) -> f64 {
+        match self.kind {
+            JointKind::Fixed => 0.0,
+            _ => self.q,
+        }
+    }
+
+    /// The band's centreline as world points — the full circle midway
+    /// between its edges, starting at the zero position — for a hit-test
+    /// that aims at the band rather than the axis (03 §The window: the
+    /// View-mode plan owns the hover target; `glyph_at` still measures
+    /// the axis segment). Empty for a joint without a band.
+    pub fn band_points(&self) -> Vec<DVec3> {
+        let Some((inner, outer)) = self.band() else {
+            return Vec::new();
+        };
+        OverlayItem::arc_points(
+            self.pivot.t,
+            self.axis,
+            self.reference(),
+            (inner + outer) * 0.5,
+            std::f64::consts::TAU,
+        )
     }
 }
 
@@ -446,8 +517,17 @@ impl RiggenApp {
             .map(|(_, joint)| joint)
     }
 
-    /// The swept range of a revolute joint, with a tick at the current `q`.
-    /// A `Continuous` joint has no limits and gets the full circle.
+    /// The band of a revolute joint: three filled sectors of the annulus
+    /// between [`BAND_INNER`] and [`ARC_RADIUS`], stacked in the glyph's
+    /// colour — the full circle at [`RANGE_ALPHA`], the limits over it
+    /// reading [`LIMIT_ALPHA`], the run from the zero position to `q` on
+    /// top reading [`VALUE_ALPHA`] — with the white spoke at `q` kept, so
+    /// a joint at zero still points. A `Continuous` joint has no limits:
+    /// its full circle *is* the limit band.
+    ///
+    /// The colour carries the mimic muting and the hot brightening as the
+    /// stroke did; the width has no fill to change, so a hot band is the
+    /// brighter amber alone.
     fn push_arc(
         &self,
         overlay: &mut Overlay,
@@ -455,28 +535,45 @@ impl RiggenApp {
         color: egui::Color32,
         width: f32,
     ) {
-        let radius = glyph.size * ARC_RADIUS;
-        let reference = glyph.reference();
-        let (lower, sweep) = match glyph.limits {
-            Some((lower, upper)) => (lower, upper - lower),
-            None => (0.0, std::f64::consts::TAU),
+        let Some((inner, outer)) = glyph.band() else {
+            return;
         };
-        let start = DQuat::from_axis_angle(glyph.axis, lower) * reference;
-        overlay.push(OverlayItem::Arc {
-            center: glyph.pivot.t,
-            axis: glyph.axis,
-            start,
-            radius,
-            sweep,
-            color,
-            width,
-        });
-        // The tick: a spoke from the pivot through the arc at the current
-        // angle, so "where is this joint now" is one glance.
+        let reference = glyph.reference();
+        let mut sector = |start: DVec3, sweep: f64, alpha: f32| {
+            overlay.sector(
+                glyph.pivot.t,
+                glyph.axis,
+                start,
+                inner,
+                outer,
+                sweep,
+                color.gamma_multiply(alpha),
+            );
+        };
+        let limits_over = match glyph.limits {
+            Some((lower, upper)) => {
+                sector(reference, std::f64::consts::TAU, RANGE_ALPHA);
+                let start = DQuat::from_axis_angle(glyph.axis, lower) * reference;
+                sector(start, upper - lower, layered(RANGE_ALPHA, LIMIT_ALPHA));
+                LIMIT_ALPHA
+            }
+            None => {
+                sector(reference, std::f64::consts::TAU, LIMIT_ALPHA);
+                LIMIT_ALPHA
+            }
+        };
+        sector(
+            reference,
+            glyph.value_sweep(),
+            layered(limits_over, VALUE_ALPHA),
+        );
+        // The tick: a spoke from the pivot through the band at the current
+        // angle, so "where is this joint now" is one glance even at zero,
+        // where the value sector has no width.
         let at = DQuat::from_axis_angle(glyph.axis, glyph.q) * reference;
         overlay.segment(
             glyph.pivot.t,
-            glyph.pivot.t + at * radius * TICK_OVERSHOOT,
+            glyph.pivot.t + at * outer * TICK_OVERSHOOT,
             TICK_COLOR,
             width,
         );
@@ -531,6 +628,55 @@ pub(crate) fn distance_to_segment(pos: egui::Pos2, a: egui::Pos2, b: egui::Pos2)
 mod tests {
     use super::*;
     use egui::pos2;
+    use riggen_core::Id;
+
+    #[test]
+    fn a_layer_lands_the_stack_on_the_resulting_alpha() {
+        let over = |base: f32, layer: f32| base + layer * (1.0 - base);
+        let limit = layered(RANGE_ALPHA, LIMIT_ALPHA);
+        assert!((over(RANGE_ALPHA, limit) - LIMIT_ALPHA).abs() < 1e-6);
+        let value = layered(LIMIT_ALPHA, VALUE_ALPHA);
+        assert!((over(LIMIT_ALPHA, value) - VALUE_ALPHA).abs() < 1e-6);
+        // Never asked to go darker than what is already there.
+        assert_eq!(layered(0.9, 0.5), 0.0);
+        assert_eq!(layered(0.0, 1.0), 1.0);
+    }
+
+    #[test]
+    fn the_band_sits_between_the_actuator_ring_and_the_old_arc() {
+        let glyph = JointGlyph {
+            joint: JointId::from_raw(1),
+            pivot: Pose::IDENTITY,
+            axis: DVec3::Z,
+            size: 2.0,
+            kind: JointKind::Revolute,
+            q: 0.3,
+            limits: Some((-1.0, 1.0)),
+            mimic: None,
+            actuator: None,
+        };
+        assert_eq!(glyph.band(), Some((2.0 * BAND_INNER, 2.0 * ARC_RADIUS)));
+        assert_eq!(glyph.value_sweep(), 0.3);
+        let points = glyph.band_points();
+        assert!(points.len() > 8);
+        let mid = (BAND_INNER + ARC_RADIUS) * 0.5 * 2.0;
+        for p in &points {
+            assert!((p.length() - mid).abs() < 1e-12, "{p}");
+        }
+        // The zero position is where the circle starts.
+        assert!((points[0] - glyph.reference() * mid).length() < 1e-12);
+        let slide = JointGlyph {
+            kind: JointKind::Prismatic,
+            ..glyph
+        };
+        assert_eq!(slide.band(), None);
+        assert!(slide.band_points().is_empty());
+        let weld = JointGlyph {
+            kind: JointKind::Fixed,
+            ..glyph
+        };
+        assert_eq!(weld.value_sweep(), 0.0);
+    }
 
     #[test]
     fn distance_to_a_segment_clamps_to_its_ends() {

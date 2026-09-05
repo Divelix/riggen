@@ -82,7 +82,7 @@ can make it the hover target.
   sign) and for the run split on a strip crossing a hidden stretch (pure,
   like `split_runs`'s tests). The overlay paragraph of 01 §Layer map gains
   the fill rule. Nothing in the app draws one yet, so no golden changes.
-- [ ] Step 2 — The revolute / continuous band in `glyphs.rs`: three
+- [x] Step 2 — The revolute / continuous band in `glyphs.rs`: three
   sectors, spoke kept, `BAND_INNER` and the three alphas as constants,
   `band_points()`, `GlyphDebug::{value_sweep, band}`. Look at it before the
   numbers are fixed (`visual-debug`): `glyph_revolute`, `glyph_hover`,
@@ -123,8 +123,15 @@ stop read without finding the arc's start.
 
 - ⚠ OPEN: the three resulting alphas (0.2 / 0.5 / 0.9 to start) and
   `BAND_INNER` — the human confirms on step 2's snapshots; the agent
-  proposes from `visual-debug` captures first.
+  proposes from `visual-debug` captures first. *Step 2 proposes 0.2 /
+  0.5 / 0.9 and `BAND_INNER = 0.42` as landed: on `glyph_revolute` the
+  three read as three, and the faint range is still visible over the
+  dark background; over an amber part the band is low-contrast, which
+  the colour non-goal accepts.*
 - ⚠ OPEN: a band under the rotate gizmo's ring in `gizmo_rotate_joint` — if
   the two read as competing handles, the band on a gizmo'd joint drops to a
   stroke-weight rendering while the gizmo is on it; the human decides at
-  step 2 from the image, the agent does not pre-empt it.
+  step 2 from the image, the agent does not pre-empt it. *Step 2's
+  `gizmo_rotate_joint` shows the band under the three thin rings and the
+  white view-plane ring; the agent's reading is that a filled band and
+  stroked rings do not compete, but the decision is the human's.*

@@ -4638,6 +4638,14 @@ fn glyph_revolute() {
         assert_eq!(glyph.axis, [0.0, 1.0, 0.0]);
         assert!(glyph.active);
         assert!(glyph.screen.is_some());
+        // The band's value sector sweeps exactly `q` from the zero
+        // position, and the band sits inside the old arc's radius and
+        // clear of the actuator ring (plans/joint-glyph-range-and-value).
+        assert!((glyph.value_sweep - glyph.q).abs() < 1e-9);
+        let (inner, outer) = glyph.band.expect("a hinge has a band");
+        assert!(inner > glyph.size * riggen_app::ACTUATOR_RING_RADIUS);
+        assert!(inner < outer);
+        assert!(outer <= glyph.size * riggen_app::ARC_RADIUS + 1e-9);
     });
 }
 

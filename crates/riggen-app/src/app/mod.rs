@@ -39,7 +39,9 @@ pub use file_menu::PendingAction;
 use file_menu::{IMPORT_SCALE_KEY, IMPORT_UNITS};
 use gizmo::GizmoState;
 pub use gizmo::{GizmoTarget, RingAxis};
-pub use glyphs::{FrameGlyph, GLYPH_HOVER_RADIUS, JointGlyph};
+pub use glyphs::{
+    ACTUATOR_RING_RADIUS, ARC_RADIUS, BAND_INNER, FrameGlyph, GLYPH_HOVER_RADIUS, JointGlyph,
+};
 pub use mode::{Mode, VIEW_TOOL_HINT};
 pub use panels::{DECOMP_CONSENT_BUTTON, DECOMP_FREEZE_WARNING, NOTHING_TO_POSE, fmt_num};
 use panels::{JointTreeState, MaterialsWindow, PropertiesState, TreeState};

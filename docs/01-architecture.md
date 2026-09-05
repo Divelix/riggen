@@ -374,16 +374,30 @@ in Edit. `debug_state().ui.mode` names it; the mode is never persisted.
   to be read off two number fields. Each glyph is an axis segment through
   the **pivot** (`world(parent) ∘ origin`, which unlike the child link
   frame has not slid away by `q`), an origin triad in the axes triad's
-  colours, and a limit arc (revolute; the full circle for `Continuous`) or
-  an offset travel segment with end stops (prismatic), each with a tick at
-  the current `q`. Sized from the child link's own world bounds, so a
-  glyph is the size of the part it belongs to; the scene radius, then one
-  metre, are the fallbacks. Drawn for every movable joint plus the
-  selected one whatever its kind (plans/m2-placement-ux OPEN 4) — every
-  weld in a big assembly would be noise. Every part of it is
-  **depth-tested** (ADR-0020): the runs behind geometry are stroked at a
-  third of the strength, so a pivot inside a link reads as inside it and a
-  near hinge reads apart from a far one, while staying visible and aimable.
+  colours, and — for a revolute joint — a **band**: an annulus in the
+  joint's plane between `BAND_INNER` and `ARC_RADIUS` (the actuator ring
+  and the triad stay in the clear bore) drawn as three translucent sectors
+  of the one amber, stacked so what *results* on screen is the full circle
+  at `RANGE_ALPHA`, the limits over it at `LIMIT_ALPHA`, and the run from
+  the zero position to `q` on top at `VALUE_ALPHA` (`layered` derives each
+  layer's own alpha from the one below), with the white spoke at `q` kept
+  so a joint at zero still points. Which end of a hinge is the lower
+  limit, how much of the range is used and whether it sits near a stop
+  read without finding the arc's start. A `Continuous` joint has no
+  limits, so its full circle is the limit band. A prismatic joint gets an
+  offset travel segment with end stops and a tick at `q`. The band's
+  centreline (`JointGlyph::band_points`) is exposed for a hit-test that
+  aims at the band; `glyph_at` still measures the axis segment (03 §The
+  window: the View-mode plan owns the hover target). Sized from the child
+  link's own world bounds, so a glyph is the size of the part it belongs
+  to; the scene radius, then one metre, are the fallbacks. Drawn for every
+  movable joint plus the selected one whatever its kind
+  (plans/m2-placement-ux OPEN 4) — every weld in a big assembly would be
+  noise. Every part of it is **depth-tested** (ADR-0020): the runs behind
+  geometry are stroked, and the band's quads filled, at a third of the
+  strength, so a pivot inside a link reads as inside it, a band half
+  inside a bearing shows which half, and a near hinge reads apart from a
+  far one, while staying visible and aimable.
   It also says whether the joint is free to move — a **mimic follower**
   (ADR-0013) in a muted amber labelled `» <leader>`, an **actuated** joint
   (ADR-0014) at full amber with a ring at the pivot named for its preset,

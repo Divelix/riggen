@@ -297,6 +297,14 @@ pub struct GlyphDebug {
     pub size: f64,
     /// Current joint value, radians or meters.
     pub q: f64,
+    /// The signed sweep of the value sector — from the zero position to
+    /// `q`, radians for a hinge — so a scenario asserts the band's shape
+    /// and not only the pixels (plans/joint-glyph-range-and-value).
+    pub value_sweep: f64,
+    /// The band's inner and outer radius in metres, for a revolute or
+    /// continuous joint. Omitted for a joint without a band.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub band: Option<(f64, f64)>,
     /// Where the pivot lands in the viewport, in egui points.
     pub screen: Option<[f64; 2]>,
     /// Drawn brighter and thicker: the hovered joint, else the selected one.
@@ -524,6 +532,10 @@ impl RiggenApp {
                         ],
                         size: round(glyph.size),
                         q: round(glyph.q),
+                        value_sweep: round(glyph.value_sweep()),
+                        band: glyph
+                            .band()
+                            .map(|(inner, outer)| (round(inner), round(outer))),
                         screen: self
                             .project_world(glyph.pivot.t)
                             .map(|p| [round32(p.x), round32(p.y)]),
