@@ -7549,3 +7549,71 @@ fn view_joint_tree_scrub() {
         );
     });
 }
+
+/// The visibility row's acceptance (plans/visibility-row): with every
+/// class switched off there is nothing drawn and nothing to point at
+/// anywhere on the screen — the ADR's rule taken to its end — and
+/// switching the four defaults back on returns the app to exactly the
+/// state its goldens were taken in, so the row cannot leave a residue
+/// behind it.
+#[test]
+fn the_row_can_hide_everything_and_come_back() {
+    with_app(|harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        let before = harness.state().debug_state();
+
+        // Everything off.
+        for overlay in [
+            riggen_app::Overlay::Joints,
+            riggen_app::Overlay::JointNames,
+            riggen_app::Overlay::Frames,
+            riggen_app::Overlay::Links,
+            riggen_app::Overlay::Collision,
+        ] {
+            harness.state_mut().set_overlay(overlay, false);
+        }
+        settle(harness);
+        let off = harness.state().debug_state();
+        assert!(off.glyphs.is_empty(), "no glyphs");
+        assert!(off.frame_glyphs.is_empty(), "no frame glyphs");
+        assert!(off.instances.iter().all(|i| !i.visible), "no meshes");
+        assert_eq!(
+            off.ui.overlays,
+            vec!["joints", "joint names", "frames", "links", "collision"]
+        );
+        for x in [100.0f32, 400.0, 700.0, 900.0] {
+            for y in [100.0f32, 300.0, 500.0, 700.0] {
+                let at = egui::pos2(x, y);
+                assert!(
+                    harness
+                        .state()
+                        .glyph_at(&harness.state().joint_glyphs(), at)
+                        .is_none(),
+                    "nothing to point at anywhere"
+                );
+            }
+        }
+
+        // Back to the default: the four that were on, on again.
+        for overlay in [
+            riggen_app::Overlay::Joints,
+            riggen_app::Overlay::JointNames,
+            riggen_app::Overlay::Frames,
+            riggen_app::Overlay::Links,
+        ] {
+            harness.state_mut().set_overlay(overlay, true);
+        }
+        settle(harness);
+        let after = harness.state().debug_state();
+        assert_eq!(
+            serde_json::to_string_pretty(&before).unwrap(),
+            serde_json::to_string_pretty(&after).unwrap(),
+            "the round trip is the state the golden was taken in"
+        );
+    });
+}
