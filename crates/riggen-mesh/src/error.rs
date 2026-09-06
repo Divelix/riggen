@@ -36,7 +36,7 @@ impl fmt::Display for MeshError {
             Self::UnsupportedFormat { path, extension } => {
                 write!(
                     f,
-                    "{path}: unsupported format \".{extension}\" (STL and OBJ are supported)"
+                    "{path}: unsupported format \".{extension}\" (STL, OBJ and MSH are supported)"
                 )
             }
             Self::TooManyTriangles { path, count } => write!(

@@ -851,10 +851,6 @@ impl Import<'_> {
             self.drop_geom(link, &format!("the inline <mesh \"{name}\">"));
             return Ok(None);
         };
-        if file.to_ascii_lowercase().ends_with(".msh") {
-            self.drop_geom(link, &format!("\"{file}\", a MuJoCo binary mesh"));
-            return Ok(None);
-        }
         let [x, y, z] = scale;
         let largest = x.max(y).max(z);
         let used = if largest.is_finite() && largest > 0.0 {
@@ -1981,14 +1977,20 @@ mod tests {
         let CollisionPolicy::Meshes(geoms) = &robot.links.values().next().unwrap().collision else {
             panic!()
         };
-        assert_eq!(geoms.len(), 4, "the .msh and the undeclared one are gone");
+        assert_eq!(geoms.len(), 5, "only the undeclared one is gone");
         let asset = |g: &Geom| &robot.assets[&g.mesh];
         assert_eq!(asset(&geoms[0]).path, dir.join("base.stl"));
         assert_eq!(asset(&geoms[0]).scale, 0.001);
         assert_ne!(asset(&geoms[0]).content_hash, 0, "the file was read");
         assert_eq!(asset(&geoms[1]).path, dir.join("upper.stl"));
         assert_eq!(asset(&geoms[2]).scale, 3.0, "the largest component");
-        assert_eq!(asset(&geoms[3]).content_hash, 0, "nothing to hash");
+        assert_eq!(asset(&geoms[3]).path, dir.join("thing.msh"));
+        assert_ne!(
+            asset(&geoms[3]).content_hash,
+            0,
+            "the .msh file was read too"
+        );
+        assert_eq!(asset(&geoms[4]).content_hash, 0, "nothing to hash");
         assert_eq!(
             warnings,
             vec![
@@ -1999,10 +2001,6 @@ mod tests {
                     link: "a".to_owned(),
                     file: "base.stl".to_owned(),
                     used: 3.0
-                },
-                ImportWarning::GeomDropped {
-                    link: "a".to_owned(),
-                    kind: "\"thing.msh\", a MuJoCo binary mesh".to_owned()
                 },
                 ImportWarning::MeshNotFound {
                     link: "a".to_owned(),
@@ -2015,6 +2013,25 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn a_msh_mesh_geom_reads_with_no_warning() {
+        let msh = crate::test_util::fixtures().join("cube.msh");
+        let text = format!(
+            r#"<mujoco model="m"><compiler angle="radian"/>
+                 <asset><mesh name="m" file="{}"/></asset>
+                 <worldbody><body name="a">
+                   <inertial pos="0 0 0" mass="1" diaginertia="1 1 1"/>
+                   <geom type="mesh" mesh="m"/>
+                 </body></worldbody></mujoco>"#,
+            msh.display()
+        );
+        let (robot, warnings) = load(&text).unwrap();
+        assert_eq!(warnings, vec![], "a .msh mesh is read like any other");
+        let link = robot.links.values().next().unwrap();
+        assert_eq!(link.visuals.len(), 1);
+        assert_ne!(robot.assets[&link.visuals[0].mesh].content_hash, 0);
     }
 
     #[test]

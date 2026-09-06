@@ -1,4 +1,4 @@
-//! Mesh geometry: [`TriMesh`], STL/OBJ loaders, [`Aabb`], ray/triangle,
+//! Mesh geometry: [`TriMesh`], STL/OBJ/MSH loaders, [`Aabb`], ray/triangle,
 //! the [`feature`] module (welded adjacency, circle fits),
 //! [`mass_properties`] (docs/02-data-model.md §Inertials), [`convex_hull`]
 //! (quickhull), [`decompose`] (V-HACD, the [`decomp`] module) and [`fit`]
@@ -18,6 +18,7 @@ pub mod feature;
 pub mod fit;
 mod hull;
 mod mass;
+mod msh;
 mod obj;
 mod ray;
 mod stl;
@@ -28,17 +29,20 @@ pub use decomp::{DecompError, DecompParams, decompose};
 pub use error::MeshError;
 pub use hull::convex_hull;
 pub use mass::{MassProps, mass_properties};
+pub use msh::{load_msh, parse_msh};
 pub use obj::{load_obj, parse_obj};
 pub use ray::{Ray, ray_triangle};
 pub use stl::{load_stl, parse_stl, write_binary};
 pub use tri_mesh::TriMesh;
 
 /// Loads a mesh by file extension, case-insensitively: `.stl` → [`load_stl`],
-/// `.obj` → [`load_obj`], anything else → [`MeshError::UnsupportedFormat`].
+/// `.obj` → [`load_obj`], `.msh` → [`load_msh`], anything else →
+/// [`MeshError::UnsupportedFormat`].
 pub fn load_mesh(path: &std::path::Path) -> Result<TriMesh, MeshError> {
     match extension_of(path).as_str() {
         "stl" => load_stl(path),
         "obj" => load_obj(path),
+        "msh" => load_msh(path),
         _ => Err(unsupported(path)),
     }
 }
@@ -51,6 +55,7 @@ pub fn load_mesh_bytes(name: &std::path::Path, bytes: &[u8]) -> Result<TriMesh, 
     match extension_of(name).as_str() {
         "stl" => parse_stl(bytes, name),
         "obj" => parse_obj(bytes, name),
+        "msh" => parse_msh(bytes, name),
         _ => Err(unsupported(name)),
     }
 }
@@ -62,7 +67,7 @@ pub fn load_mesh_bytes(name: &std::path::Path, bytes: &[u8]) -> Result<TriMesh, 
 /// file — which is the more useful half of the truth.
 pub fn supported_format(name: &std::path::Path) -> Result<(), MeshError> {
     match extension_of(name).as_str() {
-        "stl" | "obj" => Ok(()),
+        "stl" | "obj" | "msh" => Ok(()),
         _ => Err(unsupported(name)),
     }
 }
@@ -115,7 +120,9 @@ mod tests {
     fn load_mesh_dispatches_on_extension_case_insensitively() {
         let stl = load_mesh(&fixture("cube_binary.stl")).unwrap();
         let obj = load_mesh(&fixture("cube.obj")).unwrap();
+        let msh = load_mesh(&fixture("cube.msh")).unwrap();
         assert_eq!(stl.aabb(), obj.aabb());
+        assert_eq!(stl.aabb(), msh.aabb());
 
         // Same bytes under an upper-case extension.
         let dir = std::env::temp_dir().join(format!("riggen-mesh-{}", std::process::id()));
