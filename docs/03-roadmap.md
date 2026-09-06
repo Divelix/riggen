@@ -299,8 +299,11 @@ drops, and each is a backlog line this section now owns.
   topological one, no schema change; `<joint ref>`, which moves a joint's
   zero and is warned and ignored today; `<tendon><fixed>` for a coupling
   that really is a cable, beside the `<equality>` a mimic writes.
-- **Geometry the import refuses.** `.msh` meshes and an inline `<mesh vertex
-  face>`, a `GeomDropped` warning and no geometry today.
+- **Geometry the import refuses.** *Landed (plans/mjcf-mesh-geometry).* `.msh`
+  meshes and an inline `<mesh vertex face>` read as an ordinary `Geom` on an
+  ordinary mesh asset — no more `GeomDropped` for either; a file-less inline
+  mesh is materialized as a `.stl` beside the source MJCF (`docs/02-data-model.md`
+  §Geometry).
 - **Composition.** `<include>`, `<attach>`, `<replicate>` and MuJoCo 3's
   `<frame>` wrapper — every one an `ImportError::UnsupportedElement`
   (ADR-0015 §5) — behind one resolver, with `<frame>`'s transform folded

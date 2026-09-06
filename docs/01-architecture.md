@@ -29,7 +29,7 @@ matter live.
 │                   inertial spec, collision policy), FK,        │
 │                   undo history, serde, schema versioning       │
 ├────────────────────────────────────────────────────────────────┤
-│  riggen-mesh      TriMesh, STL/OBJ loaders, mass properties,   │
+│  riggen-mesh      TriMesh, STL/OBJ/MSH I/O, mass properties,   │
 │                   convex hull, convex decomposition (decomp:   │
 │                   parry3d-f64's V-HACD), primitive fits,       │
 │                   ray/triangle                                 │
@@ -95,7 +95,7 @@ riggen/
 │                           # the canvas, the panic sheet), build.sh → web/dist/
 │                           # (gitignored: the wasm-bindgen bundle plus the page)
 ├── crates/
-│   ├── riggen-mesh/        # TriMesh, Aabb, Ray, load_stl / load_obj / load_mesh, feature/,
+│   ├── riggen-mesh/        # TriMesh, Aabb, Ray, load_stl / load_obj / load_msh / load_mesh,
 │   │                       # mass, hull (quickhull), decomp (V-HACD, ADR-0011), fit
 │   ├── riggen-core/        # ids, pose, robot, validate, fk, command, history, file, inertial
 │   ├── riggen-export/      # resolve, mesh_store, mjcf, urdf, sdf, export, fk_samples, xml
