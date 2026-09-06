@@ -719,6 +719,21 @@ visuals are `SameAsVisual`, any other set is `Meshes`, primitives are
 promised symmetry), placed after the whole tree is read because frames and
 links are one namespace and a link further down may take the name.
 
+An inline `<mesh vertex face>` (MJCF's own syntax for a mesh with no
+`file` attribute) has no backing file, but `.riggen` only ever stores
+paths, never mesh bytes (`file::to_json` rebases `asset.path` and never
+writes geometry into the JSON — §Nothing is dropped silently), so import
+materializes one: the parsed mesh is written out as an ordinary `.stl`
+next to the source MJCF, named after the `<mesh name>` (`inline_N` for an
+unnamed one, suffixed to avoid colliding with a file already at that
+path), then registered exactly like any other imported mesh — no new
+`MeshAsset` variant, no schema bump. On the web build, where there is
+nowhere to write, the bytes go into the app's `DroppedSet` (ADR-0017)
+under a synthesized name instead. Either way the mesh becomes an
+ordinary, disk- or drop-backed asset from the moment it is imported, so a
+saved-and-reopened document never depends on the source MJCF still being
+there.
+
 **The two blocks after `</worldbody>`.** `<equality><joint polycoef>` is
 `y − y0 = a0 + a1(x − x0) + …`, so it is a `Joint::mimic` exactly when the
 last three coefficients are zero, the constraint is active, and neither

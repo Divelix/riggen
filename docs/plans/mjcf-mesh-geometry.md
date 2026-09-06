@@ -106,22 +106,12 @@ live:
 - `crates/riggen-py/src/robot.rs:816` (`load_mjcf`) — write to disk beside
   the source file, the same as the GUI's `Disk` case.
 
-⚠ **OPEN: is "write a file beside the source MJCF" the right call, human
-decides at step 2.** It is the option that needs no new `FileSource`/
-`MeshAsset` concept and keeps every caller's code identical to importing
-an ordinary mesh, but it is also new behavior — *import can create files*
-— where today import only ever reads. Alternatives not taken without a
-reason to prefer them: an in-memory-only `FileSource` overlay would avoid
-touching the user's directory, but would make the import's `MeshAsset`
-silently dangling the moment the document is saved and reopened, which is
-exactly the failure this plan exists to avoid; a dedicated cache directory
-(`riggen`'s own scratch dir rather than beside the source) avoids
-cluttering the source's folder but means the mesh is gone if that cache is
-cleared and the document is reopened without the original MJCF. If the
-human picks something other than "beside the source", step 2 records the
-decision as a short paragraph in `docs/02-data-model.md` (an ADR only if
-the answer turns out to need one — this reads as plumbing, not a
-user-facing tradeoff, but the human may see it differently).
+**Decided (step 2): "write a file beside the source MJCF."** The human
+confirmed the recommendation as-is: no new `FileSource`/`MeshAsset`
+concept, every caller's code stays identical to importing an ordinary
+mesh; the web build's `DroppedSet` equivalent for "nowhere to write"
+carries over unchanged. Recorded as a paragraph in `docs/02-data-model.md`
+§Geometry (plumbing, not a user-facing tradeoff — no ADR).
 
 ## Steps
 
@@ -137,7 +127,7 @@ user-facing tradeoff, but the human may see it differently).
   `stl.rs:172`'s pattern, plus round-trip and truncation tests in
   `riggen-mesh`, and one MJCF import test asserting a `.msh`-referencing
   `<geom>` produces a `Geom` with no warning.
-- [ ] **Step 2 — the open question, answered.** The human confirms or
+- [x] **Step 2 — the open question, answered.** The human confirms or
   amends the "write beside the source" recommendation above (or picks an
   alternative); this step records the decision — a paragraph in
   `docs/02-data-model.md` §Geometry, or a new ADR if the human's answer
@@ -195,6 +185,6 @@ the `mujoco` CI job pass; `cargo fmt --check` and `cargo clippy
 
 ## Open questions
 
-⚠ OPEN: where a file-less imported mesh's bytes are materialized (beside
-the source MJCF, a cache directory, or an in-memory overlay) — human
-decides at step 2, before step 3 is implemented against it.
+None open. The step-2 question (where a file-less imported mesh's bytes
+are materialized) is decided: beside the source MJCF, `docs/02-data-model.md`
+§Geometry.
