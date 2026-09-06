@@ -22,8 +22,9 @@ use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::{
     ActuatorSpec, CollisionPolicy, Dynamics, FileSource, Frame, FrameId, Geom, GeomId,
     InertialSpec, Joint, JointId, JointKind, Limits, Link, LinkId, MeshAsset, MeshId, Mimic, Pose,
-    Primitive, Robot, ValidationError, validate,
+    Primitive, Robot, ValidationError, content_hash, validate,
 };
+use riggen_mesh::TriMesh;
 
 use crate::import::{ImportError, ImportWarning, mimic_refusals};
 use crate::xml::{AngleConvention, Node, ORIENTATION_ATTRS};
@@ -31,6 +32,12 @@ use crate::xml::{AngleConvention, Node, ORIENTATION_ATTRS};
 /// The class an element belongs to when neither it nor an enclosing
 /// `childclass` names one. MuJoCo calls the top-level `<default>` this.
 pub const MAIN_CLASS: &str = "main";
+
+/// [`load`] / [`from_mjcf`]'s result: the document, its warnings, and one
+/// `(filename, bytes)` pair per inline `<mesh vertex face>` the file
+/// declared, for the caller to place beside the source (docs/02-data-model.md
+/// §Geometry).
+pub type MjcfImport = (Robot, Vec<ImportWarning>, Vec<(String, Vec<u8>)>);
 
 /// What `<compiler>` says about the rest of the file. Read before any body
 /// is, because it changes what the numbers in it mean.
@@ -226,11 +233,12 @@ const REFUSED: &[&str] = &["include", "replicate", "attach", "frame"];
 /// resolved against the file's directory and its `<compiler meshdir>`, and
 /// hashed through the same `source` — the filesystem natively
 /// ([`riggen_core::Disk`]), the drop gesture's files in a browser
-/// (ADR-0017).
-pub fn load(
-    path: &Path,
-    source: &dyn FileSource,
-) -> Result<(Robot, Vec<ImportWarning>), ImportError> {
+/// (ADR-0017). The third element is one `(name, bytes)` pair per inline
+/// `<mesh vertex face>` the file declared — the caller writes each beside
+/// `path` (or, with nowhere to write, adds it under that name to its own
+/// drop set), which is where every `MeshAsset` this import produced for
+/// one already points (docs/02-data-model.md §Geometry).
+pub fn load(path: &Path, source: &dyn FileSource) -> Result<MjcfImport, ImportError> {
     let io = |e: std::io::Error| ImportError::Io {
         path: path.to_owned(),
         message: e.to_string(),
@@ -248,12 +256,13 @@ pub fn load(
 
 /// The conversion itself, for a parsed file. `path` is the model file: its
 /// directory is where a relative `meshdir` and the mesh files are looked
-/// for, and its name is what a parse error is reported against.
+/// for, and its name is what a parse error is reported against. See
+/// [`load`] for the third element of the result.
 pub fn from_mjcf(
     root: &Node,
     path: &Path,
     source: &dyn FileSource,
-) -> Result<(Robot, Vec<ImportWarning>), ImportError> {
+) -> Result<MjcfImport, ImportError> {
     if root.tag != "mujoco" {
         return Err(ImportError::Parse {
             path: path.to_owned(),
@@ -280,10 +289,13 @@ pub fn from_mjcf(
         sites: Vec::new(),
         moved_zero: BTreeSet::new(),
         unnamed: 0,
+        inline_hash: BTreeMap::new(),
+        inline_meshes: Vec::new(),
+        unnamed_meshes: 0,
     };
     im.robot.links.clear();
     im.run(root)?;
-    Ok((im.robot, im.warnings))
+    Ok((im.robot, im.warnings, im.inline_meshes))
 }
 
 /// `<include>` and friends, anywhere in the file (ADR-0015 §5).
@@ -335,6 +347,16 @@ struct Import<'a> {
     /// be the one that takes the name.
     sites: Vec<(LinkId, String, Pose)>,
     unnamed: usize,
+    /// Asset name → content hash, for an inline `<mesh vertex face>`: its
+    /// bytes are already known (`inline_meshes`, below) rather than
+    /// waiting on disk for [`FileSource::hash`] to find.
+    inline_hash: BTreeMap<String, u64>,
+    /// `(synthesized filename, STL bytes)` for every inline mesh, handed
+    /// back to the caller to place beside the source file (step 2's
+    /// decision, docs/02-data-model.md §Geometry).
+    inline_meshes: Vec<(String, Vec<u8>)>,
+    /// Counts unnamed inline meshes, for `inline_N`.
+    unnamed_meshes: usize,
 }
 
 impl Import<'_> {
@@ -647,12 +669,19 @@ impl Import<'_> {
     }
 
     /// `<asset><mesh>`, by the name the geoms will use. MuJoCo names an
-    /// unnamed mesh after its file's stem, and so do we.
+    /// unnamed mesh after its file's stem, and so do we; an inline
+    /// `<mesh vertex face>` has no file to name it after, so an unnamed one
+    /// becomes `inline_N`.
     fn read_assets(&mut self, root: &Node) -> Result<(), ImportError> {
         for asset in root.kids("asset") {
             for m in asset.kids("mesh") {
                 let m = self.resolved(m, MAIN_CLASS)?;
                 let file = m.attr("file").map(str::to_owned);
+                let scale = self.nums::<3>(&m, "scale")?.unwrap_or([1.0; 3]);
+                if file.is_none() && m.attr("vertex").is_some() {
+                    self.read_inline_mesh(&m, scale)?;
+                    continue;
+                }
                 let name = match (m.attr("name"), &file) {
                     (Some(n), _) => n.to_owned(),
                     (None, Some(f)) => Path::new(f)
@@ -662,11 +691,125 @@ impl Import<'_> {
                         .into_owned(),
                     (None, None) => continue,
                 };
-                let scale = self.nums::<3>(&m, "scale")?.unwrap_or([1.0; 3]);
                 self.assets.insert(name, (file, scale));
             }
         }
         Ok(())
+    }
+
+    /// `<mesh vertex face normal>` with no `file`: MJCF's own syntax for an
+    /// inline mesh. Parsed into a real `TriMesh`, written out as `.stl`
+    /// bytes and registered like any other asset, `path` pointing beside
+    /// the source file — the caller places the bytes there once import
+    /// finishes (step 2's decision, docs/02-data-model.md §Geometry). A
+    /// `vertex` with no `face` asks MuJoCo for its convex hull, which is
+    /// out of scope (docs/plans/mjcf-mesh-geometry.md non-goals) and stays
+    /// refused, exactly as every file-less mesh was before this.
+    fn read_inline_mesh(&mut self, m: &Node, scale: [f64; 3]) -> Result<(), ImportError> {
+        let key = m.attr("name").map(str::to_owned).unwrap_or_else(|| {
+            self.unnamed_meshes += 1;
+            format!("inline_{}", self.unnamed_meshes)
+        });
+        let Some(mesh) = self.parse_inline_mesh(m)? else {
+            self.assets.insert(key, (None, scale));
+            return Ok(());
+        };
+        let filename = self.synthesize_filename(&key);
+        let bytes = riggen_mesh::write_binary(&mesh);
+        self.inline_hash.insert(key.clone(), content_hash(&bytes));
+        let path = self.base_dir.join(&filename);
+        self.inline_meshes.push((filename, bytes));
+        self.assets
+            .insert(key, (Some(path.display().to_string()), scale));
+        Ok(())
+    }
+
+    /// `vertex`/`face`/optional `normal` into a `TriMesh` — the same
+    /// whitespace-separated-number shape `xml.rs` already parses for poses
+    /// and scales. `None` when `face` is absent (the implicit-convex-hull
+    /// form). Normals are kept, welded, when there is one per vertex —
+    /// `obj.rs`'s own rule — and recomputed flat otherwise.
+    fn parse_inline_mesh(&self, m: &Node) -> Result<Option<TriMesh>, ImportError> {
+        let parse_err = |message: String| ImportError::Parse {
+            path: self.path.clone(),
+            message,
+        };
+        let Some(face) = self.numbers(m, "face")? else {
+            return Ok(None);
+        };
+        let vertex = self.numbers(m, "vertex")?.unwrap_or_default();
+        if vertex.is_empty() || !vertex.len().is_multiple_of(3) {
+            return Err(parse_err(format!(
+                "<mesh vertex>: {} numbers is not a positive multiple of three",
+                vertex.len()
+            )));
+        }
+        if face.is_empty() || !face.len().is_multiple_of(3) {
+            return Err(parse_err(format!(
+                "<mesh face>: {} numbers is not a positive multiple of three",
+                face.len()
+            )));
+        }
+        let positions: Vec<DVec3> = vertex
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|&[x, y, z]| DVec3::new(x, y, z))
+            .collect();
+        let mut indices = Vec::with_capacity(face.len());
+        for &v in &face {
+            if v < 0.0 || v.fract() != 0.0 || v as usize >= positions.len() {
+                return Err(parse_err(format!(
+                    "<mesh face>: index {v} out of range for {} vertices",
+                    positions.len()
+                )));
+            }
+            indices.push(v as u32);
+        }
+        let mut mesh = TriMesh {
+            positions,
+            normals: Vec::new(),
+            indices,
+        };
+        match self.numbers(m, "normal")? {
+            Some(normal) if normal.len() == mesh.positions.len() * 3 => {
+                mesh.normals = normal
+                    .as_chunks::<3>()
+                    .0
+                    .iter()
+                    .map(|&[x, y, z]| DVec3::new(x, y, z).normalize_or_zero())
+                    .collect();
+                mesh.validate().map_err(|e| parse_err(e.to_string()))?;
+            }
+            Some(normal) => {
+                return Err(parse_err(format!(
+                    "<mesh normal>: {} numbers for {} vertices",
+                    normal.len(),
+                    mesh.positions.len()
+                )));
+            }
+            None => {
+                mesh.validate().map_err(|e| parse_err(e.to_string()))?;
+                mesh.flat_normals();
+            }
+        }
+        Ok(Some(mesh))
+    }
+
+    /// A `.stl` filename for `stem` that nothing at `self.base_dir`
+    /// already answers to — checked through `self.source`, so a browser
+    /// drop and a real directory are asked the same way (ADR-0017) — and
+    /// that no inline mesh earlier in this same file has already claimed.
+    fn synthesize_filename(&self, stem: &str) -> String {
+        let mut filename = format!("{stem}.stl");
+        let mut suffix = 1;
+        while self.source.exists(&self.base_dir.join(&filename))
+            || self.inline_meshes.iter().any(|(n, _)| *n == filename)
+        {
+            suffix += 1;
+            filename = format!("{stem}_{suffix}.stl");
+        }
+        filename
     }
 
     /// The link's visual geoms and its collision policy.
@@ -881,15 +1024,22 @@ impl Import<'_> {
                 used,
             });
         }
-        let content_hash = match self.source.hash(&path) {
-            Ok(h) => h,
-            Err(_) => {
-                self.warnings.push(ImportWarning::MeshNotFound {
-                    link: link.to_owned(),
-                    file,
-                    tried: path.clone(),
-                });
-                0
+        // An inline mesh's bytes are already known — `self.source` has
+        // nothing to hash until the caller writes them out, and asking it
+        // to would turn every inline mesh into a spurious `MeshNotFound`.
+        let content_hash = if let Some(&hash) = self.inline_hash.get(name) {
+            hash
+        } else {
+            match self.source.hash(&path) {
+                Ok(h) => h,
+                Err(_) => {
+                    self.warnings.push(ImportWarning::MeshNotFound {
+                        link: link.to_owned(),
+                        file,
+                        tried: path.clone(),
+                    });
+                    0
+                }
             }
         };
         let id = self.robot.add_asset(MeshAsset {
@@ -1233,7 +1383,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let files = export(&resolved(robot, store), &options(), &dir).unwrap();
         let text = std::fs::read_to_string(&files[0]).unwrap();
-        from_mjcf(&parse(&text).unwrap(), &files[0], &Disk).unwrap()
+        let (robot, warnings, inline) =
+            from_mjcf(&parse(&text).unwrap(), &files[0], &Disk).unwrap();
+        assert_eq!(
+            inline,
+            Vec::new(),
+            "our own writer never emits an inline mesh"
+        );
+        (robot, warnings)
     }
 
     fn options() -> ExportOptions {
@@ -1284,6 +1441,7 @@ mod tests {
 
     fn load(text: &str) -> Result<(Robot, Vec<ImportWarning>), ImportError> {
         from_mjcf(&parse(text).unwrap(), Path::new("/nowhere/m.xml"), &Disk)
+            .map(|(robot, warnings, _inline)| (robot, warnings))
     }
 
     /// A model with `body` as the whole of its `<worldbody>`.
@@ -1432,7 +1590,8 @@ mod tests {
     #[test]
     fn the_menagerie_style_corpus_imports_with_the_warnings_it_should() {
         let path = crate::test_util::fixtures().join("menagerie_style.xml");
-        let (robot, warnings) = super::load(&path, &Disk).unwrap();
+        let (robot, warnings, inline) = super::load(&path, &Disk).unwrap();
+        assert_eq!(inline, Vec::new(), "no inline mesh in this corpus yet");
         let link = |n: &str| robot.links.values().find(|l| l.name == n).unwrap();
         let joint = |n: &str| robot.joints.values().find(|j| j.name == n).unwrap();
 
@@ -1971,8 +2130,9 @@ mod tests {
                    <geom class="collision" type="mesh" mesh="never_declared"/>
                  </body></worldbody>
                </mujoco>"#;
-        let (robot, warnings) =
+        let (robot, warnings, inline) =
             from_mjcf(&parse(text).unwrap(), &dir.join("m.xml"), &Disk).unwrap();
+        assert_eq!(inline, Vec::new(), "no inline mesh in this file");
         // An unnamed `<mesh>` is known by its file's stem, as in MuJoCo.
         let CollisionPolicy::Meshes(geoms) = &robot.links.values().next().unwrap().collision else {
             panic!()
@@ -2032,6 +2192,61 @@ mod tests {
         let link = robot.links.values().next().unwrap();
         assert_eq!(link.visuals.len(), 1);
         assert_ne!(robot.assets[&link.visuals[0].mesh].content_hash, 0);
+    }
+
+    #[test]
+    fn an_inline_mesh_geom_reads_with_no_warning_and_synthesizes_a_file() {
+        let text = r#"<mujoco model="m"><compiler angle="radian"/>
+                 <asset>
+                   <mesh name="widget" vertex="0 0 0  1 0 0  0 1 0  0 0 1"
+                         face="0 1 2  0 1 3  0 2 3  1 2 3"/>
+                 </asset>
+                 <worldbody><body name="a">
+                   <inertial pos="0 0 0" mass="1" diaginertia="1 1 1"/>
+                   <geom type="mesh" mesh="widget"/>
+                 </body></worldbody></mujoco>"#;
+        let (robot, warnings, inline) =
+            from_mjcf(&parse(text).unwrap(), Path::new("/nowhere/m.xml"), &Disk).unwrap();
+        assert_eq!(warnings, vec![], "an inline mesh is read like any other");
+
+        // The synthesized file — step 2's decision, docs/02-data-model.md
+        // §Geometry — named after the `<mesh name>`, beside the source.
+        assert_eq!(inline.len(), 1);
+        let (name, bytes) = &inline[0];
+        assert_eq!(name, "widget.stl");
+        let parsed = riggen_mesh::parse_stl(bytes, Path::new(name)).unwrap();
+        assert_eq!(parsed.triangle_count(), 4);
+
+        let link = robot.links.values().next().unwrap();
+        assert_eq!(link.visuals.len(), 1);
+        let asset = &robot.assets[&link.visuals[0].mesh];
+        assert_eq!(asset.path, Path::new("/nowhere/widget.stl"));
+        assert_eq!(asset.content_hash, riggen_core::content_hash(bytes));
+    }
+
+    #[test]
+    fn an_inline_mesh_with_no_face_is_still_refused() {
+        // MJCF's implicit-convex-hull form (`vertex` with no `face`) is out
+        // of scope (docs/plans/mjcf-mesh-geometry.md non-goals) and stays
+        // refused, the way every file-less mesh was before this plan.
+        let (robot, warnings) = load(
+            r#"<mujoco model="m"><compiler angle="radian"/>
+                 <asset><mesh name="hull" vertex="0 0 0 1 0 0 0 1 0"/></asset>
+                 <worldbody><body name="a">
+                   <inertial pos="0 0 0" mass="1" diaginertia="1 1 1"/>
+                   <geom type="mesh" mesh="hull"/>
+                 </body></worldbody></mujoco>"#,
+        )
+        .unwrap();
+        let link = robot.links.values().next().unwrap();
+        assert_eq!(link.visuals.len(), 0);
+        assert_eq!(
+            warnings,
+            vec![ImportWarning::GeomDropped {
+                link: "a".to_owned(),
+                kind: "the inline <mesh \"hull\">".to_owned()
+            }]
+        );
     }
 
     #[test]

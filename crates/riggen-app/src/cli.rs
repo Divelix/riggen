@@ -13,7 +13,7 @@
 //! a flag cannot exist without its help line.
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::example::Example;
 use riggen_core::Disk;
@@ -260,9 +260,10 @@ pub fn run(args: &ExportArgs) -> Result<Vec<PathBuf>, String> {
             robot
         }
         "xml" => {
-            let (robot, warnings) =
+            let (robot, warnings, inline_meshes) =
                 riggen_export::mjcf_in::load(&args.input, &Disk).map_err(|e| e.to_string())?;
             warn_all(&warnings);
+            write_inline_meshes(&args.input, &inline_meshes)?;
             robot
         }
         _ => {
@@ -304,6 +305,18 @@ fn join_errors(errors: &[riggen_export::ExportError]) -> String {
         .join("\n")
 }
 
+/// Step 2's decision (docs/02-data-model.md §Geometry): an inline
+/// `<mesh vertex face>` becomes a real file beside the source MJCF, which
+/// is where `mjcf_in::load` already pointed its `MeshAsset::path`.
+fn write_inline_meshes(source: &Path, inline_meshes: &[(String, Vec<u8>)]) -> Result<(), String> {
+    let dir = source.parent().unwrap_or(Path::new("."));
+    for (name, bytes) in inline_meshes {
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,6 +324,21 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<OsString> {
         list.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn inline_meshes_are_written_beside_the_source() {
+        let dir =
+            std::env::temp_dir().join(format!("riggen-cli-inline-mesh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("m.xml");
+        write_inline_meshes(&source, &[("widget.stl".to_owned(), vec![1, 2, 3])]).unwrap();
+        assert_eq!(
+            std::fs::read(dir.join("widget.stl")).unwrap(),
+            vec![1, 2, 3]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -813,8 +813,23 @@ impl PyRobot {
     /// document does not. Raises `riggen.MjcfImportError`.
     #[staticmethod]
     fn load_mjcf(py: Python<'_>, path: PathBuf) -> PyResult<(Self, Vec<String>)> {
-        let (inner, warnings) = riggen_export::mjcf_in::load(&path, &Disk)
+        let (inner, warnings, inline_meshes) = riggen_export::mjcf_in::load(&path, &Disk)
             .map_err(|e| raise(py, "MjcfImportError", e.to_string()))?;
+        // Step 2's decision (docs/02-data-model.md §Geometry): an inline
+        // `<mesh vertex face>` becomes a real file beside the source MJCF,
+        // which is where `mjcf_in::load` already pointed its
+        // `MeshAsset::path`.
+        let dir = path.parent().unwrap_or(Path::new("."));
+        for (name, bytes) in &inline_meshes {
+            let mesh_path = dir.join(name);
+            std::fs::write(&mesh_path, bytes).map_err(|e| {
+                raise(
+                    py,
+                    "MjcfImportError",
+                    format!("{}: {e}", mesh_path.display()),
+                )
+            })?;
+        }
         let warnings = warnings.iter().map(ToString::to_string).collect();
         Ok((Self { inner }, warnings))
     }

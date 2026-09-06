@@ -402,11 +402,12 @@ mod tests {
         let root = Path::new("/dropped");
         let memory = dropped(root, &MJCF_SET);
 
-        let (from_memory, memory_warnings) =
+        let (from_memory, memory_warnings, memory_inline) =
             crate::mjcf_in::load(&root.join("menagerie_style.xml"), &memory).unwrap();
-        let (mut from_disk, disk_warnings) =
+        let (mut from_disk, disk_warnings, disk_inline) =
             crate::mjcf_in::load(&fixtures().join("menagerie_style.xml"), &Disk).unwrap();
         assert_eq!(memory_warnings, disk_warnings);
+        assert_eq!(memory_inline, disk_inline);
         for asset in from_disk.assets.values_mut() {
             asset.path = root.join("arm").join(asset.path.file_name().unwrap());
         }

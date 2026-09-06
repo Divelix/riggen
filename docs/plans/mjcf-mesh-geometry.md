@@ -133,7 +133,7 @@ carries over unchanged. Recorded as a paragraph in `docs/02-data-model.md`
   `docs/02-data-model.md` §Geometry, or a new ADR if the human's answer
   turns out to be a real tradeoff rather than plumbing — before step 3
   is implemented against it. No code.
-- [ ] **Step 3 — inline `<mesh vertex face>` reads.** Parse `vertex` /
+- [x] **Step 3 — inline `<mesh vertex face>` reads.** Parse `vertex` /
   `face` / optional `normal` into a `TriMesh` in `mjcf_in.rs`; change
   `mjcf_in::load` / `from_mjcf`'s return type to also carry the
   synthesized `(name, bytes)` pairs; update its three callers per the
@@ -143,6 +143,15 @@ carries over unchanged. Recorded as a paragraph in `docs/02-data-model.md`
   file/entry exists where step 2 said it would; an app-level test (beside
   `file_io.rs`'s existing import tests) that a document imported with an
   inline mesh survives a save/reopen round trip.
+
+  **Finding:** `file_io.rs` had no existing tests, and `RiggenApp` cannot
+  be constructed in a plain unit test — `RiggenApp::new` hard-requires a
+  GPU-backed `eframe::CreationContext` (only `tests/visual/harness.rs` has
+  one). The round-trip test instead exercises `write_inline_meshes` —
+  `open_mjcf`'s own `Files::Disk` placement code, pulled out so it is
+  testable — directly against `riggen_export::mjcf_in::load` and
+  `riggen_core::save`/`load`, which covers the same plumbing without a GPU
+  context. This is `file_io.rs`'s first test module.
 - [ ] **Step 4 — the corpus.** Grow `assets/fixtures/menagerie_style.xml`
   with one `.msh`-referencing `<geom>` and one inline `<mesh vertex face>`
   `<geom>`; update `import.rs`'s pinned warning-by-warning test

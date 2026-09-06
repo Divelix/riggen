@@ -247,8 +247,38 @@ impl RiggenApp {
     /// `riggen_export::mjcf_in` (ADR-0015). One import vocabulary means one
     /// status line for both.
     fn open_mjcf(&mut self, at: &Path) -> Result<(), String> {
-        let imported = riggen_export::mjcf_in::load(at, &self.files);
+        let imported = riggen_export::mjcf_in::load(at, &self.files).and_then(
+            |(robot, warnings, inline_meshes)| {
+                self.place_inline_meshes(at, inline_meshes)
+                    .map(|()| (robot, warnings))
+                    .map_err(|message| riggen_export::ImportError::Io {
+                        path: at.to_owned(),
+                        message,
+                    })
+            },
+        );
         self.finish_import(at, imported)
+    }
+
+    /// Step 2's decision (docs/02-data-model.md §Geometry): an inline
+    /// `<mesh vertex face>` becomes an ordinary, disk- or drop-backed mesh
+    /// the moment it is imported. `at`'s own directory is where every
+    /// `MeshAsset::path` this import produced already points
+    /// (`mjcf_in::from_mjcf`'s `base_dir`), so writing there — or, with no
+    /// filesystem to write to, inserting under the same name into the drop
+    /// set — is what makes the path resolve.
+    fn place_inline_meshes(
+        &mut self,
+        at: &Path,
+        inline_meshes: Vec<(String, Vec<u8>)>,
+    ) -> Result<(), String> {
+        match &mut self.files {
+            Files::Disk => write_inline_meshes(at, &inline_meshes),
+            Files::Dropped(set) => {
+                set.extend(inline_meshes);
+                Ok(())
+            }
+        }
     }
 
     /// What both imports do with their result: a new, untitled document,
@@ -630,6 +660,18 @@ fn log_drop_error(name: &str, err: &str) {
     web_sys::console::error_1(&format!("riggen: cannot read {name}: {err}").into());
 }
 
+/// [`RiggenApp::place_inline_meshes`]'s `Files::Disk` case, pulled out so
+/// it is testable without a GPU-backed `RiggenApp` (`RiggenApp::new` hard
+/// requires an `eframe::CreationContext`).
+fn write_inline_meshes(at: &Path, inline_meshes: &[(String, Vec<u8>)]) -> Result<(), String> {
+    let dir = at.parent().unwrap_or(Path::new("."));
+    for (name, bytes) in inline_meshes {
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
 /// The status-bar line after a batch of files: the first error if there
 /// was one, else the first warning, else the count.
 fn report(
@@ -659,4 +701,64 @@ pub fn open_mesh_warning(path: &Path) -> String {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.display().to_string())
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use riggen_core::Disk;
+
+    /// The plan's acceptance route in one function
+    /// (plans/mjcf-mesh-geometry step 3): import an MJCF with an inline
+    /// `<mesh vertex face>`, place its bytes the way `open_mjcf` does for
+    /// `Files::Disk`, then prove the *document* survives a native
+    /// save/reopen with nothing dangling — the failure this plan exists to
+    /// avoid (docs/02-data-model.md §Geometry). `RiggenApp` itself is not
+    /// constructible here: `RiggenApp::new` hard-requires a GPU-backed
+    /// `eframe::CreationContext` (only the visual test harness has one), so
+    /// this exercises `write_inline_meshes` — `open_mjcf`'s own placement
+    /// code — directly.
+    #[test]
+    fn an_imported_inline_mesh_survives_a_native_save_reopen_round_trip() {
+        let dir =
+            std::env::temp_dir().join(format!("riggen-file-io-inline-mesh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mjcf = dir.join("m.xml");
+        std::fs::write(
+            &mjcf,
+            r#"<mujoco model="m"><compiler angle="radian"/>
+                 <asset>
+                   <mesh name="widget" vertex="0 0 0  1 0 0  0 1 0  0 0 1"
+                         face="0 1 2  0 1 3  0 2 3  1 2 3"/>
+                 </asset>
+                 <worldbody><body name="a">
+                   <inertial pos="0 0 0" mass="1" diaginertia="1 1 1"/>
+                   <geom type="mesh" mesh="widget"/>
+                 </body></worldbody></mujoco>"#,
+        )
+        .unwrap();
+
+        let (robot, warnings, inline_meshes) = riggen_export::mjcf_in::load(&mjcf, &Disk).unwrap();
+        assert_eq!(
+            warnings,
+            Vec::new(),
+            "an inline mesh imports with no warning"
+        );
+        write_inline_meshes(&mjcf, &inline_meshes).unwrap();
+        assert!(dir.join("widget.stl").is_file());
+
+        let saved = dir.join("m.riggen");
+        riggen_core::save(&robot, &saved).unwrap();
+        let (reopened, warnings) = riggen_core::load(&saved).unwrap();
+        assert_eq!(
+            warnings,
+            Vec::new(),
+            "no MeshNotFound / HashMismatch: the mesh really is there"
+        );
+        assert_eq!(reopened.assets.len(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
