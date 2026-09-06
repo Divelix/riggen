@@ -126,6 +126,16 @@ that half deliberately leaves alone:
   drawn in a viewport corner *for as long as zen is on*, never a timed
   toast — and it would be a new amendment
 
+### From composite-joints (plans/composite-joints, 2026-09-06)
+
+- **Reopen composite-joint synthesis (ADR-0022).** Refused for now; would
+  be reopened by someone actually blocked on a model that needs it (Stretch
+  is the plausible one), a second corpus where composite bodies are common
+  rather than 5%, or MuJoCo relaxing the massless-body rule. If reopened,
+  start at A2: synthesise ordinary links, no mark and no schema field; the
+  MJCF writer folds a massless, geom-less, frame-less, one-child link into
+  its child's `<body>`
+
 ## Rejected
 
 - `SetRoot` across a movable joint — a URDF always has a root, and the reversed-pivot convention is a design question nothing in M3 needed (plans/m3-sim-ready OPEN 2, 2026-08-29)

@@ -20,28 +20,23 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 ## Current state
 
 **v0.4 — the round trip keeps what it read, and the window has two modes
-— is open (2026-09-04).** Two halves: a foreign MJCF survives import →
-edit → export with nothing lost (`Robot::actuators`, `<general>`, mimic
-chains, `<joint ref>`, `<tendon>`, `.msh`, `<include>` / `<attach>` /
-`<frame>`), and the window opens in a **View** mode — joint tree with
-scrubbers, joints the only pick, wheel drives a hovered joint, a glyph
-showing range and value, a visibility row, zen on `Z` — with Tab to
-**Edit**. **The window half is done** (four plans retired 2026-09-05):
-the two modes, the joint tree, joints-only picking and the wheel on a
-glyph (ADR-0021), the glyph band, the visibility row whose toggles take a
-class's drawing and its pointer target together, and **zen on `Z`** —
-every panel gone, orthogonal to the mode, `Esc` out of it too (ADR-0021,
-amended three times). **Next: an ADR (composite joints), then the file
-half.** **Before it:** v0.3 (tag `v0.3.0`) paid down the
-hand-feel debt — scrubbers, panels that stop hiding things, left-drag orbit
-(ADR-0018), tool keys and a claimable wheel (ADR-0019), a depth-tested
-overlay that marks a driven joint (ADR-0020). v0.2 (tag `v0.2.1`) made
-"sim-ready" a feature — the SDK in the one wheel (ADR-0009), V-HACD
-(ADR-0011), frames, mimics and actuators (ADR-0012/13/14), MJCF import
-(ADR-0015), SDF export (ADR-0016), the web demo over one `FileSource` seam
-(ADR-0017); `.riggen` is **schema 3**. Then M4 the wheel; M3 the writers,
-URDF import, inertials, collision; M2 the mouse-only arm; M1 the document,
-commands, history, `.riggen`; M0 the viewport.
+— is open (2026-09-04).** The window half is done: **View** — joint tree
+with scrubbers, joints the only pick, wheel drives a hovered joint, a
+glyph for range and value, a visibility row, zen on `Z` — with Tab to
+**Edit** (ADR-0021, four plans retired 2026-09-05). A `<body>` with
+several `<joint>`s stays refused, re-asked and answered no with the
+corpus behind it (**ADR-0022**); the refusal now says what to do about
+it. **Next: the file half** — a foreign MJCF surviving import → edit →
+export with nothing lost (`Robot::actuators`, `<general>`, mimic chains,
+`<joint ref>`, `<tendon>`, `.msh`, `<include>` / `<attach>` / `<frame>`).
+**Before it:** v0.3 (`v0.3.0`) paid down the hand-feel debt (scrubbers,
+left-drag orbit, tool keys and a claimable wheel, a driven-joint overlay
+— ADR-0018/19/20); v0.2 (`v0.2.1`) made "sim-ready" a feature (the SDK
+wheel, V-HACD, frames/mimics/actuators, MJCF import, SDF export, the web
+demo — ADR-0009/11/12/13/14/15/16/17), `.riggen` at **schema 3**. Then M4
+the wheel; M3 the writers, URDF import, inertials, collision; M2 the
+mouse-only arm; M1 the document, commands, history, `.riggen`; M0 the
+viewport.
 
 ## Rules that are not derivable from the code
 
