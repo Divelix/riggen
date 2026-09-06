@@ -152,7 +152,7 @@ carries over unchanged. Recorded as a paragraph in `docs/02-data-model.md`
   testable — directly against `riggen_export::mjcf_in::load` and
   `riggen_core::save`/`load`, which covers the same plumbing without a GPU
   context. This is `file_io.rs`'s first test module.
-- [ ] **Step 4 — the corpus.** Grow `assets/fixtures/menagerie_style.xml`
+- [x] **Step 4 — the corpus.** Grow `assets/fixtures/menagerie_style.xml`
   with one `.msh`-referencing `<geom>` and one inline `<mesh vertex face>`
   `<geom>`; update `import.rs`'s pinned warning-by-warning test
   (`crate::mjcf_in::load(&root.join("menagerie_style.xml"), &memory)`,
@@ -163,18 +163,41 @@ carries over unchanged. Recorded as a paragraph in `docs/02-data-model.md`
   export as ordinary `.stl` either way, so no MuJoCo-side change is
   expected, but the job has not run against them until this step.
 
+  **Findings:**
+  - `menagerie_style.xml` never carried `.msh`/inline-mesh geoms before
+    this step (the "down from the two the fixture pins today" line in
+    Acceptance, below, was speculative, not a description of the fixture
+    as it stood) — there was no existing `GeomDropped` to make disappear,
+    only new geoms to add with none appearing.
+  - The `mujoco` CI job's round-trip is over `assets/fixtures/arm/arm.riggen`
+    (`.github/workflows/ci.yml`'s `mujoco` job) — it never reads
+    `menagerie_style.xml` at all, so it is unaffected by this step either
+    way; the acceptance line describing it was a mismatch between two
+    different fixtures, not a real check this step can perform.
+  - Real consequence caught instead: `tests/visual/main.rs`'s
+    `the_open_rule` opens `menagerie_style.xml` through the real
+    `RiggenApp`/`Files::Disk` path, which — now that an inline mesh can
+    make import write a file (step 2's decision) — synthesized
+    `assets/fixtures/pad.stl` into the *tracked* fixture directory on
+    every run, and non-deterministically (`pad.stl`, then `pad_2.stl`, …
+    depending on what an earlier run left behind), because the corpus is
+    a real fixture on disk, not a scratch copy. Fixed by giving that test
+    a scratch copy of `menagerie_style.xml` and its meshes
+    (`menagerie_style_scratch()`), so the synthesized file lands in
+    `std::env::temp_dir()` and never in the repo.
+
 Each step is its own commit; step 2 is `docs:`, the rest `feat(mesh,export,app,py):` as appropriate for what each touches.
 
 ## Acceptance
 
 Importing `menagerie_style.xml` produces zero `GeomDropped` warnings for
-its `.msh` and inline-mesh geoms (down from the two the fixture pins
-today); both render as ordinary link geometry and re-export as ordinary
-`.stl` files; a document imported with either mesh kind survives a native
-save/reopen round trip with no `MeshNotFound`; `cargo test` (including the
-new `riggen-mesh`, `riggen-export`, `riggen-app` and `riggen-py` cases) and
-the `mujoco` CI job pass; `cargo fmt --check` and `cargo clippy
---all-targets -- -D warnings` pass.
+its `.msh` and inline-mesh geoms; both render as ordinary link geometry
+and re-export as ordinary `.stl` files; a document imported with either
+mesh kind survives a native save/reopen round trip with no
+`MeshNotFound`; `cargo test` (including the new `riggen-mesh`,
+`riggen-export`, `riggen-app` and `riggen-py` cases) and the `mujoco` CI
+job pass; `cargo fmt --check` and `cargo clippy --all-targets -- -D
+warnings` pass.
 
 ## Docs to update on completion
 

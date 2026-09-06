@@ -1591,7 +1591,15 @@ mod tests {
     fn the_menagerie_style_corpus_imports_with_the_warnings_it_should() {
         let path = crate::test_util::fixtures().join("menagerie_style.xml");
         let (robot, warnings, inline) = super::load(&path, &Disk).unwrap();
-        assert_eq!(inline, Vec::new(), "no inline mesh in this corpus yet");
+        // `pad`, the corpus's one inline mesh: its bytes are synthesized,
+        // not found on disk, so they are checked on their own rather than
+        // through the asset-path loop below (docs/02-data-model.md
+        // §Geometry).
+        assert_eq!(inline.len(), 1);
+        assert_eq!(inline[0].0, "pad.stl");
+        let pad_mesh = riggen_mesh::parse_stl(&inline[0].1, Path::new("pad.stl")).unwrap();
+        assert_eq!(pad_mesh.triangle_count(), 4);
+
         let link = |n: &str| robot.links.values().find(|l| l.name == n).unwrap();
         let joint = |n: &str| robot.joints.values().find(|j| j.name == n).unwrap();
 
@@ -1681,8 +1689,14 @@ mod tests {
                 length: 0.1
             }]
         );
-        // The mesh scale is non-uniform, and the meshes are beside the arm.
+        // The mesh scale is non-uniform, and the meshes are beside the arm
+        // — `pad`, the one inline mesh, is not written to disk by `load`
+        // itself (that is its caller's job, step 2's decision), so it is
+        // skipped here and checked above instead.
         for asset in robot.assets.values() {
+            if asset.path.file_name() == Some(std::ffi::OsStr::new("pad.stl")) {
+                continue;
+            }
             assert!(asset.path.exists(), "{}", asset.path.display());
         }
         assert_eq!(

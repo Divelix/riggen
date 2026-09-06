@@ -350,13 +350,14 @@ mod tests {
         ("fore_hull.stl", "arm/fore_hull.stl"),
     ];
 
-    const MJCF_SET: [(&str, &str); 6] = [
+    const MJCF_SET: [(&str, &str); 7] = [
         ("menagerie_style.xml", "menagerie_style.xml"),
         ("arm/base.stl", "arm/base.stl"),
         ("arm/shoulder.stl", "arm/shoulder.stl"),
         ("arm/upper.stl", "arm/upper.stl"),
         ("arm/fore.stl", "arm/fore.stl"),
         ("arm/fore_hull.stl", "arm/fore_hull.stl"),
+        ("arm/thing.msh", "arm/thing.msh"),
     ];
 
     /// The URDF import over bytes (ADR-0017): `package://arm/base.stl`
@@ -408,14 +409,27 @@ mod tests {
             crate::mjcf_in::load(&fixtures().join("menagerie_style.xml"), &Disk).unwrap();
         assert_eq!(memory_warnings, disk_warnings);
         assert_eq!(memory_inline, disk_inline);
+        // Every asset's path rebases the same way `dropped()` laid the set
+        // out — most of them under `arm/` (`<compiler meshdir>`), but the
+        // one inline mesh sits beside the source file itself, same as on
+        // disk (docs/02-data-model.md §Geometry).
+        let fixtures_abs = riggen_core::absolute(&fixtures()).unwrap();
         for asset in from_disk.assets.values_mut() {
-            asset.path = root.join("arm").join(asset.path.file_name().unwrap());
+            let rel = asset.path.strip_prefix(&fixtures_abs).unwrap();
+            asset.path = root.join(rel);
         }
         assert_eq!(
             serde_json::to_value(&from_memory).unwrap(),
             serde_json::to_value(&from_disk).unwrap()
         );
 
+        // The inline mesh's bytes never touched `memory` — `load` only
+        // returns them, placing them is the caller's job — so they are
+        // added here exactly as `open_mjcf` would.
+        let mut memory = memory;
+        for (name, bytes) in memory_inline {
+            memory.insert(root.join(name), bytes);
+        }
         let (store, errors) = MeshStore::load(&from_memory, &memory);
         assert_eq!(errors, Vec::new());
         assert_eq!(store.0.len(), from_memory.referenced_assets().len());

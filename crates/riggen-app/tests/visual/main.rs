@@ -31,6 +31,25 @@ fn fixture(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
+/// A scratch copy of `menagerie_style.xml` and the meshes it references.
+/// Opening it through `Files::Disk` can now write a file beside it — its
+/// one inline mesh synthesizes a `.stl` there (plans/mjcf-mesh-geometry
+/// step 2, docs/02-data-model.md §Geometry) — so a test that opens it must
+/// not point at the tracked fixture directory.
+fn menagerie_style_scratch() -> std::path::PathBuf {
+    let dir = scratch_dir("menagerie-style");
+    std::fs::create_dir_all(dir.join("arm")).unwrap();
+    for rel in [
+        "menagerie_style.xml",
+        "arm/base.stl",
+        "arm/shoulder.stl",
+        "arm/thing.msh",
+    ] {
+        std::fs::copy(fixture(rel), dir.join(rel)).unwrap();
+    }
+    dir.join("menagerie_style.xml")
+}
+
 /// Clicks a menu-bar title. "View" and "Edit" are also the mode control's
 /// labels (ADR-0021 §3), so the top-most node with the text is the menu's.
 fn click_menu(harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>, label: &str) {
@@ -1816,15 +1835,19 @@ fn zen_key_yields_to_ctrl_z_and_to_a_field() {
 #[test]
 fn the_open_rule() {
     with_app(|harness| {
-        let open = |harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>, name: &str| {
-            harness.state_mut().open_path(&fixture(name)).expect(name);
+        let open_at = |harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+                       path: &std::path::Path| {
+            harness.state_mut().open_path(path).expect("open");
             harness.step();
             harness.state().mode()
+        };
+        let open = |harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>, name: &str| {
+            open_at(harness, &fixture(name))
         };
         assert_eq!(open(harness, "pendulum.riggen"), Mode::View);
         assert_eq!(open(harness, "arm/arm.urdf"), Mode::View, "an import");
         assert_eq!(
-            open(harness, "menagerie_style.xml"),
+            open_at(harness, &menagerie_style_scratch()),
             Mode::View,
             "an import"
         );
