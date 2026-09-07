@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::{
-    Actuator, ActuatorSpec, ActuatorTarget, CollisionPolicy, Dynamics, FileSource, Frame, FrameId,
-    Geom, GeomId, InertialSpec, Joint, JointId, JointKind, Limits, Link, LinkId, MeshAsset, MeshId,
-    Mimic, Pose, Primitive, Robot, ValidationError, content_hash, validate,
+    Actuator, ActuatorId, ActuatorSpec, ActuatorTarget, CollisionPolicy, Dynamics, FileSource,
+    Frame, FrameId, Geom, GeomId, InertialSpec, Joint, JointId, JointKind, Limits, Link, LinkId,
+    MeshAsset, MeshId, Mimic, Pose, Primitive, Robot, ValidationError, content_hash, validate,
 };
 use riggen_mesh::TriMesh;
 
@@ -1260,19 +1260,15 @@ impl Import<'_> {
                 reason,
             });
         }
-        for (joint, reason) in actuator_refusals(&self.robot) {
-            let doomed: Vec<_> = self
+        for (id, reason) in actuator_refusals(&self.robot) {
+            let actuator = self
                 .robot
-                .actuators_on(joint)
-                .map(|(id, a)| (id, a.name.clone()))
-                .collect();
-            for (id, actuator) in doomed {
-                self.robot.actuators.remove(&id);
-                self.warnings.push(ImportWarning::ActuatorDropped {
-                    actuator,
-                    reason: reason.clone(),
-                });
-            }
+                .actuators
+                .remove(&id)
+                .expect("named by validate")
+                .name;
+            self.warnings
+                .push(ImportWarning::ActuatorDropped { actuator, reason });
         }
     }
 
@@ -1333,22 +1329,24 @@ impl Import<'_> {
     }
 }
 
-/// What `validate` refuses about an actuator, per joint (ADR-0014). As
-/// with the couplings, `validate` owns the rules and this only phrases its
-/// verdict; every other error it reports still fails the import.
-fn actuator_refusals(robot: &Robot) -> Vec<(JointId, String)> {
+/// What `validate` refuses about an actuator, per actuator (ADR-0014,
+/// re-keyed by ADR-0023). As with the couplings, `validate` owns the rules
+/// and this only phrases its verdict; every other error it reports still
+/// fails the import.
+fn actuator_refusals(robot: &Robot) -> Vec<(ActuatorId, String)> {
     riggen_core::validation_errors(robot)
         .into_iter()
         .filter_map(|e| match e {
-            ValidationError::ActuatorOnFixedJoint(j) => {
-                Some((j, "a fixed joint has no <joint> for it to drive".to_owned()))
-            }
-            ValidationError::ActuatorOnMimicFollower { joint, .. } => Some((
-                joint,
+            ValidationError::ActuatorOnFixedJoint { actuator, .. } => Some((
+                actuator,
+                "a fixed joint has no <joint> for it to drive".to_owned(),
+            )),
+            ValidationError::ActuatorOnMimicFollower { actuator, .. } => Some((
+                actuator,
                 "the joint is already driven by an <equality>".to_owned(),
             )),
-            ValidationError::InvalidActuatorGain { joint, what } => {
-                Some((joint, format!("its {what}")))
+            ValidationError::InvalidActuatorGain { actuator, what } => {
+                Some((actuator, format!("its {what}")))
             }
             _ => None,
         })

@@ -182,6 +182,19 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
   `MimicExceedsLimits`). A `Continuous` follower has no range to leave, so
   the last check is vacuous; a `Continuous` leader has an unbounded one,
   which no bounded follower can hold.
+- An `Actuator`'s `target` names a joint of the document
+  (`DanglingActuatorTarget`), and that joint is movable and does not follow
+  another one (`ActuatorOnFixedJoint`, `ActuatorOnMimicFollower`: a fixed
+  joint has no `<joint>` for MJCF to drive, and a follower is already driven
+  by its `<equality>`). Its gains are finite (`NonFinite`) and usable —
+  `kp` / `kv` may be zero but never negative, a `gear` may be negative but
+  never zero (`InvalidActuatorGain`). Every refusal names the **actuator**,
+  which has a name of its own: unique among actuators
+  (`DuplicateActuatorName`) and nowhere else, so it may be the driven
+  joint's — which is the default. **Several actuators on one joint is
+  legal** and deliberately so: MuJoCo sums their controls, and refusing it
+  here would reject models MuJoCo accepts and make the MJCF import drop what
+  a file said (ADR-0023 §3).
 
 ## Commands and history
 

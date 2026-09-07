@@ -147,7 +147,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       `arm/arm.riggen` re-save at 4 as the byte-for-byte fixtures. Everything downstream is
       compiled through in this step by the shortest correct edit — the
       readouts follow in their own steps.
-- [ ] **[2]** Step 4 — **`validate` re-keyed.** `check_actuators` over the
+- [x] **[2]** Step 4 — **`validate` re-keyed.** `check_actuators` over the
       table: `Fixed` target, mimic-follower target, non-finite or negative
       gain, zero `gear` — each naming the actuator — plus a dangling
       target and a duplicate actuator name. A test that two actuators on

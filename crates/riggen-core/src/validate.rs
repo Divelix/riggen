@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use crate::ids::{FrameId, GeomId, JointId, LinkId, MeshId};
+use crate::ids::{ActuatorId, FrameId, GeomId, JointId, LinkId, MeshId};
 use crate::robot::{ActuatorSpec, Robot};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -119,14 +119,28 @@ pub enum ValidationError {
         lower: f64,
         upper: f64,
     },
-    // ---- actuators (ADR-0014) --------------------------------------------
-    /// A `Fixed` joint carries an actuator: MJCF writes no `<joint>` for it,
-    /// so there is nothing for the `<actuator>` to drive.
-    ActuatorOnFixedJoint(JointId),
+    // ---- actuators (ADR-0014, ADR-0023) ----------------------------------
+    /// An actuator's `target` names no joint. A name and a target are
+    /// separate fields now, so each can go wrong on its own (ADR-0023).
+    DanglingActuatorTarget {
+        actuator: ActuatorId,
+        joint: JointId,
+    },
+    /// Two actuators share a name. Unique **among actuators** only: MJCF's
+    /// namespaces are per element type, so an actuator may answer to a
+    /// joint's name — which is the default one (ADR-0023).
+    DuplicateActuatorName(String),
+    /// An actuator drives a `Fixed` joint: MJCF writes no `<joint>` for
+    /// one, so there is nothing for the `<actuator>` to drive.
+    ActuatorOnFixedJoint {
+        actuator: ActuatorId,
+        joint: JointId,
+    },
     /// An actuator on a joint that mimics another. The follower is already
     /// driven by the `<equality>` the mimic writes (ADR-0013); actuating it
     /// too sets the two against each other.
     ActuatorOnMimicFollower {
+        actuator: ActuatorId,
         joint: JointId,
         leader: JointId,
     },
@@ -136,7 +150,7 @@ pub enum ValidationError {
     ///
     /// [`NonFinite`]: ValidationError::NonFinite
     InvalidActuatorGain {
-        joint: JointId,
+        actuator: ActuatorId,
         what: String,
     },
 }
@@ -223,16 +237,24 @@ impl fmt::Display for ValidationError {
                 f,
                 "joint {joint} following {leader} reaches {lower}..{upper}, outside its own limits"
             ),
-            Self::ActuatorOnFixedJoint(j) => write!(
+            Self::DanglingActuatorTarget { actuator, joint } => {
+                write!(f, "actuator {actuator} drives missing joint {joint}")
+            }
+            Self::DuplicateActuatorName(n) => write!(f, "two actuators are named \"{n}\""),
+            Self::ActuatorOnFixedJoint { actuator, joint } => write!(
                 f,
-                "fixed joint {j} cannot carry an actuator: it has no degree of freedom to drive"
+                "actuator {actuator} cannot drive fixed joint {joint}: it has no degree of freedom"
             ),
-            Self::ActuatorOnMimicFollower { joint, leader } => write!(
+            Self::ActuatorOnMimicFollower {
+                actuator,
+                joint,
+                leader,
+            } => write!(
                 f,
-                "joint {joint} cannot carry an actuator: it follows {leader}, which already drives it"
+                "actuator {actuator} cannot drive joint {joint}: it follows {leader}, which already drives it"
             ),
-            Self::InvalidActuatorGain { joint, what } => {
-                write!(f, "actuator of joint {joint} has {what}")
+            Self::InvalidActuatorGain { actuator, what } => {
+                write!(f, "actuator {actuator} has {what}")
             }
         }
     }
@@ -566,25 +588,41 @@ fn check_mimics(robot: &Robot, errors: &mut Vec<ValidationError>) {
     }
 }
 
-/// Actuators (ADR-0014): only a movable joint that is not already driven by
-/// a mimic may carry one, and its gains must be numbers MuJoCo can use.
+/// Actuators (ADR-0014, re-keyed onto the table by ADR-0023): the target
+/// must exist, only a movable joint that is not already driven by a mimic
+/// may be driven, the gains must be numbers MuJoCo can use — and every
+/// actuator's name is its own, unique among actuators.
+///
+/// **Several actuators on one joint is legal**, deliberately: MuJoCo sums
+/// their controls, and refusing it here would reject models MuJoCo accepts
+/// and force the import to drop what a file said (ADR-0023 §3).
 fn check_actuators(robot: &Robot, errors: &mut Vec<ValidationError>) {
-    for actuator in robot.actuators.values() {
-        let Some(jid) = actuator.target.joint() else {
+    let mut seen = BTreeSet::new();
+    for (&aid, entry) in &robot.actuators {
+        if !seen.insert(entry.name.as_str()) {
+            errors.push(ValidationError::DuplicateActuatorName(entry.name.clone()));
+        }
+        let Some(jid) = entry.target.joint() else {
             continue;
         };
-        // A target that is not in the document is step 4's own refusal;
-        // until then a dangling one simply has no joint to check.
         let Some(joint) = robot.joints.get(&jid) else {
+            errors.push(ValidationError::DanglingActuatorTarget {
+                actuator: aid,
+                joint: jid,
+            });
             continue;
         };
-        let actuator = actuator.spec;
+        let actuator = entry.spec;
         if !joint.kind.is_movable() {
-            errors.push(ValidationError::ActuatorOnFixedJoint(jid));
+            errors.push(ValidationError::ActuatorOnFixedJoint {
+                actuator: aid,
+                joint: jid,
+            });
             continue;
         }
         if let Some(mimic) = joint.mimic {
             errors.push(ValidationError::ActuatorOnMimicFollower {
+                actuator: aid,
                 joint: jid,
                 leader: mimic.joint,
             });
@@ -605,11 +643,11 @@ fn check_actuators(robot: &Robot, errors: &mut Vec<ValidationError>) {
         for (name, value, usable) in gains.into_iter().flatten() {
             if !value.is_finite() {
                 errors.push(ValidationError::NonFinite {
-                    what: format!("{name} of the actuator of joint {jid}"),
+                    what: format!("{name} of actuator {aid}"),
                 });
             } else if !usable {
                 errors.push(ValidationError::InvalidActuatorGain {
-                    joint: jid,
+                    actuator: aid,
                     what: format!("{name} {value}"),
                 });
             }
@@ -1214,10 +1252,10 @@ mod tests {
         );
     }
 
-    // ---- actuators (ADR-0014) --------------------------------------------
+    // ---- actuators (ADR-0014, ADR-0023) ----------------------------------
 
-    /// One actuator on `joint`, replacing whatever drove it (ADR-0023).
-    fn actuate(robot: &mut Robot, joint: JointId, spec: ActuatorSpec) {
+    /// One actuator on `joint`, replacing whatever drove it, and its id.
+    fn actuate(robot: &mut Robot, joint: JointId, spec: ActuatorSpec) -> ActuatorId {
         robot
             .actuators
             .retain(|_, a| a.target.joint() != Some(joint));
@@ -1231,6 +1269,7 @@ mod tests {
                 spec,
             },
         );
+        id
     }
 
     /// Takes every actuator off `joint`.
@@ -1243,27 +1282,32 @@ mod tests {
     #[test]
     fn an_actuator_needs_a_movable_joint_that_nothing_else_drives() {
         let (mut robot, [j0, _, _]) = movable_chain();
-        actuate(
+        let a = actuate(
             &mut robot,
             j0,
             ActuatorSpec::Position { kp: 100.0, kv: 5.0 },
         );
         assert_eq!(validate(&robot), Ok(()), "the ordinary case");
 
-        // A `Fixed` joint has no `<joint>` in the MJCF to drive.
+        // A `Fixed` joint has no `<joint>` in the MJCF to drive, and the
+        // refusal names the actuator, not only the joint (ADR-0023).
         robot.joints.get_mut(&j0).unwrap().kind = JointKind::Fixed;
         assert_eq!(
             validate(&robot),
-            Err(ValidationError::ActuatorOnFixedJoint(j0))
+            Err(ValidationError::ActuatorOnFixedJoint {
+                actuator: a,
+                joint: j0
+            })
         );
 
         // A mimic follower is already driven by its `<equality>`.
         let (mut robot, [j0, j1, _]) = movable_chain();
         mimic(&mut robot, j1, j0, 0.5, 0.0);
-        actuate(&mut robot, j1, ActuatorSpec::Motor { gear: 1.0 });
+        let a = actuate(&mut robot, j1, ActuatorSpec::Motor { gear: 1.0 });
         assert_eq!(
             validate(&robot),
             Err(ValidationError::ActuatorOnMimicFollower {
+                actuator: a,
                 joint: j1,
                 leader: j0
             })
@@ -1274,6 +1318,76 @@ mod tests {
         assert_eq!(validate(&robot), Ok(()));
     }
 
+    /// The one-actuator-per-joint assumption ADR-0014 never wrote down is
+    /// dropped: MuJoCo sums the controls of every actuator targeting a
+    /// joint, so `validate` must not refuse what a real file ships
+    /// (ADR-0023 §3).
+    #[test]
+    fn several_actuators_may_drive_one_joint() {
+        let (mut robot, [j0, _, _]) = movable_chain();
+        let coarse = actuate(&mut robot, j0, ActuatorSpec::Motor { gear: 50.0 });
+        let name = robot.default_actuator_name(j0);
+        assert_eq!(name, "a_joint_2", "the second one takes a free suffix");
+        let fine = robot.next_id.alloc();
+        robot.actuators.insert(
+            fine,
+            Actuator {
+                name,
+                target: ActuatorTarget::Joint(j0),
+                spec: ActuatorSpec::Position { kp: 5.0, kv: 0.0 },
+            },
+        );
+        assert_eq!(validate(&robot), Ok(()));
+        assert_eq!(
+            robot.actuators_on(j0).map(|(id, _)| id).collect::<Vec<_>>(),
+            vec![coarse, fine],
+            "ActuatorId order"
+        );
+    }
+
+    /// A name is unique **among actuators** and nowhere else: sharing the
+    /// driven joint's name is the default, and MJCF's per-element
+    /// namespaces are the reason (ADR-0023 §2).
+    #[test]
+    fn an_actuator_name_is_unique_among_actuators_only() {
+        let (mut robot, [j0, j1, _]) = movable_chain();
+        actuate(&mut robot, j0, ActuatorSpec::Motor { gear: 1.0 });
+        let second = actuate(&mut robot, j1, ActuatorSpec::Motor { gear: 1.0 });
+        assert_eq!(robot.actuators[&second].name, "b_joint");
+        assert_eq!(validate(&robot), Ok(()), "each named after its joint");
+
+        // A link's or a joint's name is fair game — every default one is
+        // already a joint's.
+        robot.actuators.get_mut(&second).unwrap().name = "a".to_owned();
+        assert!(robot.links.values().any(|l| l.name == "a"));
+        assert_eq!(validate(&robot), Ok(()));
+
+        // Another actuator's is not.
+        robot.actuators.get_mut(&second).unwrap().name = "a_joint".to_owned();
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::DuplicateActuatorName("a_joint".into()))
+        );
+    }
+
+    /// A target and a name are separate fields now, so a target can dangle
+    /// on its own — a hand-edited file, or a joint deleted behind the
+    /// command layer's back (ADR-0023 §3).
+    #[test]
+    fn an_actuator_target_must_be_a_joint_of_the_document() {
+        let (mut robot, [j0, _, _]) = movable_chain();
+        let a = actuate(&mut robot, j0, ActuatorSpec::Motor { gear: 1.0 });
+        let ghost = JointId::from_raw(9999);
+        robot.actuators.get_mut(&a).unwrap().target = ActuatorTarget::Joint(ghost);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::DanglingActuatorTarget {
+                actuator: a,
+                joint: ghost
+            })
+        );
+    }
+
     #[test]
     fn actuator_gains_must_be_numbers_mujoco_can_use() {
         let (mut robot, [j0, _, _]) = movable_chain();
@@ -1281,19 +1395,19 @@ mod tests {
         actuate(&mut robot, j0, ActuatorSpec::Position { kp: 0.0, kv: 0.0 });
         assert_eq!(validate(&robot), Ok(()));
         // …but a negative one pushes the joint away from its target.
-        actuate(&mut robot, j0, ActuatorSpec::Position { kp: -1.0, kv: 5.0 });
+        let a = actuate(&mut robot, j0, ActuatorSpec::Position { kp: -1.0, kv: 5.0 });
         assert_eq!(
             validate(&robot),
             Err(ValidationError::InvalidActuatorGain {
-                joint: j0,
+                actuator: a,
                 what: "kp -1".into()
             })
         );
-        actuate(&mut robot, j0, ActuatorSpec::Velocity { kv: -0.5 });
+        let a = actuate(&mut robot, j0, ActuatorSpec::Velocity { kv: -0.5 });
         assert_eq!(
             validate(&robot),
             Err(ValidationError::InvalidActuatorGain {
-                joint: j0,
+                actuator: a,
                 what: "kv -0.5".into()
             })
         );
@@ -1301,11 +1415,11 @@ mod tests {
         // actuator that cannot move it.
         actuate(&mut robot, j0, ActuatorSpec::Motor { gear: -50.0 });
         assert_eq!(validate(&robot), Ok(()));
-        actuate(&mut robot, j0, ActuatorSpec::Motor { gear: 0.0 });
+        let a = actuate(&mut robot, j0, ActuatorSpec::Motor { gear: 0.0 });
         assert_eq!(
             validate(&robot),
             Err(ValidationError::InvalidActuatorGain {
-                joint: j0,
+                actuator: a,
                 what: "gear 0".into()
             })
         );
@@ -1319,11 +1433,11 @@ mod tests {
                 gear: f64::NEG_INFINITY,
             },
         ] {
-            actuate(&mut robot, j0, actuator);
+            let a = actuate(&mut robot, j0, actuator);
             let err = validate(&robot).unwrap_err();
             assert!(
                 matches!(&err, ValidationError::NonFinite { what }
-                    if what.contains(&format!("actuator of joint {j0}"))),
+                    if what.contains(&format!("actuator {a}"))),
                 "{err}"
             );
         }
