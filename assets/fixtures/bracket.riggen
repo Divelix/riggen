@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "robot": {
     "name": "bracket",
     "links": {
@@ -100,6 +100,12 @@
           "Motor": {
             "gear": 50.0
           }
+        },
+        "ranges": {
+          "ctrl": null,
+          "force": null,
+          "ctrl_limited": null,
+          "force_limited": null
         }
       }
     },

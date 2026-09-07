@@ -20,9 +20,10 @@ use std::path::{Path, PathBuf};
 
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::{
-    Actuator, ActuatorId, ActuatorSpec, ActuatorTarget, CollisionPolicy, Dynamics, FileSource,
-    Frame, FrameId, Geom, GeomId, InertialSpec, Joint, JointId, JointKind, Limits, Link, LinkId,
-    MeshAsset, MeshId, Mimic, Pose, Primitive, Robot, ValidationError, content_hash, validate,
+    Actuator, ActuatorId, ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Dynamics,
+    FileSource, Frame, FrameId, Geom, GeomId, InertialSpec, Joint, JointId, JointKind, Limits,
+    Link, LinkId, MeshAsset, MeshId, Mimic, Pose, Primitive, Robot, ValidationError, content_hash,
+    validate,
 };
 use riggen_mesh::TriMesh;
 
@@ -1156,11 +1157,17 @@ impl Import<'_> {
     /// entry: MuJoCo sums their controls, so keeping only one would throw
     /// away what the file said.
     ///
-    /// `forcerange` and `ctrlrange` are also where `Limits::effort` and
+    /// `forcerange` and `ctrlrange` are kept on the actuator as the file
+    /// said them, with their `ctrllimited` / `forcelimited` (ADR-0024). A
+    /// written flag is recorded as written; an absent one stays `auto` —
+    /// which the writer's own `autolimits="true"` reproduces — **unless**
+    /// the file named no range at all (or `autolimits` was off), when
+    /// MuJoCo makes the actuator unlimited and the flag is recorded as
+    /// `false`, so the writer does not derive from the joint the range the
+    /// file left open. They are also where `Limits::effort` and
     /// `Limits::velocity` come back from — MJCF keeps them on the actuator,
     /// not on the joint — and the joint has one of each, so the **first**
     /// actuator to drive it fills them and a later one leaves them alone.
-    /// (Per-actuator ranges are the escape hatch's, not this plan's.)
     fn read_actuators(&mut self, root: &Node) -> Result<(), ImportError> {
         for block in root.kids("actuator") {
             for a in &block.children {
@@ -1212,6 +1219,12 @@ impl Import<'_> {
                 };
                 let force = self.nums::<2>(&a, "forcerange")?;
                 let ctrl = self.nums::<2>(&a, "ctrlrange")?;
+                let ranges = ActuatorRanges {
+                    ctrl,
+                    force,
+                    ctrl_limited: self.limited_flag(&a, "ctrllimited", ctrl)?,
+                    force_limited: self.limited_flag(&a, "forcelimited", force)?,
+                };
                 // One entry per element, keyed in its own namespace
                 // (ADR-0023) — a second one on this joint is a second
                 // entry, not a replacement.
@@ -1223,6 +1236,7 @@ impl Import<'_> {
                         name,
                         target: ActuatorTarget::Joint(id),
                         spec,
+                        ranges,
                     },
                 );
                 let j = self.robot.joints.get_mut(&id).expect("just walked");
@@ -1239,6 +1253,25 @@ impl Import<'_> {
             }
         }
         Ok(())
+    }
+
+    /// An actuator's `ctrllimited` / `forcelimited` as the document keeps
+    /// it (ADR-0024): the written `true` / `false`; `None` for `auto`
+    /// beside a range under `autolimits`, which the writer reproduces; and
+    /// `Some(false)` where MuJoCo would compute `false` and the writer,
+    /// left to itself, would derive a range instead — no range written,
+    /// or `autolimits` off.
+    fn limited_flag(
+        &self,
+        node: &Node,
+        name: &str,
+        range: Option<[f64; 2]>,
+    ) -> Result<Option<bool>, ImportError> {
+        let written = match node.attr(name) {
+            Some("auto") => None,
+            _ => node.flag(name).map_err(|m| self.parse_err(m))?,
+        };
+        Ok(written.or_else(|| (!(self.compiler.autolimits && range.is_some())).then_some(false)))
     }
 
     /// A coupling or an actuator `validate` refuses is dropped with its
@@ -1759,7 +1792,32 @@ mod tests {
             joint("shoulder_pan").limits.unwrap().velocity,
             0.0,
             "unfilled: the file's `<joint>` has no velocity and the second \
-             actuator's ranges are not read"
+             actuator carries no ctrlrange"
+        );
+        // And each actuator keeps what it said itself (ADR-0024): `pan`'s
+        // `forcerange` under an `auto` flag, and — the loss step 2 of the
+        // plan measured — **no** `ctrlrange`, recorded as `false` so the
+        // writer does not clamp it to the joint's ±π. `pan_damp` said
+        // nothing, and comes back unlimited both ways.
+        assert_eq!(
+            robot
+                .actuators_on(pan)
+                .map(|(_, a)| a.ranges)
+                .collect::<Vec<_>>(),
+            [
+                ActuatorRanges {
+                    ctrl: None,
+                    force: Some([-30.0, 30.0]),
+                    ctrl_limited: Some(false),
+                    force_limited: None,
+                },
+                ActuatorRanges {
+                    ctrl: None,
+                    force: None,
+                    ctrl_limited: Some(false),
+                    force_limited: Some(false),
+                },
+            ]
         );
         assert_eq!(
             joint("shoulder_lift").mimic.map(|m| m.multiplier),
@@ -1952,6 +2010,122 @@ mod tests {
             said.iter()
                 .any(|s| s.starts_with("actuator \"sour\" dropped, its kp")),
             "{said:#?}"
+        );
+    }
+
+    /// The ranges come back as the file said them and go out the same way
+    /// (ADR-0024): written flags explicit, `auto` beside a range left to
+    /// `autolimits`, and an actuator that named no range recorded as
+    /// unlimited rather than handed the joint's numbers — with the joint's
+    /// `effort` / `velocity` still back-filled from the first actuator,
+    /// which is where URDF reads them.
+    #[test]
+    fn actuator_ranges_survive_import_and_export_as_the_file_said_them() {
+        let (robot, warnings) = load(
+            r#"<mujoco model="m"><compiler angle="radian"/><worldbody>
+                 <body name="a">
+                   <body name="b"><joint name="j" range="-1 1"/><inertial pos="0 0 0" mass="1" diaginertia="1 1 1"/>
+                     <body name="c"><joint name="k" range="-2 2"/><inertial pos="0 0 0" mass="1" diaginertia="1 1 1"/>
+                       <body name="d"><joint name="l" range="-3 3"/><inertial pos="0 0 0" mass="1" diaginertia="1 1 1"/></body>
+                     </body>
+                   </body>
+                 </body>
+               </worldbody>
+               <actuator>
+                 <position name="bare" joint="j" kp="10"/>
+                 <position name="narrow" joint="j" kp="10" ctrlrange="-0.5 0.5" forcerange="-7 7"/>
+                 <velocity name="rate" joint="k" kv="3" ctrllimited="true" ctrlrange="-4 4" forcelimited="false" forcerange="-9 9"/>
+                 <motor name="drive" joint="l" gear="2" ctrllimited="auto" ctrlrange="0 0" forcerange="-5 5"/>
+               </actuator>
+               </mujoco>"#,
+        )
+        .unwrap();
+        assert_eq!(warnings, vec![]);
+        let ranges: Vec<(String, ActuatorRanges)> = robot
+            .actuators
+            .values()
+            .map(|a| (a.name.clone(), a.ranges))
+            .collect();
+        let none = ActuatorRanges::default();
+        assert_eq!(
+            ranges,
+            [
+                // Nothing written: unlimited both ways, and said so, or
+                // the writer would clamp `ctrl` to the joint's -1 1.
+                (
+                    "bare".to_owned(),
+                    ActuatorRanges {
+                        ctrl_limited: Some(false),
+                        force_limited: Some(false),
+                        ..none
+                    }
+                ),
+                // Ranges under `auto`: the writer's `autolimits` says the
+                // same thing, so the flags stay `auto`.
+                (
+                    "narrow".to_owned(),
+                    ActuatorRanges {
+                        ctrl: Some([-0.5, 0.5]),
+                        force: Some([-7.0, 7.0]),
+                        ..none
+                    }
+                ),
+                // Written flags are kept as written.
+                (
+                    "rate".to_owned(),
+                    ActuatorRanges {
+                        ctrl: Some([-4.0, 4.0]),
+                        force: Some([-9.0, 9.0]),
+                        ctrl_limited: Some(true),
+                        force_limited: Some(false),
+                    }
+                ),
+                // `auto` spelled out is `auto`; a `0 0` range is kept as
+                // the numbers it is — MuJoCo, not the import, decides it
+                // does not limit.
+                (
+                    "drive".to_owned(),
+                    ActuatorRanges {
+                        ctrl: Some([0.0, 0.0]),
+                        force: Some([-5.0, 5.0]),
+                        ..none
+                    }
+                ),
+            ]
+        );
+        // The joint's own numbers come from the **first** actuator on it:
+        // `bare` said nothing, so `j` keeps an unfilled effort, `k` reads
+        // both of `rate`'s, and `l` reads `drive`'s force.
+        let joint = |n: &str| robot.joints.values().find(|j| j.name == n).unwrap();
+        let limits = |n: &str| {
+            let l = joint(n).limits.unwrap();
+            (l.effort, l.velocity)
+        };
+        assert_eq!(limits("j"), (0.0, 0.0));
+        assert_eq!(limits("k"), (9.0, 4.0));
+        assert_eq!(limits("l"), (5.0, 0.0));
+
+        // Out again: byte for byte what was said, in the writer's order,
+        // and the joint's numbers used only where nothing was.
+        let (store, errors) = MeshStore::load(&robot, &Disk);
+        assert!(errors.is_empty(), "{errors:?}");
+        let xml = crate::mjcf::write(&resolved(&robot, &store), &options());
+        let block: Vec<&str> = xml
+            .lines()
+            .map(str::trim)
+            .skip_while(|l| *l != "<actuator>")
+            .skip(1)
+            .take_while(|l| *l != "</actuator>")
+            .collect();
+        assert_eq!(
+            block,
+            [
+                r#"<position name="bare" joint="j" kp="10" kv="0" ctrllimited="false" forcelimited="false"/>"#,
+                r#"<position name="narrow" joint="j" kp="10" kv="0" ctrlrange="-0.5 0.5" forcerange="-7 7"/>"#,
+                r#"<velocity name="rate" joint="k" kv="3" ctrllimited="true" ctrlrange="-4 4" forcelimited="false" forcerange="-9 9"/>"#,
+                r#"<motor name="drive" joint="l" gear="2" ctrlrange="0 0" forcerange="-5 5"/>"#,
+            ],
+            "{xml}"
         );
     }
 

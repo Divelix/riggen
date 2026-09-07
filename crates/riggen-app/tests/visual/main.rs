@@ -6228,6 +6228,7 @@ fn write_arm_sample() {
             name: robot.default_actuator_name(joint),
             target: riggen_core::ActuatorTarget::Joint(joint),
             spec,
+            ranges: riggen_core::ActuatorRanges::default(),
         })
         .apply(&mut robot)
         .unwrap();

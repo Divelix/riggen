@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "robot": {
     "name": "arm",
     "links": {
@@ -327,6 +327,12 @@
             "kp": 100.0,
             "kv": 10.0
           }
+        },
+        "ranges": {
+          "ctrl": null,
+          "force": null,
+          "ctrl_limited": null,
+          "force_limited": null
         }
       },
       "a20": {
@@ -338,6 +344,12 @@
           "Velocity": {
             "kv": 8.0
           }
+        },
+        "ranges": {
+          "ctrl": null,
+          "force": null,
+          "ctrl_limited": null,
+          "force_limited": null
         }
       }
     },

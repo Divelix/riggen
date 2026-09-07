@@ -52,6 +52,11 @@ pub struct SampledActuator {
     /// default stands.
     pub ctrlrange: Option<[f64; 2]>,
     pub forcerange: Option<[f64; 2]>,
+    /// The `ctrllimited` / `forcelimited` MuJoCo ends up with: the flag
+    /// the actuator carries, else `autolimits`' own rule — limited when a
+    /// range is written and its lower bound is below its upper (ADR-0024).
+    pub ctrllimited: bool,
+    pub forcelimited: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -82,17 +87,29 @@ impl WorldPose {
 }
 
 /// Every actuator in `robot`, in `ActuatorId` order — the order the MJCF
-/// writer emits them in — with the ranges it derives from the driven joint
-/// (ADR-0014, ADR-0023).
+/// writer emits them in — with its ranges (ADR-0014, ADR-0023, ADR-0024).
+///
+/// Each range is **the actuator's own, else the joint's**: what the file
+/// said stands, and only where it said nothing is one derived from the
+/// driven joint — and not even then when the file's flag says `false`,
+/// which is an imported actuator that meant unlimited. The flag MuJoCo
+/// ends up with is the written one, else `autolimits`' rule over the
+/// range that was written.
 fn actuators(robot: &Robot) -> Vec<SampledActuator> {
     let symmetric = |v: f64| (v != 0.0).then_some([-v, v]);
+    let own_else = |said: Option<[f64; 2]>, flag: Option<bool>, derived: Option<[f64; 2]>| {
+        said.or(if flag == Some(false) { None } else { derived })
+    };
+    let limited = |flag: Option<bool>, range: Option<[f64; 2]>| {
+        flag.unwrap_or(range.is_some_and(|[lo, hi]| lo < hi))
+    };
     robot
         .actuators
         .values()
         .filter_map(|entry| {
             let joint = robot.joints.get(&entry.target.joint()?)?;
             let actuator = entry.spec;
-            let (gains, ctrlrange) = match actuator {
+            let (gains, derived_ctrl) = match actuator {
                 ActuatorSpec::Position { kp, kv } => (
                     BTreeMap::from([("kp".to_owned(), kp), ("kv".to_owned(), kv)]),
                     joint.limits.map(|l| [l.lower, l.upper]),
@@ -106,13 +123,22 @@ fn actuators(robot: &Robot) -> Vec<SampledActuator> {
                     Some([-1.0, 1.0]),
                 ),
             };
+            let own = entry.ranges;
+            let ctrlrange = own_else(own.ctrl, own.ctrl_limited, derived_ctrl);
+            let forcerange = own_else(
+                own.force,
+                own.force_limited,
+                joint.limits.and_then(|l| symmetric(l.effort)),
+            );
             Some(SampledActuator {
                 name: entry.name.clone(),
                 kind: actuator.kind_name().to_owned(),
                 joint: joint.name.clone(),
                 gains,
                 ctrlrange,
-                forcerange: joint.limits.and_then(|l| symmetric(l.effort)),
+                forcerange,
+                ctrllimited: limited(own.ctrl_limited, ctrlrange),
+                forcelimited: limited(own.force_limited, forcerange),
             })
         })
         .collect()
@@ -384,6 +410,7 @@ mod tests {
                 name: robot.default_actuator_name(joint),
                 target: riggen_core::ActuatorTarget::Joint(joint),
                 spec,
+                ranges: riggen_core::ActuatorRanges::default(),
             })
             .apply(robot)
             .unwrap();
@@ -410,6 +437,10 @@ mod tests {
         assert_eq!(a[0].gains["kv"], 10.0);
         assert_eq!(a[0].ctrlrange, Some([-1.0, 2.0]), "the joint's own range");
         assert_eq!(a[0].forcerange, Some([-5.0, 5.0]), "±effort");
+        assert!(
+            a[0].ctrllimited && a[0].forcelimited,
+            "a written range limits"
+        );
         // A `Continuous` joint has no `Limits`, so neither range is
         // written and MuJoCo's unbounded defaults stand.
         assert_eq!(
@@ -418,6 +449,7 @@ mod tests {
         );
         assert_eq!(a[1].gains["kv"], 2.0);
         assert_eq!((a[1].ctrlrange, a[1].forcerange), (None, None));
+        assert!(!a[1].ctrllimited && !a[1].forcelimited);
         assert!(to_json(&robot).contains("\"kind\": \"position\""));
 
         // A motor is normalised, whatever the joint says.
@@ -425,5 +457,50 @@ mod tests {
         let a = actuators(&robot);
         assert_eq!(a[0].ctrlrange, Some([-1.0, 1.0]));
         assert_eq!(a[0].gains["gear"], 50.0);
+
+        // The actuator's own ranges win over the joint's (ADR-0024), the
+        // same rule `mjcf.rs` states in its own words: a `Some(false)`
+        // beside no range derives nothing, an explicit flag is what
+        // MuJoCo ends up with, and a written range whose lower bound is
+        // not below its upper does not limit under `autolimits`.
+        let set = |robot: &mut Robot, joint, ranges| {
+            let (id, mut a) = robot
+                .actuators_on(joint)
+                .next()
+                .map(|(id, a)| (id, a.clone()))
+                .expect("driven");
+            a.ranges = ranges;
+            riggen_core::Command::SetActuator(id, a)
+                .apply(robot)
+                .unwrap();
+        };
+        set(
+            &mut robot,
+            servo,
+            riggen_core::ActuatorRanges {
+                ctrl: None,
+                force: Some([-2.0, 2.0]),
+                ctrl_limited: Some(false),
+                force_limited: None,
+            },
+        );
+        let a = actuators(&robot);
+        assert_eq!(a[0].ctrlrange, None, "unlimited, not the motor's -1 1");
+        assert_eq!((a[0].ctrllimited, a[0].forcelimited), (false, true));
+        assert_eq!(a[0].forcerange, Some([-2.0, 2.0]), "the file's, not ±5");
+        set(
+            &mut robot,
+            free,
+            riggen_core::ActuatorRanges {
+                ctrl: Some([0.0, 0.0]),
+                force: Some([-1.0, 1.0]),
+                ctrl_limited: None,
+                force_limited: Some(false),
+            },
+        );
+        let a = actuators(&robot);
+        assert_eq!(a[1].ctrlrange, Some([0.0, 0.0]));
+        assert_eq!(a[1].forcerange, Some([-1.0, 1.0]));
+        assert_eq!((a[1].ctrllimited, a[1].forcelimited), (false, false));
     }
 }

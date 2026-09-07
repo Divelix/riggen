@@ -217,7 +217,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       `LoadMSH` refused the triangle too ("invalid sizes in MSH file"), so
       the **original** corpus had never loaded either; the tetrahedron is
       what lets the comparison have an original at all.
-- [ ] **[2]** Step 3 — **`Actuator::ranges`, `ctrllimited` /
+- [x] **[2]** Step 3 — **`Actuator::ranges`, `ctrllimited` /
       `forcelimited`, schema 5.** The struct, the empty `upgrade_v4_to_v5`,
       the writer preferring the actuator's own numbers over the
       joint-derived ones and emitting the explicit flags,
@@ -229,6 +229,20 @@ mechanical; **[2]** careful — a case to get right within a given design;
       `ctrlrange` comes back out unlimited rather than clamped to the
       joint's range. The two byte-for-byte fixtures re-save at 5; the v1
       and v3 corpus files still open.
+      *Landed.* One refinement to "records the effective flags": the
+      import records a flag only where the writer's own
+      `autolimits="true"` would not reproduce what the file meant — a
+      written `true` / `false` as written, `auto` beside a range left
+      `None`, and `Some(false)` where the file named **no** range (or had
+      `autolimits` off). So a document riggen alone touched and a foreign
+      `<position ctrlrange>` both come back out as today's one-attribute
+      line, and only the actuator step 2 measured (`pan`, no `ctrlrange`)
+      gains an explicit `ctrllimited="false"`. MuJoCo's own `auto` rule,
+      probed rather than assumed, is *lower < upper*, not "not `0 0`";
+      the joint's `limited` in `read_joint` still uses the latter, which
+      differs only for an inverted range — noted, not touched. The
+      `mujoco` job's six models pass locally with the four fields
+      compared; the SDK suite and pyright are green.
 - [ ] **[2]** Step 4 — **`ActuatorSpec::General` in the document.** The
       variant, `General`, `DynType` / `GainType` / `BiasType`,
       `kind_name()` = `"general"`, `validate`'s two new refusals, and the

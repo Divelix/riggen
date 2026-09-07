@@ -16,9 +16,10 @@ use std::collections::BTreeMap;
 use pyo3::exceptions::{PyOSError, PyValueError};
 use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{
-    Actuator, ActuatorId, ActuatorSpec, ActuatorTarget, CollisionPolicy, Command, Created, Disk,
-    EditError, Frame, FrameId, Geom, GeomId, Id, InertialSpec, Joint, JointId, JointState, Link,
-    LinkId, Material, MeshAsset, MeshId, Pose, Robot, compose_inertial, validation_errors,
+    Actuator, ActuatorId, ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Command,
+    Created, Disk, EditError, Frame, FrameId, Geom, GeomId, Id, InertialSpec, Joint, JointId,
+    JointState, Link, LinkId, Material, MeshAsset, MeshId, Pose, Robot, compose_inertial,
+    validation_errors,
 };
 use riggen_export::{ExportError, ExportOptions, Format, MeshPathStyle, MeshStore, PackageMap};
 use serde::{Deserialize, Serialize};
@@ -548,6 +549,7 @@ impl PyRobot {
                     name,
                     target: ActuatorTarget::Joint(joint),
                     spec,
+                    ranges: ActuatorRanges::default(),
                 }),
             )?
             .and_then(Created::actuator)
@@ -611,6 +613,7 @@ impl PyRobot {
                 name: self.inner.default_actuator_name(joint),
                 target: ActuatorTarget::Joint(joint),
                 spec,
+                ranges: ActuatorRanges::default(),
             }),
             (None, None) => return Ok(()),
         };

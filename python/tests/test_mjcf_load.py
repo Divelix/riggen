@@ -30,11 +30,10 @@ An argument may also end in `@ORIGINAL.xml`, a *foreign* MJCF the directory's
 model is riggen's re-export of (ADR-0024, plans/actuator-escape-hatch). Then
 the model MuJoCo builds from the original is compared with the one it builds
 from the re-export, actuator by actuator and in order — transmission, target,
-the three types, the three `prm` vectors and `gear` — and what riggen still
-drops is `ROUND_TRIP_DROPPED`: a name and its reason, and a promise that the
-actuator is *absent* from the re-export, so the step that starts reading it
-has to delete its line. The four range fields are reported where they differ
-and not yet compared; step 3 of that plan moves them over.
+the three types, the three `prm` vectors, `gear`, the two ranges and their
+`*limited` flags — and what riggen still drops is `ROUND_TRIP_DROPPED`: a
+name and its reason, and a promise that the actuator is *absent* from the
+re-export, so the step that starts reading it has to delete its line.
 
     uv run --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample
 
@@ -214,10 +213,13 @@ def check_actuators(model: mujoco.MjModel, samples: dict) -> int:
     sums their controls. A URDF-imported robot legitimately has none, and
     then `model.nu` must be zero too.
 
-    Where riggen leaves `ctrlrange` / `forcerange` out — a zero effort or
-    velocity is the *unfilled* value, not a clamp to zero — MuJoCo's
-    `*limited` flag must be off, so the actuator is unbounded rather than
-    stuck.
+    The samples say which `ctrllimited` / `forcelimited` MuJoCo must end up
+    with (ADR-0024) — an actuator's own flag, else `autolimits`' rule over
+    the range riggen wrote — and, where it is limited, the range itself.
+    Where riggen leaves a range out (a zero effort or velocity is the
+    *unfilled* value, not a clamp to zero; an imported actuator that named
+    none is unlimited) the flag must be off, so the actuator is unbounded
+    rather than stuck.
     """
     want = samples.get("actuators", [])
     have = {model.actuator(i).name for i in range(model.nu)}
@@ -246,16 +248,16 @@ def check_actuators(model: mujoco.MjModel, samples: dict) -> int:
             limited = bool(getattr(model, f"actuator_{what}limited")[i])
             got = getattr(model, f"actuator_{what}range")[i]
             wanted = spec.get(f"{what}range")
-            if wanted is None:
-                if limited:
-                    raise AssertionError(
-                        f"actuator {name!r} has {what}range {list(got)}, but riggen wrote "
-                        "none: an unfilled effort/velocity must leave it unbounded"
-                    )
-            elif not limited or np.abs(np.asarray(wanted) - got).max() > TOLERANCE:
+            wanted_limited = spec[f"{what}limited"]
+            if limited != wanted_limited:
                 raise AssertionError(
-                    f"actuator {name!r} {what}range is {list(got)} (limited={limited}), "
-                    f"not {wanted}"
+                    f"actuator {name!r} is {what}limited={limited} with {what}range "
+                    f"{list(got)}; the samples say {what}limited={wanted_limited} "
+                    f"with {wanted}"
+                )
+            if limited and (wanted is None or np.abs(np.asarray(wanted) - got).max() > TOLERANCE):
+                raise AssertionError(
+                    f"actuator {name!r} {what}range is {list(got)}, not {wanted}"
                 )
         # Where MuJoCo puts each preset's gains: `<position kp kv>` is
         # gainprm[0] = kp with an affine bias (-kp, -kv), `<velocity kv>`
@@ -285,13 +287,14 @@ def check_actuators(model: mujoco.MjModel, samples: dict) -> int:
 
 # The round trip of a foreign file (ADR-0024): what MuJoCo holds for an
 # actuator, compared field for field between the original and the re-export.
+# The two ranges and their flags are the actuator's own since the document
+# keeps them (schema 5); a range MuJoCo does not limit by is still its
+# numbers, so `ctrlrange="0 0"` and no `ctrlrange` compare unequal.
 ROUND_TRIP_FIELDS = (
     "trntype", "target", "dyntype", "gaintype", "biastype",
     "dynprm", "gainprm", "biasprm", "gear",
+    "ctrlrange", "forcerange", "ctrllimited", "forcelimited",
 )
-# Reported where they differ, not yet compared: they agree only once the
-# actuator carries what the file said (plans/actuator-escape-hatch step 3).
-ROUND_TRIP_REPORTED = ("ctrlrange", "forcerange", "ctrllimited", "forcelimited")
 # What riggen still drops on the way through, by name and with the reason.
 # Every entry is checked both ways: the original has it, the re-export does
 # not. The step that starts reading one deletes its line here.
@@ -341,13 +344,12 @@ def same(a, b) -> bool:
     return a == b
 
 
-def check_round_trip_actuators(original: mujoco.MjModel, model: mujoco.MjModel) -> tuple[int, list[str]]:
+def check_round_trip_actuators(original: mujoco.MjModel, model: mujoco.MjModel) -> int:
     """The re-export's `<actuator>` block is the original's, element for element.
 
     In order, because an actuator's index is its slot in `ctrl`, and a
     policy trained on the original addresses it by that. Returns how many
-    actuators agreed and the differences in the fields that are reported
-    rather than compared.
+    actuators agreed.
     """
     names = [original.actuator(i).name for i in range(original.nu)]
     have = [model.actuator(i).name for i in range(model.nu)]
@@ -369,7 +371,6 @@ def check_round_trip_actuators(original: mujoco.MjModel, model: mujoco.MjModel) 
             f"{sorted(ROUND_TRIP_DROPPED)} riggen drops by name — are {want}: "
             "one was dropped, invented or reordered on the way through"
         )
-    notes = []
     for name in want:
         a = actuator_fields(original, int(original.actuator(name).id))
         b = actuator_fields(model, int(model.actuator(name).id))
@@ -379,13 +380,7 @@ def check_round_trip_actuators(original: mujoco.MjModel, model: mujoco.MjModel) 
                     f"actuator {name!r} {field}: the original has {a[field]}, "
                     f"the re-export {b[field]}"
                 )
-        for field in ROUND_TRIP_REPORTED:
-            if not same(a[field], b[field]):
-                notes.append(
-                    f"actuator {name!r} {field}: the original has {a[field]}, "
-                    f"the re-export {b[field]} (not compared yet)"
-                )
-    return len(want), notes
+    return len(want)
 
 
 PIECE = re.compile(r"^(?P<stem>.+)_hull_(?P<index>\d+)$")
@@ -469,11 +464,10 @@ def main(argv: list[str]) -> int:
                     word = "equality" if equalities == 1 else "equalities"
                     summary += f", {equalities} mimic {word} checked against the samples"
                 summary += f", {actuators} actuator(s) match what the samples ask for"
-            notes: list[str] = []
             if original_xml:
                 try:
                     original = load(Path(original_xml))
-                    agreed, notes = check_round_trip_actuators(original, model)
+                    agreed = check_round_trip_actuators(original, model)
                 except (AssertionError, WarningError, ValueError) as e:
                     print(f"FAIL {xml} against {original_xml}: {type(e).__name__}: {e}")
                     failures += 1
@@ -483,8 +477,6 @@ def main(argv: list[str]) -> int:
                     f" ({len(ROUND_TRIP_DROPPED)} dropped by name)"
                 )
             print(f"ok   {xml}: {summary}")
-            for note in notes:
-                print(f"     note {note}")
     return 1 if failures else 0
 
 

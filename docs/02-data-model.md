@@ -99,6 +99,20 @@ pub struct Actuator {
     pub name: String,
     pub target: ActuatorTarget,
     pub spec: ActuatorSpec,
+    pub ranges: ActuatorRanges,      // what the file said (ADR-0024); schema 5
+}
+
+/// The ranges the <actuator> element said itself, preferred by the writer
+/// over the ones it derives from the joint (ADR-0024 §3). A None range is
+/// "the writer derives it" — a riggen-authored actuator; a None flag is
+/// MJCF's own `auto` under the autolimits="true" every export writes.
+/// Some(false) beside no range is an imported actuator that named none:
+/// unlimited, not clamped to the joint.
+pub struct ActuatorRanges {
+    pub ctrl: Option<[f64; 2]>,
+    pub force: Option<[f64; 2]>,
+    pub ctrl_limited: Option<bool>,
+    pub force_limited: Option<bool>,
 }
 
 /// What an actuator drives. A joint is all the document holds today; the
@@ -188,7 +202,10 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
   joint has no `<joint>` for MJCF to drive, and a follower is already driven
   by its `<equality>`). Its gains are finite (`NonFinite`) and usable —
   `kp` / `kv` may be zero but never negative, a `gear` may be negative but
-  never zero (`InvalidActuatorGain`). Every refusal names the **actuator**,
+  never zero (`InvalidActuatorGain`). Its `ranges` are finite numbers like
+  every other in the document (`NonFinite`) and nothing more: whether an
+  inverted or empty range limits anything is MuJoCo's to decide under the
+  flags written beside it (ADR-0024). Every refusal names the **actuator**,
   which has a name of its own: unique among actuators
   (`DuplicateActuatorName`) and nowhere else, so it may be the driven
   joint's — which is the default. **Several actuators on one joint is
@@ -375,11 +392,13 @@ export oracle and the round-trip tests' contract, and a frame is not a body.
 `--fk-samples` writes every movable joint's `q`, a follower's at its
 **derived** value, so the `qpos` it hands MuJoCo already satisfies the
 equality the MJCF carries. It also writes an `actuators` block — the
-actuator's own name, its kind, the driven joint, the gains and the two
-ranges per `<actuator>` (ADR-0014, ADR-0023), in `ActuatorId` order,
+actuator's own name, its kind, the driven joint, the gains, the two ranges
+and the `ctrllimited` / `forcelimited` MuJoCo must end up with per
+`<actuator>` (ADR-0014, ADR-0023, ADR-0024), in `ActuatorId` order,
 derived from the document beside the writer's own derivation from
 `ResolvedActuator`, so the MuJoCo acceptance compares two statements of one
-rule rather than the writer with itself. Name and joint are separate
+rule rather than the writer with itself — both now beginning "the
+actuator's own range, else the joint's". Name and joint are separate
 fields there because they are separate fields in the document: assuming one
 from the other is exactly the loss ADR-0023 closes.
 
@@ -516,7 +535,8 @@ pub struct ResolvedSite { pub name: String, pub pose: Pose }  // frame in the li
 pub enum ResolvedGeom { Mesh { name, mesh: Arc<TriMesh>, pose }, Primitive(Primitive) }
 pub struct ResolvedJoint { name, kind, parent: usize, child: usize, origin: Pose, axis: DVec3, limits, dynamics,
                            mimic: Option<ResolvedMimic> }
-pub struct ResolvedActuator { pub name: String, pub joint: usize, pub spec: ActuatorSpec }  // joint indexes ResolvedRobot::joints
+pub struct ResolvedActuator { pub name: String, pub joint: usize, pub spec: ActuatorSpec,
+                              pub ranges: ActuatorRanges }  // joint indexes ResolvedRobot::joints; ranges as the document keeps them (ADR-0024)
 pub struct ResolvedMimic { pub joint: usize, pub multiplier: f64, pub offset: f64 }  // joint indexes ResolvedRobot::joints
 pub struct ExportOptions { format: Format, mesh_paths: MeshPathStyle, floating_base: bool }
 pub struct Format { pub mjcf: bool, pub urdf: bool, pub sdf: bool }  // a set, not a choice; Default is all three
@@ -598,7 +618,7 @@ ignores it, because it has `meshdir`.
 | Frame (`Frame`, a `ResolvedSite`) | a massless `<link name="tcp"/>` — no visual, collision or inertial — plus `<joint name="tcp_fixed" type="fixed">` with the frame pose as its `<origin xyz rpy/>`; the dummy links after every real link and the fixed joints after every real joint, so the file still reads root-first (ADR-0012) | `<site name pos quat/>` inside its body after the geoms, bare: no `size`, `group` or `rgba`, so MuJoCo's default 0.005 m sphere marks it (ADR-0012) | `<frame name attached_to="«link»"><pose/>` after the joints — `<pose>`'s default `relative_to` *is* `attached_to`, so the link-frame pose goes out unchanged, and no dummy link is needed |
 | Mimic (`ResolvedMimic`) | `<mimic joint multiplier offset/>` inside the follower's `<joint>`, after `<dynamics>` | `<equality><joint joint1="follower" joint2="leader" polycoef="offset multiplier 0 0 0"/></equality>` after `</worldbody>` — a **soft** solver constraint, not a reduction (ADR-0013) | `<axis><mimic joint="«leader»"><multiplier><offset><reference>0` — SDF 1.11's own element. Its rule is `follower = multiplier·(leader − reference) + offset`, which at `reference = 0` is URDF's exactly |
 | Actuator (`ActuatorSpec`) | nothing — `<transmission>` is a `ros_control` relic; a comment after the `<joint>` names the preset and its gains, like the `armature` one (ADR-0014) | one `<actuator>` block after `</equality>`, one element per table entry in `ActuatorId` order: `<position kp kv>` / `<velocity kv>` / `<motor gear>`, `name` the **actuator's own** (the joint's by default, ADR-0023) and `joint` the driven joint's. Several may drive one joint; MuJoCo sums them | nothing, and the same comment. Gazebo drives a joint through a `<plugin>` naming a C++ class, a shared library and a version of Gazebo — a simulator configuration, not a robot description (ADR-0016 §5) |
-| Effort / velocity | `<limit effort velocity/>` | the actuator's `forcerange="-effort effort"`, and its `ctrlrange` — `lower upper` for a position servo, `±velocity` for a velocity one, the normalised `-1 1` for a motor. A zero `effort` / `velocity` is the *unfilled* value, so the attribute is **omitted** and MuJoCo's unbounded default stands, never `0 0`. A joint **no** actuator targets keeps the comment naming what was dropped (ADR-0004 §4 as amended by ADR-0014, re-keyed by ADR-0023) | `<axis><limit><effort><velocity>`, **omitted when zero** for MJCF's reason: SDF's default is infinity and a literal `0` is a joint that can exert nothing |
+| Effort / velocity | `<limit effort velocity/>` | **the actuator's own ranges, else the joint's** (ADR-0024): a `ctrlrange` / `forcerange` in `Actuator::ranges` is written as it was said, with an explicit `ctrllimited` / `forcelimited` whenever its flag is `Some`; only where the actuator says nothing is `forcerange="-effort effort"` derived, and `ctrlrange` — `lower upper` for a position servo, `±velocity` for a velocity one, the normalised `-1 1` for a motor. A zero `effort` / `velocity` is the *unfilled* value, so the attribute is **omitted** and MuJoCo's unbounded default stands, never `0 0`; a flag of `false` beside no range derives nothing either. A joint **no** actuator targets keeps the comment naming what was dropped (ADR-0004 §4 as amended by ADR-0014, re-keyed by ADR-0023) | `<axis><limit><effort><velocity>`, **omitted when zero** for MJCF's reason: SDF's default is infinity and a literal `0` is a joint that can exert nothing |
 | Dynamics | `<dynamics damping friction/>` | `damping`, `frictionloss`, `armature` on the `<joint>`, written only when non-zero | `<axis><dynamics><damping><friction>`, written only when either is non-zero; `armature` is a comment, as in URDF |
 | Angles | radians | **`<compiler angle="radian" meshdir="meshes" autolimits="true"/>` is always written** — MJCF's default is degrees | radians; `<pose>` is `x y z roll pitch yaw` with URDF's own `Rz·Ry·Rx` convention, through the one `Pose::to_xyz_rpy` the URDF writer uses too |
 
@@ -646,7 +666,10 @@ reverses its own column except where MJCF has no room:
   `forcerange` (any preset) and a **velocity** servo's `ctrlrange`. A joint
   with no actuator carries them only in the apologetic comment, which is
   text; a position servo's `ctrlrange` is the joint's position range and
-  says nothing about rate.
+  says nothing about rate. The actuator itself keeps both ranges as
+  written (`Actuator::ranges`, ADR-0024), so what the writer derives for
+  the joint and what it writes for the actuator can differ, and the
+  actuator's wins.
 - `ExportOptions::floating_base` is not a document field, so a
   `<freejoint>` comes back as a warning and the robot imports fixed to the
   world.
@@ -789,10 +812,17 @@ joint moved its zero with a `<joint ref>` (ADR-0013).
 become **one `Robot::actuators` entry each** (ADR-0014, ADR-0023), under
 the `name` the file gave — its joint's only when the file said so — and a
 second element on an already-driven joint is a second entry, because
-MuJoCo sums their controls. Their `forcerange` and `ctrlrange` are where
-`Limits::effort` and `Limits::velocity` come back from; the joint has one
-of each, so the **first** actuator to drive it fills them and a later one
-leaves them alone (per-actuator ranges wait for the escape hatch).
+MuJoCo sums their controls. Each keeps its own `forcerange` and
+`ctrlrange` as written, with their `ctrllimited` / `forcelimited`
+(`Actuator::ranges`, ADR-0024): a written flag as written, an absent one
+left `auto` beside a range — which the writer's own `autolimits="true"`
+reproduces — and recorded as `false` where the file named no range (or
+had `autolimits` off), because MuJoCo makes such an actuator unlimited
+and the writer, told nothing, would hand it the joint's range instead.
+The same two attributes are also where `Limits::effort` and
+`Limits::velocity` come back from; the joint has one of each, so the
+**first** actuator to drive it fills them and a later one leaves them
+alone.
 `ActuatorDropped` is left for what the document still has no room for: an
 actuator driving a tendon, site or body, a tag outside the three presets
 (`<general>`, `<adhesion>`, `<muscle>`), a `joint` naming nothing in the
@@ -847,7 +877,7 @@ four vertices.
 
 ## Schema
 
-`{ "schema_version": 4, "robot": Robot }`. `Robot` derives
+`{ "schema_version": 5, "robot": Robot }`. `Robot` derives
 `serde::{Serialize, Deserialize}` with `#[serde(deny_unknown_fields)]` on
 every struct (the envelope too) so a typo in a hand-edited file fails loudly
 with the field's name, and `#[serde(default)]` only on fields added in a
@@ -870,18 +900,18 @@ parse at all reports one. `assets/fixtures/pendulum.riggen` (base + arm from the
 fixtures, one revolute hinge, produced by `save` itself) is the first corpus
 file and is frozen at **schema 1**: it is what the upgrade chain reads, and
 `file::tests::corpus_pendulum_opens` keeps it opening forever and re-saving
-as a v4 document that round-trips. `assets/fixtures/driven.riggen` is the
+as a v5 document that round-trips. `assets/fixtures/driven.riggen` is the
 second, frozen at **schema 3**: small, mesh-less and hand-written, it is
 what the first *non-empty* step moves, and
 `file::tests::corpus_driven_upgrades_its_actuators_into_the_table` pins that
-migration entry by entry. The byte-for-byte fixtures are the v4 ones,
+migration entry by entry. The byte-for-byte fixtures are the v5 ones,
 `bracket.riggen` and `arm/arm.riggen`.
 
 **Schema 2** adds `Joint::mimic` (ADR-0013) and **schema 3** adds
 `Joint::actuator` (ADR-0014). Both `upgrade_` steps are empty for the same
 reason — an older file simply has no such key and `#[serde(default)]` fills
 in the `None` it meant — and they are the first two links of the chain
-`load` walks; `file::tests::a_v2_file_opens_as_v4_with_no_actuators` pins
+`load` walks; `file::tests::a_v2_file_opens_as_v5_with_no_actuators` pins
 the second, from a v2 document made by dropping the actuators back out of
 the committed fixture.
 
@@ -893,6 +923,14 @@ lexicographic order the JSON object's keys sit in — so one v3 file always
 upgrades to the same ids. It is also why the chain moved onto the JSON at
 all: `Joint` has no `actuator` key any more, and `deny_unknown_fields`
 would refuse a v3 file before any step could move it.
+
+**Schema 5** adds `Actuator::ranges` (ADR-0024), and `upgrade_v4_to_v5` is
+empty for schema 2's and 3's reason: a v4 actuator has no `ranges` key,
+and the `#[serde(default)]` — every range and flag `None`, the writer
+deriving all four from the joint — is what a v4 document meant.
+`file::tests::a_v4_file_opens_as_v5_with_the_writer_deriving_every_range`
+pins it, from a v4 document made by dropping the `ranges` keys back out
+of the committed fixture.
 
 `CollisionPolicy::ConvexDecomposition`'s `resolution` and `concavity` are so
 far the only fields added after their variant existed, and they are the

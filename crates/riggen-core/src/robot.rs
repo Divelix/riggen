@@ -132,6 +132,30 @@ pub struct Actuator {
     pub name: String,
     pub target: ActuatorTarget,
     pub spec: ActuatorSpec,
+    /// What the file said about `ctrlrange` / `forcerange` and their
+    /// `*limited` flags (ADR-0024). Added in schema 5, hence the `default`:
+    /// a v4 actuator has no such key, and all-`None` — the writer derives
+    /// every range from the joint — is what it meant.
+    #[serde(default)]
+    pub ranges: ActuatorRanges,
+}
+
+/// The ranges an `<actuator>` element carries itself, kept beside the
+/// joint-derived ones the writer would otherwise invent (ADR-0024 §3).
+///
+/// A `None` range is "the writer derives it" — what a riggen-authored
+/// actuator has — and a `None` flag is MJCF's own `auto` under the
+/// `autolimits="true"` every export writes: limited exactly when a range is
+/// present and its lower bound is below its upper. `Some(false)` on a flag
+/// with no range is how an imported `<position>` that named no `ctrlrange`
+/// comes back out unlimited rather than clamped to the joint's range.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActuatorRanges {
+    pub ctrl: Option<[f64; 2]>,
+    pub force: Option<[f64; 2]>,
+    pub ctrl_limited: Option<bool>,
+    pub force_limited: Option<bool>,
 }
 
 /// What an actuator drives. A joint is the only thing the document can hold

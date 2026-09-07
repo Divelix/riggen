@@ -12,8 +12,8 @@ use std::sync::Arc;
 use riggen_core::glam::DVec3;
 use riggen_core::inertial::{self, Inertial, InertialError, MeshLookup};
 use riggen_core::{
-    ActuatorSpec, CollisionPolicy, Dynamics, Geom, JointId, JointKind, Limits, LinkId, MeshId,
-    Pose, Primitive, Robot, ValidationError, validation_errors,
+    ActuatorRanges, ActuatorSpec, CollisionPolicy, Dynamics, Geom, JointId, JointKind, Limits,
+    LinkId, MeshId, Pose, Primitive, Robot, ValidationError, validation_errors,
 };
 use riggen_mesh::{DecompParams, TriMesh};
 
@@ -333,14 +333,17 @@ pub struct ResolvedJoint {
 
 /// One `<actuator>` element (ADR-0014, as ADR-0023 keys it): its own name,
 /// the joint it drives as an **index into `ResolvedRobot::joints`** — so a
-/// writer needs nothing but the vectors it already has (ADR-0004 §1) — and
-/// the preset, copied through because it is already the numbers a writer
-/// needs. Several may name one joint; MuJoCo sums them.
+/// writer needs nothing but the vectors it already has (ADR-0004 §1) — the
+/// preset, copied through because it is already the numbers a writer
+/// needs, and the ranges the file said, which the writer prefers over the
+/// ones it would derive from the joint (ADR-0024). Several may name one
+/// joint; MuJoCo sums them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedActuator {
     pub name: String,
     pub joint: usize,
     pub spec: ActuatorSpec,
+    pub ranges: ActuatorRanges,
 }
 
 /// `q(this) = multiplier * q(joints[joint]) + offset` (ADR-0013). The
@@ -681,6 +684,7 @@ pub fn resolve(
                 name: a.name.clone(),
                 joint: joint_index[&a.target.joint()?],
                 spec: a.spec,
+                ranges: a.ranges,
             })
         })
         .collect();

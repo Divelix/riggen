@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 
 use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{
-    Actuator, ActuatorId, ActuatorSpec, ActuatorTarget, CollisionPolicy, Command, Frame, FrameId,
-    Geom, Joint, JointId, JointKind, Limits, Link, LinkId, MeshAsset, MeshId, Pose, Primitive,
-    Robot,
+    Actuator, ActuatorId, ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Command,
+    Frame, FrameId, Geom, Joint, JointId, JointKind, Limits, Link, LinkId, MeshAsset, MeshId, Pose,
+    Primitive, Robot,
 };
 use riggen_mesh::TriMesh;
 
@@ -133,6 +133,7 @@ impl Builder {
                 name,
                 target: ActuatorTarget::Joint(joint),
                 spec,
+                ranges: ActuatorRanges::default(),
             },
         );
         id

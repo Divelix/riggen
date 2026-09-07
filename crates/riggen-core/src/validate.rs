@@ -652,6 +652,19 @@ fn check_actuators(robot: &Robot, errors: &mut Vec<ValidationError>) {
                 });
             }
         }
+        // The ranges the file said (ADR-0024) are numbers like any other
+        // in the document: finite, or refused. Whether they bound anything
+        // is MuJoCo's to decide under the flags written beside them.
+        for (name, range) in [
+            ("ctrlrange", entry.ranges.ctrl),
+            ("forcerange", entry.ranges.force),
+        ] {
+            if range.is_some_and(|r| !r.iter().all(|v| v.is_finite())) {
+                errors.push(ValidationError::NonFinite {
+                    what: format!("{name} of actuator {aid}"),
+                });
+            }
+        }
     }
 }
 
@@ -661,8 +674,8 @@ mod tests {
     use crate::ids::Id;
     use crate::pose::Pose;
     use crate::robot::{
-        Actuator, ActuatorSpec, ActuatorTarget, Frame, Geom, Joint, JointKind, Limits, Link,
-        MeshAsset, Mimic,
+        Actuator, ActuatorRanges, ActuatorSpec, ActuatorTarget, Frame, Geom, Joint, JointKind,
+        Limits, Link, MeshAsset, Mimic,
     };
     use riggen_mesh::glam::{DVec3, dvec3};
     use std::path::PathBuf;
@@ -1267,6 +1280,7 @@ mod tests {
                 name,
                 target: ActuatorTarget::Joint(joint),
                 spec,
+                ranges: ActuatorRanges::default(),
             },
         );
         id
@@ -1335,6 +1349,7 @@ mod tests {
                 name,
                 target: ActuatorTarget::Joint(j0),
                 spec: ActuatorSpec::Position { kp: 5.0, kv: 0.0 },
+                ranges: ActuatorRanges::default(),
             },
         );
         assert_eq!(validate(&robot), Ok(()));
@@ -1441,5 +1456,44 @@ mod tests {
                 "{err}"
             );
         }
+    }
+
+    /// The ranges an actuator keeps from its file (ADR-0024) are numbers
+    /// of the document and finite like every other; their flags and
+    /// bounds are MuJoCo's business, so nothing else about them is
+    /// refused.
+    #[test]
+    fn actuator_ranges_must_be_finite_and_nothing_more() {
+        let (mut robot, [j0, _, _]) = movable_chain();
+        let a = actuate(&mut robot, j0, ActuatorSpec::Motor { gear: 1.0 });
+        let entry = robot.actuators.get_mut(&a).unwrap();
+        entry.ranges = ActuatorRanges {
+            ctrl: Some([1.0, -1.0]),
+            force: Some([0.0, 0.0]),
+            ctrl_limited: Some(true),
+            force_limited: Some(false),
+        };
+        assert_eq!(
+            validate(&robot),
+            Ok(()),
+            "an inverted or empty range is MuJoCo's to judge"
+        );
+        robot.actuators.get_mut(&a).unwrap().ranges.force = Some([-1.0, f64::INFINITY]);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: format!("forcerange of actuator {a}")
+            })
+        );
+        robot.actuators.get_mut(&a).unwrap().ranges = ActuatorRanges {
+            ctrl: Some([f64::NAN, 1.0]),
+            ..ActuatorRanges::default()
+        };
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: format!("ctrlrange of actuator {a}")
+            })
+        );
     }
 }

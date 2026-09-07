@@ -13,8 +13,8 @@ use crate::pose::Pose;
 use riggen_mesh::glam::{DMat3, DVec3};
 
 use crate::robot::{
-    Actuator, ActuatorSpec, ActuatorTarget, CollisionPolicy, Frame, Geom, InertialSpec, Joint,
-    Link, Material, MeshAsset, Robot,
+    Actuator, ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Frame, Geom,
+    InertialSpec, Joint, Link, Material, MeshAsset, Robot,
 };
 use crate::validate::{ValidationError, validate};
 
@@ -569,6 +569,7 @@ impl Command {
                             name,
                             target: ActuatorTarget::Joint(joint),
                             spec,
+                            ranges: ActuatorRanges::default(),
                         },
                     );
                 }
@@ -1694,6 +1695,7 @@ mod tests {
                 name: "drive".to_owned(),
                 target: ActuatorTarget::Joint(shoulder),
                 spec: motor,
+                ranges: ActuatorRanges::default(),
             }),
         )
         .unwrap()
@@ -1709,6 +1711,7 @@ mod tests {
                 name: "assist".to_owned(),
                 target: ActuatorTarget::Joint(shoulder),
                 spec: ActuatorSpec::Velocity { kv: 2.0 },
+                ranges: ActuatorRanges::default(),
             }),
         )
         .unwrap()
@@ -1725,6 +1728,7 @@ mod tests {
                 name: "ghost".to_owned(),
                 target: ActuatorTarget::Joint(ghost),
                 spec: motor,
+                ranges: ActuatorRanges::default(),
             }),
         )
         .unwrap_err();
@@ -1744,6 +1748,7 @@ mod tests {
                     name: "assist".to_owned(),
                     target: ActuatorTarget::Joint(shoulder),
                     spec: ActuatorSpec::Velocity { kv: 4.0 },
+                    ranges: ActuatorRanges::default(),
                 },
             ),
         )

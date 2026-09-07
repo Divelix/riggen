@@ -1,4 +1,4 @@
-//! The `.riggen` file: `{ "schema_version": 4, "robot": Robot }` as JSON
+//! The `.riggen` file: `{ "schema_version": 5, "robot": Robot }` as JSON
 //! (docs/01-architecture.md §File format, docs/02-data-model.md §Schema).
 //!
 //! Mesh paths are **absolute in memory and relative to the file on disk**
@@ -27,9 +27,9 @@ use crate::ids::MeshId;
 use crate::robot::Robot;
 use crate::validate::{ValidationError, validate};
 
-/// The version this build writes and the newest it reads. 4 since
-/// `Robot::actuators` (ADR-0023).
-pub const SCHEMA_VERSION: u32 = 4;
+/// The version this build writes and the newest it reads. 5 since
+/// `Actuator::ranges` (ADR-0024); 4 was `Robot::actuators` (ADR-0023).
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// The oldest version [`load`] still accepts, upgrading it on the way in.
 pub const OLDEST_SCHEMA_VERSION: u32 = 1;
@@ -338,6 +338,7 @@ pub fn load_from(
             1 => upgrade_v1_to_v2(&mut doc),
             2 => upgrade_v2_to_v3(&mut doc),
             3 => upgrade_v3_to_v4(&mut doc),
+            4 => upgrade_v4_to_v5(&mut doc),
             _ => unreachable!("no upgrade step from schema {from}"),
         }
     }
@@ -434,6 +435,12 @@ fn upgrade_v3_to_v4(doc: &mut serde_json::Value) {
     robot.insert("next_id".to_owned(), Value::from(next));
 }
 
+/// v4 → v5: `Actuator::ranges` (ADR-0024), empty for the reason v1 → v2
+/// and v2 → v3 are — a v4 actuator has no `ranges` key, and serde's
+/// default (every range and flag `None`: the writer derives them from the
+/// joint) is exactly what a v4 document meant.
+fn upgrade_v4_to_v5(_doc: &mut serde_json::Value) {}
+
 /// `target` expressed relative to `dir`, with `..` where needed and forward
 /// slashes. Both must be absolute. A target on another Windows drive has no
 /// relative form and stays absolute.
@@ -494,8 +501,8 @@ mod tests {
     use crate::command::Command;
     use crate::pose::Pose;
     use crate::robot::{
-        Actuator, ActuatorSpec, ActuatorTarget, CollisionPolicy, Geom, Joint, JointKind, Limits,
-        Link, MeshAsset,
+        Actuator, ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Geom, Joint,
+        JointKind, Limits, Link, MeshAsset,
     };
     use riggen_mesh::glam::DVec3;
     use std::f64::consts::FRAC_PI_2;
@@ -603,7 +610,7 @@ mod tests {
         save(&robot, &file).unwrap();
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(
-            text.starts_with("{\n  \"schema_version\": 4,\n  \"robot\": {"),
+            text.starts_with("{\n  \"schema_version\": 5,\n  \"robot\": {"),
             "{text}"
         );
         assert!(text.contains("\"path\": \"base.stl\""), "{text}");
@@ -700,7 +707,7 @@ mod tests {
             std::fs::write(
                 &file,
                 text.replacen(
-                    "\"schema_version\": 4",
+                    "\"schema_version\": 5",
                     &format!("\"schema_version\": {bogus}"),
                     1,
                 ),
@@ -711,7 +718,7 @@ mod tests {
                 matches!(err, FileError::UnsupportedVersion { found, .. } if found == bogus),
                 "{err:?}"
             );
-            assert!(err.to_string().contains("1–4"), "{err}");
+            assert!(err.to_string().contains("1–5"), "{err}");
         }
         std::fs::write(&file, &text).unwrap();
         // A hand-edited file that breaks an invariant.
@@ -759,8 +766,8 @@ mod tests {
         // `frames` is a v1 field that finally holds something, so the
         // schema does not move.
         assert_eq!(
-            SCHEMA_VERSION, 4,
-            "the actuator table is schema 4 (ADR-0023)"
+            SCHEMA_VERSION, 5,
+            "the actuator ranges are schema 5 (ADR-0024)"
         );
         assert_eq!(robot.frames.len(), 2);
         let frame = |n: &str| robot.frames.values().find(|f| f.name == n).unwrap();
@@ -891,7 +898,7 @@ mod tests {
         // It is the **v1** corpus and stays one forever: the upgrade chain
         // needs a real old document to read (§Schema, ADR-0013). So this
         // one cannot also be the byte-for-byte fixture — `bracket.riggen`
-        // and `arm/arm.riggen` are, at v4.
+        // and `arm/arm.riggen` are, at v5.
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(text.contains("\"schema_version\": 1"), "{text}");
         assert!(!text.contains("mimic"), "a v1 file has no mimic key");
@@ -905,7 +912,7 @@ mod tests {
             "and upgrade_v3_to_v4 leaves the table empty: nothing drove a v1 file"
         );
 
-        // Re-saving it writes v4, and that round-trips to the same document.
+        // Re-saving it writes v5, and that round-trips to the same document.
         let dir = scratch("corpus");
         let again = dir.join("pendulum.riggen");
         // Relative paths only survive a same-directory save; copy the meshes.
@@ -918,18 +925,18 @@ mod tests {
         }
         save(&relocated, &again).unwrap();
         let upgraded = std::fs::read_to_string(&again).unwrap();
-        assert!(upgraded.contains("\"schema_version\": 4"), "{upgraded}");
+        assert!(upgraded.contains("\"schema_version\": 5"), "{upgraded}");
         assert!(upgraded.contains("\"mimic\": null"), "{upgraded}");
         assert!(upgraded.contains("\"actuators\": {}"), "{upgraded}");
         assert_eq!(load(&again).unwrap().0, relocated);
     }
 
     /// A v2 document — one written before `Joint::actuator` existed
-    /// (ADR-0014) — opens with an empty table and re-saves as v4. Built by
-    /// dropping the actuators back out of the committed v4 fixture, so it
+    /// (ADR-0014) — opens with an empty table and re-saves as v5. Built by
+    /// dropping the actuators back out of the committed v5 fixture, so it
     /// is a whole real document rather than a fragment (§Schema).
     #[test]
-    fn a_v2_file_opens_as_v4_with_no_actuators() {
+    fn a_v2_file_opens_as_v5_with_no_actuators() {
         let dir = scratch("v2");
         std::fs::copy(fixtures().join("bracket.stl"), dir.join("bracket.stl")).unwrap();
         let text = std::fs::read_to_string(fixtures().join("bracket.riggen")).unwrap();
@@ -941,7 +948,7 @@ mod tests {
                 .unwrap()
                 .remove("actuators")
                 .is_some_and(|a| !a.as_object().unwrap().is_empty()),
-            "the v4 fixture has the table this drops"
+            "the v5 fixture has the table this drops"
         );
         let old = serde_json::to_string_pretty(&doc).unwrap();
         assert!(!old.contains("actuator"), "{old}");
@@ -953,8 +960,57 @@ mod tests {
         assert!(robot.actuators.is_empty());
         save(&robot, &file).unwrap();
         let upgraded = std::fs::read_to_string(&file).unwrap();
-        assert!(upgraded.contains("\"schema_version\": 4"), "{upgraded}");
+        assert!(upgraded.contains("\"schema_version\": 5"), "{upgraded}");
         assert!(upgraded.contains("\"actuators\": {}"), "{upgraded}");
+        assert_eq!(load(&file).unwrap().0, robot);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A v4 document — the table, but no `Actuator::ranges` (ADR-0024) —
+    /// opens with every range and flag `None` and re-saves as v5. Built by
+    /// dropping the `ranges` key back out of the committed v5 fixture, the
+    /// way the v2 one above drops the table (§Schema).
+    #[test]
+    fn a_v4_file_opens_as_v5_with_the_writer_deriving_every_range() {
+        let dir = scratch("v4");
+        std::fs::copy(fixtures().join("bracket.stl"), dir.join("bracket.stl")).unwrap();
+        let text = std::fs::read_to_string(fixtures().join("bracket.riggen")).unwrap();
+        let mut doc: serde_json::Value = serde_json::from_str(&text).unwrap();
+        doc["schema_version"] = 4.into();
+        let table = doc["robot"]["actuators"].as_object_mut().unwrap();
+        assert!(!table.is_empty(), "the v5 fixture has an actuator to strip");
+        for entry in table.values_mut() {
+            assert!(
+                entry.as_object_mut().unwrap().remove("ranges").is_some(),
+                "the v5 fixture writes the ranges key"
+            );
+        }
+        let old = serde_json::to_string_pretty(&doc).unwrap();
+        assert!(!old.contains("ranges"), "{old}");
+        let file = dir.join("bracket.riggen");
+        std::fs::write(&file, &old).unwrap();
+
+        let (robot, warnings) = load(&file).unwrap();
+        assert_eq!(warnings, vec![]);
+        assert!(
+            robot
+                .actuators
+                .values()
+                .all(|a| a.ranges == ActuatorRanges::default()),
+            "{:?}",
+            robot.actuators
+        );
+        // Relocated the way the fixture tests do, so the generator's
+        // absolute mesh path and this copy's agree.
+        let mut relocated = bracket_sample();
+        for asset in relocated.assets.values_mut() {
+            asset.path = dir.join(asset.path.file_name().unwrap());
+        }
+        assert_eq!(robot, relocated, "a v4 file means what a v5 one does");
+        save(&robot, &file).unwrap();
+        let upgraded = std::fs::read_to_string(&file).unwrap();
+        assert!(upgraded.contains("\"schema_version\": 5"), "{upgraded}");
+        assert!(upgraded.contains("\"ranges\": {"), "{upgraded}");
         assert_eq!(load(&file).unwrap().0, robot);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1019,7 +1075,7 @@ mod tests {
         let again = dir.join("driven.riggen");
         save(&robot, &again).unwrap();
         let upgraded = std::fs::read_to_string(&again).unwrap();
-        assert!(upgraded.contains("\"schema_version\": 4"), "{upgraded}");
+        assert!(upgraded.contains("\"schema_version\": 5"), "{upgraded}");
         assert!(!upgraded.contains("\"actuator\":"), "{upgraded}");
         assert_eq!(load(&again).unwrap().0, robot);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -1170,6 +1226,7 @@ mod tests {
             name: robot.default_actuator_name(hinge),
             target: ActuatorTarget::Joint(hinge),
             spec: ActuatorSpec::Motor { gear: 50.0 },
+            ranges: ActuatorRanges::default(),
         })
         .apply(&mut robot)
         .unwrap();

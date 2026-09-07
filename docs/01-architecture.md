@@ -943,7 +943,7 @@ noticeable, so "async mesh loading via `jobs`" stays a backlog line.
 
 ## File format
 
-`robot.riggen` is JSON: `{ "schema_version": 4, "robot": Robot }`
+`robot.riggen` is JSON: `{ "schema_version": 5, "robot": Robot }`
 (02 §Schema). Mesh paths are **absolute in memory and relative to the
 `.riggen` file on disk**, forward slashes: `riggen_core::save` rebases
 them on the way out and `load` resolves them on the way in, so nothing
@@ -1269,11 +1269,10 @@ measured size is in 03 §v0.2.
   argument ending in `@ORIGINAL.xml`, which makes the script compare the
   model MuJoCo builds from the original with the one it builds from the
   re-export, actuator by actuator and in order — transmission, target, the
-  three types, the three `prm` vectors, `gear` — with what riggen still
-  drops a named allowlist in the script (`ROUND_TRIP_DROPPED`, a name and
-  its reason, checked both ways: present in the original, absent from the
-  re-export). The four range fields are reported where they differ and not
-  yet compared (plans/actuator-escape-hatch step 3). The corpus is copied
+  three types, the three `prm` vectors, `gear`, the two ranges and their
+  `*limited` flags — with what riggen still drops a named allowlist in the
+  script (`ROUND_TRIP_DROPPED`, a name and its reason, checked both ways:
+  present in the original, absent from the re-export). The corpus is copied
   under `target/` first, because importing it writes its inline mesh
   beside it. Every `mjEQ_JOINT` equality — a mimic joint (ADR-0013) —
   must reproduce the sampled `qpos` through its `polycoef`, and a pair of
@@ -1282,8 +1281,10 @@ measured size is in 03 §v0.2.
   `actuators` block says what the `<actuator>` block should hold
   (ADR-0014, ADR-0023) — the actuator's **own** name, the driven joint as a
   separate field, the gains where MuJoCo keeps them (`gainprm` / `biasprm`
-  / `gear`), and the two ranges, an omitted one having to leave
-  `ctrllimited` / `forcelimited` off — and `model.nu` must
+  / `gear`), the two ranges and the `ctrllimited` / `forcelimited` MuJoCo
+  must end up with (the actuator's own flag, else `autolimits`' rule over
+  the range riggen wrote; an omitted range leaves the flag off) — and
+  `model.nu` must
   be exactly that many, so a dropped or invented actuator fails and the
   URDF import's actuator-less model is checked as such, not skipped. The
   three presets are covered by the two fixtures: the arm's shoulder is a

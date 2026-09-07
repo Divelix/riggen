@@ -58,13 +58,25 @@ ActuatorDoc = dict[str, Any]
 # document holds today.
 ActuatorTargetDoc = dict[str, int]
 
+class ActuatorRangesDoc(TypedDict):
+    """What the actuator's MJCF element said about its ranges (ADR-0024).
+    A ``None`` range is derived from the joint on export; a ``None`` flag
+    is MJCF's ``auto`` under the ``autolimits="true"`` every export
+    writes."""
+
+    ctrl: list[float] | None
+    force: list[float] | None
+    ctrl_limited: bool | None
+    force_limited: bool | None
+
 class ActuatorEntryDoc(TypedDict):
-    """One entry of ``Robot::actuators``: its own name, what it drives, and
-    the preset saying how."""
+    """One entry of ``Robot::actuators``: its own name, what it drives, the
+    preset saying how, and the ranges its file said (schema 5)."""
 
     name: str
     target: ActuatorTargetDoc
     spec: ActuatorDoc
+    ranges: ActuatorRangesDoc
 
 JointKind = Literal["Fixed", "Revolute", "Continuous", "Prismatic"]
 

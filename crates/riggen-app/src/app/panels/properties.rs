@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::inertial::{Inertial, InertialError, principal_moments};
 use riggen_core::{
-    Actuator, ActuatorId, ActuatorSpec, ActuatorTarget, CollisionPolicy, Command, FrameId,
-    GestureId, InertialSpec, JointId, JointKind, JointState, Limits, LinkId, Mimic, Pose,
+    Actuator, ActuatorId, ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Command,
+    FrameId, GestureId, InertialSpec, JointId, JointKind, JointState, Limits, LinkId, Mimic, Pose,
     Primitive, fk,
 };
 use riggen_mesh::{DecompParams, fit};
@@ -1802,6 +1802,7 @@ impl RiggenApp {
                                 name: self.robot.default_actuator_name(joint),
                                 target: ActuatorTarget::Joint(joint),
                                 spec,
+                                ranges: ActuatorRanges::default(),
                             }));
                         }
                     }

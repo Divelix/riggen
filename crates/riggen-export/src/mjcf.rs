@@ -208,21 +208,27 @@ fn write_joint(x: &mut Xml, j: &ResolvedJoint, driven: bool) {
 /// One `<position>` / `<velocity>` / `<motor>`: `a` under its own name,
 /// driving `j` (ADR-0014, ADR-0023).
 ///
-/// `ctrlrange` is the joint's own range for a position servo and `±velocity`
-/// for a velocity one — both out of `Limits`, so a `Continuous` joint has
-/// none — while a motor's `ctrl` is the normalised `-1 1` that `gear`
-/// scales. `forcerange` is `±effort`. A zero `effort` or `velocity` is the
+/// The ranges are **the actuator's own, else the joint's** (ADR-0024).
+/// What the file said — `ResolvedActuator::ranges` — is written as it was
+/// said, its `ctrllimited` / `forcelimited` explicit whenever the flag is
+/// `Some`; only where it said nothing is a range derived: `ctrlrange` is
+/// the joint's own range for a position servo and `±velocity` for a
+/// velocity one — both out of `Limits`, so a `Continuous` joint has none —
+/// while a motor's `ctrl` is the normalised `-1 1` that `gear` scales, and
+/// `forcerange` is `±effort`. A zero `effort` or `velocity` is the
 /// *unfilled* value, not a clamp to zero, so its attribute is left out and
 /// MuJoCo's own unbounded default stands (`autolimits="true"` then leaves
-/// the matching `*limited` off).
+/// the matching `*limited` off). A flag of `Some(false)` beside no range
+/// derives nothing either: the file meant unlimited, and the joint's
+/// numbers would clamp what it left open.
 fn write_actuator(x: &mut Xml, a: &ResolvedActuator, j: &ResolvedJoint) {
-    let symmetric = |v: f64| (v != 0.0).then(|| format!("{} {}", num(-v), num(v)));
-    let (tag, gains, ctrlrange) = match a.spec {
+    let pair = |[lo, hi]: [f64; 2]| format!("{} {}", num(lo), num(hi));
+    let symmetric = |v: f64| (v != 0.0).then(|| pair([-v, v]));
+    let (tag, gains, derived_ctrl) = match a.spec {
         ActuatorSpec::Position { kp, kv } => (
             "position",
             vec![("kp", num(kp)), ("kv", num(kv))],
-            j.limits
-                .map(|l| format!("{} {}", num(l.lower), num(l.upper))),
+            j.limits.map(|l| pair([l.lower, l.upper])),
         ),
         ActuatorSpec::Velocity { kv } => (
             "velocity",
@@ -233,13 +239,33 @@ fn write_actuator(x: &mut Xml, a: &ResolvedActuator, j: &ResolvedJoint) {
             ("motor", vec![("gear", num(gear))], Some("-1 1".to_owned()))
         }
     };
+    let derived_force = j.limits.and_then(|l| symmetric(l.effort));
+    let own = &a.ranges;
+    let range = |said: Option<[f64; 2]>, flag: Option<bool>, derived: Option<String>| {
+        said.map(pair)
+            .or_else(|| (flag != Some(false)).then_some(derived).flatten())
+    };
     let mut attrs = vec![("name", a.name.clone()), ("joint", j.name.clone())];
     attrs.extend(gains);
-    if let Some(range) = ctrlrange {
-        attrs.push(("ctrlrange", range));
-    }
-    if let Some(range) = j.limits.and_then(|l| symmetric(l.effort)) {
-        attrs.push(("forcerange", range));
+    for (limited, range) in [
+        (
+            ("ctrllimited", own.ctrl_limited),
+            ("ctrlrange", range(own.ctrl, own.ctrl_limited, derived_ctrl)),
+        ),
+        (
+            ("forcelimited", own.force_limited),
+            (
+                "forcerange",
+                range(own.force, own.force_limited, derived_force),
+            ),
+        ),
+    ] {
+        if let Some(flag) = limited.1 {
+            attrs.push((limited.0, flag.to_string()));
+        }
+        if let Some(value) = range.1 {
+            attrs.push((range.0, value));
+        }
     }
     x.empty(tag, &attrs);
 }
@@ -304,7 +330,7 @@ fn pose_attrs(pose: &Pose) -> Vec<(&'static str, String)> {
 pub(crate) mod tests {
     use super::*;
     use crate::test_util::every_joint_kind;
-    use riggen_core::Limits;
+    use riggen_core::{ActuatorRanges, Limits};
 
     pub(crate) const GOLDEN: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <mujoco model="test">
@@ -443,6 +469,67 @@ pub(crate) mod tests {
         assert_eq!(
             line(ActuatorSpec::Velocity { kv: 2.0 }, 0.0, 0.0),
             r#"<velocity name="upper_joint" joint="upper_joint" kv="2"/>"#
+        );
+    }
+
+    /// The ranges are the actuator's own, else the joint's (ADR-0024): what
+    /// an imported file said comes back out as it was said, flags
+    /// included, and only a riggen-authored actuator — every field `None`
+    /// — has its ranges derived. `Some(false)` beside no range is the
+    /// imported `<position>` that named no `ctrlrange`: unlimited, not
+    /// clamped to the joint.
+    #[test]
+    fn an_actuators_own_ranges_win_over_the_joints_and_the_flags_are_explicit() {
+        fn line(ranges: ActuatorRanges) -> String {
+            let mut b = every_joint_kind();
+            let driven = b.robot.joints.iter().find(|(_, j)| j.name == "upper_joint");
+            let driven = *driven.expect("upper_joint is in the chain").0;
+            b.robot.actuators.clear();
+            let id = b.actuator(driven, ActuatorSpec::Position { kp: 100.0, kv: 5.0 });
+            b.robot.actuators.get_mut(&id).unwrap().ranges = ranges;
+            let xml = write(&b.resolve().unwrap(), &ExportOptions::default());
+            xml.lines()
+                .find(|l| l.contains("joint=\"upper_joint\""))
+                .map(str::trim)
+                .unwrap()
+                .to_owned()
+        }
+        // Nothing said: the joint's range and effort, as always.
+        assert_eq!(
+            line(ActuatorRanges::default()),
+            r#"<position name="upper_joint" joint="upper_joint" kp="100" kv="5" ctrlrange="-1 1" forcerange="-1 1"/>"#
+        );
+        // A narrower `ctrlrange` than the joint's, and a `forcerange` the
+        // joint's effort does not agree with: the file's numbers stand.
+        assert_eq!(
+            line(ActuatorRanges {
+                ctrl: Some([-0.5, 0.25]),
+                force: Some([-30.0, 30.0]),
+                ctrl_limited: None,
+                force_limited: None,
+            }),
+            r#"<position name="upper_joint" joint="upper_joint" kp="100" kv="5" ctrlrange="-0.5 0.25" forcerange="-30 30"/>"#
+        );
+        // The file named no `ctrlrange` under `autolimits`: unlimited, so
+        // the joint's range must not be invented for it. The effort still
+        // derives, since nothing was said about force.
+        assert_eq!(
+            line(ActuatorRanges {
+                ctrl_limited: Some(false),
+                ..ActuatorRanges::default()
+            }),
+            r#"<position name="upper_joint" joint="upper_joint" kp="100" kv="5" ctrllimited="false" forcerange="-1 1"/>"#
+        );
+        // An explicit flag is written explicitly, beside its range — and
+        // a `false` beside a range keeps the range, as MuJoCo does.
+        assert_eq!(
+            line(ActuatorRanges {
+                ctrl: Some([-1.0, 1.0]),
+                force: Some([-2.0, 2.0]),
+                ctrl_limited: Some(true),
+                force_limited: Some(false),
+            }),
+            r#"<position name="upper_joint" joint="upper_joint" kp="100" kv="5" ctrllimited="true" ctrlrange="-1 1" forcelimited="false" forcerange="-2 2"/>"#
         );
     }
 
