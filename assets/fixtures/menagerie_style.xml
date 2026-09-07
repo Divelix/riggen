@@ -16,10 +16,13 @@
     * a <mesh file=".msh"> (MuJoCo's own binary format) and an inline
       <mesh vertex face>, both read as ordinary meshes (docs/plans/
       mjcf-mesh-geometry.md);
-    * a <general> actuator and one driving a tendon;
+    * a <general> actuator whose gains come from a <default class> two
+      levels up and whose gear from one level up (ADR-0024), and one
+      driving a tendon;
     * an <actuator> named something other than its joint, and a second one
       on that already-driven joint — both of which the document keeps
-      (ADR-0023);
+      (ADR-0023) — the second with an explicit ctrllimited="false" beside
+      a ctrlrange (ADR-0024);
     * <option>, <light>, <camera>, <texture>, <material>, <tendon>,
       <sensor>, <contact> and <keyframe>, none of which the document holds.
 
@@ -35,11 +38,15 @@
     <joint damping="0.1" armature="0.01" frictionloss="0.02"/>
     <default class="arm">
       <joint range="-180 180"/>
+      <general gaintype="fixed" gainprm="150" biastype="affine" biasprm="0 -150 -3"/>
       <default class="arm_visual">
         <geom type="mesh" contype="0" conaffinity="0" group="2" rgba="0.2 0.2 0.25 1"/>
       </default>
       <default class="arm_collision">
         <geom type="mesh" group="3"/>
+      </default>
+      <default class="arm_drive">
+        <general gear="2"/>
       </default>
     </default>
   </default>
@@ -92,8 +99,8 @@
 
   <actuator>
     <position name="pan" joint="shoulder_pan" kp="120" kv="12" forcerange="-30 30"/>
-    <velocity name="pan_damp" joint="shoulder_pan" kv="3"/>
-    <general name="lift" joint="shoulder_lift" dyntype="filter" gaintype="fixed" gainprm="200"/>
+    <velocity name="pan_damp" joint="shoulder_pan" kv="3" ctrllimited="false" ctrlrange="-2 2"/>
+    <general name="lift" joint="wrist_slide" class="arm_drive" dyntype="filter" dynprm="0.02"/>
     <motor name="grip" tendon="grip_tendon" gear="80"/>
   </actuator>
 

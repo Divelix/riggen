@@ -834,11 +834,20 @@ there.
 `y − y0 = a0 + a1(x − x0) + …`, so it is a `Joint::mimic` exactly when the
 last three coefficients are zero, the constraint is active, and neither
 joint moved its zero with a `<joint ref>` (ADR-0013).
-`<position kp kv>` / `<velocity kv>` / `<motor gear>` driving a joint
-become **one `Robot::actuators` entry each** (ADR-0014, ADR-0023), under
-the `name` the file gave — its joint's only when the file said so — and a
-second element on an already-driven joint is a second entry, because
-MuJoCo sums their controls. Each keeps its own `forcerange` and
+`<position kp kv>` / `<velocity kv>` / `<motor gear>` / `<general>` driving
+a joint become **one `Robot::actuators` entry each** (ADR-0014, ADR-0023,
+ADR-0024), under the `name` the file gave — its joint's only when the file
+said so — and a second element on an already-driven joint is a second
+entry, because MuJoCo sums their controls. An element is read as a preset
+**iff every attribute it carries is one the preset can express**
+(ADR-0024 §2); a `<position gear>` or `<position timeconst>` is what
+MuJoCo makes of it, a `General` with a fixed gain, an affine bias and the
+filter — and a `<general>` is read whole: the three types by their MJCF
+spellings (an unknown one is a parse error naming the choices), the three
+`prm` vectors as written, `gear`'s first number, and the class tree
+resolved through `<default class>` like any other element's attributes. A
+`<default><general>` applies to `<general>` elements only: MuJoCo also
+lets a preset inherit one, which riggen does not read. Each keeps its own `forcerange` and
 `ctrlrange` as written, with their `ctrllimited` / `forcelimited`
 (`Actuator::ranges`, ADR-0024): a written flag as written, an absent one
 left `auto` beside a range — which the writer's own `autolimits="true"`
@@ -849,13 +858,20 @@ The same two attributes are also where `Limits::effort` and
 `Limits::velocity` come back from; the joint has one of each, so the
 **first** actuator to drive it fills them and a later one leaves them
 alone.
-`ActuatorDropped` is left for what the document still has no room for: an
-actuator driving a tendon, site or body, a tag outside the three presets
-(`<general>`, `<adhesion>`, `<muscle>`), a `joint` naming nothing in the
-file — and whatever `validate` refuses, dropped with its reason rather than
-failing the import, naming the **actuator** since it has a name of its own.
-Couplings go first, so an actuator is not taken down by an `<equality>`
-that is itself about to go.
+`ActuatorDropped` is left for what the document still has no room for
+(ADR-0024: **the target, not the tag**): an actuator driving a tendon,
+site or body, or a joint through `jointinparent`; a `<muscle>`, which
+needs a `lengthrange` riggen does not compute; a tag outside the three
+presets and `<general>` (`<intvelocity>`, `<damper>`, `<cylinder>`); a
+`joint` naming nothing in the file — and whatever `validate` refuses,
+dropped with its reason rather than failing the import (a `prm` vector
+past ten entries included), naming the **actuator** since it has a name
+of its own. Couplings go first, so an actuator is not taken down by an
+`<equality>` that is itself about to go. What an element carries that no
+variant holds — `actdim`, `actearly`, `actrange`, `lengthrange`,
+`cranklength`, a preset's `dampratio` / `inheritrange`, which MuJoCo
+computes from the model — is counted once per attribute name (`<general
+actdim> × 1`) and the element is read without it.
 
 **Nothing is dropped silently.** Beside the shared `MimicDropped`,
 `NonUniformScale`, `PrimitiveVisualDropped`, `MixedCollisionDropped`,
@@ -864,7 +880,7 @@ ElementDropped, GeomDropped, FreeJointDropped, ActuatorDropped,
 FrameDropped, MassFromGeomIgnored, LimitsInvented }`. Every element the
 import does not read is counted and named once per tag — `<tendon> × 3`,
 not three warnings — and so is a robot-changing attribute like `<joint
-ref>`; the decorating ones (`solref`, `friction`, `rgba`, `group`, …) are
+ref>` or `<general actdim>`; the decorating ones (`solref`, `friction`, `rgba`, `group`, …) are
 not warned about, because one line each would bury the ones that matter.
 `LimitsInvented` is the document's own gap: it has no unlimited
 `Prismatic`, so an unranged `slide` gets ±1 m and is told so.
@@ -888,9 +904,11 @@ The imported document is untitled until saved.
 `assets/fixtures/menagerie_style.xml` is the corpus file — degrees, a
 `<default>` tree with a `childclass` and class names that are not ours, all
 five orientation spellings, a `fromto` capsule, a non-uniform mesh scale, a
-`<general>` and a tendon actuator, an `<actuator>` named something other
-than its joint plus a second one on that same joint (both kept, ADR-0023),
-and nine elements the document has no field for — and its test pins the result warning by warning. The round trip
+`<general>` whose gains come through the class tree two levels up and a
+tendon actuator, an `<actuator>` named something other than its joint plus
+a second one on that same joint (both kept, ADR-0023) carrying an explicit
+`ctrllimited="false"` beside a range (ADR-0024), and nine elements the
+document has no field for — and its test pins the result warning by warning. The round trip
 itself is the `mujoco` CI job's fourth model: the arm exported, imported
 and exported again, held to the *original* document's `fk.json`. The
 corpus is its fifth (ADR-0024): imported and re-exported, it must load

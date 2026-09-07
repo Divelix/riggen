@@ -20,10 +20,10 @@ use std::path::{Path, PathBuf};
 
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::{
-    Actuator, ActuatorId, ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Dynamics,
-    FileSource, Frame, FrameId, Geom, GeomId, InertialSpec, Joint, JointId, JointKind, Limits,
-    Link, LinkId, MeshAsset, MeshId, Mimic, Pose, Primitive, Robot, ValidationError, content_hash,
-    validate,
+    Actuator, ActuatorId, ActuatorRanges, ActuatorSpec, ActuatorTarget, BiasType, CollisionPolicy,
+    DynType, Dynamics, FileSource, Frame, FrameId, GainType, General, Geom, GeomId, InertialSpec,
+    Joint, JointId, JointKind, Limits, Link, LinkId, MeshAsset, MeshId, Mimic, Pose, Primitive,
+    Robot, ValidationError, content_hash, validate,
 };
 use riggen_mesh::TriMesh;
 
@@ -218,10 +218,56 @@ const READ: &[&str] = &[
     "position",
     "velocity",
     "motor",
-    // Read only far enough to name the actuator we are dropping (step 6).
     "general",
+    // MuJoCo's other actuator shortcuts: read only far enough to name the
+    // actuator being dropped (ADR-0024), once, as an actuator.
     "muscle",
     "adhesion",
+    "intvelocity",
+    "damper",
+    "cylinder",
+];
+
+/// The attributes any `<actuator>` element may carry that the document
+/// reads whatever the tag: its name and class, the joint it drives, and
+/// the four range fields (ADR-0024 §3). `group` is decorative and silent.
+const ACTUATOR_COMMON: &[&str] = &[
+    "name",
+    "class",
+    "group",
+    "joint",
+    "ctrllimited",
+    "forcelimited",
+    "ctrlrange",
+    "forcerange",
+];
+
+/// Per tag: the attributes its preset expresses, and the ones that make
+/// the element a `General` instead because the preset cannot hold them
+/// but MuJoCo's own model can (ADR-0024 §2). `<general>` expresses its
+/// whole vocabulary and desugars nothing.
+const PRESET_ATTRS: &[(&str, &[&str], &[&str])] = &[
+    ("position", &["kp", "kv"], &["gear", "timeconst"]),
+    ("velocity", &["kv"], &["gear"]),
+    ("motor", &["gear"], &[]),
+    (
+        "general",
+        &[
+            "dyntype", "gaintype", "biastype", "dynprm", "gainprm", "biasprm", "gear",
+        ],
+        &[],
+    ),
+];
+
+/// What an actuator drives when it is not a joint, as the drop message
+/// names it. `jointinparent` is a joint, but a different transmission.
+const ACTUATOR_TARGETS: &[(&str, &str)] = &[
+    ("tendon", "a tendon"),
+    ("site", "a site"),
+    ("body", "a body"),
+    ("cranksite", "a cranksite"),
+    ("slidersite", "a slidersite"),
+    ("jointinparent", "a joint through jointinparent"),
 ];
 
 /// Elements that compose other files or re-shape the tree. Reading around
@@ -1151,11 +1197,23 @@ impl Import<'_> {
         Ok(())
     }
 
-    /// `<position>` / `<velocity>` / `<motor>` → one entry of
-    /// `Robot::actuators` each, under the name the file gave it (ADR-0014,
-    /// ADR-0023). A second element on an already-driven joint is a second
-    /// entry: MuJoCo sums their controls, so keeping only one would throw
-    /// away what the file said.
+    /// `<position>` / `<velocity>` / `<motor>` / `<general>` driving a
+    /// joint → one entry of `Robot::actuators` each, under the name the
+    /// file gave it (ADR-0014, ADR-0023, ADR-0024). A second element on an
+    /// already-driven joint is a second entry: MuJoCo sums their controls,
+    /// so keeping only one would throw away what the file said.
+    ///
+    /// An element is read as a preset **iff every attribute it carries is
+    /// one the preset can express** (ADR-0024 §2); a `<position gear>` or a
+    /// `<position timeconst>` is what MuJoCo makes of it, a `General`. The
+    /// attributes the document has no room for — `actdim`, `actearly`,
+    /// `actrange`, `lengthrange`, `cranklength`, and a preset's
+    /// `dampratio` / `inheritrange`, which MuJoCo computes from the model —
+    /// are counted once per attribute name and the element is read without
+    /// them; so is anything else MuJoCo would refuse. `<muscle>` and
+    /// `<adhesion>` stay dropped (ADR-0024: a muscle needs a `lengthrange`
+    /// riggen does not compute; an adhesion drives a body), as does any
+    /// element not driving a joint.
     ///
     /// `forcerange` and `ctrlrange` are kept on the actuator as the file
     /// said them, with their `ctrllimited` / `forcelimited` (ADR-0024). A
@@ -1182,36 +1240,119 @@ impl Import<'_> {
                         reason,
                     });
                 };
-                // Anything not driving a joint is out of the document's
-                // three presets by definition (ADR-0015 §1).
+                // Anything not driving a joint is outside the document's
+                // one target (ADR-0023, ADR-0024): a tendon, a site, a
+                // body, or a joint through `jointinparent`, which is a
+                // different transmission.
                 let Some(joint) = a.attr("joint").map(str::to_owned) else {
-                    let target = ["tendon", "site", "body", "cranksite", "slidersite"]
-                        .into_iter()
-                        .find(|t| a.attrs.contains_key(*t))
-                        .unwrap_or("nothing");
-                    drop(self, format!("it drives a {target}, not a joint"));
+                    let target = ACTUATOR_TARGETS
+                        .iter()
+                        .find(|(attr, _)| a.attrs.contains_key(*attr))
+                        .map_or("nothing", |(_, what)| what);
+                    drop(self, format!("it drives {target}, not a joint"));
                     continue;
                 };
-                let spec = match a.tag.as_str() {
-                    "position" => ActuatorSpec::Position {
-                        kp: self.num(&a, "kp")?.unwrap_or(1.0),
-                        kv: self.num(&a, "kv")?.unwrap_or(0.0),
-                    },
-                    "velocity" => ActuatorSpec::Velocity {
-                        kv: self.num(&a, "kv")?.unwrap_or(1.0),
-                    },
-                    // `gear` is six numbers; for a joint only the first
-                    // scales it.
-                    "motor" => ActuatorSpec::Motor {
-                        gear: self
-                            .numbers(&a, "gear")?
-                            .and_then(|g| g.first().copied())
-                            .unwrap_or(1.0),
-                    },
-                    other => {
-                        drop(self, format!("<{other}> is not one of the three presets"));
+                let tag = a.tag.as_str();
+                let Some((_, gains, desugared)) = PRESET_ATTRS.iter().find(|(t, ..)| *t == tag)
+                else {
+                    let reason = if tag == "muscle" {
+                        "a <muscle> needs a lengthrange riggen does not compute (ADR-0024)"
+                            .to_owned()
+                    } else {
+                        format!("<{tag}> is not one of the three presets or <general>")
+                    };
+                    drop(self, reason);
+                    continue;
+                };
+                // What the element carries beyond its tag's own vocabulary
+                // is counted, not silently ignored (02 §Nothing is dropped
+                // silently); what it carries beyond its *preset's* is why
+                // it is read as a `General` instead.
+                let mut beyond_preset = false;
+                for attr in a.attrs.keys() {
+                    let known =
+                        ACTUATOR_COMMON.contains(&attr.as_str()) || gains.contains(&attr.as_str());
+                    if known {
                         continue;
                     }
+                    if desugared.contains(&attr.as_str()) {
+                        beyond_preset = true;
+                    } else {
+                        self.drop(&format!("<{tag} {attr}>"));
+                    }
+                }
+                let kp = self.num(&a, "kp")?.unwrap_or(1.0);
+                let kv = self.num(&a, "kv")?;
+                let gear = self
+                    .numbers(&a, "gear")?
+                    .and_then(|g| g.first().copied())
+                    .unwrap_or(1.0);
+                let spec = match (tag, beyond_preset) {
+                    ("position", false) => ActuatorSpec::Position {
+                        kp,
+                        kv: kv.unwrap_or(0.0),
+                    },
+                    ("velocity", false) => ActuatorSpec::Velocity {
+                        kv: kv.unwrap_or(1.0),
+                    },
+                    ("motor", _) => ActuatorSpec::Motor { gear },
+                    // MuJoCo's own reading of the two servos: a fixed
+                    // gain with an affine bias, and `timeconst` an exact
+                    // first-order filter on the activation.
+                    ("position", true) => {
+                        let timeconst = self.num(&a, "timeconst")?;
+                        ActuatorSpec::General(General {
+                            dyntype: timeconst.map_or(DynType::None, |_| DynType::FilterExact),
+                            gaintype: GainType::Fixed,
+                            biastype: BiasType::Affine,
+                            dynprm: timeconst.into_iter().collect(),
+                            gainprm: vec![kp],
+                            biasprm: vec![0.0, -kp, -kv.unwrap_or(0.0)],
+                            gear,
+                        })
+                    }
+                    ("velocity", true) => {
+                        let kv = kv.unwrap_or(1.0);
+                        ActuatorSpec::General(General {
+                            dyntype: DynType::None,
+                            gaintype: GainType::Fixed,
+                            biastype: BiasType::Affine,
+                            dynprm: Vec::new(),
+                            gainprm: vec![kv],
+                            biasprm: vec![0.0, 0.0, -kv],
+                            gear,
+                        })
+                    }
+                    _ => ActuatorSpec::General(General {
+                        dyntype: self
+                            .actuator_type(
+                                &a,
+                                "dyntype",
+                                DynType::from_mjcf,
+                                DynType::ALL.iter().map(|t| t.mjcf_name()),
+                            )?
+                            .unwrap_or(DynType::None),
+                        gaintype: self
+                            .actuator_type(
+                                &a,
+                                "gaintype",
+                                GainType::from_mjcf,
+                                GainType::ALL.iter().map(|t| t.mjcf_name()),
+                            )?
+                            .unwrap_or(GainType::Fixed),
+                        biastype: self
+                            .actuator_type(
+                                &a,
+                                "biastype",
+                                BiasType::from_mjcf,
+                                BiasType::ALL.iter().map(|t| t.mjcf_name()),
+                            )?
+                            .unwrap_or(BiasType::None),
+                        dynprm: self.numbers(&a, "dynprm")?.unwrap_or_default(),
+                        gainprm: self.numbers(&a, "gainprm")?.unwrap_or_default(),
+                        biasprm: self.numbers(&a, "biasprm")?.unwrap_or_default(),
+                        gear,
+                    }),
                 };
                 let Some(&id) = self.joint_ids.get(&joint) else {
                     drop(self, format!("no joint \"{joint}\" is in the file"));
@@ -1254,6 +1395,27 @@ impl Import<'_> {
             }
         }
         Ok(())
+    }
+
+    /// One of `<general>`'s three type attributes, by its MJCF spelling;
+    /// a value MuJoCo would not take is a parse error naming the choices.
+    fn actuator_type<T>(
+        &self,
+        node: &Node,
+        name: &str,
+        from_mjcf: fn(&str) -> Option<T>,
+        choices: impl Iterator<Item = &'static str>,
+    ) -> Result<Option<T>, ImportError> {
+        let Some(value) = node.attr(name) else {
+            return Ok(None);
+        };
+        from_mjcf(value).map(Some).ok_or_else(|| {
+            self.parse_err(format!(
+                "<{}> {name}=\"{value}\": expected one of {}",
+                node.tag,
+                choices.collect::<Vec<_>>().join(", ")
+            ))
+        })
     }
 
     /// An actuator's `ctrllimited` / `forcelimited` as the document keeps
@@ -1387,6 +1549,17 @@ fn actuator_refusals(robot: &Robot) -> Vec<(ActuatorId, String)> {
             ValidationError::InvalidActuatorGain { actuator, what } => {
                 Some((actuator, format!("its {what}")))
             }
+            ValidationError::ActuatorPrmTooLong {
+                actuator,
+                what,
+                len,
+            } => Some((
+                actuator,
+                format!(
+                    "its {what} has {len} entries; MuJoCo holds at most {}",
+                    General::MAX_PRM
+                ),
+            )),
             _ => None,
         })
         .collect()
@@ -1798,8 +1971,9 @@ mod tests {
         // And each actuator keeps what it said itself (ADR-0024): `pan`'s
         // `forcerange` under an `auto` flag, and — the loss step 2 of the
         // plan measured — **no** `ctrlrange`, recorded as `false` so the
-        // writer does not clamp it to the joint's ±π. `pan_damp` said
-        // nothing, and comes back unlimited both ways.
+        // writer does not clamp it to the joint's ±π. `pan_damp` wrote an
+        // explicit `ctrllimited="false"` beside a range, kept as written,
+        // and no `forcerange`.
         assert_eq!(
             robot
                 .actuators_on(pan)
@@ -1813,12 +1987,48 @@ mod tests {
                     force_limited: None,
                 },
                 ActuatorRanges {
-                    ctrl: None,
+                    ctrl: Some([-2.0, 2.0]),
                     force: None,
                     ctrl_limited: Some(false),
                     force_limited: Some(false),
                 },
             ]
+        );
+        // The `<general>` comes in (ADR-0024), its gains resolved through
+        // the class tree: `gainprm` / `biasprm` from `arm`, two levels up,
+        // `gear` from `arm_drive`, one up, and its own `dyntype` /
+        // `dynprm` on the element. `gaintype` was inherited too.
+        let slide = *robot
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "wrist_slide")
+            .unwrap()
+            .0;
+        let (_, lift) = robot
+            .actuators_on(slide)
+            .next()
+            .expect("lift drives the slide");
+        assert_eq!(lift.name, "lift");
+        assert_eq!(
+            lift.spec,
+            ActuatorSpec::General(General {
+                dyntype: DynType::Filter,
+                gaintype: GainType::Fixed,
+                biastype: BiasType::Affine,
+                dynprm: vec![0.02],
+                gainprm: vec![150.0],
+                biasprm: vec![0.0, -150.0, -3.0],
+                gear: 2.0,
+            })
+        );
+        assert_eq!(
+            lift.ranges,
+            ActuatorRanges {
+                ctrl_limited: Some(false),
+                force_limited: Some(false),
+                ..ActuatorRanges::default()
+            },
+            "nothing said: unlimited, and no preset to derive from anyway"
         );
         assert_eq!(
             joint("shoulder_lift").mimic.map(|m| m.multiplier),
@@ -1844,11 +2054,8 @@ mod tests {
                     link: "wrist".to_owned(),
                     kind: "an ellipsoid geom".to_owned()
                 },
-                // Then the two actuators outside the three presets.
-                ImportWarning::ActuatorDropped {
-                    actuator: "lift".to_owned(),
-                    reason: "<general> is not one of the three presets".to_owned()
-                },
+                // Then the one actuator the document still has no target
+                // for (ADR-0024: the target, not the tag).
                 ImportWarning::ActuatorDropped {
                     actuator: "grip".to_owned(),
                     reason: "it drives a tendon, not a joint".to_owned()
@@ -1933,6 +2140,23 @@ mod tests {
             actuator_of(&robot, "j"),
             Some(ActuatorSpec::Motor { gear: 50.0 })
         );
+        // The `<general>` beside it is the joint's second actuator now
+        // (ADR-0024), not a warning.
+        let jid = *robot.joints.iter().find(|(_, j)| j.name == "j").unwrap().0;
+        assert_eq!(
+            robot
+                .actuators_on(jid)
+                .map(|(_, a)| (a.name.as_str(), a.spec.kind_name()))
+                .collect::<Vec<_>>(),
+            [("drive", "motor"), ("fancy", "general")]
+        );
+        assert!(matches!(
+            robot.actuators_on(jid).nth(1).unwrap().1.spec,
+            ActuatorSpec::General(General {
+                dyntype: DynType::Filter,
+                ..
+            })
+        ));
         assert_eq!(joint("j").limits.unwrap().effort, 7.0);
         assert_eq!(
             actuator_of(&robot, "k"),
@@ -1949,7 +2173,6 @@ mod tests {
             "joint \"k\": <mimic joint=\"j\"> dropped, the constraint is not active",
             "joint \"k\": <mimic joint=\"nope\"> dropped, no joint of that name is in the file",
             "joint \"k\": <mimic joint=\"\"> dropped, it holds one joint to a constant, not to another",
-            "actuator \"fancy\" dropped, <general> is not one of the three presets",
             "actuator \"tendon_servo\" dropped, it drives a tendon, not a joint",
             "actuator \"ghost\" dropped, no joint \"missing\" is in the file",
             "<weld> × 1: nothing in the document holds it; not read",
@@ -2011,6 +2234,149 @@ mod tests {
             said.iter()
                 .any(|s| s.starts_with("actuator \"sour\" dropped, its kp")),
             "{said:#?}"
+        );
+    }
+
+    /// The preset rule (ADR-0024 §2): an element is a preset iff every
+    /// attribute it carries is one the preset can express, else it is a
+    /// `General` — MuJoCo's own reading of it. What no variant holds is
+    /// counted once per attribute name (§4); what MuJoCo would refuse is a
+    /// parse error or, past `validate`, a named drop. `<muscle>` and
+    /// `<adhesion>` stay out, and `jointinparent` is named as the target
+    /// it is.
+    #[test]
+    fn a_preset_is_read_iff_every_attribute_fits_it_else_a_general() {
+        let (robot, warnings) = load(
+            r#"<mujoco model="m"><compiler angle="radian"/><worldbody>
+                 <body name="a">
+                   <body name="b"><joint name="j" range="-1 1"/><inertial pos="0 0 0" mass="1" diaginertia="1 1 1"/></body>
+                 </body>
+               </worldbody>
+               <actuator>
+                 <position name="plain" joint="j" kp="10" kv="1" dampratio="1"/>
+                 <position name="geared" joint="j" kp="10" gear="2"/>
+                 <position name="filtered" joint="j" kp="10" kv="1" timeconst="0.05" inheritrange="1"/>
+                 <velocity name="rate" joint="j" kv="3" gear="4"/>
+                 <motor name="drive" joint="j" gear="5"/>
+                 <general name="bare" joint="j"/>
+                 <general name="full" joint="j" dyntype="integrator" gaintype="user" biastype="muscle"
+                          dynprm="1 2" gainprm="3" biasprm="4 5 6" gear="7 0 0 0 0 0"
+                          actdim="2" actearly="true" actrange="0 1" lengthrange="0 1" cranklength="0.1"/>
+                 <general name="long" joint="j" gainprm="1 2 3 4 5 6 7 8 9 10 11"/>
+                 <muscle name="sinew" joint="j"/>
+                 <general name="parented" jointinparent="j"/>
+                 <adhesion name="sticky" body="b"/>
+                 <intvelocity name="ramp" joint="j" kp="1"/>
+               </actuator>
+               </mujoco>"#,
+        )
+        .unwrap();
+        let by_name = |n: &str| {
+            robot
+                .actuators
+                .values()
+                .find(|a| a.name == n)
+                .map(|a| a.spec.clone())
+        };
+        // Every attribute fits: a preset, its unread `dampratio` counted.
+        assert_eq!(
+            by_name("plain"),
+            Some(ActuatorSpec::Position { kp: 10.0, kv: 1.0 })
+        );
+        // A `gear` a position servo cannot hold: what MuJoCo makes of it.
+        assert_eq!(
+            by_name("geared"),
+            Some(ActuatorSpec::General(General {
+                gaintype: GainType::Fixed,
+                biastype: BiasType::Affine,
+                gainprm: vec![10.0],
+                biasprm: vec![0.0, -10.0, 0.0],
+                gear: 2.0,
+                ..General::default()
+            }))
+        );
+        assert_eq!(
+            by_name("filtered"),
+            Some(ActuatorSpec::General(General {
+                dyntype: DynType::FilterExact,
+                gaintype: GainType::Fixed,
+                biastype: BiasType::Affine,
+                dynprm: vec![0.05],
+                gainprm: vec![10.0],
+                biasprm: vec![0.0, -10.0, -1.0],
+                gear: 1.0,
+            }))
+        );
+        assert_eq!(
+            by_name("rate"),
+            Some(ActuatorSpec::General(General {
+                gaintype: GainType::Fixed,
+                biastype: BiasType::Affine,
+                gainprm: vec![3.0],
+                biasprm: vec![0.0, 0.0, -3.0],
+                gear: 4.0,
+                ..General::default()
+            }))
+        );
+        // A motor expresses `gear`: still a motor.
+        assert_eq!(by_name("drive"), Some(ActuatorSpec::Motor { gear: 5.0 }));
+        assert_eq!(
+            by_name("bare"),
+            Some(ActuatorSpec::General(General::default()))
+        );
+        assert_eq!(
+            by_name("full"),
+            Some(ActuatorSpec::General(General {
+                dyntype: DynType::Integrator,
+                gaintype: GainType::User,
+                biastype: BiasType::Muscle,
+                dynprm: vec![1.0, 2.0],
+                gainprm: vec![3.0],
+                biasprm: vec![4.0, 5.0, 6.0],
+                gear: 7.0,
+            }))
+        );
+        for gone in ["long", "sinew", "parented", "sticky", "ramp"] {
+            assert_eq!(by_name(gone), None, "{gone}");
+        }
+
+        let said: Vec<String> = warnings.iter().map(ToString::to_string).collect();
+        for line in [
+            "actuator \"long\" dropped, its gainprm has 11 entries; MuJoCo holds at most 10",
+            "actuator \"sinew\" dropped, a <muscle> needs a lengthrange riggen does not compute (ADR-0024)",
+            "actuator \"parented\" dropped, it drives a joint through jointinparent, not a joint",
+            "actuator \"sticky\" dropped, it drives a body, not a joint",
+            "actuator \"ramp\" dropped, <intvelocity> is not one of the three presets or <general>",
+            "<general actdim> × 1: nothing in the document holds it; not read",
+            "<general actearly> × 1: nothing in the document holds it; not read",
+            "<general actrange> × 1: nothing in the document holds it; not read",
+            "<general cranklength> × 1: nothing in the document holds it; not read",
+            "<general lengthrange> × 1: nothing in the document holds it; not read",
+            "<position dampratio> × 1: nothing in the document holds it; not read",
+            "<position inheritrange> × 1: nothing in the document holds it; not read",
+        ] {
+            assert!(
+                said.contains(&line.to_owned()),
+                "missing {line:?}\n{said:#?}"
+            );
+        }
+        assert_eq!(said.len(), 12, "{said:#?}");
+
+        // A type MuJoCo would not take is a parse error naming the choices.
+        let err = load(
+            r#"<mujoco model="m"><compiler angle="radian"/><worldbody>
+                 <body name="a"><body name="b"><joint name="j"/></body></body>
+               </worldbody>
+               <actuator><general name="odd" joint="j" gaintype="spring"/></actuator>
+               </mujoco>"#,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains(
+                r#"<general> gaintype="spring": expected one of fixed, affine, muscle, user"#
+            ),
+            "{err}"
         );
     }
 

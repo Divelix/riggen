@@ -283,17 +283,16 @@ def check_actuators(model: mujoco.MjModel, samples: dict) -> int:
             for what, enum in (("dyntype", mujoco.mjtDyn), ("gaintype", mujoco.mjtGain),
                                ("biastype", mujoco.mjtBias)):
                 got = enum(int(getattr(model, f"actuator_{what}")[i])).name
-                want = f"mj{what[:-4].upper()}_{general[what].upper()}"
-                if got != want:
+                if got != f"mj{what[:-4].upper()}_{general[what].upper()}":
                     raise AssertionError(
                         f"actuator {name!r} (general): mujoco has {what} {got}, "
                         f"the samples say {general[what]!r}"
                     )
             for what in ("dynprm", "gainprm", "biasprm"):
                 got = getattr(model, f"actuator_{what}")[i]
-                want = np.zeros(len(got))
-                want[:len(general[what])] = general[what]
-                if np.abs(got - want).max() > TOLERANCE:
+                padded = np.zeros(len(got))
+                padded[:len(general[what])] = general[what]
+                if np.abs(got - padded).max() > TOLERANCE:
                     raise AssertionError(
                         f"actuator {name!r} (general): mujoco has {what} {got.tolist()}, "
                         f"the samples say {general[what]}"
@@ -323,7 +322,6 @@ ROUND_TRIP_FIELDS = (
 # Every entry is checked both ways: the original has it, the re-export does
 # not. The step that starts reading one deletes its line here.
 ROUND_TRIP_DROPPED = {
-    "lift": "a <general>; plans/actuator-escape-hatch step 6 reads it",
     "grip": "drives a tendon, and the document has none until the couplings bullet",
 }
 

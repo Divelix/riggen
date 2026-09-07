@@ -411,7 +411,10 @@
         612.266418
       ],
       "active": false,
-      "hovered": false
+      "hovered": false,
+      "actuators": [
+        "general"
+      ]
     }
   ],
   "frame_glyphs": [
@@ -449,7 +452,7 @@
     }
   ],
   "snap": null,
-  "status": "imported menagerie_style.xml: link \"shoulder\": shoulder.stl has a non-uniform scale; 0.002 used for every axis (+13 more warnings)",
+  "status": "imported menagerie_style.xml: link \"shoulder\": shoulder.stl has a non-uniform scale; 0.002 used for every axis (+12 more warnings)",
   "viewport_rect": [
     240.0,
     23.0,

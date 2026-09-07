@@ -273,7 +273,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       the three presets in `each_preset_writes_its_element…`, not in the
       shared `GOLDEN` constant, which the importer still reads as
       preset-only until step 6.
-- [ ] **[2]** Step 6 — **the MJCF import reads a `<general>` driving a
+- [x] **[2]** Step 6 — **the MJCF import reads a `<general>` driving a
       joint.** The preset rule of ADR-0024 §2 — a preset iff every
       attribute fits it, else a `General` — the five counted attributes,
       and `jointinparent` named in the drop message. The corpus grows an
@@ -282,6 +282,20 @@ mechanical; **[2]** careful — a case to get right within a given design;
       range; the warning test loses the `lift` line and step 2's allowlist
       loses `lift`, leaving `grip` and its reason. This is where the
       round-trip check first has something to prove.
+      *Landed.* `lift` moved from `shoulder_lift` — a mimic follower, so
+      `validate` would have refused it the moment it was read — to
+      `wrist_slide`, with its gains through `class="arm_drive"` → `arm`.
+      The preset rule desugars a `<position gear|timeconst>` and a
+      `<velocity gear>` into MuJoCo's own reading (fixed gain, affine
+      bias, an exact filter); MuJoCo's other shortcuts (`<intvelocity>`,
+      `<damper>`, `<cylinder>`) are named once and dropped like
+      `<muscle>`. One bound stated in 02 §MJCF import: a
+      `<default><general>` applies to `<general>` elements only, while
+      MuJoCo also lets a preset inherit it. Two names step 5's Python
+      check shadowed (`want`) are fixed here; the count it printed was
+      wrong, the verdict was not. The `properties_joint_two_actuators`
+      snapshot moved — the slide's glyph gains its ring and a `general`
+      mark, the status bar one warning fewer — image shown.
 - [ ] **[2]** Step 7 — **the app.** The properties panel's actuator list
       shows a `General` per the second open question; `glyphs.rs`'s
       `driven_marks` prints `general` beside the preset names it already
@@ -333,8 +347,10 @@ pyright` clean; `python/tests/sdk` green.
 - `AGENTS.md` current state — the file half's second line done
 
 ## Open questions
-- ⚠ OPEN: **`<muscle>` and `<adhesion>` — in or out?** (human, by step 6.)
-  The roadmap bullet names both. Recommendation: **out**, and the reasons
+- **Resolved by the human at step 6 (2026-09-08): `<muscle>` and
+  `<adhesion>` are out**, on the recommendation below; both travel with
+  the couplings bullet. Original question: **`<muscle>` and `<adhesion>`
+  — in or out?** The roadmap bullet names both. Recommendation: **out**, and the reasons
   are different for each. `<adhesion>` drives a *body*, so it is already
   out by ADR-0023's target rule with no special case, and the body target
   is the first one no joint's panel can show — the Actuators window
@@ -346,8 +362,9 @@ pyright` clean; `python/tests/sdk` green.
   `<muscle>`. If the human says in, `<muscle joint=…>` is a pure attribute
   map into `General` and step 2's check is exactly what would catch the
   `lengthrange` problem before it lands.
-- ⚠ OPEN: **what the properties panel does with a `General`.** (human, by
-  step 7.) Recommendation: **a read-only row** — the actuator's name, the
+- **Resolved by the human at step 6 (2026-09-08): a read-only row**, on
+  the recommendation below. Original question: **what the properties
+  panel does with a `General`.** Recommendation: **a read-only row** — the actuator's name, the
   word `general`, and its three type names — with the combo still able to
   remove it or replace it with a preset, which is a deliberate and visible
   act. Editing ten `prm` numbers in a panel is MJCF's actuator model in a
