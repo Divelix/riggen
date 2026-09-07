@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::inertial::{Inertial, InertialError, principal_moments};
 use riggen_core::{
-    ActuatorSpec, CollisionPolicy, Command, FrameId, GestureId, InertialSpec, JointId, JointKind,
-    JointState, Limits, LinkId, Mimic, Pose, Primitive, fk,
+    Actuator, ActuatorSpec, ActuatorTarget, CollisionPolicy, Command, FrameId, GestureId,
+    InertialSpec, JointId, JointKind, JointState, Limits, LinkId, Mimic, Pose, Primitive, fk,
 };
 use riggen_mesh::{DecompParams, fit};
 
@@ -1529,12 +1529,13 @@ impl RiggenApp {
                         edited.limits = Some(default_limits(kind));
                     }
                     if !kind.is_movable() {
-                        // A fixed joint has no value to drive and no
-                        // degree of freedom to actuate, so both go with
-                        // the kind rather than being refused by `validate`
-                        // after the fact (ADR-0013, ADR-0014).
+                        // A fixed joint has no value to drive, so the
+                        // coupling goes with the kind rather than being
+                        // refused by `validate` after the fact (ADR-0013).
+                        // Its actuators go the same way, inside `SetJoint`
+                        // — they are the table's now, not the joint's
+                        // (ADR-0023).
                         edited.mimic = None;
-                        edited.actuator = None;
                     }
                 }
                 ui.end_row();
@@ -1698,12 +1699,21 @@ impl RiggenApp {
                     }
                 }
 
-                // What drives the joint in the exported MJCF (ADR-0014).
-                // A follower is left out: its `<equality>` already moves
-                // it, and `validate` refuses an actuator beside one.
+                // What drives the joint in the exported MJCF (ADR-0014),
+                // read out of the table it lives in (ADR-0023). A follower
+                // is left out: its `<equality>` already moves it, and
+                // `validate` refuses an actuator beside one.
                 if data.kind.is_movable() && data.mimic.is_none() {
+                    // The joint's first actuator; listing every one of them
+                    // is plans/actuator-table step 8.
+                    let driver = self
+                        .robot
+                        .actuators_on(joint)
+                        .next()
+                        .map(|(id, a)| (id, a.clone()));
+                    let current = driver.as_ref().map(|(_, a)| a.spec);
                     ui.label("actuator");
-                    let mut actuator = data.actuator;
+                    let mut actuator = current;
                     egui::ComboBox::from_id_salt(base.with("actuator"))
                         .selected_text(actuator.map_or("none", ActuatorSpec::kind_name))
                         .show_ui(ui, |ui| {
@@ -1720,18 +1730,32 @@ impl RiggenApp {
                     // The combo picks the *kind*; the fields below edit the
                     // gains, so switching kinds and back does not carry the
                     // old ones over.
-                    if actuator.map(ActuatorSpec::kind_name)
-                        != data.actuator.map(ActuatorSpec::kind_name)
+                    if actuator.map(ActuatorSpec::kind_name) != current.map(ActuatorSpec::kind_name)
                     {
-                        edited.actuator = actuator;
+                        commands.push(match (&driver, actuator) {
+                            (Some((id, _)), None) => Command::RemoveActuator(*id),
+                            (Some((id, a)), Some(spec)) => {
+                                Command::SetActuator(*id, Actuator { spec, ..a.clone() })
+                            }
+                            (None, Some(spec)) => Command::AddActuator(Actuator {
+                                name: self.robot.default_actuator_name(joint),
+                                target: ActuatorTarget::Joint(joint),
+                                spec,
+                            }),
+                            (None, None) => unreachable!("the kind changed"),
+                        });
                     }
-                    if let Some(spec) = data.actuator {
-                        for (label, value) in gains(spec) {
+                    if let Some((id, a)) = &driver {
+                        for (label, value) in gains(a.spec) {
                             if let Some(v) =
                                 number_row(ui, state, base.with(label), label, value, STEP_UNIT)
-                                && let Some(edit) = &mut edited.actuator
                             {
-                                set_gain(edit, label, v);
+                                let mut spec = a.spec;
+                                set_gain(&mut spec, label, v);
+                                commands.push(Command::SetActuator(
+                                    *id,
+                                    Actuator { spec, ..a.clone() },
+                                ));
                             }
                         }
                     }
@@ -1747,7 +1771,7 @@ impl RiggenApp {
                         )
                         .clicked()
                     {
-                        commands.push(Command::SetActuators(edited.actuator));
+                        commands.push(Command::SetActuators(actuator));
                     }
                     ui.end_row();
                 }

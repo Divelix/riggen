@@ -265,7 +265,11 @@ impl RiggenApp {
                     q: q.get(id),
                     limits: joint.limits.map(|l| (l.lower, l.upper)),
                     mimic: joint.mimic.map(|m| m.joint),
-                    actuator: joint.actuator.map(|a| a.kind_name()),
+                    actuator: self
+                        .robot
+                        .actuators_on(id)
+                        .next()
+                        .map(|(_, a)| a.spec.kind_name()),
                 })
             })
             .collect()

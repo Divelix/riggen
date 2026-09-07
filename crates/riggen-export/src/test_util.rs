@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 
 use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{
-    ActuatorSpec, CollisionPolicy, Command, Frame, FrameId, Geom, Joint, JointKind, Limits, Link,
-    LinkId, MeshAsset, MeshId, Pose, Primitive, Robot,
+    Actuator, ActuatorId, ActuatorSpec, ActuatorTarget, CollisionPolicy, Command, Frame, FrameId,
+    Geom, Joint, JointId, JointKind, Limits, Link, LinkId, MeshAsset, MeshId, Pose, Primitive,
+    Robot,
 };
 use riggen_mesh::TriMesh;
 
@@ -109,6 +110,22 @@ impl Builder {
         id
     }
 
+    /// One actuator on `joint`, named after it (ADR-0023), written
+    /// straight into the table.
+    pub(crate) fn actuator(&mut self, joint: JointId, spec: ActuatorSpec) -> ActuatorId {
+        let name = self.robot.default_actuator_name(joint);
+        let id: ActuatorId = self.robot.next_id.alloc();
+        self.robot.actuators.insert(
+            id,
+            Actuator {
+                name,
+                target: ActuatorTarget::Joint(joint),
+                spec,
+            },
+        );
+        id
+    }
+
     pub(crate) fn resolve(&self) -> Result<ResolvedRobot, Vec<ExportError>> {
         resolve(
             &self.robot,
@@ -150,7 +167,8 @@ pub(crate) fn every_joint_kind() -> Builder {
             hinge = Some(id);
         }
     }
-    for j in b.robot.joints.values_mut() {
+    let mut driven = Vec::new();
+    for (&id, j) in b.robot.joints.iter_mut() {
         if j.child == slider {
             j.mimic = Some(riggen_core::Mimic {
                 joint: hinge.expect("the hinge is above the slider"),
@@ -159,13 +177,16 @@ pub(crate) fn every_joint_kind() -> Builder {
             });
         }
         if j.child == upper {
-            j.actuator = Some(ActuatorSpec::Position { kp: 100.0, kv: 5.0 });
+            driven.push((id, ActuatorSpec::Position { kp: 100.0, kv: 5.0 }));
         }
         if j.child == wheel {
             // `Continuous`: no limits, so no `ctrlrange` and no
             // `forcerange` — MuJoCo's unbounded defaults stand.
-            j.actuator = Some(ActuatorSpec::Velocity { kv: 2.0 });
+            driven.push((id, ActuatorSpec::Velocity { kv: 2.0 }));
         }
+    }
+    for (joint, spec) in driven {
+        b.actuator(joint, spec);
     }
     b.robot.links.get_mut(&wheel).unwrap().visuals[0].pose = Pose::new(
         DVec3::new(0.0, 0.02, 0.0),

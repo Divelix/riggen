@@ -86,9 +86,9 @@ fn actuators(robot: &Robot) -> Vec<SampledActuator> {
     let symmetric = |v: f64| (v != 0.0).then_some([-v, v]);
     robot
         .joints
-        .values()
-        .filter_map(|joint| {
-            let actuator = joint.actuator?;
+        .iter()
+        .filter_map(|(&jid, joint)| {
+            let actuator = robot.actuators_on(jid).next().map(|(_, a)| a.spec)?;
             let (gains, ctrlrange) = match actuator {
                 ActuatorSpec::Position { kp, kv } => (
                     BTreeMap::from([("kp".to_owned(), kp), ("kv".to_owned(), kv)]),
@@ -366,11 +366,34 @@ mod tests {
         let id =
             |robot: &Robot, n: &str| *robot.joints.iter().find(|(_, j)| j.name == n).unwrap().0;
         let (servo, free) = (id(&robot, "servo"), id(&robot, "free"));
-        robot.joints.get_mut(&servo).unwrap().actuator = Some(ActuatorSpec::Position {
-            kp: 100.0,
-            kv: 10.0,
-        });
-        robot.joints.get_mut(&free).unwrap().actuator = Some(ActuatorSpec::Velocity { kv: 2.0 });
+        let drive = |robot: &mut Robot, joint, spec| {
+            let (id, existing) = robot
+                .actuators_on(joint)
+                .next()
+                .map(|(id, a)| (id, a.clone()))
+                .expect("already driven");
+            riggen_core::Command::SetActuator(id, riggen_core::Actuator { spec, ..existing })
+                .apply(robot)
+                .unwrap();
+        };
+        let add = |robot: &mut Robot, joint, spec| {
+            riggen_core::Command::AddActuator(riggen_core::Actuator {
+                name: robot.default_actuator_name(joint),
+                target: riggen_core::ActuatorTarget::Joint(joint),
+                spec,
+            })
+            .apply(robot)
+            .unwrap();
+        };
+        add(
+            &mut robot,
+            servo,
+            ActuatorSpec::Position {
+                kp: 100.0,
+                kv: 10.0,
+            },
+        );
+        add(&mut robot, free, ActuatorSpec::Velocity { kv: 2.0 });
         riggen_core::validate(&robot).unwrap();
 
         let a = actuators(&robot);
@@ -395,7 +418,7 @@ mod tests {
         assert!(to_json(&robot).contains("\"kind\": \"position\""));
 
         // A motor is normalised, whatever the joint says.
-        robot.joints.get_mut(&servo).unwrap().actuator = Some(ActuatorSpec::Motor { gear: 50.0 });
+        drive(&mut robot, servo, ActuatorSpec::Motor { gear: 50.0 });
         let a = actuators(&robot);
         assert_eq!(a[0].ctrlrange, Some([-1.0, 1.0]));
         assert_eq!(a[0].gains["gear"], 50.0);

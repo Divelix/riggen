@@ -569,10 +569,16 @@ fn check_mimics(robot: &Robot, errors: &mut Vec<ValidationError>) {
 /// Actuators (ADR-0014): only a movable joint that is not already driven by
 /// a mimic may carry one, and its gains must be numbers MuJoCo can use.
 fn check_actuators(robot: &Robot, errors: &mut Vec<ValidationError>) {
-    for (&jid, joint) in &robot.joints {
-        let Some(actuator) = joint.actuator else {
+    for actuator in robot.actuators.values() {
+        let Some(jid) = actuator.target.joint() else {
             continue;
         };
+        // A target that is not in the document is step 4's own refusal;
+        // until then a dangling one simply has no joint to check.
+        let Some(joint) = robot.joints.get(&jid) else {
+            continue;
+        };
+        let actuator = actuator.spec;
         if !joint.kind.is_movable() {
             errors.push(ValidationError::ActuatorOnFixedJoint(jid));
             continue;
@@ -617,7 +623,8 @@ mod tests {
     use crate::ids::Id;
     use crate::pose::Pose;
     use crate::robot::{
-        ActuatorSpec, Frame, Geom, Joint, JointKind, Limits, Link, MeshAsset, Mimic,
+        Actuator, ActuatorSpec, ActuatorTarget, Frame, Geom, Joint, JointKind, Limits, Link,
+        MeshAsset, Mimic,
     };
     use riggen_mesh::glam::{DVec3, dvec3};
     use std::path::PathBuf;
@@ -1209,8 +1216,28 @@ mod tests {
 
     // ---- actuators (ADR-0014) --------------------------------------------
 
-    fn actuate(robot: &mut Robot, joint: JointId, actuator: ActuatorSpec) {
-        robot.joints.get_mut(&joint).unwrap().actuator = Some(actuator);
+    /// One actuator on `joint`, replacing whatever drove it (ADR-0023).
+    fn actuate(robot: &mut Robot, joint: JointId, spec: ActuatorSpec) {
+        robot
+            .actuators
+            .retain(|_, a| a.target.joint() != Some(joint));
+        let name = robot.default_actuator_name(joint);
+        let id = robot.next_id.alloc();
+        robot.actuators.insert(
+            id,
+            Actuator {
+                name,
+                target: ActuatorTarget::Joint(joint),
+                spec,
+            },
+        );
+    }
+
+    /// Takes every actuator off `joint`.
+    fn unactuate(robot: &mut Robot, joint: JointId) {
+        robot
+            .actuators
+            .retain(|_, a| a.target.joint() != Some(joint));
     }
 
     #[test]
@@ -1242,7 +1269,7 @@ mod tests {
             })
         );
         // The leader may carry one: that is how a coupled pair is driven.
-        robot.joints.get_mut(&j1).unwrap().actuator = None;
+        unactuate(&mut robot, j1);
         actuate(&mut robot, j0, ActuatorSpec::Motor { gear: 1.0 });
         assert_eq!(validate(&robot), Ok(()));
     }

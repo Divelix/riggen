@@ -379,10 +379,14 @@ pub(crate) mod tests {
         /// The `<actuator>` line for `upper_joint`, alone in the block.
         fn line(actuator: ActuatorSpec, effort: f64, velocity: f64) -> String {
             let mut b = every_joint_kind();
-            for j in b.robot.joints.values_mut() {
+            // Only `upper_joint` is driven here, whatever `every_joint_kind`
+            // set up: the line under test must be alone in the block.
+            b.robot.actuators.clear();
+            let mut driven = None;
+            for (&id, j) in b.robot.joints.iter_mut() {
                 let hinge = j.name == "upper_joint";
-                j.actuator = hinge.then_some(actuator);
                 if hinge {
+                    driven = Some(id);
                     // Only the two ranges vary: moving `lower`/`upper`
                     // would move the slider's mimic reach with them.
                     j.limits = Some(Limits {
@@ -393,6 +397,7 @@ pub(crate) mod tests {
                     });
                 }
             }
+            b.actuator(driven.expect("upper_joint is in the chain"), actuator);
             let xml = write(&b.resolve().unwrap(), &ExportOptions::default());
             assert!(
                 !xml.contains("joint upper_joint: effort"),

@@ -2540,6 +2540,15 @@ fn properties_joint() {
 
 /// Replaces a field's text and commits it with Enter.
 /// The id of the joint named `name` in the open document.
+/// The preset driving `joint`, if one does — the readout `Joint::actuator`
+/// used to be, now a lookup in the model's table (ADR-0023).
+fn driver(
+    robot: &riggen_core::Robot,
+    joint: riggen_core::JointId,
+) -> Option<riggen_core::ActuatorSpec> {
+    robot.actuators_on(joint).next().map(|(_, a)| a.spec)
+}
+
 fn joint_named(
     harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>,
     name: &str,
@@ -3151,7 +3160,7 @@ fn properties_joint_mimic() {
 /// Properties › Joint for a driven joint: the actuator section reads the
 /// preset the document holds — the sample arm's shoulder is a position
 /// servo — and its gains are ordinary fields (ADR-0014). Editing one is
-/// one `SetJoint`.
+/// one `SetActuator` (ADR-0023).
 #[test]
 fn properties_joint_actuator() {
     scenario("properties_joint_actuator", |harness| {
@@ -3172,10 +3181,10 @@ fn properties_joint_actuator() {
         assert_eq!(
             harness.state().history().undo_depth(),
             depth + 1,
-            "one SetJoint"
+            "one SetActuator"
         );
         assert_eq!(
-            harness.state().robot().joints[&shoulder].actuator,
+            driver(harness.state().robot(), shoulder),
             Some(riggen_core::ActuatorSpec::Position {
                 kp: 150.0,
                 kv: 10.0
@@ -3220,7 +3229,7 @@ fn properties_joint_actuator_applied_to_the_model() {
         };
         pick(harness, "velocity");
         assert_eq!(
-            harness.state().robot().joints[&shoulder].actuator,
+            driver(harness.state().robot(), shoulder),
             Some(riggen_core::ActuatorSpec::Velocity { kv: 1.0 })
         );
         assert_eq!(harness.get_by_label("kv").value().as_deref(), Some("1"));
@@ -3237,10 +3246,10 @@ fn properties_joint_actuator_applied_to_the_model() {
         let app = harness.state();
         assert_eq!(app.history().undo_depth(), depth + 1, "one SetActuators");
         let motor = Some(riggen_core::ActuatorSpec::Motor { gear: 50.0 });
-        assert_eq!(app.robot().joints[&shoulder].actuator, motor);
-        assert_eq!(app.robot().joints[&upper].actuator, motor);
+        assert_eq!(driver(app.robot(), shoulder), motor);
+        assert_eq!(driver(app.robot(), upper), motor);
         assert_eq!(
-            app.robot().joints[&fore].actuator,
+            driver(app.robot(), fore),
             None,
             "the forearm follows: its equality already drives it"
         );
@@ -6130,16 +6139,24 @@ fn write_arm_sample() {
     // model (the third, a `<motor>`, is on `bracket.riggen`'s hinge). The
     // forearm follows, so it may carry none: its `<equality>` already
     // drives it.
-    robot
-        .joints
-        .get_mut(&joint_id(&robot, "shoulder_joint"))
-        .unwrap()
-        .actuator = Some(riggen_core::ActuatorSpec::Position {
-        kp: 100.0,
-        kv: 10.0,
-    });
-    robot.joints.get_mut(&leader).unwrap().actuator =
-        Some(riggen_core::ActuatorSpec::Velocity { kv: 8.0 });
+    for (joint, spec) in [
+        (
+            joint_id(&robot, "shoulder_joint"),
+            riggen_core::ActuatorSpec::Position {
+                kp: 100.0,
+                kv: 10.0,
+            },
+        ),
+        (leader, riggen_core::ActuatorSpec::Velocity { kv: 8.0 }),
+    ] {
+        Command::AddActuator(riggen_core::Actuator {
+            name: robot.default_actuator_name(joint),
+            target: riggen_core::ActuatorTarget::Joint(joint),
+            spec,
+        })
+        .apply(&mut robot)
+        .unwrap();
+    }
     riggen_core::validate(&robot).unwrap();
     riggen_core::save(&robot, &arm_fixture("arm.riggen")).unwrap();
 }

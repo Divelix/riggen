@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "robot": {
     "name": "arm",
     "links": {
@@ -165,8 +165,7 @@
           "friction": 0.0,
           "armature": 0.0
         },
-        "mimic": null,
-        "actuator": null
+        "mimic": null
       },
       "j8": {
         "name": "shoulder_joint",
@@ -202,13 +201,7 @@
           "friction": 0.0,
           "armature": 0.0
         },
-        "mimic": null,
-        "actuator": {
-          "Position": {
-            "kp": 100.0,
-            "kv": 10.0
-          }
-        }
+        "mimic": null
       },
       "j12": {
         "name": "upper_joint",
@@ -244,12 +237,7 @@
           "friction": 0.0,
           "armature": 0.0
         },
-        "mimic": null,
-        "actuator": {
-          "Velocity": {
-            "kv": 8.0
-          }
-        }
+        "mimic": null
       },
       "j16": {
         "name": "fore_joint",
@@ -289,8 +277,7 @@
           "joint": "j12",
           "multiplier": -0.5,
           "offset": 0.1
-        },
-        "actuator": null
+        }
       }
     },
     "frames": {
@@ -326,6 +313,31 @@
             0.0,
             0.7071067811865476
           ]
+        }
+      }
+    },
+    "actuators": {
+      "a19": {
+        "name": "shoulder_joint",
+        "target": {
+          "Joint": "j8"
+        },
+        "spec": {
+          "Position": {
+            "kp": 100.0,
+            "kv": 10.0
+          }
+        }
+      },
+      "a20": {
+        "name": "upper_joint",
+        "target": {
+          "Joint": "j12"
+        },
+        "spec": {
+          "Velocity": {
+            "kv": 8.0
+          }
         }
       }
     },
@@ -412,6 +424,6 @@
         ]
       }
     },
-    "next_id": 19
+    "next_id": 21
   }
 }

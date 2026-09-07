@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "robot": {
     "name": "bracket",
     "links": {
@@ -86,15 +86,23 @@
           "friction": 0.0,
           "armature": 0.0
         },
-        "mimic": null,
-        "actuator": {
+        "mimic": null
+      }
+    },
+    "frames": {},
+    "actuators": {
+      "a5": {
+        "name": "hinge",
+        "target": {
+          "Joint": "j4"
+        },
+        "spec": {
           "Motor": {
             "gear": 50.0
           }
         }
       }
     },
-    "frames": {},
     "assets": {
       "m1": {
         "path": "bracket.stl",
@@ -160,6 +168,6 @@
         ]
       }
     },
-    "next_id": 5
+    "next_id": 6
   }
 }

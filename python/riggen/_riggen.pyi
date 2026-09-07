@@ -51,10 +51,20 @@ class MimicDoc(TypedDict):
     multiplier: float
     offset: float
 
-# One MJCF ``<actuator>`` element for the joint (ADR-0014):
-# ``{"Position": {"kp", "kv"}}`` / ``{"Velocity": {"kv"}}`` /
-# ``{"Motor": {"gear"}}``.
+# How an actuator drives its target (ADR-0014): ``{"Position": {"kp", "kv"}}``
+# / ``{"Velocity": {"kv"}}`` / ``{"Motor": {"gear"}}``.
 ActuatorDoc = dict[str, Any]
+# What it drives (ADR-0023). ``{"Joint": <joint id>}`` is the only shape the
+# document holds today.
+ActuatorTargetDoc = dict[str, int]
+
+class ActuatorEntryDoc(TypedDict):
+    """One entry of ``Robot::actuators``: its own name, what it drives, and
+    the preset saying how."""
+
+    name: str
+    target: ActuatorTargetDoc
+    spec: ActuatorDoc
 
 JointKind = Literal["Fixed", "Revolute", "Continuous", "Prismatic"]
 
@@ -70,7 +80,6 @@ class JointInput(TypedDict):
     limits: LimitsDoc | None
     dynamics: DynamicsDoc
     mimic: MimicDoc | None
-    actuator: ActuatorDoc | None
 
 class JointDoc(JointInput):
     """A joint as ``joints()`` returns it: with its endpoints."""
@@ -139,6 +148,7 @@ class Robot:
     def links(self) -> dict[int, LinkDoc]: ...
     def joints(self) -> dict[int, JointDoc]: ...
     def frames(self) -> dict[int, FrameDoc]: ...
+    def actuators(self) -> dict[int, ActuatorEntryDoc]: ...
     def assets(self) -> dict[int, AssetDoc]: ...
     def materials(self) -> dict[str, MaterialDoc]: ...
     def link(self, name: str) -> int | None: ...
@@ -170,6 +180,8 @@ class Robot:
     def remove_frame(self, frame: int) -> None: ...
     def rename_frame(self, frame: int, name: str) -> None: ...
     def set_frame(self, frame: int, value: FrameDoc) -> None: ...
+    def set_joint_actuator(self, joint: int, spec: ActuatorDoc | None) -> None: ...
+    def set_actuators(self, spec: ActuatorDoc | None) -> None: ...
     def add_geom(
         self,
         link: int,

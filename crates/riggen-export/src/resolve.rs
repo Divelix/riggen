@@ -427,8 +427,9 @@ pub fn resolve(
 
     for (i, &lid) in order.iter().enumerate() {
         let link = &robot.links[&lid];
-        let parent_joint = robot.parent_joint(lid).map(|j| &robot.joints[&j]);
-        if let Some(joint) = parent_joint {
+        let parent_joint_id = robot.parent_joint(lid);
+        let parent_joint = parent_joint_id.map(|j| &robot.joints[&j]);
+        if let Some((jid, joint)) = parent_joint_id.zip(parent_joint) {
             joints.push(ResolvedJoint {
                 name: joint.name.clone(),
                 kind: joint.kind,
@@ -443,7 +444,7 @@ pub fn resolve(
                     multiplier: m.multiplier,
                     offset: m.offset,
                 }),
-                actuator: joint.actuator,
+                actuator: robot.actuators_on(jid).next().map(|(_, a)| a.spec),
             });
         }
 

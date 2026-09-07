@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::{
-    ActuatorSpec, CollisionPolicy, Dynamics, FileSource, Frame, FrameId, Geom, GeomId,
-    InertialSpec, Joint, JointId, JointKind, Limits, Link, LinkId, MeshAsset, MeshId, Mimic, Pose,
-    Primitive, Robot, ValidationError, content_hash, validate,
+    Actuator, ActuatorSpec, ActuatorTarget, CollisionPolicy, Dynamics, FileSource, Frame, FrameId,
+    Geom, GeomId, InertialSpec, Joint, JointId, JointKind, Limits, Link, LinkId, MeshAsset, MeshId,
+    Mimic, Pose, Primitive, Robot, ValidationError, content_hash, validate,
 };
 use riggen_mesh::TriMesh;
 
@@ -599,7 +599,6 @@ impl Import<'_> {
                 armature: self.num(jn, "armature")?.unwrap_or(0.0),
             },
             mimic: None,
-            actuator: None,
         })
     }
 
@@ -1206,8 +1205,22 @@ impl Import<'_> {
                 };
                 let force = self.nums::<2>(&a, "forcerange")?;
                 let ctrl = self.nums::<2>(&a, "ctrlrange")?;
+                // One entry per element, keyed in its own namespace
+                // (ADR-0023). A second `<actuator>` on an already-driven
+                // joint still replaces the first here; keeping it is step 7.
+                self.robot
+                    .actuators
+                    .retain(|_, a| a.target.joint() != Some(id));
+                let aid = self.robot.next_id.alloc();
+                self.robot.actuators.insert(
+                    aid,
+                    Actuator {
+                        name,
+                        target: ActuatorTarget::Joint(id),
+                        spec,
+                    },
+                );
                 let j = self.robot.joints.get_mut(&id).expect("just walked");
-                j.actuator = Some(spec);
                 if let Some(limits) = &mut j.limits {
                     // Both are written as ±v and read back as the upper
                     // half; a zero one was never filled in (ADR-0014).
@@ -1248,15 +1261,18 @@ impl Import<'_> {
             });
         }
         for (joint, reason) in actuator_refusals(&self.robot) {
-            self.robot
-                .joints
-                .get_mut(&joint)
-                .expect("named by validate")
-                .actuator = None;
-            self.warnings.push(ImportWarning::ActuatorDropped {
-                actuator: self.robot.joints[&joint].name.clone(),
-                reason,
-            });
+            let doomed: Vec<_> = self
+                .robot
+                .actuators_on(joint)
+                .map(|(id, a)| (id, a.name.clone()))
+                .collect();
+            for (id, actuator) in doomed {
+                self.robot.actuators.remove(&id);
+                self.warnings.push(ImportWarning::ActuatorDropped {
+                    actuator,
+                    reason: reason.clone(),
+                });
+            }
         }
     }
 
@@ -1375,6 +1391,13 @@ mod tests {
     use crate::xml::parse;
     use crate::{ComputeNow, ExportOptions, Format, MeshStore, export, resolve};
     use riggen_core::{Disk, JointState, fk};
+
+    /// The preset driving the joint called `name`, if one does — the
+    /// readout `Joint::actuator` used to be (ADR-0023).
+    fn actuator_of(robot: &Robot, name: &str) -> Option<ActuatorSpec> {
+        let (&jid, _) = robot.joints.iter().find(|(_, j)| j.name == name)?;
+        robot.actuators_on(jid).next().map(|(_, a)| a.spec)
+    }
 
     /// Writes `robot`'s MJCF and its meshes into a scratch directory and
     /// reads the `.xml` back — the acceptance route, in one function.
@@ -1516,15 +1539,15 @@ mod tests {
         );
         assert_eq!(joint("upper_joint").mimic, None);
         assert_eq!(
-            joint("upper_joint").actuator,
+            actuator_of(&robot, "upper_joint"),
             Some(ActuatorSpec::Position { kp: 100.0, kv: 5.0 })
         );
         assert_eq!(
-            joint("wheel_joint").actuator,
+            actuator_of(&robot, "wheel_joint"),
             Some(ActuatorSpec::Velocity { kv: 2.0 })
         );
         assert_eq!(
-            joint("slider_joint").actuator,
+            actuator_of(&robot, "slider_joint"),
             None,
             "a mimic follower carries none, and the writer wrote none"
         );
@@ -1700,7 +1723,7 @@ mod tests {
             assert!(asset.path.exists(), "{}", asset.path.display());
         }
         assert_eq!(
-            joint("shoulder_pan").actuator,
+            actuator_of(&robot, "shoulder_pan"),
             Some(ActuatorSpec::Position {
                 kp: 120.0,
                 kv: 12.0
@@ -1817,12 +1840,12 @@ mod tests {
         // and only the linear, active, `ref`-free one survives at all.
         assert_eq!(joint("k").mimic.map(|m| (m.multiplier, m.offset)), None);
         assert_eq!(
-            joint("j").actuator,
+            actuator_of(&robot, "j"),
             Some(ActuatorSpec::Motor { gear: 50.0 })
         );
         assert_eq!(joint("j").limits.unwrap().effort, 7.0);
         assert_eq!(
-            joint("k").actuator,
+            actuator_of(&robot, "k"),
             Some(ActuatorSpec::Velocity { kv: 3.0 })
         );
         // A velocity servo *is* commanded in the joint's own rate, so its
@@ -1880,14 +1903,14 @@ mod tests {
         // The file opens; every actuator the document cannot hold is gone
         // with its reason, and the coupling that motivated the first one
         // stays.
-        for j in robot.joints.values() {
-            assert_eq!(j.actuator, None, "{}", j.name);
-        }
+        assert!(robot.actuators.is_empty(), "{:?}", robot.actuators);
         assert!(robot.joints.values().any(|j| j.mimic.is_some()));
+        // Each warning names the **actuator**, in its own namespace, not
+        // the joint it was driving (ADR-0023).
         let said: Vec<String> = warnings.iter().map(ToString::to_string).collect();
         for line in [
-            "actuator \"k\" dropped, the joint is already driven by an <equality>",
-            "actuator \"d_joint\" dropped, a fixed joint has no <joint> for it to drive",
+            "actuator \"follower\" dropped, the joint is already driven by an <equality>",
+            "actuator \"welded\" dropped, a fixed joint has no <joint> for it to drive",
         ] {
             assert!(
                 said.contains(&line.to_owned()),
@@ -1896,7 +1919,7 @@ mod tests {
         }
         assert!(
             said.iter()
-                .any(|s| s.starts_with("actuator \"j\" dropped, its kp")),
+                .any(|s| s.starts_with("actuator \"sour\" dropped, its kp")),
             "{said:#?}"
         );
     }

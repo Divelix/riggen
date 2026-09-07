@@ -585,11 +585,15 @@ pub(crate) mod tests {
     #[test]
     fn an_actuator_is_a_comment_and_no_plugin_is_invented() {
         let mut b = every_joint_kind();
-        for j in b.robot.joints.values_mut() {
-            if j.name == "upper_joint" {
-                j.actuator = Some(ActuatorSpec::Motor { gear: 50.0 });
-            }
-        }
+        let hinge = *b
+            .robot
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "upper_joint")
+            .unwrap()
+            .0;
+        b.robot.actuators.clear();
+        b.actuator(hinge, ActuatorSpec::Motor { gear: 50.0 });
         let sdf = write(
             &b.resolve().unwrap(),
             &ExportOptions::default(),

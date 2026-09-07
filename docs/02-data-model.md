@@ -44,6 +44,7 @@ pub struct Robot {
     pub links:  BTreeMap<LinkId, Link>,
     pub joints: BTreeMap<JointId, Joint>,
     pub frames: BTreeMap<FrameId, Frame>,      // named frames on links: TCP, sensor mounts
+    pub actuators: BTreeMap<ActuatorId, Actuator>, // what drives the joints (ADR-0023); schema 4
     pub assets: BTreeMap<MeshId, MeshAsset>,   // file references, not geometry
     pub root:   LinkId,
     pub materials: BTreeMap<String, Material>, // name → density (kg/m³), colour
@@ -84,14 +85,29 @@ pub struct Joint {
     pub limits: Option<Limits>, // required for Revolute/Prismatic, absent for Continuous
     pub dynamics: Dynamics,     // damping, friction, armature (MJCF); defaults zero
     pub mimic: Option<Mimic>,   // this joint follows another one (ADR-0013); schema 2
-    pub actuator: Option<ActuatorSpec>, // what drives it in MJCF (ADR-0014); schema 3
 }
 
 /// q(this) = multiplier * q(joint) + offset — URDF's <mimic> (ADR-0013).
 pub struct Mimic { pub joint: JointId, pub multiplier: f64, pub offset: f64 }
 
-/// One <actuator> in the MJCF, named after its joint (ADR-0014). MJCF-only:
-/// URDF keeps <limit effort velocity/> and a comment naming what it lost.
+/// One <actuator> element (ADR-0023, amending ADR-0014): its own name — the
+/// target joint's by default, unique among actuators, MJCF's namespaces
+/// being per element type — what it drives, and the preset saying how.
+/// Several may target one joint: MuJoCo sums them, and foreign files ship
+/// them.
+pub struct Actuator {
+    pub name: String,
+    pub target: ActuatorTarget,
+    pub spec: ActuatorSpec,
+}
+
+/// What an actuator drives. A joint is all the document holds today; the
+/// enum is the seam a tendon, site or body target arrives at without a
+/// second schema bump (ADR-0023).
+pub enum ActuatorTarget { Joint(JointId) }
+
+/// How it drives it (ADR-0014). MJCF-only: URDF keeps
+/// <limit effort velocity/> and a comment naming what it lost.
 pub enum ActuatorSpec {
     Position { kp: f64, kv: f64 },   // <position kp kv ctrlrange forcerange>
     Velocity { kv: f64 },            // <velocity kv ctrlrange forcerange>
@@ -128,11 +144,11 @@ the session and redo never reloads the file. An asset no geom references is
 dropped on save.
 
 **Ids** (ADR-0005) are `u32` newtypes — `LinkId`, `JointId`, `GeomId`,
-`MeshId`, `FrameId` — handed out by one per-document counter
+`MeshId`, `FrameId`, `ActuatorId` — handed out by one per-document counter
 (`Robot::next_id`, so an id is unique across kinds too), stored in
 `BTreeMap`s (iteration is id order, which is creation order), serialised as
-`"l3"` / `"j7"` / `"g2"` / `"m1"` / `"f0"` strings, and never reused within a
-document's life. A geom id inside a new link comes from the caller
+`"l3"` / `"j7"` / `"g2"` / `"m1"` / `"f0"` / `"a4"` strings, and never reused
+within a document's life. A geom id inside a new link comes from the caller
 (`robot.next_id.alloc()`); link and joint ids are allocated by `AddLink`.
 
 Invariants, enforced by `validate()` (first error) / `validation_errors()`
@@ -184,11 +200,13 @@ pub enum Command {
     SetInertial(LinkId, InertialSpec), SetCollision(LinkId, CollisionPolicy), SetRoot(LinkId),
     AddFrame(Frame),                                           // allocates the FrameId, returns it
     RemoveFrame(FrameId), SetFrame(FrameId, Frame), RenameFrame(FrameId, String),
+    AddActuator(Actuator),                                     // allocates the ActuatorId, returns it
+    RemoveActuator(ActuatorId), SetActuator(ActuatorId, Actuator), RenameActuator(ActuatorId, String),
     SetActuators(Option<ActuatorSpec>),                        // every movable joint at once; mimic followers skipped
 }
 
 /// What a command created, for the caller that selects it afterwards.
-pub enum Created { Link(LinkId), Frame(FrameId) }
+pub enum Created { Link(LinkId), Frame(FrameId), Actuator(ActuatorId) }
 ```
 
 Joints are the edges of the tree (ADR-0005): a link arrives with its parent
@@ -224,8 +242,19 @@ does not follow another one gets the same actuator, in one command and one
 undo, because the uniform case is the common one and clicking seven joints is
 the tedium the app exists to remove. A follower is *skipped*, not refused —
 its `<equality>` already drives it — the same way `RemoveLink` frees a
-follower rather than failing. The per-joint edit needs no command of its own:
-it rides `SetJoint`, which preserves only `parent` / `child`, as `mimic` does.
+follower rather than failing. Re-expressed over the table (ADR-0023) it
+first clears every actuator that targets a joint, then adds one per free
+movable joint, named after it. The per-actuator edit is the quartet beside
+it, `AddActuator` / `RemoveActuator` / `SetActuator` / `RenameActuator`,
+which follow the frame commands exactly: `AddActuator` allocates the
+`ActuatorId` and hands it back as `Created::Actuator`, `RenameActuator` is
+the inline rename, and `SetActuator` replaces name, target and preset in one
+value. An actuator naming a joint the document does not have is refused
+(`UnknownId`). Two things take an actuator away without being asked, both
+because `validate` would otherwise refuse the edit that caused them:
+`RemoveLink` drops the actuators of the joints it removes, and `SetJoint`
+drops the joint's own when it retypes it to `Fixed` — a fixed joint has no
+degree of freedom to drive, exactly as it has no value to mimic.
 `RemoveMaterial` is refused while a link uses the material
 (`MaterialInUse`); `RenameMaterial` rewrites the key and every link's
 reference in one step, refused for an unknown `from` (`UnknownMaterial`)
@@ -783,7 +812,7 @@ and exported again, held to the *original* document's `fk.json`.
 
 ## Schema
 
-`{ "schema_version": 3, "robot": Robot }`. `Robot` derives
+`{ "schema_version": 4, "robot": Robot }`. `Robot` derives
 `serde::{Serialize, Deserialize}` with `#[serde(deny_unknown_fields)]` on
 every struct (the envelope too) so a typo in a hand-edited file fails loudly
 with the field's name, and `#[serde(default)]` only on fields added in a
@@ -806,15 +835,29 @@ parse at all reports one. `assets/fixtures/pendulum.riggen` (base + arm from the
 fixtures, one revolute hinge, produced by `save` itself) is the first corpus
 file and is frozen at **schema 1**: it is what the upgrade chain reads, and
 `file::tests::corpus_pendulum_opens` keeps it opening forever and re-saving
-as a v3 document that round-trips. The byte-for-byte fixtures are the v3
-ones, `bracket.riggen` and `arm/arm.riggen`.
+as a v4 document that round-trips. `assets/fixtures/driven.riggen` is the
+second, frozen at **schema 3**: small, mesh-less and hand-written, it is
+what the first *non-empty* step moves, and
+`file::tests::corpus_driven_upgrades_its_actuators_into_the_table` pins that
+migration entry by entry. The byte-for-byte fixtures are the v4 ones,
+`bracket.riggen` and `arm/arm.riggen`.
 
 **Schema 2** adds `Joint::mimic` (ADR-0013) and **schema 3** adds
 `Joint::actuator` (ADR-0014). Both `upgrade_` steps are empty for the same
 reason — an older file simply has no such key and `#[serde(default)]` fills
-in the `None` it meant — and they are the chain `load` walks;
-`file::tests::a_v2_file_opens_as_v3_with_no_actuators` pins the second, from
-a v2 document made by stripping the key back out of the committed fixture.
+in the `None` it meant — and they are the first two links of the chain
+`load` walks; `file::tests::a_v2_file_opens_as_v4_with_no_actuators` pins
+the second, from a v2 document made by dropping the actuators back out of
+the committed fixture.
+
+**Schema 4** moves the actuator off the joint into `Robot::actuators`
+(ADR-0023), and `upgrade_v3_to_v4` is the first step that is not empty:
+each `Some(spec)` becomes one table entry, named after its joint and
+allocated from `next_id` **in `JointId` order** — numeric, not the
+lexicographic order the JSON object's keys sit in — so one v3 file always
+upgrades to the same ids. It is also why the chain moved onto the JSON at
+all: `Joint` has no `actuator` key any more, and `deny_unknown_fields`
+would refuse a v3 file before any step could move it.
 
 `CollisionPolicy::ConvexDecomposition`'s `resolution` and `concavity` are so
 far the only fields added after their variant existed, and they are the

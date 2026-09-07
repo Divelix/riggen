@@ -16,9 +16,9 @@ use std::collections::BTreeMap;
 use pyo3::exceptions::{PyOSError, PyValueError};
 use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{
-    CollisionPolicy, Command, Created, Disk, EditError, Frame, FrameId, Geom, GeomId, Id,
-    InertialSpec, Joint, JointId, JointState, Link, LinkId, Material, MeshAsset, MeshId, Pose,
-    Robot, compose_inertial, validation_errors,
+    Actuator, ActuatorId, ActuatorSpec, ActuatorTarget, CollisionPolicy, Command, Created, Disk,
+    EditError, Frame, FrameId, Geom, GeomId, Id, InertialSpec, Joint, JointId, JointState, Link,
+    LinkId, Material, MeshAsset, MeshId, Pose, Robot, compose_inertial, validation_errors,
 };
 use riggen_export::{ExportError, ExportOptions, Format, MeshPathStyle, MeshStore, PackageMap};
 use serde::{Deserialize, Serialize};
@@ -277,6 +277,11 @@ impl PyRobot {
         self.map(py, self.inner.joints.iter().map(|(id, j)| (*id, j)))
     }
 
+    /// `{actuator id: actuator}` — name, target and preset (ADR-0023).
+    fn actuators(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        self.map(py, self.inner.actuators.iter().map(|(id, a)| (*id, a)))
+    }
+
     /// `{frame id: frame}`.
     fn frames(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         self.map(py, self.inner.frames.iter().map(|(id, f)| (*id, f)))
@@ -508,6 +513,51 @@ impl PyRobot {
 
     fn rename_frame(&mut self, py: Python<'_>, frame: u32, name: String) -> PyResult<()> {
         self.edit(py, Command::RenameFrame(FrameId::from_raw(frame), name))?;
+        Ok(())
+    }
+
+    // ---- actuators --------------------------------------------------------
+
+    /// The one-actuator edit `riggen.Joint.actuator` makes: the preset on
+    /// `joint`, or `None` to take it away. `AddActuator` when the joint has
+    /// none, `SetActuator` when it has one, `RemoveActuator` for `None` —
+    /// one command either way, so one entry in the caller's history.
+    fn set_joint_actuator(
+        &mut self,
+        py: Python<'_>,
+        joint: u32,
+        spec: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<()> {
+        let joint = JointId::from_raw(joint);
+        let spec: Option<ActuatorSpec> = spec
+            .map(|s| from_doc::<ActuatorSpec>(s, "actuator"))
+            .transpose()?;
+        let existing: Option<(ActuatorId, Actuator)> = self
+            .inner
+            .actuators_on(joint)
+            .next()
+            .map(|(id, a)| (id, a.clone()));
+        let command = match (existing, spec) {
+            (Some((id, _)), None) => Command::RemoveActuator(id),
+            (Some((id, a)), Some(spec)) => Command::SetActuator(id, Actuator { spec, ..a }),
+            (None, Some(spec)) => Command::AddActuator(Actuator {
+                name: self.inner.default_actuator_name(joint),
+                target: ActuatorTarget::Joint(joint),
+                spec,
+            }),
+            (None, None) => return Ok(()),
+        };
+        self.edit(py, command)?;
+        Ok(())
+    }
+
+    /// `SetActuators`: the same preset on every movable joint that nothing
+    /// else drives, or `None` to clear the table of joint actuators.
+    fn set_actuators(&mut self, py: Python<'_>, spec: Option<&Bound<'_, PyAny>>) -> PyResult<()> {
+        let spec: Option<ActuatorSpec> = spec
+            .map(|s| from_doc::<ActuatorSpec>(s, "actuator"))
+            .transpose()?;
+        self.edit(py, Command::SetActuators(spec))?;
         Ok(())
     }
 

@@ -1,0 +1,140 @@
+{
+  "schema_version": 3,
+  "robot": {
+    "name": "driven",
+    "links": {
+      "l0": {
+        "name": "base_link",
+        "visuals": [],
+        "collision": "SameAsVisual",
+        "inertial": {
+          "Computed": {
+            "density_override": null
+          }
+        },
+        "material": "aluminium"
+      },
+      "l1": {
+        "name": "arm",
+        "visuals": [],
+        "collision": "SameAsVisual",
+        "inertial": {
+          "Computed": {
+            "density_override": null
+          }
+        },
+        "material": "aluminium"
+      },
+      "l2": {
+        "name": "fore",
+        "visuals": [],
+        "collision": "SameAsVisual",
+        "inertial": {
+          "Computed": {
+            "density_override": null
+          }
+        },
+        "material": "aluminium"
+      },
+      "l5": {
+        "name": "tip",
+        "visuals": [],
+        "collision": "None",
+        "inertial": {
+          "Computed": {
+            "density_override": null
+          }
+        },
+        "material": null
+      }
+    },
+    "joints": {
+      "j3": {
+        "name": "shoulder",
+        "kind": "Revolute",
+        "parent": "l0",
+        "child": "l1",
+        "origin": {
+          "t": [0.0, 0.0, 0.1],
+          "r": [0.0, 0.0, 0.0, 1.0]
+        },
+        "axis": [0.0, 0.0, 1.0],
+        "limits": {
+          "lower": -1.0,
+          "upper": 1.0,
+          "effort": 5.0,
+          "velocity": 3.0
+        },
+        "dynamics": {
+          "damping": 0.0,
+          "friction": 0.0,
+          "armature": 0.0
+        },
+        "mimic": null,
+        "actuator": {
+          "Velocity": {
+            "kv": 2.0
+          }
+        }
+      },
+      "j6": {
+        "name": "wrist",
+        "kind": "Fixed",
+        "parent": "l2",
+        "child": "l5",
+        "origin": {
+          "t": [0.0, 0.0, 0.05],
+          "r": [0.0, 0.0, 0.0, 1.0]
+        },
+        "axis": [0.0, 0.0, 1.0],
+        "limits": null,
+        "dynamics": {
+          "damping": 0.0,
+          "friction": 0.0,
+          "armature": 0.0
+        },
+        "mimic": null,
+        "actuator": null
+      },
+      "j12": {
+        "name": "elbow",
+        "kind": "Revolute",
+        "parent": "l1",
+        "child": "l2",
+        "origin": {
+          "t": [0.0, 0.0, 0.2],
+          "r": [0.0, 0.0, 0.0, 1.0]
+        },
+        "axis": [0.0, 1.0, 0.0],
+        "limits": {
+          "lower": -2.0,
+          "upper": 2.0,
+          "effort": 4.0,
+          "velocity": 2.0
+        },
+        "dynamics": {
+          "damping": 0.0,
+          "friction": 0.0,
+          "armature": 0.0
+        },
+        "mimic": null,
+        "actuator": {
+          "Position": {
+            "kp": 100.0,
+            "kv": 5.0
+          }
+        }
+      }
+    },
+    "frames": {},
+    "assets": {},
+    "root": "l0",
+    "materials": {
+      "aluminium": {
+        "density": 2700.0,
+        "color": [0.77, 0.78, 0.8, 1.0]
+      }
+    },
+    "next_id": 13
+  }
+}

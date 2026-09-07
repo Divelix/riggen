@@ -8,12 +8,13 @@ use std::path::PathBuf;
 use riggen_mesh::glam::{DMat3, DQuat, DVec3};
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{FrameId, GeomId, IdGen, JointId, LinkId, MeshId};
+use crate::ids::{ActuatorId, FrameId, GeomId, IdGen, JointId, LinkId, MeshId};
 use crate::pose::Pose;
 
 /// The whole document. `frames` holds the named frames on links (TCP,
-/// sensor mounts — ADR-0012); `assets` holds file references, never
-/// geometry.
+/// sensor mounts — ADR-0012); `actuators` holds what drives the joints,
+/// keyed in its own namespace (ADR-0023); `assets` holds file references,
+/// never geometry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Robot {
@@ -21,6 +22,10 @@ pub struct Robot {
     pub links: BTreeMap<LinkId, Link>,
     pub joints: BTreeMap<JointId, Joint>,
     pub frames: BTreeMap<FrameId, Frame>,
+    /// What drives the joints in MJCF (ADR-0023). Added in schema 4, and
+    /// filled in from the joints by `upgrade_v3_to_v4`, so a v3 file's
+    /// actuators arrive here rather than being refused as unknown keys.
+    pub actuators: BTreeMap<ActuatorId, Actuator>,
     pub assets: BTreeMap<MeshId, MeshAsset>,
     pub root: LinkId,
     /// name → density (kg/m³), colour.
@@ -101,10 +106,6 @@ pub struct Joint {
     /// Added in schema 2, hence the `default`: a v1 file has no such key.
     #[serde(default)]
     pub mimic: Option<Mimic>,
-    /// What drives this joint in MJCF (ADR-0014). Added in schema 3, hence
-    /// the `default`: a v2 file has no such key.
-    #[serde(default)]
-    pub actuator: Option<ActuatorSpec>,
 }
 
 /// A coupled degree of freedom: `q(this) = multiplier * q(joint) + offset`
@@ -121,11 +122,41 @@ pub struct Mimic {
     pub offset: f64,
 }
 
-/// The actuator a movable joint carries, as one of the three presets an RL
+/// One `<actuator>` element: its own name, what it drives, and the preset
+/// that says how (ADR-0023, amending ADR-0014). The name defaults to the
+/// target joint's and is unique among actuators — MJCF's namespaces are
+/// per element type, so an actuator and a joint may share a name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Actuator {
+    pub name: String,
+    pub target: ActuatorTarget,
+    pub spec: ActuatorSpec,
+}
+
+/// What an actuator drives. A joint is the only thing the document can hold
+/// today; the enum is the seam a tendon, site or body target arrives at
+/// without a second schema bump (ADR-0023). An MJCF actuator on anything
+/// else is still dropped with a warning on import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ActuatorTarget {
+    Joint(JointId),
+}
+
+impl ActuatorTarget {
+    /// The joint this actuator drives, if it drives a joint at all — the
+    /// `Option` is where a future non-joint target says "not one".
+    pub fn joint(self) -> Option<JointId> {
+        match self {
+            Self::Joint(j) => Some(j),
+        }
+    }
+}
+
+/// How an actuator drives its target, as one of the three presets an RL
 /// user reaches for (ADR-0014). MJCF-only: it is written as an `<actuator>`
-/// element named after its joint, with `ctrlrange` from the joint's limits
-/// and `forcerange` from `Limits::effort`. URDF has no actuator and says so
-/// in a comment.
+/// element, with `ctrlrange` from the joint's limits and `forcerange` from
+/// `Limits::effort`. URDF has no actuator and says so in a comment.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ActuatorSpec {
     /// `<position kp kv>`: a servo tracking a target angle / offset.
@@ -160,7 +191,6 @@ impl Joint {
             limits: None,
             dynamics: Dynamics::default(),
             mimic: None,
-            actuator: None,
         }
     }
 }
@@ -334,6 +364,7 @@ impl Robot {
             links,
             joints: BTreeMap::new(),
             frames: BTreeMap::new(),
+            actuators: BTreeMap::new(),
             assets: BTreeMap::new(),
             root,
             materials: Self::default_materials(),
@@ -364,6 +395,34 @@ impl Robot {
         let id = self.next_id.alloc();
         self.assets.insert(id, asset);
         id
+    }
+
+    /// The actuators driving `joint`, in `ActuatorId` order. Several are
+    /// legal: MuJoCo sums them, and a foreign file may ship them
+    /// (ADR-0023).
+    pub fn actuators_on(&self, joint: JointId) -> impl Iterator<Item = (ActuatorId, &Actuator)> {
+        self.actuators
+            .iter()
+            .filter(move |(_, a)| a.target.joint() == Some(joint))
+            .map(|(id, a)| (*id, a))
+    }
+
+    /// The name a new actuator on `joint` takes: the joint's own, with a
+    /// `_2`, `_3`, … suffix if another actuator already answers to it
+    /// (ADR-0023 — the name is unique among actuators).
+    pub fn default_actuator_name(&self, joint: JointId) -> String {
+        let base = self
+            .joints
+            .get(&joint)
+            .map_or("actuator", |j| j.name.as_str());
+        let taken = |name: &str| self.actuators.values().any(|a| a.name == name);
+        if !taken(base) {
+            return base.to_owned();
+        }
+        (2..)
+            .map(|n| format!("{base}_{n}"))
+            .find(|n| !taken(n))
+            .expect("a free suffix")
     }
 
     /// The joint whose child is `link`; `None` for the root (and for an

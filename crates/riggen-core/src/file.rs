@@ -1,4 +1,4 @@
-//! The `.riggen` file: `{ "schema_version": 3, "robot": Robot }` as JSON
+//! The `.riggen` file: `{ "schema_version": 4, "robot": Robot }` as JSON
 //! (docs/01-architecture.md §File format, docs/02-data-model.md §Schema).
 //!
 //! Mesh paths are **absolute in memory and relative to the file on disk**
@@ -21,14 +21,15 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::ids::MeshId;
 use crate::robot::Robot;
 use crate::validate::{ValidationError, validate};
 
-/// The version this build writes and the newest it reads. 3 since
-/// `Joint::actuator` (ADR-0014).
-pub const SCHEMA_VERSION: u32 = 3;
+/// The version this build writes and the newest it reads. 4 since
+/// `Robot::actuators` (ADR-0023).
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// The oldest version [`load`] still accepts, upgrading it on the way in.
 pub const OLDEST_SCHEMA_VERSION: u32 = 1;
@@ -336,6 +337,7 @@ pub fn load_from(
         match from {
             1 => upgrade_v1_to_v2(&mut doc),
             2 => upgrade_v2_to_v3(&mut doc),
+            3 => upgrade_v3_to_v4(&mut doc),
             _ => unreachable!("no upgrade step from schema {from}"),
         }
     }
@@ -381,6 +383,56 @@ fn upgrade_v1_to_v2(_doc: &mut serde_json::Value) {}
 /// same empty step — a v2 file has no `actuator` key and `None` is what it
 /// meant: nothing drove its joints.
 fn upgrade_v2_to_v3(_doc: &mut serde_json::Value) {}
+
+/// v3 → v4: the actuator moves off the joint into `Robot::actuators`
+/// (ADR-0023) — the first step of the chain that is not empty, and the
+/// reason the chain runs on the JSON at all: `Joint` no longer has an
+/// `actuator` key and would refuse a v3 file outright (§Schema).
+///
+/// Each `Some(spec)` becomes one entry, named after its joint and
+/// allocated from `next_id` **in `JointId` order**, so the same v3 file
+/// always upgrades to the same ids. Anything malformed is left alone for
+/// the parse below to report against the real struct.
+fn upgrade_v3_to_v4(doc: &mut serde_json::Value) {
+    let Some(robot) = doc.get_mut("robot").and_then(Value::as_object_mut) else {
+        return;
+    };
+    // (joint id, joint name, spec), in JointId order — which is numeric,
+    // not the lexicographic order the JSON object's keys are in ("j10"
+    // sorts before "j7").
+    let mut driven: Vec<(String, Value, Value)> = Vec::new();
+    if let Some(joints) = robot.get_mut("joints").and_then(Value::as_object_mut) {
+        let mut ids: Vec<String> = joints.keys().cloned().collect();
+        ids.sort_by_key(|id| id[1..].parse::<u32>().unwrap_or(u32::MAX));
+        for id in ids {
+            let Some(joint) = joints.get_mut(&id).and_then(Value::as_object_mut) else {
+                continue;
+            };
+            // The key goes whatever it held: `Joint` is v4's shape now.
+            let spec = joint.remove("actuator").unwrap_or(Value::Null);
+            let name = joint.get("name").cloned().unwrap_or(Value::Null);
+            if !spec.is_null() {
+                driven.push((id, name, spec));
+            }
+        }
+    }
+    let mut next = robot.get("next_id").and_then(Value::as_u64).unwrap_or(0);
+    let mut actuators = serde_json::Map::new();
+    for (joint, name, spec) in driven {
+        let id = next;
+        next += 1;
+        actuators.insert(
+            format!("a{id}"),
+            serde_json::json!({
+                "name": name,
+                "target": { "Joint": joint },
+                "spec": spec,
+            }),
+        );
+    }
+    robot.insert("actuators".to_owned(), Value::Object(actuators));
+    robot.insert("next_id".to_owned(), Value::from(next));
+}
 
 /// `target` expressed relative to `dir`, with `..` where needed and forward
 /// slashes. Both must be absolute. A target on another Windows drive has no
@@ -442,7 +494,8 @@ mod tests {
     use crate::command::Command;
     use crate::pose::Pose;
     use crate::robot::{
-        ActuatorSpec, CollisionPolicy, Geom, Joint, JointKind, Limits, Link, MeshAsset,
+        Actuator, ActuatorSpec, ActuatorTarget, CollisionPolicy, Geom, Joint, JointKind, Limits,
+        Link, MeshAsset,
     };
     use riggen_mesh::glam::DVec3;
     use std::f64::consts::FRAC_PI_2;
@@ -550,7 +603,7 @@ mod tests {
         save(&robot, &file).unwrap();
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(
-            text.starts_with("{\n  \"schema_version\": 3,\n  \"robot\": {"),
+            text.starts_with("{\n  \"schema_version\": 4,\n  \"robot\": {"),
             "{text}"
         );
         assert!(text.contains("\"path\": \"base.stl\""), "{text}");
@@ -647,7 +700,7 @@ mod tests {
             std::fs::write(
                 &file,
                 text.replacen(
-                    "\"schema_version\": 3",
+                    "\"schema_version\": 4",
                     &format!("\"schema_version\": {bogus}"),
                     1,
                 ),
@@ -658,7 +711,7 @@ mod tests {
                 matches!(err, FileError::UnsupportedVersion { found, .. } if found == bogus),
                 "{err:?}"
             );
-            assert!(err.to_string().contains("1–3"), "{err}");
+            assert!(err.to_string().contains("1–4"), "{err}");
         }
         std::fs::write(&file, &text).unwrap();
         // A hand-edited file that breaks an invariant.
@@ -705,7 +758,10 @@ mod tests {
         // Two named frames, saved and read back with the rest (ADR-0012);
         // `frames` is a v1 field that finally holds something, so the
         // schema does not move.
-        assert_eq!(SCHEMA_VERSION, 3, "the actuator is schema 3 (ADR-0014)");
+        assert_eq!(
+            SCHEMA_VERSION, 4,
+            "the actuator table is schema 4 (ADR-0023)"
+        );
         assert_eq!(robot.frames.len(), 2);
         let frame = |n: &str| robot.frames.values().find(|f| f.name == n).unwrap();
         assert_eq!(frame("tcp").pose.t, DVec3::new(0.0, 0.0, 0.08));
@@ -764,12 +820,11 @@ mod tests {
         // The two joints nothing else drives carry an actuator each
         // (ADR-0014); the forearm follows, so it carries none.
         let actuator = |name: &str| {
-            robot
-                .joints
-                .values()
-                .find(|j| j.name == name)
-                .unwrap()
-                .actuator
+            let (&jid, _) = robot.joints.iter().find(|(_, j)| j.name == name).unwrap();
+            robot.actuators_on(jid).next().map(|(_, a)| {
+                assert_eq!(a.name, name, "an actuator defaults to its joint's name");
+                a.spec
+            })
         };
         assert_eq!(
             actuator("shoulder_joint"),
@@ -836,7 +891,7 @@ mod tests {
         // It is the **v1** corpus and stays one forever: the upgrade chain
         // needs a real old document to read (§Schema, ADR-0013). So this
         // one cannot also be the byte-for-byte fixture — `bracket.riggen`
-        // and `arm/arm.riggen` are, at v3.
+        // and `arm/arm.riggen` are, at v4.
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(text.contains("\"schema_version\": 1"), "{text}");
         assert!(!text.contains("mimic"), "a v1 file has no mimic key");
@@ -846,11 +901,11 @@ mod tests {
             "upgrade_v1_to_v2 fills mimic in as None"
         );
         assert!(
-            robot.joints.values().all(|j| j.actuator.is_none()),
-            "and upgrade_v2_to_v3 fills actuator in as None"
+            robot.actuators.is_empty(),
+            "and upgrade_v3_to_v4 leaves the table empty: nothing drove a v1 file"
         );
 
-        // Re-saving it writes v3, and that round-trips to the same document.
+        // Re-saving it writes v4, and that round-trips to the same document.
         let dir = scratch("corpus");
         let again = dir.join("pendulum.riggen");
         // Relative paths only survive a same-directory save; copy the meshes.
@@ -863,29 +918,31 @@ mod tests {
         }
         save(&relocated, &again).unwrap();
         let upgraded = std::fs::read_to_string(&again).unwrap();
-        assert!(upgraded.contains("\"schema_version\": 3"), "{upgraded}");
+        assert!(upgraded.contains("\"schema_version\": 4"), "{upgraded}");
         assert!(upgraded.contains("\"mimic\": null"), "{upgraded}");
-        assert!(upgraded.contains("\"actuator\": null"), "{upgraded}");
+        assert!(upgraded.contains("\"actuators\": {}"), "{upgraded}");
         assert_eq!(load(&again).unwrap().0, relocated);
     }
 
     /// A v2 document — one written before `Joint::actuator` existed
-    /// (ADR-0014) — opens with `None` on every joint and re-saves as v3.
-    /// Built by stripping the key back out of the committed v3 fixture, so
-    /// it is a whole real document rather than a fragment (§Schema).
+    /// (ADR-0014) — opens with an empty table and re-saves as v4. Built by
+    /// dropping the actuators back out of the committed v4 fixture, so it
+    /// is a whole real document rather than a fragment (§Schema).
     #[test]
-    fn a_v2_file_opens_as_v3_with_no_actuators() {
+    fn a_v2_file_opens_as_v4_with_no_actuators() {
         let dir = scratch("v2");
         std::fs::copy(fixtures().join("bracket.stl"), dir.join("bracket.stl")).unwrap();
         let text = std::fs::read_to_string(fixtures().join("bracket.riggen")).unwrap();
         let mut doc: serde_json::Value = serde_json::from_str(&text).unwrap();
         doc["schema_version"] = 2.into();
-        for joint in doc["robot"]["joints"].as_object_mut().unwrap().values_mut() {
-            assert!(
-                joint.as_object_mut().unwrap().remove("actuator").is_some(),
-                "the v3 fixture has the key this strips back out"
-            );
-        }
+        assert!(
+            doc["robot"]
+                .as_object_mut()
+                .unwrap()
+                .remove("actuators")
+                .is_some_and(|a| !a.as_object().unwrap().is_empty()),
+            "the v4 fixture has the table this drops"
+        );
         let old = serde_json::to_string_pretty(&doc).unwrap();
         assert!(!old.contains("actuator"), "{old}");
         let file = dir.join("bracket.riggen");
@@ -893,12 +950,78 @@ mod tests {
 
         let (robot, warnings) = load(&file).unwrap();
         assert_eq!(warnings, vec![]);
-        assert!(robot.joints.values().all(|j| j.actuator.is_none()));
+        assert!(robot.actuators.is_empty());
         save(&robot, &file).unwrap();
         let upgraded = std::fs::read_to_string(&file).unwrap();
-        assert!(upgraded.contains("\"schema_version\": 3"), "{upgraded}");
-        assert!(upgraded.contains("\"actuator\": null"), "{upgraded}");
+        assert!(upgraded.contains("\"schema_version\": 4"), "{upgraded}");
+        assert!(upgraded.contains("\"actuators\": {}"), "{upgraded}");
         assert_eq!(load(&file).unwrap().0, robot);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `assets/fixtures/driven.riggen`, the **v3** corpus and frozen at 3
+    /// forever: the first upgrade step that is not empty needs a real old
+    /// document to move, and the two byte-for-byte fixtures cannot be it —
+    /// they re-save at 4 (§Schema, ADR-0023). Small and mesh-less on
+    /// purpose, so the migration is pinned entry by entry in a diff a human
+    /// can read.
+    #[test]
+    fn corpus_driven_upgrades_its_actuators_into_the_table() {
+        let file = fixtures().join("driven.riggen");
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("\"schema_version\": 3"), "it stays at v3");
+        let (robot, warnings) = load(&file).unwrap();
+        assert_eq!(warnings, vec![], "the corpus references no mesh");
+
+        // The two driven joints become two entries, named after their
+        // joints and allocated from `next_id` in **JointId** order — which
+        // is numeric, so `j3` comes before `j12` however the JSON object's
+        // keys sort.
+        let jid = |name: &str| *robot.joints.iter().find(|(_, j)| j.name == name).unwrap().0;
+        let (shoulder, elbow, wrist) = (jid("shoulder"), jid("elbow"), jid("wrist"));
+        let entries: Vec<(String, String, ActuatorSpec)> = robot
+            .actuators
+            .iter()
+            .map(|(id, a)| (id.to_string(), a.name.clone(), a.spec))
+            .collect();
+        assert_eq!(
+            entries,
+            vec![
+                (
+                    "a13".to_owned(),
+                    "shoulder".to_owned(),
+                    ActuatorSpec::Velocity { kv: 2.0 }
+                ),
+                (
+                    "a14".to_owned(),
+                    "elbow".to_owned(),
+                    ActuatorSpec::Position { kp: 100.0, kv: 5.0 }
+                ),
+            ]
+        );
+        assert_eq!(
+            robot.actuators[&"a13".parse().unwrap()].target,
+            ActuatorTarget::Joint(shoulder)
+        );
+        assert_eq!(
+            robot.actuators[&"a14".parse().unwrap()].target,
+            ActuatorTarget::Joint(elbow)
+        );
+        assert_eq!(robot.actuators_on(wrist).count(), 0, "it drove nothing");
+        assert_eq!(
+            robot.next_id.peek(),
+            15,
+            "13 in the file, two allocated by the upgrade"
+        );
+
+        // And the upgraded document re-saves as v4 and reopens unchanged.
+        let dir = scratch("driven");
+        let again = dir.join("driven.riggen");
+        save(&robot, &again).unwrap();
+        let upgraded = std::fs::read_to_string(&again).unwrap();
+        assert!(upgraded.contains("\"schema_version\": 4"), "{upgraded}");
+        assert!(!upgraded.contains("\"actuator\":"), "{upgraded}");
+        assert_eq!(load(&again).unwrap().0, robot);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1029,11 +1152,6 @@ mod tests {
                 effort: 5.0,
                 velocity: 3.0,
             }),
-            // The third actuator preset (ADR-0014), so the MuJoCo
-            // acceptance sees a `<motor>` too: the arm carries the two
-            // servos, and this hinge is the only other joint the CI job
-            // exports.
-            actuator: Some(crate::robot::ActuatorSpec::Motor { gear: 50.0 }),
             ..Joint::fixed("hinge", base, base)
         };
         Command::AddLink {
@@ -1041,6 +1159,18 @@ mod tests {
             parent: base,
             joint,
         }
+        .apply(&mut robot)
+        .unwrap();
+        // The third actuator preset (ADR-0014), so the MuJoCo acceptance
+        // sees a `<motor>` too: the arm carries the two servos, and this
+        // hinge is the only other joint the CI job exports. It is an entry
+        // of the model's table, named after the joint (ADR-0023).
+        let hinge = *robot.joints.keys().next().expect("AddLink made one");
+        Command::AddActuator(Actuator {
+            name: robot.default_actuator_name(hinge),
+            target: ActuatorTarget::Joint(hinge),
+            spec: ActuatorSpec::Motor { gear: 50.0 },
+        })
         .apply(&mut robot)
         .unwrap();
         robot
@@ -1073,10 +1203,10 @@ mod tests {
         );
         // The hinge is the `<motor>` the MuJoCo acceptance checks
         // (ADR-0014); the arm's two joints carry the other two presets.
-        assert_eq!(
-            robot.joints.values().next().unwrap().actuator,
-            Some(ActuatorSpec::Motor { gear: 50.0 })
-        );
+        let hinge = *robot.joints.keys().next().unwrap();
+        let (_, motor) = robot.actuators_on(hinge).next().expect("one actuator");
+        assert_eq!(motor.spec, ActuatorSpec::Motor { gear: 50.0 });
+        assert_eq!(motor.name, "hinge", "named after its joint by default");
 
         // Saving it again reproduces the committed bytes.
         let dir = scratch("bracket");

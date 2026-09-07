@@ -134,6 +134,11 @@ id_type!(
     /// A named frame attached to a link: a TCP, a sensor mount (ADR-0012).
     FrameId, 'f', "frame"
 );
+id_type!(
+    /// An entry of `Robot::actuators`: what drives a joint in MJCF, named
+    /// in its own namespace (ADR-0023).
+    ActuatorId, 'a', "actuator"
+);
 
 /// The document's id counter. One counter for every kind, so an id is
 /// unique across kinds too; serialised as a bare number.
@@ -185,6 +190,7 @@ mod tests {
         assert_eq!(GeomId::from_raw(2).to_string(), "g2");
         assert_eq!(MeshId::from_raw(1).to_string(), "m1");
         assert_eq!(FrameId::from_raw(0).to_string(), "f0");
+        assert_eq!(ActuatorId::from_raw(4).to_string(), "a4");
     }
 
     #[test]

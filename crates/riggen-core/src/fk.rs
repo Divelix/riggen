@@ -194,7 +194,6 @@ mod tests {
                 },
                 dynamics: Default::default(),
                 mimic: None,
-                actuator: None,
             },
         );
     }

@@ -338,11 +338,11 @@ class JointSpec:
         self,
         name: str,
         mimic: _riggen.MimicDoc | None = None,
-        actuator: _riggen.ActuatorDoc | None = None,
     ) -> _riggen.JointInput:
-        """The document's joint, without endpoints. Neither a coupling nor an
-        actuator is part of the spec — both belong to the joint, not to its
-        kind — so they are passed through rather than described here."""
+        """The document's joint, without endpoints. A coupling is not part of
+        the spec — it belongs to the joint, not to its kind — so it is passed
+        through rather than described here. An actuator is not part of the
+        joint at all: it is an entry of the model's own table (ADR-0023)."""
         return {
             "name": name,
             "kind": self.kind,  # type: ignore[typeddict-item]  # a ClassVar[str] narrowed by the subclass
@@ -351,7 +351,6 @@ class JointSpec:
             "limits": None if self.limits is None else self.limits.to_doc(),
             "dynamics": self.dynamics.to_doc(),
             "mimic": mimic,
-            "actuator": actuator,
         }
 
     @staticmethod
@@ -942,13 +941,13 @@ class Joint(_Handle):
     @spec.setter
     def spec(self, value: JointSpec) -> None:
         # Retyping a joint does not decouple it, nor unpower it — the mimic
-        # and the actuator are the joint's, not the spec's — but a fixed
-        # joint has neither a value to drive nor a degree of freedom to
-        # actuate, so both go with the kind (ADR-0013, ADR-0014).
+        # is the joint's, not the spec's — but a fixed joint has no value to
+        # drive, so the coupling goes with the kind (ADR-0013). Its
+        # actuators go the same way, inside the command: they are the
+        # model's table now (ADR-0023).
         movable = value.kind != "Fixed"
         mimic = self._doc["mimic"] if movable else None
-        actuator = self._doc["actuator"] if movable else None
-        self.robot._inner.set_joint(self.id, value.to_doc(self.name, mimic, actuator))
+        self.robot._inner.set_joint(self.id, value.to_doc(self.name, mimic))
 
     @property
     def origin(self) -> Pose:
@@ -1002,13 +1001,18 @@ class Joint(_Handle):
     def actuator(self) -> Actuator | None:
         """What drives this joint in the exported MJCF, or ``None`` — see
         :class:`Position`, :class:`Velocity` and :class:`Motor`. A fixed
-        joint and a joint that follows another one may not carry one."""
-        doc = self._doc["actuator"]
-        return None if doc is None else Actuator.from_doc(doc)
+        joint and a joint that follows another one may not carry one.
+
+        Actuators are the model's own table (ADR-0023); this reads the one
+        targeting this joint."""
+        for doc in self.robot._inner.actuators().values():
+            if doc["target"].get("Joint") == self.id:
+                return Actuator.from_doc(doc["spec"])
+        return None
 
     @actuator.setter
     def actuator(self, value: Actuator | None) -> None:
-        self._set(actuator=None if value is None else value.to_doc())
+        self.robot._inner.set_joint_actuator(self.id, None if value is None else value.to_doc())
 
     def move_frame(self, origin: PoseLike, axis: Axis | None = None) -> None:
         """Moves the pivot without moving anything in the world: the child's

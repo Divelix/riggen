@@ -8,13 +8,13 @@
 use std::fmt;
 
 use crate::fk::{JointState, fk};
-use crate::ids::{FrameId, GeomId, Id, JointId, LinkId, MeshId};
+use crate::ids::{ActuatorId, FrameId, GeomId, Id, JointId, LinkId, MeshId};
 use crate::pose::Pose;
 use riggen_mesh::glam::{DMat3, DVec3};
 
 use crate::robot::{
-    ActuatorSpec, CollisionPolicy, Frame, Geom, InertialSpec, Joint, Link, Material, MeshAsset,
-    Robot,
+    Actuator, ActuatorSpec, ActuatorTarget, CollisionPolicy, Frame, Geom, InertialSpec, Joint,
+    Link, Material, MeshAsset, Robot,
 };
 use crate::validate::{ValidationError, validate};
 
@@ -113,18 +113,30 @@ pub enum Command {
     SetFrame(FrameId, Frame),
     /// The tree's inline rename, beside `RenameLink` / `RenameJoint`.
     RenameFrame(FrameId, String),
-    /// Gives **every movable joint** the same actuator, or takes it away
-    /// (ADR-0014): the uniform case is the common one, and clicking seven
-    /// joints is the tedium we exist to remove. One gesture, one command,
-    /// one undo.
+    /// Adds an actuator to the table, allocating its `ActuatorId` and
+    /// returning it as [`Created::Actuator`] — the `AddFrame` shape, for
+    /// the other top-level keyed collection (ADR-0023, ADR-0012).
+    AddActuator(Actuator),
+    RemoveActuator(ActuatorId),
+    /// Replaces an actuator whole — name, target and preset in one value,
+    /// which is what the properties panel commits after an edit.
+    SetActuator(ActuatorId, Actuator),
+    /// The actuator's own name, in its own namespace (ADR-0023).
+    RenameActuator(ActuatorId, String),
+    /// Gives **every movable joint** one actuator of the same preset, or
+    /// takes every joint's away (ADR-0014): the uniform case is the common
+    /// one, and clicking seven joints is the tedium we exist to remove. One
+    /// gesture, one command, one undo.
     ///
-    /// A mimic follower is skipped rather than refused — it is already
-    /// driven by its `<equality>`, and "apply to the whole model" must not
-    /// fail because of a coupling elsewhere in the tree, the same way
-    /// `RemoveLink` does not (ADR-0013). The per-joint edit is
-    /// [`SetJoint`], which carries `actuator` like `mimic`.
+    /// It is the whole-model apply it always was, re-expressed over the
+    /// table (ADR-0023): every actuator targeting a joint goes first, then
+    /// one per free movable joint, named after it. A mimic follower is
+    /// skipped rather than refused — it is already driven by its
+    /// `<equality>`, and "apply to the whole model" must not fail because
+    /// of a coupling elsewhere in the tree, the same way `RemoveLink` does
+    /// not (ADR-0013). The per-actuator edit is [`SetActuator`].
     ///
-    /// [`SetJoint`]: Command::SetJoint
+    /// [`SetActuator`]: Command::SetActuator
     SetActuators(Option<ActuatorSpec>),
 }
 
@@ -133,6 +145,7 @@ pub enum Command {
 pub enum Created {
     Link(LinkId),
     Frame(FrameId),
+    Actuator(ActuatorId),
 }
 
 impl Created {
@@ -140,7 +153,7 @@ impl Created {
     pub fn link(self) -> Option<LinkId> {
         match self {
             Self::Link(l) => Some(l),
-            Self::Frame(_) => None,
+            _ => None,
         }
     }
 
@@ -148,7 +161,15 @@ impl Created {
     pub fn frame(self) -> Option<FrameId> {
         match self {
             Self::Frame(f) => Some(f),
-            Self::Link(_) => None,
+            _ => None,
+        }
+    }
+
+    /// The actuator, if that is what was created.
+    pub fn actuator(self) -> Option<ActuatorId> {
+        match self {
+            Self::Actuator(a) => Some(a),
+            _ => None,
         }
     }
 }
@@ -245,6 +266,16 @@ fn geom_mut(robot: &mut Robot, link: LinkId, geom: GeomId) -> Result<&mut Geom, 
         .ok_or_else(|| unknown(geom))
 }
 
+/// The joint an actuator names must be in the document; a dangling target
+/// is `validate`'s refusal, and this is the command layer's version of it,
+/// which names the id the caller passed.
+fn require_target(robot: &Robot, actuator: &Actuator) -> Result<(), EditError> {
+    match actuator.target.joint() {
+        Some(joint) if !robot.joints.contains_key(&joint) => Err(unknown(joint)),
+        _ => Ok(()),
+    }
+}
+
 fn require_link(robot: &Robot, id: LinkId) -> Result<(), EditError> {
     if robot.links.contains_key(&id) {
         Ok(())
@@ -295,6 +326,12 @@ impl Command {
                 for l in doomed {
                     robot.links.remove(&l);
                 }
+                // An actuator whose joint is gone has nothing to drive, so
+                // it goes with it rather than being left dangling.
+                let survivors: Vec<JointId> = robot.joints.keys().copied().collect();
+                robot
+                    .actuators
+                    .retain(|_, a| a.target.joint().is_none_or(|j| survivors.contains(&j)));
                 // A survivor that followed one of the removed joints keeps
                 // moving, freely: deleting a link is not the moment to
                 // refuse an edit somewhere else in the tree (ADR-0013).
@@ -319,11 +356,19 @@ impl Command {
             Command::SetGeomPose(link, geom, pose) => geom_mut(robot, link, geom)?.pose = pose,
             Command::SetJoint(id, joint) => {
                 let slot = joint_mut(robot, id)?;
+                let movable = joint.kind.is_movable();
                 *slot = Joint {
                     parent: slot.parent,
                     child: slot.child,
                     ..joint
                 };
+                // A `Fixed` joint has no degree of freedom to actuate, and
+                // MJCF writes no `<joint>` for one; retyping it takes its
+                // actuators with the kind rather than being refused by
+                // `validate` after the fact (ADR-0014, ADR-0023).
+                if !movable {
+                    robot.actuators.retain(|_, a| a.target.joint() != Some(id));
+                }
             }
             Command::MoveJointFrame {
                 joint,
@@ -483,13 +528,49 @@ impl Command {
             Command::RenameFrame(id, name) => {
                 robot.frames.get_mut(&id).ok_or_else(|| unknown(id))?.name = name;
             }
-            Command::SetActuators(actuator) => {
-                for joint in robot.joints.values_mut() {
-                    if joint.kind.is_movable() && joint.mimic.is_none() {
-                        joint.actuator = actuator;
-                    } else {
-                        joint.actuator = None;
-                    }
+            Command::AddActuator(actuator) => {
+                require_target(robot, &actuator)?;
+                let id: ActuatorId = robot.next_id.alloc();
+                robot.actuators.insert(id, actuator);
+                return Ok(Some(Created::Actuator(id)));
+            }
+            Command::RemoveActuator(id) => {
+                robot.actuators.remove(&id).ok_or_else(|| unknown(id))?;
+            }
+            Command::SetActuator(id, actuator) => {
+                require_target(robot, &actuator)?;
+                if !robot.actuators.contains_key(&id) {
+                    return Err(unknown(id));
+                }
+                robot.actuators.insert(id, actuator);
+            }
+            Command::RenameActuator(id, name) => {
+                robot
+                    .actuators
+                    .get_mut(&id)
+                    .ok_or_else(|| unknown(id))?
+                    .name = name;
+            }
+            Command::SetActuators(spec) => {
+                robot.actuators.retain(|_, a| a.target.joint().is_none());
+                let Some(spec) = spec else { return Ok(None) };
+                let free: Vec<JointId> = robot
+                    .joints
+                    .iter()
+                    .filter(|(_, j)| j.kind.is_movable() && j.mimic.is_none())
+                    .map(|(&id, _)| id)
+                    .collect();
+                for joint in free {
+                    let name = robot.default_actuator_name(joint);
+                    let id: ActuatorId = robot.next_id.alloc();
+                    robot.actuators.insert(
+                        id,
+                        Actuator {
+                            name,
+                            target: ActuatorTarget::Joint(joint),
+                            spec,
+                        },
+                    );
                 }
             }
         }
@@ -1557,22 +1638,138 @@ mod tests {
 
         let motor = ActuatorSpec::Motor { gear: 50.0 };
         apply(&mut robot, Command::SetActuators(Some(motor))).unwrap();
-        assert_eq!(robot.joints[&shoulder].actuator, Some(motor));
+        let driver = |robot: &Robot, joint| {
+            robot
+                .actuators_on(joint)
+                .next()
+                .map(|(_, a)| (a.name.clone(), a.spec))
+        };
         assert_eq!(
-            robot.joints[&tail_joint].actuator, None,
+            driver(&robot, shoulder),
+            Some(("shoulder".to_owned(), motor)),
+            "one actuator per free movable joint, named after it"
+        );
+        assert_eq!(
+            driver(&robot, tail_joint),
+            None,
             "a follower is already driven by its equality"
         );
+        let fixed: Vec<JointId> = robot
+            .joints
+            .iter()
+            .filter(|(_, j)| !j.kind.is_movable())
+            .map(|(&id, _)| id)
+            .collect();
         assert!(
-            robot
-                .joints
-                .values()
-                .filter(|j| !j.kind.is_movable())
-                .all(|j| j.actuator.is_none()),
+            fixed
+                .iter()
+                .all(|&j| robot.actuators_on(j).next().is_none()),
             "a fixed joint has nothing to actuate"
         );
         assert_eq!(validate(&robot), Ok(()));
 
         apply(&mut robot, Command::SetActuators(None)).unwrap();
-        assert!(robot.joints.values().all(|j| j.actuator.is_none()));
+        assert!(robot.actuators.is_empty());
+    }
+
+    /// The table's own quartet, following `AddFrame` / `SetFrame` /
+    /// `RenameFrame` / `RemoveFrame` (ADR-0023): the id comes back from the
+    /// command, a dangling target is refused, and an actuator carries a
+    /// name of its own.
+    #[test]
+    fn actuator_commands_add_set_rename_remove() {
+        let (mut robot, [arm, _, _, _]) = arm();
+        let shoulder = robot.parent_joint(arm).unwrap();
+        {
+            let joint = robot.joints.get_mut(&shoulder).unwrap();
+            joint.kind = JointKind::Continuous;
+            joint.axis = DVec3::Z;
+        }
+        assert_eq!(validate(&robot), Ok(()));
+
+        let motor = ActuatorSpec::Motor { gear: 50.0 };
+        let id = apply(
+            &mut robot,
+            Command::AddActuator(Actuator {
+                name: "drive".to_owned(),
+                target: ActuatorTarget::Joint(shoulder),
+                spec: motor,
+            }),
+        )
+        .unwrap()
+        .and_then(Created::actuator)
+        .expect("AddActuator returns the actuator it created");
+        assert_eq!(robot.actuators[&id].name, "drive");
+        assert_eq!(robot.actuators_on(shoulder).count(), 1);
+
+        // A second one on the same joint is legal: MuJoCo sums them.
+        let second = apply(
+            &mut robot,
+            Command::AddActuator(Actuator {
+                name: "assist".to_owned(),
+                target: ActuatorTarget::Joint(shoulder),
+                spec: ActuatorSpec::Velocity { kv: 2.0 },
+            }),
+        )
+        .unwrap()
+        .and_then(Created::actuator)
+        .unwrap();
+        assert_eq!(robot.actuators_on(shoulder).count(), 2);
+
+        // A target that is not in the document is refused, and changes
+        // nothing.
+        let ghost = JointId::from_raw(9999);
+        let err = apply(
+            &mut robot,
+            Command::AddActuator(Actuator {
+                name: "ghost".to_owned(),
+                target: ActuatorTarget::Joint(ghost),
+                spec: motor,
+            }),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, EditError::UnknownId { kind, .. } if *kind == "joint"),
+            "{err:?}"
+        );
+        assert_eq!(robot.actuators.len(), 2);
+
+        // `SetActuator` writes name, target and preset in one go;
+        // `RenameActuator` is the inline rename beside it.
+        apply(
+            &mut robot,
+            Command::SetActuator(
+                second,
+                Actuator {
+                    name: "assist".to_owned(),
+                    target: ActuatorTarget::Joint(shoulder),
+                    spec: ActuatorSpec::Velocity { kv: 4.0 },
+                },
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            robot.actuators[&second].spec,
+            ActuatorSpec::Velocity { kv: 4.0 }
+        );
+        apply(&mut robot, Command::RenameActuator(second, "boost".into())).unwrap();
+        assert_eq!(robot.actuators[&second].name, "boost");
+
+        apply(&mut robot, Command::RemoveActuator(second)).unwrap();
+        assert_eq!(robot.actuators.len(), 1);
+        assert!(matches!(
+            apply(&mut robot, Command::RemoveActuator(second)).unwrap_err(),
+            EditError::UnknownId {
+                kind: "actuator",
+                ..
+            }
+        ));
+
+        // Retyping the joint to `Fixed` takes its actuators with it, and
+        // deleting the link does too.
+        let mut fixed = robot.joints[&shoulder].clone();
+        fixed.kind = JointKind::Fixed;
+        apply(&mut robot, Command::SetJoint(shoulder, fixed)).unwrap();
+        assert!(robot.actuators.is_empty());
     }
 }

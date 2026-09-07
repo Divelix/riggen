@@ -134,7 +134,9 @@ mechanical; **[2]** careful — a case to get right within a given design;
       v3 file still fails with the field's name, so `deny_unknown_fields`
       survives the move. *No schema bump in this step* — the mechanism
       lands alone, revertible alone.
-- [ ] **[2]** Step 3 — **`Robot::actuators`, `ActuatorId`, schema 4.**
+- [x] **[2]** Step 3 — **`Robot::actuators`, `ActuatorId`, schema 4**
+      (and step 5's four commands, which it turned out to need — see
+      *Open questions*).
       `id_type!(ActuatorId, 'a', "actuator")`; `Actuator`, `ActuatorTarget`;
       `Joint::actuator` deleted; `upgrade_v3_to_v4` moves each `Some(spec)`
       into the table, allocating from `next_id` in `JointId` order and
@@ -151,7 +153,10 @@ mechanical; **[2]** careful — a case to get right within a given design;
       target and a duplicate actuator name. A test that two actuators on
       one joint validate, and one that an actuator may share a joint's
       name.
-- [ ] **[2]** Step 5 — **the four commands.** `AddActuator`,
+- [x] **[2]** Step 5 — **the four commands.** *Folded into step 3*: the
+      properties panel and the SDK both make a **per-joint** actuator edit,
+      and the moment `Joint::actuator` is deleted there is no command that
+      can express one — `SetActuators` is the whole model. `AddActuator`,
       `RemoveActuator`, `SetActuator`, `RenameActuator` with
       `Created::Actuator`, following `AddFrame`/`SetFrame`/`RenameFrame`
       exactly; `SetActuators(Option<ActuatorSpec>)` re-expressed: one
@@ -222,7 +227,24 @@ v4. `cargo test` green, snapshot suite included.
 ## Open questions
 None left open. Three were asked at planning time and answered by the
 human on 2026-09-07, each the recommendation; they are written into the
-steps above and repeated here as the reasons.
+steps above and repeated here as the reasons. One finding was made while
+executing.
+
+- **Steps 3 and 5 are one step** (found 2026-09-07, executing step 3).
+  Step 3's "compile everything downstream through by the shortest correct
+  edit" is impossible for the two *editing* surfaces: the properties
+  panel's actuator combo and the SDK's `Joint.actuator` setter both make a
+  per-joint edit, and with `Joint::actuator` gone the only actuator command
+  left is the whole-model `SetActuators`. The alternatives were a throwaway
+  `SetJointActuator` command that step 5 would delete, or a UI that is
+  read-only for one commit; both are worse than landing the quartet with
+  the table it keys. Step 5's content is in step 3's commit.
+- **`SetJoint` drops the joint's actuators when it retypes it to `Fixed`**
+  — a delta the plan did not name. The panel used to clear
+  `edited.actuator` itself when the kind combo went to `Fixed`; that line
+  has nowhere to live now, and without it `validate` refuses the retype
+  and the edit silently does nothing. The rule moves into the command,
+  beside `RemoveLink` dropping the actuators of the joints it removes.
 
 - **The schema-3 upgrade corpus is a small purpose-made document** beside
   `pendulum.riggen`, not a frozen copy of `arm/arm.riggen`. The arm is
