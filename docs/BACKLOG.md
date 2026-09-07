@@ -26,11 +26,14 @@ below with the reason, so the same idea is not re-brainstormed.
 - Publish the workspace to crates.io so `cargo install riggen` installs the app: publish `riggen-mesh`, `-core`, `-export`, `-viewport`, rename `riggen-app` to `riggen` over the 0.0.1 reservation, `cargo publish --workspace` in `release.yml` (plans/m4-distribution OPEN 1; the README says `cargo install --git` until then)
 - A 30-second screencast for the README, recorded after the GUI polish and before the announced release (plans/m4-distribution OPEN 2; the README ships with the hero PNG)
 - macOS code signing / notarization, if the clean-VM run of the wheel hits Gatekeeper (pip-installed files carry no quarantine attribute, so an unsigned binary should run from a terminal — unverified until the human's macOS run)
+- The joint tree's scrubber bar stacks under the name/value line at full row width (`joint_tree.rs`'s `joint_row()`), and the wheel only scrubs a hovered joint when the bar itself is hovered (`response.hovered()` off the bar's own response, not the name button's): a separate, aligned slider column to the right of the names would let the wheel work over the whole row, name included
+- In View mode, `glyphs.rs`'s `glyph_overlay()` draws a line along the joint's axis (`axis_ends()`) alongside the range/value band; drop the axis line and keep just the band glyph
+- The `Overlay::JointNames` visibility toggle draws the mimic leader name and the actuator preset string next to a joint (`glyphs.rs`'s `driven_marks()`), not the joint's own name — an actuator with the "position" preset shows the literal word "position" for every such joint instead of identifying it
 
 ### From the M2 exit gate (the by-hand arm build, 2026-08-29)
 
 - A ViewCube in the viewport corner with the persp/ortho toggle on it (robocad has one; M0 ships the axes triad and a text label)
-- WASD fly mode, and draw the orbit pivot while the camera moves (rerun's viewer is the reference; M0 ships turntable orbit only)
+- Fly camera on `W A S D E Q` (already reserved off tool shortcuts, `tool.rs`), and draw the orbit pivot while the camera moves (rerun's viewer is the reference; M0 ships turntable orbit only)
 
 ### From the M3 exit gate (the export run, 2026-08-29)
 

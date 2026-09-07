@@ -20,13 +20,14 @@ from pathlib import Path
 from typing import Any, ClassVar, Literal, Union
 
 from . import _riggen
-from .errors import RiggenWarning
+from .errors import EditError, RiggenWarning
 
 __all__ = [
     "Pose",
     "Limits",
     "Dynamics",
     "Actuator",
+    "ActuatorSpec",
     "Position",
     "Velocity",
     "Motor",
@@ -256,12 +257,14 @@ class Dynamics:
 
 
 @dataclass(frozen=True)
-class Actuator:
-    """What drives a joint in the exported MJCF — one ``<actuator>`` element
-    named after the joint, so ``data.ctrl["shoulder"]`` is the name you
-    already know (ADR-0014). Build one with :class:`Position`,
+class ActuatorSpec:
+    """**How** an actuator drives its target — the gains of one MJCF
+    ``<actuator>`` element (ADR-0014). Build one with :class:`Position`,
     :class:`Velocity` or :class:`Motor`; read one from
-    :attr:`Joint.actuator`.
+    :attr:`Actuator.spec` or :attr:`Joint.actuator`.
+
+    What it drives and what it is called belong to the :class:`Actuator`
+    entry, not here (ADR-0023).
 
     MJCF only: URDF has no actuator element and gets a comment naming this
     one instead. ``ctrlrange`` and ``forcerange`` are not typed here — they
@@ -273,13 +276,13 @@ class Actuator:
         return {self.kind: {f.name: float(getattr(self, f.name)) for f in fields(self)}}
 
     @staticmethod
-    def from_doc(doc: _riggen.ActuatorDoc) -> Actuator:
+    def from_doc(doc: _riggen.ActuatorDoc) -> ActuatorSpec:
         ((kind, values),) = doc.items()
         return _ACTUATORS[kind](**values)
 
 
 @dataclass(frozen=True)
-class Position(Actuator):
+class Position(ActuatorSpec):
     """A servo tracking a target position: MJCF ``<position kp kv>``.
     ``ctrl`` is in the joint's own units and ``ctrlrange`` is its limits.
     ``kv`` defaults to MuJoCo's own 0 — no damping term."""
@@ -290,7 +293,7 @@ class Position(Actuator):
 
 
 @dataclass(frozen=True)
-class Velocity(Actuator):
+class Velocity(ActuatorSpec):
     """A servo tracking a target rate: MJCF ``<velocity kv>``. ``ctrlrange``
     is ``±`` the joint's velocity limit."""
 
@@ -299,7 +302,7 @@ class Velocity(Actuator):
 
 
 @dataclass(frozen=True)
-class Motor(Actuator):
+class Motor(ActuatorSpec):
     """Direct force or torque: MJCF ``<motor gear>``, with ``ctrl``
     normalised to ``-1 1`` and scaled by ``gear``."""
 
@@ -307,7 +310,7 @@ class Motor(Actuator):
     gear: float = 1.0
 
 
-_ACTUATORS: dict[str, type[Actuator]] = {c.kind: c for c in (Position, Velocity, Motor)}
+_ACTUATORS: dict[str, type[ActuatorSpec]] = {c.kind: c for c in (Position, Velocity, Motor)}
 
 
 # ---- joint specs ------------------------------------------------------------
@@ -607,6 +610,70 @@ class Geom(_Handle):
 
     def __repr__(self) -> str:
         return f"Geom({self.mesh.name!r} on {self.link.name!r})"
+
+
+class Actuator(_Handle):
+    """One entry of the model's actuator table: what drives a joint in the
+    exported MJCF, under a name of its own (ADR-0023).
+
+    The name defaults to the driven joint's — MJCF keeps a per-element
+    namespace, so ``model.actuator("shoulder")`` and
+    ``model.joint("shoulder")`` coexist — but a file may have said
+    otherwise, and then this is what it said. Several actuators may drive
+    one joint; MuJoCo sums their controls.
+
+    Reach them through :attr:`Robot.actuators`, :meth:`Robot.actuator`,
+    :attr:`Joint.actuators` or :meth:`Joint.add_actuator`."""
+
+    __slots__ = ()
+
+    @property
+    def _doc(self) -> _riggen.ActuatorEntryDoc:
+        try:
+            return self.robot._inner.actuators()[self.id]
+        except KeyError:
+            raise _unknown("actuator", self.id) from None
+
+    @property
+    def name(self) -> str:
+        """Unique among actuators, and among nothing else: it may repeat a
+        joint's or a link's."""
+        return self._doc["name"]
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self.robot._inner.rename_actuator(self.id, value)
+
+    @property
+    def joint(self) -> Joint:
+        """The joint it drives."""
+        return Joint(self.robot, self._doc["target"]["Joint"])
+
+    @joint.setter
+    def joint(self, value: Joint) -> None:
+        doc = dict(self._doc)
+        doc["target"] = {"Joint": value.id}
+        self.robot._inner.set_actuator(self.id, doc)  # type: ignore[arg-type]
+
+    @property
+    def spec(self) -> ActuatorSpec:
+        """How it drives it: a :class:`Position`, :class:`Velocity` or
+        :class:`Motor`."""
+        return ActuatorSpec.from_doc(self._doc["spec"])
+
+    @spec.setter
+    def spec(self, value: ActuatorSpec) -> None:
+        doc = dict(self._doc)
+        doc["spec"] = value.to_doc()
+        self.robot._inner.set_actuator(self.id, doc)  # type: ignore[arg-type]
+
+    def remove(self) -> None:
+        """Takes this actuator out of the model. The joint keeps its
+        others."""
+        self.robot._inner.remove_actuator(self.id)
+
+    def __repr__(self) -> str:
+        return f"Actuator({self.name!r} on {self.joint.name!r}: {self.spec})"
 
 
 class Frame(_Handle):
@@ -998,20 +1065,47 @@ class Joint(_Handle):
         self._set(mimic=None if value is None else value.to_doc())
 
     @property
-    def actuator(self) -> Actuator | None:
-        """What drives this joint in the exported MJCF, or ``None`` — see
+    def actuators(self) -> list[Actuator]:
+        """Every :class:`Actuator` driving this joint, in creation order.
+        Usually none or one; an imported file may have given it several,
+        and MuJoCo sums their controls (ADR-0023)."""
+        return [
+            Actuator(self.robot, id)
+            for id, doc in self.robot._inner.actuators().items()
+            if doc["target"].get("Joint") == self.id
+        ]
+
+    def add_actuator(self, spec: ActuatorSpec, *, name: str | None = None) -> Actuator:
+        """Gives this joint one more actuator. ``name`` defaults to the
+        joint's own, suffixed ``_2``, ``_3``, … if that is taken."""
+        return Actuator(self.robot, self.robot._inner.add_actuator(self.id, spec.to_doc(), name=name))
+
+    @property
+    def actuator(self) -> ActuatorSpec | None:
+        """The preset driving this joint, or ``None`` — see
         :class:`Position`, :class:`Velocity` and :class:`Motor`. A fixed
         joint and a joint that follows another one may not carry one.
 
-        Actuators are the model's own table (ADR-0023); this reads the one
-        targeting this joint."""
-        for doc in self.robot._inner.actuators().values():
-            if doc["target"].get("Joint") == self.id:
-                return Actuator.from_doc(doc["spec"])
-        return None
+        The convenience over :attr:`actuators` for the ordinary case, where
+        a joint has at most one. When it has several this reads the first;
+        assigning then raises, because replacing them all would throw away
+        what the file brought (ADR-0023)."""
+        first = self.actuators
+        return first[0].spec if first else None
 
     @actuator.setter
-    def actuator(self, value: Actuator | None) -> None:
+    def actuator(self, value: ActuatorSpec | None) -> None:
+        driving = self.actuators
+        if len(driving) > 1:
+            # Writing here would replace or remove all of them — the same
+            # loss on the SDK side that the MJCF import closed on its own
+            # (ADR-0023). The caller has to say which one it means.
+            names = ", ".join(repr(a.name) for a in driving)
+            raise EditError(
+                f"joint {self.name!r} has {len(driving)} actuators ({names}); "
+                "assigning .actuator would replace them all. Edit one through "
+                "robot.actuator(name).spec, or joint.actuators"
+            )
         self.robot._inner.set_joint_actuator(self.id, None if value is None else value.to_doc())
 
     def move_frame(self, origin: PoseLike, axis: Axis | None = None) -> None:
@@ -1098,6 +1192,12 @@ class Robot:
         return [Frame(self, f) for f in self._inner.frames()]
 
     @property
+    def actuators(self) -> list[Actuator]:
+        """Every actuator in the model, in creation order — what drives the
+        joints in the exported MJCF (ADR-0023)."""
+        return [Actuator(self, a) for a in self._inner.actuators()]
+
+    @property
     def materials(self) -> dict[str, Material]:
         """By name; edit with :meth:`add_material` / :meth:`rename_material` /
         :meth:`remove_material`."""
@@ -1123,6 +1223,15 @@ class Robot:
         if id is None:
             raise KeyError(f"no frame named {name!r}")
         return Frame(self, id)
+
+    def actuator(self, name: str) -> Actuator:
+        """The actuator called ``name``; ``KeyError`` when there is none.
+        Its own namespace, so a joint may answer to the same name
+        (ADR-0023)."""
+        id = self._inner.actuator(name)
+        if id is None:
+            raise KeyError(f"no actuator named {name!r}")
+        return Actuator(self, id)
 
     # -- building ------------------------------------------------------------
 

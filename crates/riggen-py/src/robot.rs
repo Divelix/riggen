@@ -518,6 +518,73 @@ impl PyRobot {
 
     // ---- actuators --------------------------------------------------------
 
+    /// The id of the actuator called `name`, or `None`. Its own namespace:
+    /// a joint may answer to the same name (ADR-0023).
+    fn actuator(&self, name: &str) -> Option<u32> {
+        self.inner
+            .actuators
+            .iter()
+            .find(|(_, a)| a.name == name)
+            .map(|(id, _)| id.raw())
+    }
+
+    /// `AddActuator`: one actuator on `joint` under `name`, or under the
+    /// joint's own name when `name` is `None` (ADR-0023). Returns its id.
+    #[pyo3(signature = (joint, spec, *, name = None))]
+    fn add_actuator(
+        &mut self,
+        py: Python<'_>,
+        joint: u32,
+        spec: &Bound<'_, PyAny>,
+        name: Option<String>,
+    ) -> PyResult<u32> {
+        let joint = JointId::from_raw(joint);
+        let spec: ActuatorSpec = from_doc(spec, "actuator")?;
+        let name = name.unwrap_or_else(|| self.inner.default_actuator_name(joint));
+        Ok(self
+            .edit(
+                py,
+                Command::AddActuator(Actuator {
+                    name,
+                    target: ActuatorTarget::Joint(joint),
+                    spec,
+                }),
+            )?
+            .and_then(Created::actuator)
+            .expect("AddActuator returns the actuator it created")
+            .raw())
+    }
+
+    /// `RemoveActuator`.
+    fn remove_actuator(&mut self, py: Python<'_>, actuator: u32) -> PyResult<()> {
+        self.edit(py, Command::RemoveActuator(ActuatorId::from_raw(actuator)))?;
+        Ok(())
+    }
+
+    /// `RenameActuator`: the actuator's own name, unique among actuators.
+    fn rename_actuator(&mut self, py: Python<'_>, actuator: u32, name: String) -> PyResult<()> {
+        self.edit(
+            py,
+            Command::RenameActuator(ActuatorId::from_raw(actuator), name),
+        )?;
+        Ok(())
+    }
+
+    /// `SetActuator`: name, target and preset in one value.
+    fn set_actuator(
+        &mut self,
+        py: Python<'_>,
+        actuator: u32,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let value: Actuator = from_doc(value, "actuator")?;
+        self.edit(
+            py,
+            Command::SetActuator(ActuatorId::from_raw(actuator), value),
+        )?;
+        Ok(())
+    }
+
     /// The one-actuator edit `riggen.Joint.actuator` makes: the preset on
     /// `joint`, or `None` to take it away. `AddActuator` when the joint has
     /// none, `SetActuator` when it has one, `RemoveActuator` for `None` —

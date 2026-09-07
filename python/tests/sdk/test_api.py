@@ -186,6 +186,59 @@ def test_an_actuator_drives_a_joint_all_the_way_to_the_mjcf(pendulum_api: riggen
     hinge.actuator = None
 
 
+def test_the_actuator_table_is_its_own_namespace(pendulum_api: riggen.Robot, tmp_path: Path):
+    """Actuators are a model-level table, each with a name of its own and a
+    joint it targets (ADR-0023). `Joint.actuator` stays the convenience for
+    the ordinary one-actuator case; `robot.actuators` is the whole table."""
+    robot = pendulum_api
+    hinge = robot.joint("hinge")
+    assert robot.actuators == []
+
+    # The default name is the joint's — MJCF namespaces are per element
+    # type, so an actuator and a joint may both be called "hinge".
+    hinge.actuator = riggen.Position(kp=120.0, kv=8.0)
+    (drive,) = robot.actuators
+    assert (drive.name, drive.joint, drive.spec) == ("hinge", hinge, riggen.Position(120.0, 8.0))
+    assert robot.actuator("hinge") == drive
+    assert robot.joint("hinge").name == "hinge", "the joint keeps its own"
+
+    # A second one on the same joint: MuJoCo sums the controls, so the
+    # document keeps both rather than overwriting.
+    boost = hinge.add_actuator(riggen.Motor(gear=5.0), name="hinge_boost")
+    assert [a.name for a in robot.actuators] == ["hinge", "hinge_boost"]
+    assert [a.name for a in hinge.actuators] == ["hinge", "hinge_boost"]
+    assert boost.joint == hinge
+
+    # Now `.actuator` may not be assigned: it would replace them both.
+    with pytest.raises(riggen.EditError) as refused:
+        hinge.actuator = riggen.Velocity(kv=1.0)
+    assert "'hinge_boost'" in str(refused.value) and "robot.actuator(name)" in str(refused.value)
+    assert [a.spec for a in hinge.actuators] == [riggen.Position(120.0, 8.0), riggen.Motor(5.0)]
+
+    # Editing one by name touches only that one, and both are exported.
+    robot.actuator("hinge_boost").spec = riggen.Motor(gear=9.0)
+    assert boost.spec == riggen.Motor(9.0)
+    robot.export(tmp_path, format="mjcf")
+    mjcf = (tmp_path / "pendulum.xml").read_text()
+    assert '<position name="hinge" joint="hinge" kp="120" kv="8"' in mjcf
+    assert '<motor name="hinge_boost" joint="hinge" gear="9"' in mjcf
+
+    # A name is unique among actuators and nowhere else.
+    with pytest.raises(riggen.InvalidDocument):
+        boost.name = "hinge"
+    boost.name = "hinge_2"
+    assert robot.actuator("hinge_2") == boost
+    with pytest.raises(KeyError):
+        robot.actuator("hinge_boost")
+
+    # Removing one leaves the other, and `.actuator` works again.
+    boost.remove()
+    assert [a.name for a in robot.actuators] == ["hinge"]
+    assert hinge.actuator == riggen.Position(120.0, 8.0)
+    hinge.actuator = None
+    assert robot.actuators == []
+
+
 def test_the_api_builds_the_corpus_pendulum(pendulum_api: riggen.Robot, cubes: Path):
     pendulum_api.save(cubes / "pendulum.riggen")
     # The corpus is frozen at schema 1 and `save` writes 2 (ADR-0013), so

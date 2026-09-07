@@ -188,7 +188,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       `properties_joint_actuator_applied` refreshed, plus one new scenario
       for a joint an imported file gave two actuators — images shown to the
       human before `UPDATE_SNAPSHOTS=1` (ADR-0003).
-- [ ] **[2]** Step 9 — **the SDK.** `robot.actuators()`,
+- [x] **[2]** Step 9 — **the SDK.** `robot.actuators()`,
       `robot.actuator(name)`, `Actuator` gaining its `name` and `joint`;
       `Joint.actuator` reads the table, and its setter **raises** when the
       joint has several, naming `robot.actuators()`; `_riggen.pyi` and

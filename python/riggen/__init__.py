@@ -52,6 +52,7 @@ from .errors import (
 from .show import Viewer, show
 from .robot import (
     Actuator,
+    ActuatorSpec,
     ComputedInertial,
     Continuous,
     ConvexDecomposition,
@@ -107,6 +108,7 @@ __all__ = [
     "Dynamics",
     # actuators
     "Actuator",
+    "ActuatorSpec",
     "Position",
     "Velocity",
     "Motor",
