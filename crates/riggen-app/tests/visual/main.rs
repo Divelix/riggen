@@ -3271,6 +3271,85 @@ fn properties_joint_two_actuators() {
     });
 }
 
+/// A joint an imported file gave a `<general>` (ADR-0024): the panel's row
+/// is read-only — the actuator's name, the combo reading `general`, and
+/// its three type names — with no gain fields, and the combo can still
+/// make it a preset, one `SetActuator`. The glyph marks it `general`
+/// beside the ring. `menagerie_style.xml`'s `wrist_slide` carries `lift`.
+#[test]
+fn properties_joint_general() {
+    scenario("properties_joint_general", |harness| {
+        open_for_editing(harness.state_mut(), &menagerie_style_scratch())
+            .expect("the corpus MJCF imports");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        let slide = joint_named(harness, "wrist_slide");
+        harness.state_mut().select(Selection::Joint(slide));
+        settle(harness);
+
+        // The row: its own name, the kind, the three types, no gains.
+        harness.get_by_label("lift");
+        harness.get_by_label("dyn / gain / bias");
+        harness.get_by_label("filter / fixed / affine");
+        for gain in ["kp", "kv", "gear"] {
+            assert_eq!(
+                harness.query_all_by_label(gain).count(),
+                0,
+                "{gain}: read-only"
+            );
+        }
+        assert!(matches!(
+            driver(harness.state().robot(), slide),
+            Some(riggen_core::ActuatorSpec::General(riggen_core::General {
+                dyntype: riggen_core::DynType::Filter,
+                ..
+            }))
+        ));
+        let glyph = harness
+            .state()
+            .debug_state()
+            .glyphs
+            .into_iter()
+            .find(|g| g.name == "wrist_slide")
+            .expect("the slide's glyph");
+        assert_eq!(glyph.actuators, ["general"]);
+
+        // Replacing it is a deliberate act through the same combo every
+        // preset uses: one command, and the gains of the preset picked.
+        let depth = harness.state().history().undo_depth();
+        harness
+            .get_all_by_role(egui::accesskit::Role::ComboBox)
+            .nth(2)
+            .expect("the actuator combo")
+            .click();
+        harness.step();
+        harness
+            .get_by_role_and_label(egui::accesskit::Role::Button, "motor")
+            .click();
+        settle(harness);
+        let app = harness.state();
+        assert_eq!(app.history().undo_depth(), depth + 1, "one SetActuator");
+        assert_eq!(
+            driver(app.robot(), slide),
+            Some(riggen_core::ActuatorSpec::Motor { gear: 1.0 })
+        );
+        assert_eq!(
+            app.robot().actuators_on(slide).next().unwrap().1.name,
+            "lift",
+            "the name the file gave stays"
+        );
+        assert_eq!(riggen_core::validate(app.robot()), Ok(()));
+        // The picture is taken before the replacement: it is the row the
+        // file's actuator gets. Undo puts it back for the capture.
+        harness.state_mut().undo();
+        settle(harness);
+        assert!(matches!(
+            driver(harness.state().robot(), slide),
+            Some(riggen_core::ActuatorSpec::General(_))
+        ));
+    });
+}
+
 /// The same section's other half: the combo retypes the actuator (and the
 /// gain rows change with it), and one button gives the whole arm the same
 /// one — skipping the forearm, which follows and is already driven

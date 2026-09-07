@@ -296,7 +296,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       wrong, the verdict was not. The `properties_joint_two_actuators`
       snapshot moved — the slide's glyph gains its ring and a `general`
       mark, the status bar one warning fewer — image shown.
-- [ ] **[2]** Step 7 — **the app.** The properties panel's actuator list
+- [x] **[2]** Step 7 — **the app.** The properties panel's actuator list
       shows a `General` per the second open question; `glyphs.rs`'s
       `driven_marks` prints `general` beside the preset names it already
       prints, and the amber of an actuated joint is unchanged;
@@ -304,6 +304,13 @@ mechanical; **[2]** careful — a case to get right within a given design;
       imported file gave a `<general>`, and the two existing actuator
       scenarios refreshed only if they move — images shown to the human
       before `UPDATE_SNAPSHOTS=1` (ADR-0003).
+      *Landed.* The glyph's `general` mark and `debug_state()`'s report
+      needed no code: both print `kind_name()`, which step 4 taught the
+      word. The panel's row is one line under the combo — `dyn / gain /
+      bias` reading the three MJCF names — and the combo replaces the
+      `General` with a preset in one `SetActuator`, the file's name kept.
+      `properties_joint_general` is the new scenario (image shown); the
+      two existing actuator scenarios did not move.
 - [ ] **[2]** Step 8 — **the SDK.** A `General` spec class beside
       `Position` / `Velocity` / `Motor`, `Actuator.ranges`, `_riggen.pyi`
       and `docs/01-architecture.md`'s SDK table; `python/tests/sdk/`

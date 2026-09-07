@@ -1405,7 +1405,9 @@ measured size is in 03 §v0.2.
   the mimic and actuator set — `properties_joint_mimic`, `properties_joint_actuator`,
   `properties_joint_actuator_applied`, and v0.4's
   `properties_joint_two_actuators` (an imported joint's whole list, each
-  under its own name) —
+  under its own name) and `properties_joint_general` (an imported
+  `<general>`'s read-only row — name, kind, its three type names, no gain
+  fields — which the combo can still make a preset; ADR-0024) —
   and the frame set — `frames_tree`, `frame_properties`,
   `add_frame_button`, `gizmo_move_frame` — and `decomp_needs_consent`, the
   browser's half of the Collision block, which a native runner renders by

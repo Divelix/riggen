@@ -1761,6 +1761,23 @@ impl RiggenApp {
                                 None => Command::RemoveActuator(*id),
                             });
                         }
+                        // A `<general>` an imported file gave the joint
+                        // (ADR-0024): its three type names, read-only —
+                        // the plan's second open question, answered. The
+                        // combo above can still take it away or make it a
+                        // preset, which is a visible, deliberate act;
+                        // editing ten `prm` numbers here is MJCF's model
+                        // in a grid, which ADR-0014 declined.
+                        if let ActuatorSpec::General(g) = &a.spec {
+                            ui.label("dyn / gain / bias");
+                            ui.label(format!(
+                                "{} / {} / {}",
+                                g.dyntype.mjcf_name(),
+                                g.gaintype.mjcf_name(),
+                                g.biastype.mjcf_name()
+                            ));
+                            ui.end_row();
+                        }
                         for (label, value) in gains(&a.spec) {
                             if let Some(v) = number_row(
                                 ui,
