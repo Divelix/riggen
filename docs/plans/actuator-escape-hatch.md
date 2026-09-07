@@ -311,12 +311,18 @@ mechanical; **[2]** careful — a case to get right within a given design;
       `General` with a preset in one `SetActuator`, the file's name kept.
       `properties_joint_general` is the new scenario (image shown); the
       two existing actuator scenarios did not move.
-- [ ] **[2]** Step 8 — **the SDK.** A `General` spec class beside
+- [x] **[2]** Step 8 — **the SDK.** A `General` spec class beside
       `Position` / `Velocity` / `Motor`, `Actuator.ranges`, `_riggen.pyi`
       and `docs/01-architecture.md`'s SDK table; `python/tests/sdk/`
       covers building one, round-tripping it through `to_json`, and
       exporting it. `Joint.actuator` reads a `General` back like any other
       spec.
+      *Landed.* `General` spells its types the MJCF way (`"filter"`) and
+      maps to the document's variant names in `to_doc`; a wrong spelling
+      is a `ValueError` naming the choices, an eleventh `prm` entry the
+      document's `InvalidDocument`. `ActuatorRanges` and `Actuator.ranges`
+      beside it, all-`None` for what the SDK builds. `python/tests/sdk`
+      green against the fresh binary, `uvx pyright` clean.
 
 ## Acceptance
 The cycle's own, one bullet earlier than it will finally be run:

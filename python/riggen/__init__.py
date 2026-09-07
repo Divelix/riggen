@@ -52,6 +52,7 @@ from .errors import (
 from .show import Viewer, show
 from .robot import (
     Actuator,
+    ActuatorRanges,
     ActuatorSpec,
     ComputedInertial,
     Continuous,
@@ -59,6 +60,7 @@ from .robot import (
     Dynamics,
     Fixed,
     Frame,
+    General,
     Geom,
     HybridInertial,
     Inertial,
@@ -108,10 +110,12 @@ __all__ = [
     "Dynamics",
     # actuators
     "Actuator",
+    "ActuatorRanges",
     "ActuatorSpec",
     "Position",
     "Velocity",
     "Motor",
+    "General",
     "Material",
     "Inertial",
     # joint specs

@@ -27,10 +27,12 @@ __all__ = [
     "Limits",
     "Dynamics",
     "Actuator",
+    "ActuatorRanges",
     "ActuatorSpec",
     "Position",
     "Velocity",
     "Motor",
+    "General",
     "JointSpec",
     "Fixed",
     "Revolute",
@@ -260,15 +262,17 @@ class Dynamics:
 class ActuatorSpec:
     """**How** an actuator drives its target — the gains of one MJCF
     ``<actuator>`` element (ADR-0014). Build one with :class:`Position`,
-    :class:`Velocity` or :class:`Motor`; read one from
+    :class:`Velocity` or :class:`Motor`, or — for what no preset can say —
+    :class:`General`, MuJoCo's own actuator model (ADR-0024); read one from
     :attr:`Actuator.spec` or :attr:`Joint.actuator`.
 
-    What it drives and what it is called belong to the :class:`Actuator`
-    entry, not here (ADR-0023).
+    What it drives, what it is called and the ranges its file said belong
+    to the :class:`Actuator` entry, not here (ADR-0023, ADR-0024).
 
     MJCF only: URDF has no actuator element and gets a comment naming this
-    one instead. ``ctrlrange`` and ``forcerange`` are not typed here — they
-    come from the joint's own limits at export."""
+    one instead. ``ctrlrange`` and ``forcerange`` are
+    :attr:`Actuator.ranges`; where those are unset the export derives them
+    from the joint's own limits."""
 
     kind: ClassVar[str]
 
@@ -278,7 +282,11 @@ class ActuatorSpec:
     @staticmethod
     def from_doc(doc: _riggen.ActuatorDoc) -> ActuatorSpec:
         ((kind, values),) = doc.items()
-        return _ACTUATORS[kind](**values)
+        return _ACTUATORS[kind]._from_values(values)
+
+    @classmethod
+    def _from_values(cls, values: dict[str, Any]) -> ActuatorSpec:
+        return cls(**values)
 
 
 @dataclass(frozen=True)
@@ -310,7 +318,121 @@ class Motor(ActuatorSpec):
     gear: float = 1.0
 
 
-_ACTUATORS: dict[str, type[ActuatorSpec]] = {c.kind: c for c in (Position, Velocity, Motor)}
+# ``<general>``'s three type attributes, spelled as MJCF spells them, and
+# the document's own spelling of each (its serde variant names).
+DYN_TYPES = ("none", "integrator", "filter", "filterexact", "muscle", "user")
+GAIN_TYPES = ("fixed", "affine", "muscle", "user")
+BIAS_TYPES = ("none", "affine", "muscle", "user")
+_TYPE_DOC_NAMES: dict[str, str] = {
+    "none": "None",
+    "integrator": "Integrator",
+    "filter": "Filter",
+    "filterexact": "FilterExact",
+    "muscle": "Muscle",
+    "user": "User",
+    "fixed": "Fixed",
+    "affine": "Affine",
+}
+
+
+@dataclass(frozen=True)
+class General(ActuatorSpec):
+    """MJCF's own actuator model, ``<general>`` (ADR-0024): activation
+    dynamics, gain and bias, each a type and a parameter vector, and the
+    ``gear`` a joint transmission scales by. The escape hatch for what the
+    three presets cannot say — the presets themselves stay presets.
+
+    Types are spelled as MJCF spells them (``"filter"``, ``"affine"``);
+    a spelling MuJoCo would not take is a :class:`ValueError` naming the
+    choices. Each ``prm`` vector holds what you give it, at most ten
+    entries (the document refuses an eleventh); MuJoCo zero-fills the rest
+    and the export writes them trimmed. Every default is MuJoCo's bare
+    ``<general>``."""
+
+    kind = "General"
+    dyntype: str = "none"
+    gaintype: str = "fixed"
+    biastype: str = "none"
+    dynprm: tuple[float, ...] = ()
+    gainprm: tuple[float, ...] = ()
+    biasprm: tuple[float, ...] = ()
+    gear: float = 1.0
+
+    def __post_init__(self) -> None:
+        for what, value, choices in (
+            ("dyntype", self.dyntype, DYN_TYPES),
+            ("gaintype", self.gaintype, GAIN_TYPES),
+            ("biastype", self.biastype, BIAS_TYPES),
+        ):
+            if value not in choices:
+                raise ValueError(f"General {what}={value!r}: expected one of {', '.join(choices)}")
+        # Tuples of floats whatever was given, so two of them compare.
+        for what in ("dynprm", "gainprm", "biasprm"):
+            object.__setattr__(self, what, tuple(float(v) for v in getattr(self, what)))
+
+    def to_doc(self) -> _riggen.ActuatorDoc:
+        return {
+            "General": {
+                "dyntype": _TYPE_DOC_NAMES[self.dyntype],
+                "gaintype": _TYPE_DOC_NAMES[self.gaintype],
+                "biastype": _TYPE_DOC_NAMES[self.biastype],
+                "dynprm": list(self.dynprm),
+                "gainprm": list(self.gainprm),
+                "biasprm": list(self.biasprm),
+                "gear": float(self.gear),
+            }
+        }
+
+    @classmethod
+    def _from_values(cls, values: dict[str, Any]) -> ActuatorSpec:
+        return cls(
+            dyntype=str(values["dyntype"]).lower(),
+            gaintype=str(values["gaintype"]).lower(),
+            biastype=str(values["biastype"]).lower(),
+            dynprm=tuple(values["dynprm"]),
+            gainprm=tuple(values["gainprm"]),
+            biasprm=tuple(values["biasprm"]),
+            gear=values["gear"],
+        )
+
+
+_ACTUATORS: dict[str, type[ActuatorSpec]] = {c.kind: c for c in (Position, Velocity, Motor, General)}
+
+
+@dataclass(frozen=True)
+class ActuatorRanges:
+    """What an actuator's MJCF element said about ``ctrlrange`` /
+    ``forcerange`` and their ``ctrllimited`` / ``forcelimited``
+    (ADR-0024). ``None`` for a range means the export derives it from the
+    joint's own limits; ``None`` for a flag is MJCF's ``auto`` under the
+    ``autolimits="true"`` every export writes — limited when a range is
+    written and its lower bound is below its upper. ``ctrl_limited=False``
+    beside no ``ctrl`` is an actuator that is unlimited on purpose, rather
+    than clamped to the joint's range. An actuator you build has all four
+    unset; one an imported file brought keeps what the file said."""
+
+    ctrl: tuple[float, float] | None = None
+    force: tuple[float, float] | None = None
+    ctrl_limited: bool | None = None
+    force_limited: bool | None = None
+
+    def to_doc(self) -> _riggen.ActuatorRangesDoc:
+        return {
+            "ctrl": None if self.ctrl is None else [float(self.ctrl[0]), float(self.ctrl[1])],
+            "force": None if self.force is None else [float(self.force[0]), float(self.force[1])],
+            "ctrl_limited": self.ctrl_limited,
+            "force_limited": self.force_limited,
+        }
+
+    @staticmethod
+    def from_doc(doc: _riggen.ActuatorRangesDoc) -> ActuatorRanges:
+        ctrl, force = doc["ctrl"], doc["force"]
+        return ActuatorRanges(
+            ctrl=None if ctrl is None else (ctrl[0], ctrl[1]),
+            force=None if force is None else (force[0], force[1]),
+            ctrl_limited=doc["ctrl_limited"],
+            force_limited=doc["force_limited"],
+        )
 
 
 # ---- joint specs ------------------------------------------------------------
@@ -657,14 +779,26 @@ class Actuator(_Handle):
 
     @property
     def spec(self) -> ActuatorSpec:
-        """How it drives it: a :class:`Position`, :class:`Velocity` or
-        :class:`Motor`."""
+        """How it drives it: a :class:`Position`, :class:`Velocity`,
+        :class:`Motor` or :class:`General`."""
         return ActuatorSpec.from_doc(self._doc["spec"])
 
     @spec.setter
     def spec(self, value: ActuatorSpec) -> None:
         doc = dict(self._doc)
         doc["spec"] = value.to_doc()
+        self.robot._inner.set_actuator(self.id, doc)  # type: ignore[arg-type]
+
+    @property
+    def ranges(self) -> ActuatorRanges:
+        """The ranges its file said (ADR-0024), which the export prefers
+        over the joint-derived ones; all unset for an actuator you built."""
+        return ActuatorRanges.from_doc(self._doc["ranges"])
+
+    @ranges.setter
+    def ranges(self, value: ActuatorRanges) -> None:
+        doc = dict(self._doc)
+        doc["ranges"] = value.to_doc()
         self.robot._inner.set_actuator(self.id, doc)  # type: ignore[arg-type]
 
     def remove(self) -> None:

@@ -52,7 +52,10 @@ class MimicDoc(TypedDict):
     offset: float
 
 # How an actuator drives its target (ADR-0014): ``{"Position": {"kp", "kv"}}``
-# / ``{"Velocity": {"kv"}}`` / ``{"Motor": {"gear"}}``.
+# / ``{"Velocity": {"kv"}}`` / ``{"Motor": {"gear"}}``, or MJCF's own model
+# (ADR-0024): ``{"General": {"dyntype", "gaintype", "biastype", "dynprm",
+# "gainprm", "biasprm", "gear"}}`` with the types as the document's variant
+# names (``"Filter"``, ``"Affine"``) and the ``prm`` vectors as lists.
 ActuatorDoc = dict[str, Any]
 # What it drives (ADR-0023). ``{"Joint": <joint id>}`` is the only shape the
 # document holds today.

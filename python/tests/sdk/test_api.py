@@ -186,6 +186,67 @@ def test_an_actuator_drives_a_joint_all_the_way_to_the_mjcf(pendulum_api: riggen
     hinge.actuator = None
 
 
+def test_a_general_actuator_and_its_ranges_go_all_the_way_to_the_mjcf(pendulum_api: riggen.Robot, tmp_path: Path):
+    """`General` is MJCF's own actuator model beside the three presets
+    (ADR-0024): built, read back like any other spec, round-tripped through
+    the JSON, and written as `<general>`. `Actuator.ranges` is what the
+    export prefers over the joint's own numbers."""
+    robot = pendulum_api
+    hinge = robot.joint("hinge")
+    general = riggen.General(
+        dyntype="filter", biastype="affine", dynprm=[0.02], gainprm=[150], biasprm=[0, -150, -3], gear=2.0
+    )
+    assert general.dynprm == (0.02,) and general.biasprm == (0.0, -150.0, -3.0)
+    assert general.to_doc() == {
+        "General": {
+            "dyntype": "Filter",
+            "gaintype": "Fixed",
+            "biastype": "Affine",
+            "dynprm": [0.02],
+            "gainprm": [150.0],
+            "biasprm": [0.0, -150.0, -3.0],
+            "gear": 2.0,
+        }
+    }
+    assert riggen.General().to_doc()["General"]["dyntype"] == "None", "MuJoCo's bare <general>"
+    with pytest.raises(ValueError, match="gaintype='spring'.*fixed, affine, muscle, user"):
+        riggen.General(gaintype="spring")
+
+    hinge.actuator = general
+    assert hinge.actuator == general
+    (lift,) = robot.actuators
+    assert lift.spec == general and lift.ranges == riggen.ActuatorRanges()
+    assert riggen.Robot.from_json(robot.to_json()).joint("hinge").actuator == general
+
+    robot.export(tmp_path, format="mjcf")
+    line = (
+        '<general name="hinge" joint="hinge" dyntype="filter" gaintype="fixed" biastype="affine" '
+        'dynprm="0.02" gainprm="150" biasprm="0 -150 -3" gear="2" forcerange="-10 10"/>'
+    )
+    assert line in (tmp_path / "pendulum.xml").read_text()
+
+    # The actuator's own ranges win over the joint's; a flag of False beside
+    # no range keeps the export from inventing one.
+    lift.ranges = riggen.ActuatorRanges(ctrl=(-1, 1), force_limited=False)
+    assert lift.ranges == riggen.ActuatorRanges(ctrl=(-1.0, 1.0), force_limited=False)
+    robot.export(tmp_path, format="mjcf")
+    assert line.replace(' forcerange="-10 10"', ' ctrlrange="-1 1" forcelimited="false"') in (
+        tmp_path / "pendulum.xml"
+    ).read_text()
+    # A preset keeps its ranges through a retype, and reads them back.
+    lift.spec = riggen.Motor(gear=3.0)
+    assert lift.ranges.ctrl == (-1.0, 1.0)
+
+    # The document refuses an eleventh entry; a non-finite number never
+    # reaches it, like any other number handed across.
+    with pytest.raises(riggen.InvalidDocument, match="11 gainprm entries"):
+        hinge.actuator = riggen.General(gainprm=[1.0] * 11)
+    with pytest.raises(ValueError, match="finite"):
+        hinge.actuator = riggen.General(gear=math.inf)
+    assert hinge.actuator == riggen.Motor(3.0)
+    hinge.actuator = None
+
+
 def test_the_actuator_table_is_its_own_namespace(pendulum_api: riggen.Robot, tmp_path: Path):
     """Actuators are a model-level table, each with a name of its own and a
     joint it targets (ADR-0023). `Joint.actuator` stays the convenience for
