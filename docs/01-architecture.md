@@ -1264,7 +1264,18 @@ measured size is in 03 §v0.2.
   MJCF round trip (ADR-0015). An argument may be `MODEL_DIR=SAMPLES_DIR`,
   and the round trip uses it to hold that second model to the *original*
   document's `fk.json`: agreeing with its own samples would not catch an
-  import that lost something. Every `mjEQ_JOINT` equality — a mimic joint (ADR-0013) —
+  import that lost something. And the foreign round trip (ADR-0024): the
+  import corpus `menagerie_style.xml` imported and re-exported, its
+  argument ending in `@ORIGINAL.xml`, which makes the script compare the
+  model MuJoCo builds from the original with the one it builds from the
+  re-export, actuator by actuator and in order — transmission, target, the
+  three types, the three `prm` vectors, `gear` — with what riggen still
+  drops a named allowlist in the script (`ROUND_TRIP_DROPPED`, a name and
+  its reason, checked both ways: present in the original, absent from the
+  re-export). The four range fields are reported where they differ and not
+  yet compared (plans/actuator-escape-hatch step 3). The corpus is copied
+  under `target/` first, because importing it writes its inline mesh
+  beside it. Every `mjEQ_JOINT` equality — a mimic joint (ADR-0013) —
   must reproduce the sampled `qpos` through its `polycoef`, and a pair of
   joints the samples show as exactly coupled must have one, so a swapped
   coefficient order and a dropped `<equality>` both fail. The `.fk.json`'s
@@ -1522,9 +1533,11 @@ measured size is in 03 §v0.2.
 - CI (`ci.yml`): `cargo fmt --check`, `clippy -D warnings`, `cargo test`, the
   `wasm` job — `web/build.sh`, the whole wasm-bindgen bundle the demo is
   served from (§The web build), not a build check — the `mujoco` job — the app's
-  `--export` of `arm.riggen`, of `arm.urdf`, of `bracket.riggen` and of
-  the first of those exports read back as MJCF (with `rust-cache`), then
-  `python/tests/test_mjcf_load.py` on all four through `uv` (ADR-0008 §3)
+  `--export` of `arm.riggen`, of `arm.urdf`, of `bracket.riggen`, of
+  the first of those exports read back as MJCF and of the import corpus
+  `menagerie_style.xml` (with `rust-cache`), then
+  `python/tests/test_mjcf_load.py` on all five through `uv` (ADR-0008 §3),
+  the corpus compared with its original actuator by actuator (ADR-0024)
   —
   the `sdf` job — the same three documents exported as SDF, then
   `python/tests/test_sdf_load.py` under `libsdformat`'s own Python

@@ -26,6 +26,16 @@ round trip is checked (ADR-0015): the arm exported, imported back and
 exported again has to reproduce the *original* document's FK, not merely
 agree with its own.
 
+An argument may also end in `@ORIGINAL.xml`, a *foreign* MJCF the directory's
+model is riggen's re-export of (ADR-0024, plans/actuator-escape-hatch). Then
+the model MuJoCo builds from the original is compared with the one it builds
+from the re-export, actuator by actuator and in order — transmission, target,
+the three types, the three `prm` vectors and `gear` — and what riggen still
+drops is `ROUND_TRIP_DROPPED`: a name and its reason, and a promise that the
+actuator is *absent* from the re-export, so the step that starts reading it
+has to delete its line. The four range fields are reported where they differ
+and not yet compared; step 3 of that plan moves them over.
+
     uv run --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample
 
 Plain script, no pytest: the CI job is the four lines in the plan's
@@ -273,6 +283,111 @@ def check_actuators(model: mujoco.MjModel, samples: dict) -> int:
     return len(want)
 
 
+# The round trip of a foreign file (ADR-0024): what MuJoCo holds for an
+# actuator, compared field for field between the original and the re-export.
+ROUND_TRIP_FIELDS = (
+    "trntype", "target", "dyntype", "gaintype", "biastype",
+    "dynprm", "gainprm", "biasprm", "gear",
+)
+# Reported where they differ, not yet compared: they agree only once the
+# actuator carries what the file said (plans/actuator-escape-hatch step 3).
+ROUND_TRIP_REPORTED = ("ctrlrange", "forcerange", "ctrllimited", "forcelimited")
+# What riggen still drops on the way through, by name and with the reason.
+# Every entry is checked both ways: the original has it, the re-export does
+# not. The step that starts reading one deletes its line here.
+ROUND_TRIP_DROPPED = {
+    "lift": "a <general>; plans/actuator-escape-hatch step 6 reads it",
+    "grip": "drives a tendon, and the document has none until the couplings bullet",
+}
+
+
+def actuator_fields(model: mujoco.MjModel, i: int) -> dict:
+    """Actuator `i` as comparable values: names for ids and enums, lists for arrays.
+
+    `trnid` is an index into the model's joints (tendons, sites, bodies),
+    and two models need not number them alike, so the target is its
+    *name*; `trntype` and the three types are their enum names, so a
+    failure reads `filter`, not `2`.
+    """
+    trntype = mujoco.mjtTrn(int(model.actuator_trntype[i]))
+    trnid = int(model.actuator_trnid[i][0])
+    target = {
+        mujoco.mjtTrn.mjTRN_JOINT: model.joint,
+        mujoco.mjtTrn.mjTRN_JOINTINPARENT: model.joint,
+        mujoco.mjtTrn.mjTRN_TENDON: model.tendon,
+        mujoco.mjtTrn.mjTRN_SITE: model.site,
+        mujoco.mjtTrn.mjTRN_BODY: model.body,
+    }.get(trntype)
+    return {
+        "trntype": trntype.name,
+        "target": target(trnid).name if target else trnid,
+        "dyntype": mujoco.mjtDyn(int(model.actuator_dyntype[i])).name,
+        "gaintype": mujoco.mjtGain(int(model.actuator_gaintype[i])).name,
+        "biastype": mujoco.mjtBias(int(model.actuator_biastype[i])).name,
+        "dynprm": model.actuator_dynprm[i].tolist(),
+        "gainprm": model.actuator_gainprm[i].tolist(),
+        "biasprm": model.actuator_biasprm[i].tolist(),
+        "gear": model.actuator_gear[i].tolist(),
+        "ctrlrange": model.actuator_ctrlrange[i].tolist(),
+        "forcerange": model.actuator_forcerange[i].tolist(),
+        "ctrllimited": bool(model.actuator_ctrllimited[i]),
+        "forcelimited": bool(model.actuator_forcelimited[i]),
+    }
+
+
+def same(a, b) -> bool:
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and bool(np.allclose(a, b, rtol=0, atol=TOLERANCE))
+    return a == b
+
+
+def check_round_trip_actuators(original: mujoco.MjModel, model: mujoco.MjModel) -> tuple[int, list[str]]:
+    """The re-export's `<actuator>` block is the original's, element for element.
+
+    In order, because an actuator's index is its slot in `ctrl`, and a
+    policy trained on the original addresses it by that. Returns how many
+    actuators agreed and the differences in the fields that are reported
+    rather than compared.
+    """
+    names = [original.actuator(i).name for i in range(original.nu)]
+    have = [model.actuator(i).name for i in range(model.nu)]
+    for name, reason in ROUND_TRIP_DROPPED.items():
+        if name not in names:
+            raise AssertionError(
+                f"ROUND_TRIP_DROPPED names {name!r} ({reason}), which the original "
+                f"does not have (it has {names}): a stale entry"
+            )
+        if name in have:
+            raise AssertionError(
+                f"actuator {name!r} is in the re-export, but ROUND_TRIP_DROPPED still "
+                f"says riggen drops it ({reason}): delete its line"
+            )
+    want = [n for n in names if n not in ROUND_TRIP_DROPPED]
+    if have != want:
+        raise AssertionError(
+            f"the re-export's actuators are {have}, the original's — less the "
+            f"{sorted(ROUND_TRIP_DROPPED)} riggen drops by name — are {want}: "
+            "one was dropped, invented or reordered on the way through"
+        )
+    notes = []
+    for name in want:
+        a = actuator_fields(original, int(original.actuator(name).id))
+        b = actuator_fields(model, int(model.actuator(name).id))
+        for field in ROUND_TRIP_FIELDS:
+            if not same(a[field], b[field]):
+                raise AssertionError(
+                    f"actuator {name!r} {field}: the original has {a[field]}, "
+                    f"the re-export {b[field]}"
+                )
+        for field in ROUND_TRIP_REPORTED:
+            if not same(a[field], b[field]):
+                notes.append(
+                    f"actuator {name!r} {field}: the original has {a[field]}, "
+                    f"the re-export {b[field]} (not compared yet)"
+                )
+    return len(want), notes
+
+
 PIECE = re.compile(r"^(?P<stem>.+)_hull_(?P<index>\d+)$")
 
 
@@ -305,10 +420,17 @@ def check_decomposition(model: mujoco.MjModel) -> int:
     return sum(len(i) for i in found.values())
 
 
+def parse_spec(arg: str) -> tuple[str, str, str | None]:
+    """`MODEL_DIR[=SAMPLES_DIR][@ORIGINAL.xml]` → (model dir, samples dir, original)."""
+    dirs, _, original = arg.partition("@")
+    model_dir, _, samples_dir = dirs.partition("=")
+    return model_dir, samples_dir or model_dir, original or None
+
+
 def main(argv: list[str]) -> int:
-    specs = [tuple(a.split("=", 1) * 2)[:2] for a in argv] or [("target/sample",) * 2]
+    specs = [parse_spec(a) for a in argv] or [("target/sample", "target/sample", None)]
     failures = 0
-    for model_dir, samples_dir in specs:
+    for model_dir, samples_dir, original_xml in specs:
         directory, samples_root = Path(model_dir), Path(samples_dir)
         xmls = sorted(directory.glob("*.xml"))
         if not xmls:
@@ -347,7 +469,22 @@ def main(argv: list[str]) -> int:
                     word = "equality" if equalities == 1 else "equalities"
                     summary += f", {equalities} mimic {word} checked against the samples"
                 summary += f", {actuators} actuator(s) match what the samples ask for"
+            notes: list[str] = []
+            if original_xml:
+                try:
+                    original = load(Path(original_xml))
+                    agreed, notes = check_round_trip_actuators(original, model)
+                except (AssertionError, WarningError, ValueError) as e:
+                    print(f"FAIL {xml} against {original_xml}: {type(e).__name__}: {e}")
+                    failures += 1
+                    continue
+                summary += (
+                    f", {agreed} actuator(s) are {original_xml}'s field for field"
+                    f" ({len(ROUND_TRIP_DROPPED)} dropped by name)"
+                )
             print(f"ok   {xml}: {summary}")
+            for note in notes:
+                print(f"     note {note}")
     return 1 if failures else 0
 
 

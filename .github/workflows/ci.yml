@@ -93,7 +93,20 @@ jobs:
       # anything the import quietly lost fails here rather than agreeing
       # with itself.
       - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-mjcf-in target/sample/arm.xml
-      - run: uv run --no-project --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample target/sample-urdf target/sample-decomp target/sample-mjcf-in target/sample-mjcf-in=target/sample
+      # The foreign round trip (ADR-0024, plans/actuator-escape-hatch): the
+      # import corpus `menagerie_style.xml` — a file riggen never wrote —
+      # imported and re-exported. Copied out of the tree first, because
+      # importing it writes its one inline mesh beside it (02 §Geometry).
+      # `@target/corpus/…` names the original: the model MuJoCo builds
+      # from it is compared with the one it builds from the re-export,
+      # actuator by actuator, and what riggen still drops is a named
+      # allowlist in the test that later steps empty.
+      - run: |
+          mkdir -p target/corpus/arm
+          cp assets/fixtures/menagerie_style.xml target/corpus/
+          cp assets/fixtures/arm/base.stl assets/fixtures/arm/shoulder.stl assets/fixtures/arm/thing.msh target/corpus/arm/
+      - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-corpus target/corpus/menagerie_style.xml
+      - run: uv run --no-project --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample target/sample-urdf target/sample-decomp target/sample-mjcf-in target/sample-mjcf-in=target/sample target/sample-corpus@target/corpus/menagerie_style.xml
 
   # The SDF acceptance (ADR-0016 §6): the app's headless export produces the
   # sample arm's SDF, and libsdformat — the spec's own parser, through its

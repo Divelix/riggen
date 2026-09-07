@@ -836,7 +836,14 @@ five orientation spellings, a `fromto` capsule, a non-uniform mesh scale, a
 than its joint plus a second one on that same joint (both kept, ADR-0023),
 and nine elements the document has no field for — and its test pins the result warning by warning. The round trip
 itself is the `mujoco` CI job's fourth model: the arm exported, imported
-and exported again, held to the *original* document's `fk.json`.
+and exported again, held to the *original* document's `fk.json`. The
+corpus is its fifth (ADR-0024): imported and re-exported, it must load
+with zero warnings, agree with `fk`, and carry the original's
+`<actuator>` block element for element — the model MuJoCo builds from
+each file compared per actuator, with what riggen still drops a named
+allowlist in the script (01 §Testing). Its `arm/thing.msh` is a
+tetrahedron for that reason: MuJoCo's own `.msh` reader refuses fewer than
+four vertices.
 
 ## Schema
 

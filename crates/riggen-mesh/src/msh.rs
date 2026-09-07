@@ -157,6 +157,52 @@ mod tests {
         std::fs::write(fixture("cube.msh"), to_msh(&TriMesh::cube(0.5))).unwrap();
     }
 
+    /// `assets/fixtures/arm/thing.msh`, the `.msh` the MJCF corpus
+    /// (`menagerie_style.xml`) references as `grip`: the unit tetrahedron,
+    /// wound counter-clockwise seen from outside. Four vertices is the
+    /// floor — MuJoCo's own `LoadMSH` refuses fewer ("invalid sizes in MSH
+    /// file"), and a re-export of it as `.stl` fails the same way ("at
+    /// least 4 vertices required") — so the single triangle the fixture
+    /// began as kept the corpus out of MuJoCo altogether
+    /// (plans/actuator-escape-hatch step 2).
+    fn thing() -> TriMesh {
+        TriMesh {
+            positions: vec![DVec3::ZERO, DVec3::X, DVec3::Y, DVec3::Z],
+            normals: Vec::new(),
+            indices: vec![0, 2, 1, 0, 3, 2, 0, 1, 3, 1, 2, 3],
+        }
+    }
+
+    /// Regenerates `assets/fixtures/arm/thing.msh` from [`thing`]; ignored
+    /// for the same reason as [`write_cube_msh_fixture`]: `cargo test -p
+    /// riggen-mesh write_thing_msh_fixture -- --ignored`.
+    #[test]
+    #[ignore = "writes the committed fixture; run on purpose"]
+    fn write_thing_msh_fixture() {
+        std::fs::write(fixture("arm/thing.msh"), to_msh(&thing())).unwrap();
+    }
+
+    #[test]
+    fn thing_fixture_is_a_solid_matching_its_generator() {
+        assert_eq!(
+            std::fs::read(fixture("arm/thing.msh")).unwrap(),
+            to_msh(&thing())
+        );
+        let mesh = load_msh(&fixture("arm/thing.msh")).unwrap();
+        mesh.validate().unwrap();
+        assert_eq!(mesh.triangle_count(), 4);
+        assert!(
+            (0..4).all(|i| {
+                let [a, b, c] = mesh.triangle(i);
+                // Outward: every face normal points away from the centroid.
+                mesh.face_normal(i)
+                    .dot((a + b + c) / 3.0 - DVec3::splat(0.25))
+                    > 0.0
+            }),
+            "every face wound counter-clockwise seen from outside"
+        );
+    }
+
     #[test]
     fn fixture_is_the_unit_cube() {
         let mesh = load_msh(&fixture("cube.msh")).unwrap();
