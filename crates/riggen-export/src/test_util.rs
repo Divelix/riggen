@@ -114,6 +114,18 @@ impl Builder {
     /// straight into the table.
     pub(crate) fn actuator(&mut self, joint: JointId, spec: ActuatorSpec) -> ActuatorId {
         let name = self.robot.default_actuator_name(joint);
+        self.named_actuator(&name, joint, spec)
+    }
+
+    /// The same, under a name of the caller's choosing — what a file that
+    /// named its `<actuator>` something else imports to.
+    pub(crate) fn named_actuator(
+        &mut self,
+        name: &str,
+        joint: JointId,
+        spec: ActuatorSpec,
+    ) -> ActuatorId {
+        let name = name.to_owned();
         let id: ActuatorId = self.robot.next_id.alloc();
         self.robot.actuators.insert(
             id,
@@ -188,6 +200,7 @@ pub(crate) fn every_joint_kind() -> Builder {
     for (joint, spec) in driven {
         b.actuator(joint, spec);
     }
+
     b.robot.links.get_mut(&wheel).unwrap().visuals[0].pose = Pose::new(
         DVec3::new(0.0, 0.02, 0.0),
         DQuat::from_rotation_x(std::f64::consts::FRAC_PI_2),

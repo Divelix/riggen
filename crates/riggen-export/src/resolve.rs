@@ -329,9 +329,18 @@ pub struct ResolvedJoint {
     pub dynamics: Dynamics,
     /// This joint follows another one (ADR-0013).
     pub mimic: Option<ResolvedMimic>,
-    /// What drives this joint in MJCF (ADR-0014). Copied through: the
-    /// preset is already the numbers a writer needs.
-    pub actuator: Option<ActuatorSpec>,
+}
+
+/// One `<actuator>` element (ADR-0014, as ADR-0023 keys it): its own name,
+/// the joint it drives as an **index into `ResolvedRobot::joints`** — so a
+/// writer needs nothing but the vectors it already has (ADR-0004 §1) — and
+/// the preset, copied through because it is already the numbers a writer
+/// needs. Several may name one joint; MuJoCo sums them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedActuator {
+    pub name: String,
+    pub joint: usize,
+    pub spec: ActuatorSpec,
 }
 
 /// `q(this) = multiplier * q(joints[joint]) + offset` (ADR-0013). The
@@ -352,6 +361,8 @@ pub struct ResolvedRobot {
     pub links: Vec<ResolvedLink>,
     /// `joints[i]` is the parent joint of `links[i + 1]`.
     pub joints: Vec<ResolvedJoint>,
+    /// What drives the joints, in `ActuatorId` order (ADR-0023).
+    pub actuators: Vec<ResolvedActuator>,
     /// Every mesh file to write, by stem: the union of what the geoms name.
     pub meshes: BTreeMap<String, Arc<TriMesh>>,
     pub floating_base: bool,
@@ -366,6 +377,12 @@ impl ResolvedRobot {
     /// Joints whose parent is `links[link]`, in order.
     pub fn child_joints(&self, link: usize) -> impl Iterator<Item = &ResolvedJoint> + '_ {
         self.joints.iter().filter(move |j| j.parent == link)
+    }
+
+    /// The actuators driving `joints[joint]`, in order. What "this joint
+    /// has an actuator" is now asked as (ADR-0023).
+    pub fn actuators_on(&self, joint: usize) -> impl Iterator<Item = &ResolvedActuator> + '_ {
+        self.actuators.iter().filter(move |a| a.joint == joint)
     }
 }
 
@@ -427,9 +444,8 @@ pub fn resolve(
 
     for (i, &lid) in order.iter().enumerate() {
         let link = &robot.links[&lid];
-        let parent_joint_id = robot.parent_joint(lid);
-        let parent_joint = parent_joint_id.map(|j| &robot.joints[&j]);
-        if let Some((jid, joint)) = parent_joint_id.zip(parent_joint) {
+        let parent_joint = robot.parent_joint(lid).map(|j| &robot.joints[&j]);
+        if let Some(joint) = parent_joint {
             joints.push(ResolvedJoint {
                 name: joint.name.clone(),
                 kind: joint.kind,
@@ -444,7 +460,6 @@ pub fn resolve(
                     multiplier: m.multiplier,
                     offset: m.offset,
                 }),
-                actuator: robot.actuators_on(jid).next().map(|(_, a)| a.spec),
             });
         }
 
@@ -655,10 +670,26 @@ pub fn resolve(
     if !errors.is_empty() {
         return Err(errors);
     }
+    // The table, in `ActuatorId` order, its targets re-expressed as
+    // indices (ADR-0023). `validate` passed, so every target is a joint of
+    // the document and every joint is some reachable link's parent joint.
+    let actuators = robot
+        .actuators
+        .values()
+        .filter_map(|a| {
+            Some(ResolvedActuator {
+                name: a.name.clone(),
+                joint: joint_index[&a.target.joint()?],
+                spec: a.spec,
+            })
+        })
+        .collect();
+
     Ok(ResolvedRobot {
         name: robot.name.clone(),
         links,
         joints,
+        actuators,
         meshes: files,
         floating_base: options.floating_base,
     })

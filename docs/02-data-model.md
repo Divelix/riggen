@@ -374,11 +374,14 @@ export oracle and the round-trip tests' contract, and a frame is not a body.
 `--fk-samples` writes as `sites` and the SDK's `frame.world(q)` returns.
 `--fk-samples` writes every movable joint's `q`, a follower's at its
 **derived** value, so the `qpos` it hands MuJoCo already satisfies the
-equality the MJCF carries. It also writes an `actuators` block — name,
-kind, driven joint, gains and the two ranges per `<actuator>` (ADR-0014),
+equality the MJCF carries. It also writes an `actuators` block — the
+actuator's own name, its kind, the driven joint, the gains and the two
+ranges per `<actuator>` (ADR-0014, ADR-0023), in `ActuatorId` order,
 derived from the document beside the writer's own derivation from
-`ResolvedJoint`, so the MuJoCo acceptance compares two statements of one
-rule rather than the writer with itself.
+`ResolvedActuator`, so the MuJoCo acceptance compares two statements of one
+rule rather than the writer with itself. Name and joint are separate
+fields there because they are separate fields in the document: assuming one
+from the other is exactly the loss ADR-0023 closes.
 
 `fk` resolves mimic joints first, through `resolve_q`: a follower's `q` is
 `multiplier · q(leader) + offset` (ADR-0013) and whatever the caller put in
@@ -497,6 +500,7 @@ pub struct ResolvedRobot {
     pub name: String,
     pub links: Vec<ResolvedLink>,     // topological order, root first
     pub joints: Vec<ResolvedJoint>,   // joints[i] is the parent joint of links[i + 1]
+    pub actuators: Vec<ResolvedActuator>, // ActuatorId order (ADR-0023)
     pub meshes: BTreeMap<String, Arc<TriMesh>>, // every file to write, by stem, in meters
     pub floating_base: bool,
 }
@@ -511,7 +515,8 @@ pub struct ResolvedLink {
 pub struct ResolvedSite { pub name: String, pub pose: Pose }  // frame in the link frame
 pub enum ResolvedGeom { Mesh { name, mesh: Arc<TriMesh>, pose }, Primitive(Primitive) }
 pub struct ResolvedJoint { name, kind, parent: usize, child: usize, origin: Pose, axis: DVec3, limits, dynamics,
-                           mimic: Option<ResolvedMimic>, actuator: Option<ActuatorSpec> }
+                           mimic: Option<ResolvedMimic> }
+pub struct ResolvedActuator { pub name: String, pub joint: usize, pub spec: ActuatorSpec }  // joint indexes ResolvedRobot::joints
 pub struct ResolvedMimic { pub joint: usize, pub multiplier: f64, pub offset: f64 }  // joint indexes ResolvedRobot::joints
 pub struct ExportOptions { format: Format, mesh_paths: MeshPathStyle, floating_base: bool }
 pub struct Format { pub mjcf: bool, pub urdf: bool, pub sdf: bool }  // a set, not a choice; Default is all three
@@ -592,8 +597,8 @@ ignores it, because it has `meshdir`.
 | Root | first `<link>` | `<worldbody>` child; `floating_base` in `ExportOptions` adds `<freejoint name="root"/>` | first `<link>`; a **fixed** base is `<joint name="world_joint" type="fixed"><parent>world</parent>`, and `floating_base` is that joint left out |
 | Frame (`Frame`, a `ResolvedSite`) | a massless `<link name="tcp"/>` — no visual, collision or inertial — plus `<joint name="tcp_fixed" type="fixed">` with the frame pose as its `<origin xyz rpy/>`; the dummy links after every real link and the fixed joints after every real joint, so the file still reads root-first (ADR-0012) | `<site name pos quat/>` inside its body after the geoms, bare: no `size`, `group` or `rgba`, so MuJoCo's default 0.005 m sphere marks it (ADR-0012) | `<frame name attached_to="«link»"><pose/>` after the joints — `<pose>`'s default `relative_to` *is* `attached_to`, so the link-frame pose goes out unchanged, and no dummy link is needed |
 | Mimic (`ResolvedMimic`) | `<mimic joint multiplier offset/>` inside the follower's `<joint>`, after `<dynamics>` | `<equality><joint joint1="follower" joint2="leader" polycoef="offset multiplier 0 0 0"/></equality>` after `</worldbody>` — a **soft** solver constraint, not a reduction (ADR-0013) | `<axis><mimic joint="«leader»"><multiplier><offset><reference>0` — SDF 1.11's own element. Its rule is `follower = multiplier·(leader − reference) + offset`, which at `reference = 0` is URDF's exactly |
-| Actuator (`ActuatorSpec`) | nothing — `<transmission>` is a `ros_control` relic; a comment after the `<joint>` names the preset and its gains, like the `armature` one (ADR-0014) | one `<actuator>` block after `</equality>`: `<position kp kv>` / `<velocity kv>` / `<motor gear>`, `name` and `joint` both the **joint's own name** | nothing, and the same comment. Gazebo drives a joint through a `<plugin>` naming a C++ class, a shared library and a version of Gazebo — a simulator configuration, not a robot description (ADR-0016 §5) |
-| Effort / velocity | `<limit effort velocity/>` | the actuator's `forcerange="-effort effort"`, and its `ctrlrange` — `lower upper` for a position servo, `±velocity` for a velocity one, the normalised `-1 1` for a motor. A zero `effort` / `velocity` is the *unfilled* value, so the attribute is **omitted** and MuJoCo's unbounded default stands, never `0 0`. A joint with no actuator keeps the comment naming what was dropped (ADR-0004 §4 as amended by ADR-0014) | `<axis><limit><effort><velocity>`, **omitted when zero** for MJCF's reason: SDF's default is infinity and a literal `0` is a joint that can exert nothing |
+| Actuator (`ActuatorSpec`) | nothing — `<transmission>` is a `ros_control` relic; a comment after the `<joint>` names the preset and its gains, like the `armature` one (ADR-0014) | one `<actuator>` block after `</equality>`, one element per table entry in `ActuatorId` order: `<position kp kv>` / `<velocity kv>` / `<motor gear>`, `name` the **actuator's own** (the joint's by default, ADR-0023) and `joint` the driven joint's. Several may drive one joint; MuJoCo sums them | nothing, and the same comment. Gazebo drives a joint through a `<plugin>` naming a C++ class, a shared library and a version of Gazebo — a simulator configuration, not a robot description (ADR-0016 §5) |
+| Effort / velocity | `<limit effort velocity/>` | the actuator's `forcerange="-effort effort"`, and its `ctrlrange` — `lower upper` for a position servo, `±velocity` for a velocity one, the normalised `-1 1` for a motor. A zero `effort` / `velocity` is the *unfilled* value, so the attribute is **omitted** and MuJoCo's unbounded default stands, never `0 0`. A joint **no** actuator targets keeps the comment naming what was dropped (ADR-0004 §4 as amended by ADR-0014, re-keyed by ADR-0023) | `<axis><limit><effort><velocity>`, **omitted when zero** for MJCF's reason: SDF's default is infinity and a literal `0` is a joint that can exert nothing |
 | Dynamics | `<dynamics damping friction/>` | `damping`, `frictionloss`, `armature` on the `<joint>`, written only when non-zero | `<axis><dynamics><damping><friction>`, written only when either is non-zero; `armature` is a comment, as in URDF |
 | Angles | radians | **`<compiler angle="radian" meshdir="meshes" autolimits="true"/>` is always written** — MJCF's default is degrees | radians; `<pose>` is `x y z roll pitch yaw` with URDF's own `Rz·Ry·Rx` convention, through the one `Pose::to_xyz_rpy` the URDF writer uses too |
 

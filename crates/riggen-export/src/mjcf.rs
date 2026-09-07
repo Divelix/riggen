@@ -7,7 +7,7 @@
 use riggen_core::glam::DVec3;
 use riggen_core::{ActuatorSpec, JointKind, Pose, Primitive};
 
-use crate::resolve::{ExportOptions, ResolvedGeom, ResolvedJoint, ResolvedRobot};
+use crate::resolve::{ExportOptions, ResolvedActuator, ResolvedGeom, ResolvedJoint, ResolvedRobot};
 use crate::xml::{Xml, num, quat, vec3};
 
 /// The translucent orange of the unirobot example's collision class.
@@ -87,15 +87,15 @@ pub fn write(robot: &ResolvedRobot, _options: &ExportOptions) -> String {
         x.close("equality");
     }
 
-    // One element per actuated joint, named after it (ADR-0014): MJCF
+    // One element per actuator, under its own name (ADR-0023): MJCF
     // namespaces are per element type, so `model.actuator("shoulder")` and
-    // `model.joint("shoulder")` coexist and `data.ctrl` is indexable by the
-    // name the user already knows.
-    if robot.joints.iter().any(|j| j.actuator.is_some()) {
+    // `model.joint("shoulder")` coexist — and the default name is the
+    // joint's, so `data.ctrl` stays indexable by the name the user already
+    // knows unless a file said otherwise.
+    if !robot.actuators.is_empty() {
         x.open("actuator", &[]);
-        for j in &robot.joints {
-            let Some(a) = j.actuator else { continue };
-            write_actuator(&mut x, j, a);
+        for a in &robot.actuators {
+            write_actuator(&mut x, a, &robot.joints[a.joint]);
         }
         x.close("actuator");
     }
@@ -117,7 +117,9 @@ fn write_body(x: &mut Xml, robot: &ResolvedRobot, index: usize) {
         x.empty("freejoint", &[("name", "root".into())]);
     }
     if let Some(j) = joint.filter(|j| j.kind.is_movable()) {
-        write_joint(x, j);
+        // `joints[index - 1]` is `links[index]`'s parent joint.
+        let driven = robot.actuators_on(index - 1).next().is_some();
+        write_joint(x, j, driven);
     }
     if let Some(i) = &link.inertial {
         let m = &i.inertia;
@@ -162,7 +164,7 @@ fn write_body(x: &mut Xml, robot: &ResolvedRobot, index: usize) {
     x.close("body");
 }
 
-fn write_joint(x: &mut Xml, j: &ResolvedJoint) {
+fn write_joint(x: &mut Xml, j: &ResolvedJoint, driven: bool) {
     let mut attrs = vec![
         ("name", j.name.clone()),
         (
@@ -189,10 +191,11 @@ fn write_joint(x: &mut Xml, j: &ResolvedJoint) {
         attrs.push(("armature", num(d.armature)));
     }
     x.empty("joint", &attrs);
-    // ADR-0004 §4, as amended by ADR-0014: what MJCF cannot hold without an
-    // actuator is named, not dropped — but only while the joint has none,
-    // or the apology would be a lie beside the `<actuator>` two lines down.
-    if let Some(l) = j.limits.filter(|_| j.actuator.is_none()) {
+    // ADR-0004 §4, as amended by ADR-0014 and re-keyed by ADR-0023: what
+    // MJCF cannot hold without an actuator is named, not dropped — but only
+    // while **no** actuator targets the joint, or the apology would be a
+    // lie beside the `<actuator>` a few lines down.
+    if let Some(l) = j.limits.filter(|_| !driven) {
         x.comment(&format!(
             "joint {}: effort {} velocity {} need an <actuator>; not written",
             j.name,
@@ -202,7 +205,8 @@ fn write_joint(x: &mut Xml, j: &ResolvedJoint) {
     }
 }
 
-/// One `<position>` / `<velocity>` / `<motor>` for `j` (ADR-0014).
+/// One `<position>` / `<velocity>` / `<motor>`: `a` under its own name,
+/// driving `j` (ADR-0014, ADR-0023).
 ///
 /// `ctrlrange` is the joint's own range for a position servo and `±velocity`
 /// for a velocity one — both out of `Limits`, so a `Continuous` joint has
@@ -211,9 +215,9 @@ fn write_joint(x: &mut Xml, j: &ResolvedJoint) {
 /// *unfilled* value, not a clamp to zero, so its attribute is left out and
 /// MuJoCo's own unbounded default stands (`autolimits="true"` then leaves
 /// the matching `*limited` off).
-fn write_actuator(x: &mut Xml, j: &ResolvedJoint, actuator: ActuatorSpec) {
+fn write_actuator(x: &mut Xml, a: &ResolvedActuator, j: &ResolvedJoint) {
     let symmetric = |v: f64| (v != 0.0).then(|| format!("{} {}", num(-v), num(v)));
-    let (tag, gains, ctrlrange) = match actuator {
+    let (tag, gains, ctrlrange) = match a.spec {
         ActuatorSpec::Position { kp, kv } => (
             "position",
             vec![("kp", num(kp)), ("kv", num(kv))],
@@ -229,7 +233,7 @@ fn write_actuator(x: &mut Xml, j: &ResolvedJoint, actuator: ActuatorSpec) {
             ("motor", vec![("gear", num(gear))], Some("-1 1".to_owned()))
         }
     };
-    let mut attrs = vec![("name", j.name.clone()), ("joint", j.name.clone())];
+    let mut attrs = vec![("name", a.name.clone()), ("joint", j.name.clone())];
     attrs.extend(gains);
     if let Some(range) = ctrlrange {
         attrs.push(("ctrlrange", range));
@@ -440,6 +444,48 @@ pub(crate) mod tests {
             line(ActuatorSpec::Velocity { kv: 2.0 }, 0.0, 0.0),
             r#"<velocity name="upper_joint" joint="upper_joint" kv="2"/>"#
         );
+    }
+
+    /// The two things `Joint::actuator` could not say (ADR-0023): an
+    /// element under a name that is not its joint's, and two elements
+    /// driving one joint. Both are what MJCF itself allows — namespaces are
+    /// per element type, and MuJoCo sums the controls of every actuator on
+    /// a joint — so both must come out of the writer as the document holds
+    /// them.
+    #[test]
+    fn an_actuator_writes_its_own_name_and_a_joint_may_have_two() {
+        let mut b = every_joint_kind();
+        let wheel = *b
+            .robot
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "wheel_joint")
+            .unwrap()
+            .0;
+        b.named_actuator("wheel_boost", wheel, ActuatorSpec::Motor { gear: 5.0 });
+        let xml = write(&b.resolve().unwrap(), &ExportOptions::default());
+
+        // By the trimmed line, not by `contains`: the apologetic comment
+        // says "need an <actuator>" too.
+        let block: Vec<&str> = xml
+            .lines()
+            .map(str::trim)
+            .skip_while(|l| *l != "<actuator>")
+            .skip(1)
+            .take_while(|l| *l != "</actuator>")
+            .collect();
+        assert_eq!(
+            block,
+            [
+                r#"<position name="upper_joint" joint="upper_joint" kp="100" kv="5" ctrlrange="-1 1" forcerange="-1 1"/>"#,
+                r#"<velocity name="wheel_joint" joint="wheel_joint" kv="2"/>"#,
+                r#"<motor name="wheel_boost" joint="wheel_joint" gear="5" ctrlrange="-1 1"/>"#,
+            ],
+            "in ActuatorId order, each under its own name\n{xml}"
+        );
+        // And the apology stays off a joint that any actuator drives — the
+        // second one does not make it true again (ADR-0004 §4).
+        assert!(!xml.contains("joint wheel_joint: effort"), "{xml}");
     }
 
     #[test]

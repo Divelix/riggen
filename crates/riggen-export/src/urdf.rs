@@ -62,8 +62,8 @@ pub fn write(robot: &ResolvedRobot, options: &ExportOptions, dir: &Path) -> Stri
     for (_, site) in sites() {
         x.empty("link", &[("name", site.name.clone())]);
     }
-    for joint in &robot.joints {
-        write_joint(&mut x, robot, joint);
+    for (index, joint) in robot.joints.iter().enumerate() {
+        write_joint(&mut x, robot, index, joint);
     }
     for (link, site) in sites() {
         x.open(
@@ -82,7 +82,7 @@ pub fn write(robot: &ResolvedRobot, options: &ExportOptions, dir: &Path) -> Stri
     x.finish()
 }
 
-fn write_joint(x: &mut Xml, robot: &ResolvedRobot, j: &ResolvedJoint) {
+fn write_joint(x: &mut Xml, robot: &ResolvedRobot, index: usize, j: &ResolvedJoint) {
     let kind = match j.kind {
         JointKind::Fixed => "fixed",
         JointKind::Revolute => "revolute",
@@ -138,9 +138,11 @@ fn write_joint(x: &mut Xml, robot: &ResolvedRobot, j: &ResolvedJoint) {
     // superseded by `ros2_control` xacro tags, and inventing one is the
     // fragile-exporter behaviour we exist to remove (ADR-0014). The
     // `<limit effort velocity/>` above is the honest URDF answer; the
-    // comment names what MJCF got instead, like the `armature` one.
-    if let Some(a) = j.actuator {
-        let gains = match a {
+    // comment names what MJCF got instead, like the `armature` one. One comment per actuator: several
+    // may drive one joint (ADR-0023), and each is a thing the writer is
+    // dropping.
+    for a in robot.actuators_on(index) {
+        let gains = match a.spec {
             ActuatorSpec::Position { kp, kv } => format!("kp {} kv {}", num(kp), num(kv)),
             ActuatorSpec::Velocity { kv } => format!("kv {}", num(kv)),
             ActuatorSpec::Motor { gear } => format!("gear {}", num(gear)),
@@ -148,7 +150,7 @@ fn write_joint(x: &mut Xml, robot: &ResolvedRobot, j: &ResolvedJoint) {
         x.comment(&format!(
             "joint {}: a {} actuator ({gains}) is an MJCF property; not written",
             j.name,
-            a.kind_name(),
+            a.spec.kind_name(),
         ));
     }
     x.close("joint");

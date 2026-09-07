@@ -163,7 +163,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       actuator per free movable joint, named after it, mimic followers
       skipped; `None` removes every actuator whose target is a joint. One
       gesture, one history entry, undo unchanged.
-- [ ] **[2]** Step 6 — **`ResolvedRobot` and the MJCF writer.**
+- [x] **[2]** Step 6 — **`ResolvedRobot` and the MJCF writer.**
       `ResolvedActuator` vector in, `ResolvedJoint::actuator` out;
       `write_actuator` writes the actuator's own `name` and its joint's as
       `joint`; the apologetic comment keys off "no actuator targets this

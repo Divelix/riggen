@@ -34,16 +34,17 @@ pub struct Samples {
 
 /// One `<actuator>` element, as the numbers rather than as XML: what
 /// `test_mjcf_load.py` reads out of `MjModel` and compares. Derived from
-/// the document here and from `ResolvedJoint` in `mjcf.rs` — two
+/// the document here and from `ResolvedActuator` in `mjcf.rs` — two
 /// statements of one rule, the way `fk` and `mj_forward` are.
 #[derive(Debug, Serialize)]
 pub struct SampledActuator {
-    /// The element's name, which is its joint's name.
+    /// The element's own name (ADR-0023). Its joint's by default, but a
+    /// file may have said otherwise, so the check reads this rather than
+    /// re-deriving it.
     pub name: String,
     /// `position`, `velocity` or `motor`.
     pub kind: String,
-    /// The joint it drives — the same string, spelled out so the check is
-    /// not a restatement of the naming rule.
+    /// The joint it drives.
     pub joint: String,
     /// `kp` / `kv` / `gear` by name.
     pub gains: BTreeMap<String, f64>,
@@ -80,15 +81,17 @@ impl WorldPose {
     }
 }
 
-/// Every actuator in `robot`, in `JointId` order, with the ranges the MJCF
-/// writer derives from the same joint (ADR-0014).
+/// Every actuator in `robot`, in `ActuatorId` order — the order the MJCF
+/// writer emits them in — with the ranges it derives from the driven joint
+/// (ADR-0014, ADR-0023).
 fn actuators(robot: &Robot) -> Vec<SampledActuator> {
     let symmetric = |v: f64| (v != 0.0).then_some([-v, v]);
     robot
-        .joints
-        .iter()
-        .filter_map(|(&jid, joint)| {
-            let actuator = robot.actuators_on(jid).next().map(|(_, a)| a.spec)?;
+        .actuators
+        .values()
+        .filter_map(|entry| {
+            let joint = robot.joints.get(&entry.target.joint()?)?;
+            let actuator = entry.spec;
             let (gains, ctrlrange) = match actuator {
                 ActuatorSpec::Position { kp, kv } => (
                     BTreeMap::from([("kp".to_owned(), kp), ("kv".to_owned(), kv)]),
@@ -104,7 +107,7 @@ fn actuators(robot: &Robot) -> Vec<SampledActuator> {
                 ),
             };
             Some(SampledActuator {
-                name: joint.name.clone(),
+                name: entry.name.clone(),
                 kind: actuator.kind_name().to_owned(),
                 joint: joint.name.clone(),
                 gains,

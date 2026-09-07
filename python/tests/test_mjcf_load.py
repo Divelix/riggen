@@ -10,8 +10,9 @@ look (ADR-0012). Every `mjEQ_JOINT` equality — what a mimic joint is written
 as (ADR-0013) — must agree with the sampled `qpos`, and a pair of joints the
 samples show as exactly coupled must have one, which is how a dropped
 `<equality>` or a `polycoef` in the wrong order would look. Every actuator
-the samples name (ADR-0014) must be in the model, driving the joint it
-names, with the gains and the two ranges the samples give — and the model
+the samples name (ADR-0014, ADR-0023) must be in the model, under its own
+name, driving the joint the samples name, with the gains and the two ranges
+they give — and the model
 may carry no others: `model.nu` is the count, never a `> 0` that a wrong
 preset would pass. A body carrying
 convex-decomposition pieces
@@ -194,11 +195,14 @@ def check_equalities(model: mujoco.MjModel, samples: dict) -> int:
 def check_actuators(model: mujoco.MjModel, samples: dict) -> int:
     """Every `<actuator>` riggen wrote is in the model, driving the right joint.
 
-    An actuator is named after its joint and targets it (ADR-0014), so the
-    check is data-driven: the samples say what should be there and an
-    actuator they name that the model lacks is a failure — which is how a
-    dropped `<actuator>` looks. A URDF-imported robot legitimately has
-    none, and then `model.nu` must be zero too.
+    An actuator has a name of its own (ADR-0023) — its joint's by default,
+    but a file may have said otherwise — so the check reads the sampled
+    `name` and `joint` separately rather than deriving one from the other.
+    It is data-driven: the samples say what should be there and an actuator
+    they name that the model lacks is a failure — which is how a dropped
+    `<actuator>` looks. Several actuators may name one joint, since MuJoCo
+    sums their controls. A URDF-imported robot legitimately has none, and
+    then `model.nu` must be zero too.
 
     Where riggen leaves `ctrlrange` / `forcerange` out — a zero effort or
     velocity is the *unfilled* value, not a clamp to zero — MuJoCo's

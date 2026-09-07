@@ -81,8 +81,8 @@ pub fn write(robot: &ResolvedRobot, options: &ExportOptions, dir: &Path) -> Stri
         x.text("child", &[], &root.name);
         x.close("joint");
     }
-    for joint in &robot.joints {
-        write_joint(&mut x, robot, joint);
+    for (index, joint) in robot.joints.iter().enumerate() {
+        write_joint(&mut x, robot, index, joint);
     }
     // A named frame is SDF's own `<frame>` (ADR-0012's third spelling):
     // `<pose>`'s default `relative_to` is the `attached_to` frame, so the
@@ -107,7 +107,7 @@ pub fn write(robot: &ResolvedRobot, options: &ExportOptions, dir: &Path) -> Stri
     x.finish()
 }
 
-fn write_joint(x: &mut Xml, robot: &ResolvedRobot, j: &ResolvedJoint) {
+fn write_joint(x: &mut Xml, robot: &ResolvedRobot, index: usize, j: &ResolvedJoint) {
     // All four kinds are SDF's own words, so none is approximated.
     let kind = match j.kind {
         JointKind::Fixed => "fixed",
@@ -172,9 +172,11 @@ fn write_joint(x: &mut Xml, robot: &ResolvedRobot, j: &ResolvedJoint) {
     // SDF has no actuator either. Gazebo drives a joint through a
     // `<plugin>` naming a C++ class, a shared library and a version of
     // Gazebo — a simulator configuration, not a robot description — so
-    // ADR-0014's URDF reasoning applies word for word (ADR-0016 §5).
-    if let Some(a) = j.actuator {
-        let gains = match a {
+    // ADR-0014's URDF reasoning applies word for word (ADR-0016 §5). One comment per actuator: several
+    // may drive one joint (ADR-0023), and each is a thing the writer is
+    // dropping.
+    for a in robot.actuators_on(index) {
+        let gains = match a.spec {
             ActuatorSpec::Position { kp, kv } => format!("kp {} kv {}", num(kp), num(kv)),
             ActuatorSpec::Velocity { kv } => format!("kv {}", num(kv)),
             ActuatorSpec::Motor { gear } => format!("gear {}", num(gear)),
@@ -182,7 +184,7 @@ fn write_joint(x: &mut Xml, robot: &ResolvedRobot, j: &ResolvedJoint) {
         x.comment(&format!(
             "joint {}: a {} actuator ({gains}) is an MJCF property; not written",
             j.name,
-            a.kind_name(),
+            a.spec.kind_name(),
         ));
     }
     x.close("joint");

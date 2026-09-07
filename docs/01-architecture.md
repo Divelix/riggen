@@ -1266,9 +1266,10 @@ measured size is in 03 §v0.2.
   joints the samples show as exactly coupled must have one, so a swapped
   coefficient order and a dropped `<equality>` both fail. The `.fk.json`'s
   `actuators` block says what the `<actuator>` block should hold
-  (ADR-0014) — the driven joint, the gains where MuJoCo keeps them
-  (`gainprm` / `biasprm` / `gear`), and the two ranges, an omitted one
-  having to leave `ctrllimited` / `forcelimited` off — and `model.nu` must
+  (ADR-0014, ADR-0023) — the actuator's **own** name, the driven joint as a
+  separate field, the gains where MuJoCo keeps them (`gainprm` / `biasprm`
+  / `gear`), and the two ranges, an omitted one having to leave
+  `ctrllimited` / `forcelimited` off — and `model.nu` must
   be exactly that many, so a dropped or invented actuator fails and the
   URDF import's actuator-less model is checked as such, not skipped. The
   three presets are covered by the two fixtures: the arm's shoulder is a
