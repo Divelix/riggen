@@ -792,9 +792,17 @@ reads the version first, tolerant of everything else, so a file outside
 `OLDEST_SCHEMA_VERSION..=SCHEMA_VERSION` is reported as
 `FileError::UnsupportedVersion` rather than as an unknown field; it then
 walks the `upgrade_vN_to_vN+1` chain from the version it found up to
-`SCHEMA_VERSION`, and validates the document after resolving paths — a hand-edited
+`SCHEMA_VERSION` **on the JSON** — each step takes `&mut serde_json::Value`
+and rewrites the document into the next version's shape — and only then
+parses it into `Robot`, and validates after resolving paths — a hand-edited
 file that breaks an invariant is `FileError::Invalid`, not a half-open
-document. `assets/fixtures/pendulum.riggen` (base + arm from the cube
+document. The chain runs before the parse because `Robot` is *today's*
+shape with `deny_unknown_fields`: a key an older version wrote and today's
+struct no longer has would be refused before any step could move it. The
+promise survives the ordering — a typo in a v1 file walks both steps and
+still fails naming the field (`file::tests::an_unknown_key_in_an_old_file_still_fails_naming_it`);
+what a `Value` cannot carry is a line/column, so only JSON that does not
+parse at all reports one. `assets/fixtures/pendulum.riggen` (base + arm from the cube
 fixtures, one revolute hinge, produced by `save` itself) is the first corpus
 file and is frozen at **schema 1**: it is what the upgrade chain reads, and
 `file::tests::corpus_pendulum_opens` keeps it opening forever and re-saving

@@ -124,7 +124,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       above, with the two silent losses as the context and the target enum's
       single variant as the stated seam. `docs/adr/README.md` gains its row
       and ADR-0014's row gains "amended by 0023". No code.
-- [ ] **[3]** Step 2 — **the upgrade chain runs on the JSON.** `load_from`
+- [x] **[3]** Step 2 — **the upgrade chain runs on the JSON.** `load_from`
       parses to `serde_json::Value`, walks `upgrade_vN_to_vN+1(&mut Value)`,
       then deserializes into `Robot` and validates as before.
       `upgrade_v1_to_v2` / `upgrade_v2_to_v3` become empty `Value` steps

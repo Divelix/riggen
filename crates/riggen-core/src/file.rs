@@ -12,8 +12,9 @@
 //! under `assets/fixtures/` that must open forever; `pendulum.riggen` is
 //! the first, and it stays at schema 1 so the upgrade chain has something
 //! old to read. [`load`] accepts every version from
-//! [`OLDEST_SCHEMA_VERSION`] up and walks the chain to [`SCHEMA_VERSION`];
-//! [`save`] always writes the newest.
+//! [`OLDEST_SCHEMA_VERSION`] up and walks the chain to [`SCHEMA_VERSION`]
+//! **on the JSON** (`serde_json::Value`), parsing into [`Robot`] only once
+//! the document is in today's shape; [`save`] always writes the newest.
 
 use std::fmt;
 use std::io;
@@ -42,7 +43,8 @@ struct File {
 }
 
 /// Read first, tolerant of everything else, so an unsupported version is
-/// reported as such rather than as an unknown field.
+/// reported as such rather than as an unknown field — and before any
+/// upgrade step runs, since the version chooses the steps.
 #[derive(Deserialize)]
 struct Header {
     schema_version: u32,
@@ -55,7 +57,9 @@ pub enum FileError {
         source: io::Error,
     },
     /// Malformed JSON or a schema mismatch; serde's message names the
-    /// offending field and its line/column.
+    /// offending field (and, for JSON that does not parse at all, its
+    /// line/column — the document is upgraded as a `serde_json::Value`
+    /// before it meets `Robot`, and a `Value` carries no positions).
     Json {
         path: PathBuf,
         source: serde_json::Error,
@@ -315,25 +319,28 @@ pub fn load_from(
         path: base.to_owned(),
         source,
     };
-    let header: Header = serde_json::from_str(text).map_err(json)?;
+    let mut doc: serde_json::Value = serde_json::from_str(text).map_err(json)?;
+    let header = Header::deserialize(&doc).map_err(json)?;
     if !(OLDEST_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&header.schema_version) {
         return Err(FileError::UnsupportedVersion {
             path: base.to_owned(),
             found: header.schema_version,
         });
     }
-    // Every version so far parses into today's `Robot` — the fields added
-    // since carry `#[serde(default)]` — so the chain runs on the parsed
-    // document rather than on the JSON.
-    let file: File = serde_json::from_str(text).map_err(json)?;
-    let mut robot = file.robot;
+    // The chain runs on the JSON, not on a parsed `Robot`: `Robot` is
+    // today's shape with `deny_unknown_fields`, so a key an older version
+    // wrote and today's struct no longer has would be refused before any
+    // step could move it (§Schema). Each step rewrites the document into
+    // the next version's shape; only then does it parse.
     for from in header.schema_version..SCHEMA_VERSION {
         match from {
-            1 => upgrade_v1_to_v2(&mut robot),
-            2 => upgrade_v2_to_v3(&mut robot),
+            1 => upgrade_v1_to_v2(&mut doc),
+            2 => upgrade_v2_to_v3(&mut doc),
             _ => unreachable!("no upgrade step from schema {from}"),
         }
     }
+    let file: File = serde_json::from_value(doc).map_err(json)?;
+    let mut robot = file.robot;
 
     let dir = base.parent().unwrap_or(Path::new("/"));
     for asset in robot.assets.values_mut() {
@@ -366,14 +373,14 @@ pub fn load_from(
 
 /// v1 → v2: `Joint::mimic` (ADR-0013). A v1 file simply has no `mimic`
 /// key and serde's default fills in `None`, which is what a v1 document
-/// meant, so the step is a no-op on the parsed document. It exists as the
-/// first link of the chain [`load`] walks; the next bump joins it here.
-fn upgrade_v1_to_v2(_robot: &mut Robot) {}
+/// meant, so the step leaves the JSON alone. It exists as the first link
+/// of the chain [`load`] walks; the next bump joins it here.
+fn upgrade_v1_to_v2(_doc: &mut serde_json::Value) {}
 
 /// v2 → v3: `Joint::actuator` (ADR-0014), the same shape of bump and the
 /// same empty step — a v2 file has no `actuator` key and `None` is what it
 /// meant: nothing drove its joints.
-fn upgrade_v2_to_v3(_robot: &mut Robot) {}
+fn upgrade_v2_to_v3(_doc: &mut serde_json::Value) {}
 
 /// `target` expressed relative to `dir`, with `..` where needed and forward
 /// slashes. Both must be absolute. A target on another Windows drive has no
@@ -597,6 +604,37 @@ mod tests {
             assert!(matches!(err, FileError::Json { .. }), "{msg}");
             assert!(msg.contains(to.trim_matches('"')), "{msg}");
         }
+    }
+
+    /// The chain runs on the JSON before `Robot` sees it (§Schema), so an
+    /// old document walks every step first — and `deny_unknown_fields`
+    /// must still catch a typo on the far side, naming it. The v1 corpus
+    /// walks both steps; a key is misspelt at each depth the envelope has.
+    #[test]
+    fn an_unknown_key_in_an_old_file_still_fails_naming_it() {
+        let dir = scratch("unknown_field_v1");
+        for mesh in ["cube_binary.stl", "cube_ascii.stl"] {
+            std::fs::copy(fixtures().join(mesh), dir.join(mesh)).unwrap();
+        }
+        let text = std::fs::read_to_string(fixtures().join("pendulum.riggen")).unwrap();
+        assert!(text.contains("\"schema_version\": 1"), "{text}");
+        let file = dir.join("pendulum.riggen");
+        // Untouched, it opens — the typos below are the only difference.
+        std::fs::write(&file, &text).unwrap();
+        load(&file).unwrap();
+        for (from, to) in [
+            ("\"robot\"", "\"robbot\""),
+            ("\"materials\"", "\"materialz\""),
+            ("\"velocity\"", "\"velocty\""),
+        ] {
+            assert!(text.contains(from), "{from} is in the v1 corpus");
+            std::fs::write(&file, text.replacen(from, to, 1)).unwrap();
+            let err = load(&file).unwrap_err();
+            let msg = err.to_string();
+            assert!(matches!(err, FileError::Json { .. }), "{msg}");
+            assert!(msg.contains(to.trim_matches('"')), "{msg}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

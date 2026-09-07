@@ -959,8 +959,9 @@ mismatch or an unreadable file as a `Warning` (shown in the status bar),
 never an error — the document opens, the user is told. Geometry is never
 embedded; assets no geom references are dropped on save; the write goes
 through `<name>.riggen.tmp` and a rename so a crash leaves the old file. A
-schema bump comes with an `upgrade_vN_to_vN+1` and a corpus test that keeps
-every old version opening forever (RoboCAD's rule).
+schema bump comes with an `upgrade_vN_to_vN+1` — a step over the parsed
+JSON (`serde_json::Value`), run before the document meets `Robot` — and a
+corpus test that keeps every old version opening forever (RoboCAD's rule).
 
 Reading and writing are split from the filesystem, one function deep
 (ADR-0017). `load(path)` reads the bytes and calls `load_from(text, base,
