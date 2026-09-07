@@ -182,3 +182,25 @@ with the plan that executes this ADR, as an open question for the human.
   each a correctness question this ADR's four points do not touch, and
   answering them without a tendon document type or a body-actuator display
   surface would be deciding ahead of the parts they depend on.
+
+## Addendum (2026-09-08, plans/actuator-escape-hatch retired)
+
+The two questions this ADR left with the plan were decided by the human
+on the plan's recommendation: **`<muscle>` and `<adhesion>` stay out**
+(a muscle needs an `actuator_lengthrange` riggen does not compute; an
+adhesion drives a body) and travel with the couplings bullet, where a
+tendon exists and a `<muscle>` can be written back as one; and **the
+properties panel shows a `General` as a read-only row** — its name, the
+word `general`, its three type names — with the combo still able to
+remove it or make it a preset. Editing ten `prm` numbers in a grid is
+MJCF's actuator model in a properties panel, which ADR-0014 declined and
+this ADR does not reopen.
+
+One refinement to point 3 as executed: the import records a
+`ctrllimited` / `forcelimited` flag only where the writer's own
+`autolimits="true"` would not reproduce what the file meant — a written
+flag as written, `auto` beside a range left `None`, and `Some(false)`
+where the file named no range at all — so a document riggen alone has
+touched and a foreign `<position ctrlrange>` both still write today's
+one-attribute line. MuJoCo's own `auto` rule, probed rather than
+assumed, is *lower < upper*.

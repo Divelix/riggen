@@ -29,6 +29,9 @@ below with the reason, so the same idea is not re-brainstormed.
 - The joint tree's scrubber bar stacks under the name/value line at full row width (`joint_tree.rs`'s `joint_row()`), and the wheel only scrubs a hovered joint when the bar itself is hovered (`response.hovered()` off the bar's own response, not the name button's): a separate, aligned slider column to the right of the names would let the wheel work over the whole row, name included
 - In View mode, `glyphs.rs`'s `glyph_overlay()` draws a line along the joint's axis (`axis_ends()`) alongside the range/value band; drop the axis line and keep just the band glyph
 - The `Overlay::JointNames` visibility toggle draws the mimic leader name and the actuator preset string next to a joint (`glyphs.rs`'s `driven_marks()`), not the joint's own name — an actuator with the "position" preset shows the literal word "position" for every such joint instead of identifying it
+- `<muscle joint=…>` and `<adhesion body=…>` stay `ActuatorDropped` (ADR-0024, decided out with plans/actuator-escape-hatch): a muscle needs an `actuator_lengthrange` riggen does not compute, an adhesion drives a body; both belong with the couplings bullet's tendon target, where a `<muscle>` can be written back as one
+- A `<default><general>` applies to `<general>` elements only on import (`mjcf_in.rs`'s per-tag `Defaults`), while MuJoCo also lets a `<position>` / `<velocity>` / `<motor>` inherit its `dyntype` / `dynprm` from it — a preset under such a class reads without the dynamics the original model has
+- The properties panel edits an actuator's gains but never shows `Actuator::ranges` (ADR-0024): an imported `ctrlrange` / `forcerange` decides the export and is invisible in the GUI, and retyping the preset keeps it — a read-only ranges row, or clearing them on a kind change, would make the state visible
 
 ### From the M2 exit gate (the by-hand arm build, 2026-08-29)
 

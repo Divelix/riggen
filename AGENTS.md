@@ -22,23 +22,19 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 **v0.4 — the round trip keeps what it read, and the window has two modes
 — is open (2026-09-04).** The window half is done: **View** — joint tree
 with scrubbers, joints the only pick, wheel drives a hovered joint, a
-glyph for range and value, a visibility row, zen on `Z` — with Tab to
-**Edit** (ADR-0021, four plans retired 2026-09-05). A `<body>` with
-several `<joint>`s stays refused, re-asked and answered no with the
-corpus behind it (**ADR-0022**); the refusal now says what to do about
-it. **Next: the file half** — a foreign MJCF surviving import → edit →
-export with nothing lost (`<general>`, mimic chains, `<joint ref>`,
-`<tendon>`, `<include>` / `<attach>` / `<frame>`); `Robot::actuators` at
-schema 4 (plans/actuator-table, ADR-0023) and `.msh` / inline
-`<mesh vertex face>` geometry (plans/mjcf-mesh-geometry) already landed.
-**Before it:** v0.3 (`v0.3.0`) paid down the hand-feel debt (scrubbers,
-left-drag orbit, tool keys and a claimable wheel, a driven-joint overlay
-— ADR-0018/19/20); v0.2 (`v0.2.1`) made "sim-ready" a feature (the SDK
-wheel, V-HACD, frames/mimics/actuators, MJCF import, SDF export, the web
-demo — ADR-0009/11/12/13/14/15/16/17), `.riggen` at **schema 3**. Then M4
-the wheel; M3 the writers, URDF import, inertials, collision; M2 the
-mouse-only arm; M1 the document, commands, history, `.riggen`; M0 the
-viewport.
+glyph for range and value, zen on `Z` — with Tab to **Edit** (ADR-0021).
+A `<body>` with several `<joint>`s stays refused (**ADR-0022**). The file
+half is under way: `Robot::actuators` (ADR-0023), `.msh` / inline mesh
+geometry, and the escape hatch (ADR-0024, retired 2026-09-08) — `<general>`
+as a fourth `ActuatorSpec`, the ranges on the actuator at **schema 5**,
+the corpus in the `mujoco` job compared with its original actuator by
+actuator. **Next:** the couplings (mimic chains, `<joint ref>`, `<tendon>`)
+and composition (`<include>` / `<attach>` / `<frame>`). **Before it:**
+v0.3 (`v0.3.0`) paid down the hand-feel debt (ADR-0018/19/20); v0.2
+(`v0.2.1`) made "sim-ready" a feature — SDK wheel, V-HACD, frames /
+mimics / actuators, MJCF import, SDF export, the web demo (ADR-0009 to
+0017); M4 the wheel; M3 writers, URDF import, inertials, collision; M2
+the mouse-only arm; M1 the document and `.riggen`; M0 the viewport.
 
 ## Rules that are not derivable from the code
 

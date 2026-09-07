@@ -438,7 +438,7 @@ below.
   far one, while staying visible and aimable.
   It also says whether the joint is free to move — a **mimic follower**
   (ADR-0013) in a muted amber labelled `» <leader>`, an **actuated** joint
-  (ADR-0014) at full amber with a ring at the pivot named for its preset,
+  (ADR-0014) at full amber with a ring at the pivot named for its kind,
   since an actuator holds a joint the user can still pose where a mimic
   takes the posing away. The tick sits at the *resolved* `q`, so a
   follower's points where its link actually is. **Hover runs both ways**: a
@@ -1292,7 +1292,7 @@ measured size is in 03 §v0.2.
   URDF import's actuator-less model is checked as such, not skipped. The
   three presets are covered by the two fixtures: the arm's shoulder is a
   `<position>` and its upper arm a `<velocity>`, the bracket's hinge a
-  `<motor>`. The script also fails any body whose `<stem>_hull_N` pieces
+  `<motor>`; the corpus's wrist slide is the `<general>` (ADR-0024). The script also fails any body whose `<stem>_hull_N` pieces
   do not number at least two and run 0..N: MuJoCo hulls a collision mesh
   itself, so one piece would mean the policy bought nothing. It reads that
   off the model, not off the fixture.

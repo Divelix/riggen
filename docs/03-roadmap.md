@@ -290,12 +290,19 @@ drops, and each is a backlog line this section now owns.
   already-driven joint is kept, not silently overwritten. An actuator
   driving a tendon, site or body still warns and drops — that seam is the
   target enum's next variant, not this bullet's.
-- **The escape hatch beside the three presets.** `<general>` — and
-  `<adhesion>`, `<muscle>` — carried through with its `dyntype` / `gaintype`
-  / `biastype`, so a user who needs one is not hand-editing after every
-  export. Actuator gains in a `<default class>` rather than on every
-  element, and explicit `ctrllimited` / `forcelimited` beside the
-  `autolimits="true"` we write.
+- **The escape hatch beside the three presets.** *Landed
+  (plans/actuator-escape-hatch, ADR-0024).* `<general>` on a joint is a
+  fourth `ActuatorSpec`, read iff no preset can express the element and
+  written back with its three types and trimmed `prm` vectors; the
+  actuator keeps the `ctrlrange` / `forcerange` / `ctrllimited` /
+  `forcelimited` its file said, schema 5, so a `<position>` that named no
+  range no longer comes back clamped to the joint's. Gains through a
+  `<default class>` are read. The corpus joined the `mujoco` job, its
+  re-export compared with the original actuator by actuator; what it
+  still drops is `grip`, the tendon target. `<adhesion>` (a body target)
+  and `<muscle>` (needs a `lengthrange` riggen does not compute) stay
+  dropped by name and travel with the couplings bullet, by the human's
+  decision.
 - **Couplings the document cannot hold.** Mimic chains — a follower whose
   leader also follows — turning `fk::resolve_q`'s one pass into a
   topological one, no schema change; `<joint ref>`, which moves a joint's

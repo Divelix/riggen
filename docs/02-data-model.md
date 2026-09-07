@@ -92,7 +92,8 @@ pub struct Mimic { pub joint: JointId, pub multiplier: f64, pub offset: f64 }
 
 /// One <actuator> element (ADR-0023, amending ADR-0014): its own name — the
 /// target joint's by default, unique among actuators, MJCF's namespaces
-/// being per element type — what it drives, and the preset saying how.
+/// being per element type — what it drives, the spec saying how (a preset
+/// or a `General`), and the ranges its file said.
 /// Several may target one joint: MuJoCo sums them, and foreign files ship
 /// them.
 pub struct Actuator {
@@ -302,7 +303,7 @@ movable joint, named after it. The per-actuator edit is the quartet beside
 it, `AddActuator` / `RemoveActuator` / `SetActuator` / `RenameActuator`,
 which follow the frame commands exactly: `AddActuator` allocates the
 `ActuatorId` and hands it back as `Created::Actuator`, `RenameActuator` is
-the inline rename, and `SetActuator` replaces name, target and preset in one
+the inline rename, and `SetActuator` replaces name, target, spec and ranges in one
 value. An actuator naming a joint the document does not have is refused
 (`UnknownId`). Two things take an actuator away without being asked, both
 because `validate` would otherwise refuse the edit that caused them:
