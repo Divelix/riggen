@@ -26,7 +26,15 @@ and the human can read in two minutes.
      non-obvious decision becomes an ADR — list it as a step.
    - *Steps* are commit-sized: each has an observable result and its own test
      or snapshot, and could be reverted alone. Order them so the riskiest
-     unknown retires first. Prefix nothing; numbering is the checkbox order.
+     unknown retires first. Numbering is the checkbox order. Every step
+     carries a complexity grade the human uses to pick the agent — state the
+     scale once, right above the step list: **[1]** routine, the design says
+     exactly what to write and the tests are mechanical; **[2]** careful, a
+     case to get right within a given design — a schema upgrade path, a
+     pointer or switch-table interaction, a snapshot whose diff has to be
+     read; **[3]** unproven, behaviour that has to be established here — a
+     foreign file's real shape, an external loader's verdict, an algorithm
+     whose robustness is not yet known.
    - *Acceptance* is an executable check, ideally the milestone's own.
    - *Docs to update* is written now, while the deltas are fresh — it is what
      `/retire-plan` executes.

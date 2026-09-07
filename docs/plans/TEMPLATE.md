@@ -15,8 +15,12 @@ Which design docs / types / crate boundaries change, and how. If a decision
 here is non-obvious, it becomes an ADR (list it).
 
 ## Steps
-- [ ] Step 1 — …
-- [ ] Step 2 — …
+Complexity: **[1]** routine — the design says what to write, the tests are
+mechanical; **[2]** careful — a case to get right within a given design;
+**[3]** unproven — behaviour that has to be established here.
+
+- [ ] **[1]** Step 1 — …
+- [ ] **[2]** Step 2 — …
 Each step is one commit-sized unit with its own test or snapshot.
 
 ## Acceptance
