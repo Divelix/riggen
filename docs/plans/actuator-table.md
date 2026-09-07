@@ -180,7 +180,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       actuator on an already-driven joint and one whose name is not its
       joint's; the corpus test's warning list shrinks by exactly what this
       step now keeps.
-- [ ] **[2]** Step 8 — **the app.** The properties panel's actuator
+- [x] **[2]** Step 8 — **the app.** The properties panel's actuator
       control **lists** the actuators targeting the selected joint, one
       control each — the existing combo is the one-actuator case; `glyphs.rs`
       (`driven_marks`, the amber of an actuated joint) reads the table;

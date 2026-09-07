@@ -105,7 +105,7 @@ fn layered(base: f32, target: f32) -> f32 {
 
 /// One joint's glyph, already placed in the world: what the overlay draws
 /// and what a hover hit-test measures against.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JointGlyph {
     pub joint: JointId,
     /// The pivot: `world(parent) ∘ origin`.
@@ -121,16 +121,18 @@ pub struct JointGlyph {
     /// The joint this one follows, if any (ADR-0013). A follower is drawn
     /// muted: its `q` is somebody else's.
     pub mimic: Option<JointId>,
-    /// The actuator preset holding it, if any — `"position"`, `"velocity"`
-    /// or `"motor"` (ADR-0014). The name, not the gains: the glyph says
-    /// *that* the joint is driven, the panel says how hard.
-    pub actuator: Option<&'static str>,
+    /// The preset of every actuator driving it, in `ActuatorId` order —
+    /// `"position"`, `"velocity"` or `"motor"` (ADR-0014). Presets, not
+    /// gains and not names: the glyph says *that* the joint is driven and
+    /// by how many, the panel says how hard and under what name. Several
+    /// are legal (ADR-0023) and MuJoCo sums them.
+    pub actuators: Vec<&'static str>,
 }
 
 impl JointGlyph {
     /// Whether something other than the user's hand moves this joint.
     pub fn driven(&self) -> bool {
-        self.mimic.is_some() || self.actuator.is_some()
+        self.mimic.is_some() || !self.actuators.is_empty()
     }
 }
 
@@ -265,11 +267,11 @@ impl RiggenApp {
                     q: q.get(id),
                     limits: joint.limits.map(|l| (l.lower, l.upper)),
                     mimic: joint.mimic.map(|m| m.joint),
-                    actuator: self
+                    actuators: self
                         .robot
                         .actuators_on(id)
-                        .next()
-                        .map(|(_, a)| a.spec.kind_name()),
+                        .map(|(_, a)| a.spec.kind_name())
+                        .collect(),
                 })
             })
             .collect()
@@ -452,7 +454,7 @@ impl RiggenApp {
     }
 
     /// What a glyph says in words about not being free: `» <leader>` for a
-    /// mimic follower, the preset's name for an actuated joint. Both, in
+    /// mimic follower, one preset name per actuator driving it. Both, in
     /// that order, for a joint that is somehow both — `validate` rejects
     /// that pairing (ADR-0014), and a glyph is not the place to hide it.
     ///
@@ -471,7 +473,7 @@ impl RiggenApp {
                 .map_or_else(|| leader.to_string(), |j| j.name.clone());
             marks.push(format!("\u{bb} {name}"));
         }
-        marks.extend(glyph.actuator.map(str::to_owned));
+        marks.extend(glyph.actuators.iter().map(|a| (*a).to_owned()));
         marks
     }
 
@@ -504,7 +506,7 @@ impl RiggenApp {
                 // An actuated joint gets a ring round the pivot, in the
                 // joint's own plane and well inside the limit arc
                 // (ADR-0014).
-                if glyph.actuator.is_some() {
+                if !glyph.actuators.is_empty() {
                     overlay.push(OverlayItem::Arc {
                         center: glyph.pivot.t,
                         axis: glyph.axis,
@@ -785,7 +787,7 @@ mod tests {
             q: 0.3,
             limits: Some((-1.0, 1.0)),
             mimic: None,
-            actuator: None,
+            actuators: Vec::new(),
         };
         assert_eq!(glyph.band(), Some((2.0 * BAND_INNER, 2.0 * ARC_RADIUS)));
         assert_eq!(glyph.value_sweep(), 0.3);
@@ -799,13 +801,13 @@ mod tests {
         assert!((points[0] - glyph.reference() * mid).length() < 1e-12);
         let slide = JointGlyph {
             kind: JointKind::Prismatic,
-            ..glyph
+            ..glyph.clone()
         };
         assert_eq!(slide.band(), None);
         assert!(slide.band_points().is_empty());
         let weld = JointGlyph {
             kind: JointKind::Fixed,
-            ..glyph
+            ..glyph.clone()
         };
         assert_eq!(weld.value_sweep(), 0.0);
     }

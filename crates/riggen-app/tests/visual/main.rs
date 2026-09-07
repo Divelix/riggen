@@ -1528,7 +1528,7 @@ fn overlay_row_joints_off() {
         harness.state_mut().fit_view_now();
         // Where a glyph was, before it goes.
         let at = {
-            let glyph = harness.state().joint_glyphs()[0];
+            let glyph = harness.state().joint_glyphs().swap_remove(0);
             harness
                 .state()
                 .project_world(glyph.pivot.t)
@@ -2864,13 +2864,13 @@ fn glyph_driven_joint() {
                 .unwrap_or_else(|| panic!("no glyph for {name}"))
                 .clone()
         };
-        assert_eq!(glyph("shoulder_joint").actuator, Some("position"));
+        assert_eq!(glyph("shoulder_joint").actuators, ["position"]);
         assert_eq!(glyph("shoulder_joint").mimic, None);
-        assert_eq!(glyph("upper_joint").actuator, Some("velocity"));
+        assert_eq!(glyph("upper_joint").actuators, ["velocity"]);
 
         let follower_glyph = glyph("fore_joint");
         assert_eq!(follower_glyph.mimic, Some(leader.to_string()));
-        assert_eq!(follower_glyph.actuator, None, "validate forbids both");
+        assert!(follower_glyph.actuators.is_empty(), "validate forbids both");
         assert!(follower_glyph.active, "the follower is the selection");
         // The mimic rule is `-0.5 x upper_joint + 0.1`, resolved by `fk`.
         assert_eq!(follower_glyph.q, -0.35);
@@ -3190,6 +3190,81 @@ fn properties_joint_actuator() {
                 kv: 10.0
             })
         );
+    });
+}
+
+/// A joint an imported file gave **two** actuators: the panel lists both,
+/// one control each, and the one whose name is not its joint's is labelled
+/// by that name (ADR-0023). Showing the first with the rest hidden is the
+/// silent loss this cycle exists to close — the user would edit what the
+/// panel shows and never learn what it did not. `menagerie_style.xml`'s
+/// `shoulder_pan` carries `pan` and `pan_damp`.
+#[test]
+fn properties_joint_two_actuators() {
+    scenario("properties_joint_two_actuators", |harness| {
+        open_for_editing(harness.state_mut(), &menagerie_style_scratch())
+            .expect("the corpus MJCF imports");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        let pan = joint_named(harness, "shoulder_pan");
+        harness.state_mut().select(Selection::Joint(pan));
+        settle(harness);
+
+        // Two rows, each with its own preset and its own gains: the file's
+        // `<position name="pan">` and `<velocity name="pan_damp">`.
+        let listed: Vec<(String, riggen_core::ActuatorSpec)> = harness
+            .state()
+            .robot()
+            .actuators_on(pan)
+            .map(|(_, a)| (a.name.clone(), a.spec))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (
+                    "pan".to_owned(),
+                    riggen_core::ActuatorSpec::Position {
+                        kp: 120.0,
+                        kv: 12.0
+                    }
+                ),
+                (
+                    "pan_damp".to_owned(),
+                    riggen_core::ActuatorSpec::Velocity { kv: 3.0 }
+                ),
+            ]
+        );
+        // Neither name is the joint's, so both rows carry their own.
+        harness.get_by_label("pan");
+        harness.get_by_label("pan_damp");
+        assert_eq!(
+            harness.query_all_by_label("actuator").count(),
+            0,
+            "the default label is for a default name"
+        );
+        assert_eq!(harness.query_all_by_label("kv").count(), 2, "one per row");
+
+        // Editing the second one leaves the first alone: one command, and
+        // the actuator it names.
+        let depth = harness.state().history().undo_depth();
+        type_into(harness, "kv", 1, "6");
+        settle(harness);
+        let app = harness.state();
+        assert_eq!(app.history().undo_depth(), depth + 1, "one SetActuator");
+        assert_eq!(
+            app.robot()
+                .actuators_on(pan)
+                .map(|(_, a)| a.spec)
+                .collect::<Vec<_>>(),
+            [
+                riggen_core::ActuatorSpec::Position {
+                    kp: 120.0,
+                    kv: 12.0
+                },
+                riggen_core::ActuatorSpec::Velocity { kv: 6.0 },
+            ]
+        );
+        assert_eq!(riggen_core::validate(app.robot()), Ok(()));
     });
 }
 
@@ -5248,7 +5323,7 @@ fn glyph_band_point(
     harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>,
     t: f64,
 ) -> egui::Pos2 {
-    let glyph = harness.state().joint_glyphs()[0];
+    let glyph = harness.state().joint_glyphs().swap_remove(0);
     let in_plane = glyph.pivot.r * DVec3::Z;
     harness
         .state()
@@ -5387,7 +5462,7 @@ fn glyph_axis_point(
     harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>,
     t: f64,
 ) -> egui::Pos2 {
-    let glyph = harness.state().joint_glyphs()[0];
+    let glyph = harness.state().joint_glyphs().swap_remove(0);
     harness
         .state()
         .project_world(glyph.pivot.t + glyph.axis * glyph.size * t)

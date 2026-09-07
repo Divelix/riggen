@@ -355,7 +355,9 @@
       ],
       "active": false,
       "hovered": false,
-      "actuator": "position"
+      "actuators": [
+        "position"
+      ]
     },
     {
       "joint": "j12",
@@ -384,7 +386,9 @@
       ],
       "active": false,
       "hovered": false,
-      "actuator": "velocity"
+      "actuators": [
+        "velocity"
+      ]
     },
     {
       "joint": "j16",

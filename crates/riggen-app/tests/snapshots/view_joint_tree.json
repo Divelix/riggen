@@ -362,7 +362,9 @@
       ],
       "active": false,
       "hovered": false,
-      "actuator": "position",
+      "actuators": [
+        "position"
+      ],
       "pivot_hidden": true
     },
     {
@@ -392,7 +394,9 @@
       ],
       "active": true,
       "hovered": true,
-      "actuator": "velocity",
+      "actuators": [
+        "velocity"
+      ],
       "pivot_hidden": true
     },
     {

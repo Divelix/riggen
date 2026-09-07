@@ -355,7 +355,9 @@
       ],
       "active": true,
       "hovered": false,
-      "actuator": "motor",
+      "actuators": [
+        "motor"
+      ],
       "pivot_hidden": true
     },
     {
@@ -385,7 +387,9 @@
       ],
       "active": false,
       "hovered": false,
-      "actuator": "motor",
+      "actuators": [
+        "motor"
+      ],
       "pivot_hidden": true
     },
     {

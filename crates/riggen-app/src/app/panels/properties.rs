@@ -9,8 +9,9 @@ use std::collections::HashMap;
 use riggen_core::glam::{DMat3, DQuat, DVec3};
 use riggen_core::inertial::{Inertial, InertialError, principal_moments};
 use riggen_core::{
-    Actuator, ActuatorSpec, ActuatorTarget, CollisionPolicy, Command, FrameId, GestureId,
-    InertialSpec, JointId, JointKind, JointState, Limits, LinkId, Mimic, Pose, Primitive, fk,
+    Actuator, ActuatorId, ActuatorSpec, ActuatorTarget, CollisionPolicy, Command, FrameId,
+    GestureId, InertialSpec, JointId, JointKind, JointState, Limits, LinkId, Mimic, Pose,
+    Primitive, fk,
 };
 use riggen_mesh::{DecompParams, fit};
 
@@ -1704,52 +1705,70 @@ impl RiggenApp {
                 // is left out: its `<equality>` already moves it, and
                 // `validate` refuses an actuator beside one.
                 if data.kind.is_movable() && data.mimic.is_none() {
-                    // The joint's first actuator; listing every one of them
-                    // is plans/actuator-table step 8.
-                    let driver = self
+                    // **Every** actuator targeting the joint, one control
+                    // each. A document riggen alone has touched has at most
+                    // one and reads exactly as it always did; an imported
+                    // file may have given the joint several, and showing
+                    // the first with the rest hidden is the feeling this
+                    // cycle exists to remove — the user would edit what the
+                    // panel shows and never learn what it did not.
+                    let driving: Vec<(ActuatorId, Actuator)> = self
                         .robot
                         .actuators_on(joint)
-                        .next()
-                        .map(|(id, a)| (id, a.clone()));
-                    let current = driver.as_ref().map(|(_, a)| a.spec);
-                    ui.label("actuator");
-                    let mut actuator = current;
-                    egui::ComboBox::from_id_salt(base.with("actuator"))
-                        .selected_text(actuator.map_or("none", ActuatorSpec::kind_name))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut actuator, None, "none");
-                            for preset in default_actuators() {
-                                ui.selectable_value(
-                                    &mut actuator,
-                                    Some(preset),
-                                    preset.kind_name(),
-                                );
-                            }
+                        .map(|(id, a)| (id, a.clone()))
+                        .collect();
+                    // What "Apply to every movable joint" copies: the first
+                    // control's preset, which is the only one in the case
+                    // that button is for.
+                    let mut apply = driving.first().map(|(_, a)| a.spec);
+                    for (row, (id, a)) in driving.iter().enumerate() {
+                        // Labelled "actuator" while the name is the default
+                        // — the joint's — and by its own name when it is
+                        // not, so a name a file chose is on the screen and
+                        // not only in the file.
+                        ui.label(if a.name == data.name {
+                            "actuator"
+                        } else {
+                            a.name.as_str()
                         });
-                    ui.end_row();
-                    // The combo picks the *kind*; the fields below edit the
-                    // gains, so switching kinds and back does not carry the
-                    // old ones over.
-                    if actuator.map(ActuatorSpec::kind_name) != current.map(ActuatorSpec::kind_name)
-                    {
-                        commands.push(match (&driver, actuator) {
-                            (Some((id, _)), None) => Command::RemoveActuator(*id),
-                            (Some((id, a)), Some(spec)) => {
-                                Command::SetActuator(*id, Actuator { spec, ..a.clone() })
+                        let mut spec = Some(a.spec);
+                        egui::ComboBox::from_id_salt(base.with(("actuator", *id)))
+                            .selected_text(a.spec.kind_name())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut spec, None, "none");
+                                for preset in default_actuators() {
+                                    ui.selectable_value(
+                                        &mut spec,
+                                        Some(preset),
+                                        preset.kind_name(),
+                                    );
+                                }
+                            });
+                        ui.end_row();
+                        // The combo picks the *kind*; the fields below edit
+                        // the gains, so switching kinds and back does not
+                        // carry the old ones over. "none" takes this one
+                        // actuator away, not the joint's others.
+                        if spec.map(ActuatorSpec::kind_name) != Some(a.spec.kind_name()) {
+                            if row == 0 {
+                                apply = spec;
                             }
-                            (None, Some(spec)) => Command::AddActuator(Actuator {
-                                name: self.robot.default_actuator_name(joint),
-                                target: ActuatorTarget::Joint(joint),
-                                spec,
-                            }),
-                            (None, None) => unreachable!("the kind changed"),
-                        });
-                    }
-                    if let Some((id, a)) = &driver {
+                            commands.push(match spec {
+                                Some(spec) => {
+                                    Command::SetActuator(*id, Actuator { spec, ..a.clone() })
+                                }
+                                None => Command::RemoveActuator(*id),
+                            });
+                        }
                         for (label, value) in gains(a.spec) {
-                            if let Some(v) =
-                                number_row(ui, state, base.with(label), label, value, STEP_UNIT)
-                            {
+                            if let Some(v) = number_row(
+                                ui,
+                                state,
+                                base.with((*id, label)),
+                                label,
+                                value,
+                                STEP_UNIT,
+                            ) {
                                 let mut spec = a.spec;
                                 set_gain(&mut spec, label, v);
                                 commands.push(Command::SetActuator(
@@ -1757,6 +1776,33 @@ impl RiggenApp {
                                     Actuator { spec, ..a.clone() },
                                 ));
                             }
+                        }
+                    }
+                    // Nothing drives it yet: the same combo, reading
+                    // "none", is how the first actuator is added.
+                    if driving.is_empty() {
+                        ui.label("actuator");
+                        let mut spec = None;
+                        egui::ComboBox::from_id_salt(base.with("actuator"))
+                            .selected_text("none")
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut spec, None, "none");
+                                for preset in default_actuators() {
+                                    ui.selectable_value(
+                                        &mut spec,
+                                        Some(preset),
+                                        preset.kind_name(),
+                                    );
+                                }
+                            });
+                        ui.end_row();
+                        if let Some(spec) = spec {
+                            apply = Some(spec);
+                            commands.push(Command::AddActuator(Actuator {
+                                name: self.robot.default_actuator_name(joint),
+                                target: ActuatorTarget::Joint(joint),
+                                spec,
+                            }));
                         }
                     }
                     // Beside the thing it copies: seven joints on one arm
@@ -1771,7 +1817,7 @@ impl RiggenApp {
                         )
                         .clicked()
                     {
-                        commands.push(Command::SetActuators(actuator));
+                        commands.push(Command::SetActuators(apply));
                     }
                     ui.end_row();
                 }

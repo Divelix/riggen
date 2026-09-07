@@ -1387,7 +1387,9 @@ measured size is in 03 §v0.2.
   `properties_collision`, `export_dialog`, `export_blocked`, `import_urdf`,
   v0.2's `collision_decomposition`, `properties_collision_decomposition`,
   the mimic and actuator set — `properties_joint_mimic`, `properties_joint_actuator`,
-  `properties_joint_actuator_applied` —
+  `properties_joint_actuator_applied`, and v0.4's
+  `properties_joint_two_actuators` (an imported joint's whole list, each
+  under its own name) —
   and the frame set — `frames_tree`, `frame_properties`,
   `add_frame_button`, `gizmo_move_frame` — and `decomp_needs_consent`, the
   browser's half of the Collision block, which a native runner renders by

@@ -323,10 +323,11 @@ pub struct GlyphDebug {
     /// and labelled `↳ <leader>` (ADR-0013). Omitted for a free joint.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mimic: Option<String>,
-    /// The actuator preset holding it — the glyph gains a ring at the
-    /// pivot (ADR-0014). Omitted for an unactuated joint.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub actuator: Option<&'static str>,
+    /// The preset of every actuator driving it, in `ActuatorId` order — the
+    /// glyph gains a ring at the pivot (ADR-0014), one ring however many
+    /// drive it (ADR-0023). Omitted for an unactuated joint.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub actuators: Vec<&'static str>,
     /// Whether the scene's depth image says the pivot is behind geometry,
     /// so a scenario asserts the *policy* and not only the pixels
     /// (ADR-0020, ADR-0003). `null` — omitted — before any depth image has
@@ -551,7 +552,7 @@ impl RiggenApp {
                         active: active == Some(glyph.joint),
                         hovered: self.hovered_joint() == Some(glyph.joint),
                         mimic: glyph.mimic.map(|m| m.to_string()),
-                        actuator: glyph.actuator,
+                        actuators: glyph.actuators.clone(),
                         pivot_hidden: self
                             .viewport
                             .depth_image()
