@@ -258,12 +258,21 @@ mechanical; **[2]** careful — a case to get right within a given design;
       print its three type names where a preset prints its gains; the
       panel's gain grid shows nothing for one and its combo can still
       replace it (step 7 adds the row).
-- [ ] **[2]** Step 5 — **the MJCF writer writes `<general>`.** The tag,
+- [x] **[2]** Step 5 — **the MJCF writer writes `<general>`.** The tag,
       the three type names, the `prm` vectors with MuJoCo's zero-fill
       trimmed off the end, `gear`, and the ranges from step 3. The golden
       gains a `<general>` case beside the three presets; the apologetic
       comment (ADR-0004 §4) is unaffected — a `General` drives the joint
       like any other actuator.
+      *Landed.* The trim keeps at least one entry: `dynprm="0"` is zero
+      where an absent `dynprm` is MuJoCo's default of one, checked against
+      MuJoCo rather than assumed. The `--fk-samples` block gains a
+      `general` sub-block (the three type names, the three vectors) so
+      `check_actuators` holds a riggen-authored `<general>` to its model
+      too, padded to MuJoCo's ten; the golden's fourth case sits beside
+      the three presets in `each_preset_writes_its_element…`, not in the
+      shared `GOLDEN` constant, which the importer still reads as
+      preset-only until step 6.
 - [ ] **[2]** Step 6 — **the MJCF import reads a `<general>` driving a
       joint.** The preset rule of ADR-0024 §2 — a preset iff every
       attribute fits it, else a `General` — the five counted attributes,

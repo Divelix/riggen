@@ -369,6 +369,43 @@ mod tests {
 </robot>
 "#;
 
+    /// The escape hatch changes the comment only by what it prints
+    /// (ADR-0024): a `General` names its three types where a preset names
+    /// its gains — ten numbers per vector would bury the joint.
+    #[test]
+    fn a_general_actuator_is_a_comment_naming_its_types() {
+        let mut b = every_joint_kind();
+        let hinge = *b
+            .robot
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "upper_joint")
+            .unwrap()
+            .0;
+        b.robot.actuators.clear();
+        b.actuator(
+            hinge,
+            riggen_core::ActuatorSpec::General(riggen_core::General {
+                dyntype: riggen_core::DynType::Filter,
+                biastype: riggen_core::BiasType::Affine,
+                gainprm: vec![200.0],
+                ..riggen_core::General::default()
+            }),
+        );
+        let urdf = write(
+            &b.resolve().unwrap(),
+            &ExportOptions::default(),
+            Path::new("."),
+        );
+        assert!(
+            urdf.contains(
+                "<!-- joint upper_joint: a general actuator (dyntype filter gaintype fixed biastype affine) is an MJCF property; not written -->"
+            ),
+            "{urdf}"
+        );
+        assert!(!urdf.contains("<transmission"), "{urdf}");
+    }
+
     /// URDF has no actuator element and we invent none (ADR-0014): the
     /// third preset, and the promise that no `<transmission>` appears.
     #[test]

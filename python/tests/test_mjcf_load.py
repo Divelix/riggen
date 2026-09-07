@@ -262,7 +262,10 @@ def check_actuators(model: mujoco.MjModel, samples: dict) -> int:
         # Where MuJoCo puts each preset's gains: `<position kp kv>` is
         # gainprm[0] = kp with an affine bias (-kp, -kv), `<velocity kv>`
         # is gainprm[0] = kv with bias (0, -kv), and `<motor gear>` is a
-        # unit gain with the gear in the transmission.
+        # unit gain with the gear in the transmission. A `<general>`
+        # (ADR-0024) is MuJoCo's own model spelled out: its three types by
+        # name and its three `prm` vectors, which riggen writes trimmed and
+        # MuJoCo zero-fills, so each is compared padded to MuJoCo's ten.
         gains, kind = spec["gains"], spec["kind"]
         gain, bias = model.actuator_gainprm[i], model.actuator_biasprm[i]
         gear = model.actuator_gear[i][0]
@@ -274,6 +277,27 @@ def check_actuators(model: mujoco.MjModel, samples: dict) -> int:
                         ("gear", gear, 1.0)]
         elif kind == "motor":
             expected = [("gain", gain[0], 1.0), ("gear", gear, gains["gear"])]
+        elif kind == "general":
+            expected = [("gear", gear, gains["gear"])]
+            general = spec["general"]
+            for what, enum in (("dyntype", mujoco.mjtDyn), ("gaintype", mujoco.mjtGain),
+                               ("biastype", mujoco.mjtBias)):
+                got = enum(int(getattr(model, f"actuator_{what}")[i])).name
+                want = f"mj{what[:-4].upper()}_{general[what].upper()}"
+                if got != want:
+                    raise AssertionError(
+                        f"actuator {name!r} (general): mujoco has {what} {got}, "
+                        f"the samples say {general[what]!r}"
+                    )
+            for what in ("dynprm", "gainprm", "biasprm"):
+                got = getattr(model, f"actuator_{what}")[i]
+                want = np.zeros(len(got))
+                want[:len(general[what])] = general[what]
+                if np.abs(got - want).max() > TOLERANCE:
+                    raise AssertionError(
+                        f"actuator {name!r} (general): mujoco has {what} {got.tolist()}, "
+                        f"the samples say {general[what]}"
+                    )
         else:
             raise AssertionError(f"actuator {name!r} has unknown kind {kind!r}")
         for label, got, wanted in expected:

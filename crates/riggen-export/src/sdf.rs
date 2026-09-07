@@ -589,6 +589,40 @@ pub(crate) mod tests {
         assert_eq!(model.kids("link").count(), 5);
     }
 
+    /// A `General` (ADR-0024) is the same comment naming its three types
+    /// where a preset names its gains, and still no `<plugin>`.
+    #[test]
+    fn a_general_actuator_is_a_comment_naming_its_types() {
+        let mut b = every_joint_kind();
+        let hinge = *b
+            .robot
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "upper_joint")
+            .unwrap()
+            .0;
+        b.robot.actuators.clear();
+        b.actuator(
+            hinge,
+            ActuatorSpec::General(riggen_core::General {
+                dyntype: riggen_core::DynType::Integrator,
+                ..riggen_core::General::default()
+            }),
+        );
+        let sdf = write(
+            &b.resolve().unwrap(),
+            &ExportOptions::default(),
+            Path::new("."),
+        );
+        assert!(
+            sdf.contains(
+                "<!-- joint upper_joint: a general actuator (dyntype integrator gaintype fixed biastype none) is an MJCF property; not written -->"
+            ),
+            "{sdf}"
+        );
+        assert!(!sdf.contains("<plugin"), "{sdf}");
+    }
+
     /// SDF has no actuator either, and Gazebo's `<plugin>` is a simulator
     /// configuration rather than a robot description, so ADR-0014's URDF
     /// answer stands word for word (ADR-0016 §5).

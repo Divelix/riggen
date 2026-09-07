@@ -1281,7 +1281,8 @@ measured size is in 03 §v0.2.
   `actuators` block says what the `<actuator>` block should hold
   (ADR-0014, ADR-0023) — the actuator's **own** name, the driven joint as a
   separate field, the gains where MuJoCo keeps them (`gainprm` / `biasprm`
-  / `gear`), the two ranges and the `ctrllimited` / `forcelimited` MuJoCo
+  / `gear`; a `general`'s three types and three `prm` vectors compared
+  padded to MuJoCo's ten), the two ranges and the `ctrllimited` / `forcelimited` MuJoCo
   must end up with (the actuator's own flag, else `autolimits`' rule over
   the range riggen wrote; an omitted range leaves the flag off) — and
   `model.nu` must

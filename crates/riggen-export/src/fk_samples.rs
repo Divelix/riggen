@@ -46,8 +46,14 @@ pub struct SampledActuator {
     pub kind: String,
     /// The joint it drives.
     pub joint: String,
-    /// `kp` / `kv` / `gear` by name.
+    /// `kp` / `kv` / `gear` by name; a `general`'s is `gear` alone, the
+    /// rest of it being `general` below.
     pub gains: BTreeMap<String, f64>,
+    /// What a `<general>` says beyond a gain (ADR-0024): the three type
+    /// names as MJCF spells them and the three `prm` vectors as the
+    /// document holds them — MuJoCo zero-fills the rest. `None` for the
+    /// three presets.
+    pub general: Option<SampledGeneral>,
     /// Absent where MJCF leaves the attribute out and MuJoCo's unbounded
     /// default stands.
     pub ctrlrange: Option<[f64; 2]>,
@@ -57,6 +63,16 @@ pub struct SampledActuator {
     /// range is written and its lower bound is below its upper (ADR-0024).
     pub ctrllimited: bool,
     pub forcelimited: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SampledGeneral {
+    pub dyntype: String,
+    pub gaintype: String,
+    pub biastype: String,
+    pub dynprm: Vec<f64>,
+    pub gainprm: Vec<f64>,
+    pub biasprm: Vec<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -129,6 +145,17 @@ fn actuators(robot: &Robot) -> Vec<SampledActuator> {
                     (BTreeMap::from([("gear".to_owned(), g.gear)]), None)
                 }
             };
+            let general = match actuator {
+                ActuatorSpec::General(g) => Some(SampledGeneral {
+                    dyntype: g.dyntype.mjcf_name().to_owned(),
+                    gaintype: g.gaintype.mjcf_name().to_owned(),
+                    biastype: g.biastype.mjcf_name().to_owned(),
+                    dynprm: g.dynprm.clone(),
+                    gainprm: g.gainprm.clone(),
+                    biasprm: g.biasprm.clone(),
+                }),
+                _ => None,
+            };
             let own = entry.ranges;
             let ctrlrange = own_else(own.ctrl, own.ctrl_limited, derived_ctrl);
             let forcerange = own_else(
@@ -141,6 +168,7 @@ fn actuators(robot: &Robot) -> Vec<SampledActuator> {
                 kind: actuator.kind_name().to_owned(),
                 joint: joint.name.clone(),
                 gains,
+                general,
                 ctrlrange,
                 forcerange,
                 ctrllimited: limited(own.ctrl_limited, ctrlrange),
@@ -508,5 +536,36 @@ mod tests {
         assert_eq!(a[1].ctrlrange, Some([0.0, 0.0]));
         assert_eq!(a[1].forcerange, Some([-1.0, 1.0]));
         assert_eq!((a[1].ctrllimited, a[1].forcelimited), (false, false));
+        assert!(a.iter().all(|a| a.general.is_none()), "presets carry none");
+
+        // A `<general>` (ADR-0024): `gear` is its one gain, the rest is
+        // the `general` block, and it has no preset to derive a
+        // `ctrlrange` from — MuJoCo's default is unlimited.
+        drive(
+            &mut robot,
+            servo,
+            ActuatorSpec::General(riggen_core::General {
+                dyntype: riggen_core::DynType::Filter,
+                gainprm: vec![200.0],
+                gear: 3.0,
+                ..riggen_core::General::default()
+            }),
+        );
+        set(&mut robot, servo, riggen_core::ActuatorRanges::default());
+        let a = actuators(&robot);
+        assert_eq!(a[0].kind, "general");
+        assert_eq!(a[0].gains, BTreeMap::from([("gear".to_owned(), 3.0)]));
+        let g = a[0].general.as_ref().expect("the general block");
+        assert_eq!(
+            (g.dyntype.as_str(), g.gaintype.as_str(), g.biastype.as_str()),
+            ("filter", "fixed", "none")
+        );
+        assert_eq!(
+            (&g.dynprm[..], &g.gainprm[..], &g.biasprm[..]),
+            (&[][..], &[200.0][..], &[][..])
+        );
+        assert_eq!((a[0].ctrlrange, a[0].ctrllimited), (None, false));
+        assert_eq!(a[0].forcerange, Some([-5.0, 5.0]), "±effort still derives");
+        assert!(to_json(&robot).contains("\"dyntype\": \"filter\""));
     }
 }

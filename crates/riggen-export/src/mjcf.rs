@@ -205,8 +205,14 @@ fn write_joint(x: &mut Xml, j: &ResolvedJoint, driven: bool) {
     }
 }
 
-/// One `<position>` / `<velocity>` / `<motor>`: `a` under its own name,
-/// driving `j` (ADR-0014, ADR-0023).
+/// One `<position>` / `<velocity>` / `<motor>` / `<general>`: `a` under
+/// its own name, driving `j` (ADR-0014, ADR-0023, ADR-0024).
+///
+/// A `<general>` writes its three type names, its `prm` vectors with the
+/// zeros MuJoCo would fill in trimmed off the end — `gainprm="200"`, not
+/// ten numbers — and its `gear`, the way a `<motor>` does. It has no
+/// preset to derive a `ctrlrange` from, so only what the file said is
+/// written; MuJoCo's default is unlimited.
 ///
 /// The ranges are **the actuator's own, else the joint's** (ADR-0024).
 /// What the file said — `ResolvedActuator::ranges` — is written as it was
@@ -238,15 +244,19 @@ fn write_actuator(x: &mut Xml, a: &ResolvedActuator, j: &ResolvedJoint) {
         ActuatorSpec::Motor { gear } => {
             ("motor", vec![("gear", num(*gear))], Some("-1 1".to_owned()))
         }
-        // The document can hold one before the writer can say it
-        // (plans/actuator-escape-hatch step 4 before step 5): named, not
-        // silently dropped, the way every other gap in a writer is.
-        ActuatorSpec::General(_) => {
-            x.comment(&format!(
-                "actuator {}: a <general> is not written yet (plans/actuator-escape-hatch step 5)",
-                a.name
-            ));
-            return;
+        ActuatorSpec::General(g) => {
+            let mut attrs = vec![
+                ("dyntype", g.dyntype.mjcf_name().to_owned()),
+                ("gaintype", g.gaintype.mjcf_name().to_owned()),
+                ("biastype", g.biastype.mjcf_name().to_owned()),
+            ];
+            attrs.extend(
+                g.prms()
+                    .into_iter()
+                    .filter_map(|(name, prm)| Some((name, numbers(trimmed(prm))?))),
+            );
+            attrs.push(("gear", num(g.gear)));
+            ("general", attrs, None)
         }
     };
     let derived_force = j.limits.and_then(|l| symmetric(l.effort));
@@ -278,6 +288,19 @@ fn write_actuator(x: &mut Xml, a: &ResolvedActuator, j: &ResolvedJoint) {
         }
     }
     x.empty(tag, &attrs);
+}
+
+/// `prm` with the trailing zeros MuJoCo would fill in anyway left off —
+/// but never emptied: `dynprm="0"` means zero where an absent `dynprm`
+/// means MuJoCo's default of one.
+fn trimmed(prm: &[f64]) -> &[f64] {
+    let keep = prm.iter().rposition(|v| *v != 0.0).map_or(0, |i| i + 1);
+    &prm[..keep.max(1).min(prm.len())]
+}
+
+/// A space-separated attribute value, or `None` for nothing to write.
+fn numbers(values: &[f64]) -> Option<String> {
+    (!values.is_empty()).then(|| values.iter().map(|v| num(*v)).collect::<Vec<_>>().join(" "))
 }
 
 fn write_geom(x: &mut Xml, class: &str, geom: &ResolvedGeom) {
@@ -340,7 +363,7 @@ fn pose_attrs(pose: &Pose) -> Vec<(&'static str, String)> {
 pub(crate) mod tests {
     use super::*;
     use crate::test_util::every_joint_kind;
-    use riggen_core::{ActuatorRanges, Limits};
+    use riggen_core::{ActuatorRanges, BiasType, DynType, GainType, General, Limits};
 
     pub(crate) const GOLDEN: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <mujoco model="test">
@@ -479,6 +502,42 @@ pub(crate) mod tests {
         assert_eq!(
             line(ActuatorSpec::Velocity { kv: 2.0 }, 0.0, 0.0),
             r#"<velocity name="upper_joint" joint="upper_joint" kv="2"/>"#
+        );
+        // The escape hatch (ADR-0024): the three type names, each `prm`
+        // vector trimmed of the zeros MuJoCo would fill in — but not
+        // emptied — and `gear` like a motor's. No preset means no derived
+        // `ctrlrange`; `forcerange` still follows the joint's effort.
+        let general = |dynprm: Vec<f64>, gainprm: Vec<f64>, biasprm: Vec<f64>| {
+            ActuatorSpec::General(General {
+                dyntype: DynType::Filter,
+                gaintype: GainType::Fixed,
+                biastype: BiasType::Affine,
+                dynprm,
+                gainprm,
+                biasprm,
+                gear: 2.0,
+            })
+        };
+        assert_eq!(
+            line(
+                general(
+                    vec![0.1],
+                    vec![200.0, 0.0, 0.0],
+                    vec![0.0, -200.0, -5.0, 0.0]
+                ),
+                2.0,
+                3.0
+            ),
+            r#"<general name="upper_joint" joint="upper_joint" dyntype="filter" gaintype="fixed" biastype="affine" dynprm="0.1" gainprm="200" biasprm="0 -200 -5" gear="2" forcerange="-2 2"/>"#
+        );
+        assert_eq!(
+            line(general(vec![0.0, 0.0], Vec::new(), vec![0.0]), 0.0, 0.0),
+            r#"<general name="upper_joint" joint="upper_joint" dyntype="filter" gaintype="fixed" biastype="affine" dynprm="0" biasprm="0" gear="2"/>"#,
+            "an all-zero vector keeps one zero: absent would mean MuJoCo's default"
+        );
+        assert_eq!(
+            line(ActuatorSpec::General(General::default()), 0.0, 0.0),
+            r#"<general name="upper_joint" joint="upper_joint" dyntype="none" gaintype="fixed" biastype="none" gear="1"/>"#
         );
     }
 
