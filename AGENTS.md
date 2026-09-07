@@ -27,10 +27,10 @@ glyph for range and value, a visibility row, zen on `Z` — with Tab to
 several `<joint>`s stays refused, re-asked and answered no with the
 corpus behind it (**ADR-0022**); the refusal now says what to do about
 it. **Next: the file half** — a foreign MJCF surviving import → edit →
-export with nothing lost (`Robot::actuators`, `<general>`, mimic chains,
-`<joint ref>`, `<tendon>`, `<include>` / `<attach>` / `<frame>`); `.msh`
-and inline `<mesh vertex face>` geometry already read
-(plans/mjcf-mesh-geometry).
+export with nothing lost (`<general>`, mimic chains, `<joint ref>`,
+`<tendon>`, `<include>` / `<attach>` / `<frame>`); `Robot::actuators` at
+schema 4 (plans/actuator-table, ADR-0023) and `.msh` / inline
+`<mesh vertex face>` geometry (plans/mjcf-mesh-geometry) already landed.
 **Before it:** v0.3 (`v0.3.0`) paid down the hand-feel debt (scrubbers,
 left-drag orbit, tool keys and a claimable wheel, a driven-joint overlay
 — ADR-0018/19/20); v0.2 (`v0.2.1`) made "sim-ready" a feature (the SDK

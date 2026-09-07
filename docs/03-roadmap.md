@@ -283,11 +283,13 @@ cycle is for — the import warns and drops, so a round trip through riggen
 still costs the user their hand-edited XML. Every line below is one of those
 drops, and each is a backlog line this section now owns.
 
-- **Actuators become a model-level table.** `Joint::actuator` promoted to a
-  top-level `Robot::actuators` keyed by what it drives — the shape MJCF has
-  (ADR-0014's option F) — so an actuator on a tendon or a site has somewhere
-  to land instead of an `ActuatorDropped` warning. A schema bump whose
-  `upgrade_` step moves each `Some(spec)` into the map.
+- **Actuators become a model-level table.** *Landed (plans/actuator-table,
+  ADR-0023).* `Robot::actuators: BTreeMap<ActuatorId, Actuator>`, each with
+  its own name and an `ActuatorTarget`; schema 4. An actuator whose name
+  differs from its joint's keeps it, and a second actuator on an
+  already-driven joint is kept, not silently overwritten. An actuator
+  driving a tendon, site or body still warns and drops — that seam is the
+  target enum's next variant, not this bullet's.
 - **The escape hatch beside the three presets.** `<general>` — and
   `<adhesion>`, `<muscle>` — carried through with its `dyntype` / `gaintype`
   / `biastype`, so a user who needs one is not hand-editing after every
