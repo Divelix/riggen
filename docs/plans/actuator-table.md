@@ -119,7 +119,7 @@ Complexity: **[1]** routine — the design says what to write, the tests are
 mechanical; **[2]** careful — a case to get right within a given design;
 **[3]** unproven — behaviour that has to be established here.
 
-- [ ] **[1]** Step 1 — **ADR-0023: actuators are a model-level table,
+- [x] **[1]** Step 1 — **ADR-0023: actuators are a model-level table,
       named in their own namespace.** The three amendments to ADR-0014
       above, with the two silent losses as the context and the target enum's
       single variant as the stated seam. `docs/adr/README.md` gains its row
