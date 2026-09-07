@@ -171,7 +171,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       walks the table; `test_mjcf_load.py`'s `check_actuators` reads the
       sampled name. The MJCF golden gains two cases: two actuators on one
       joint, and one whose name differs from its joint's.
-- [ ] **[2]** Step 7 — **MJCF import fills the table.** `read_actuators`
+- [x] **[2]** Step 7 — **MJCF import fills the table.** `read_actuators`
       inserts an entry per element, keeping the file's `name`; a second
       actuator on a driven joint is kept, not silently swallowed;
       `drop_what_validate_refuses` removes by `ActuatorId`.

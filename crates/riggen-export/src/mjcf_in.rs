@@ -1150,10 +1150,17 @@ impl Import<'_> {
         Ok(())
     }
 
-    /// `<position>` / `<velocity>` / `<motor>` on a joint → `ActuatorSpec`
-    /// (ADR-0014). Its `forcerange` and `ctrlrange` are also where
-    /// `Limits::effort` and `Limits::velocity` come back from: MJCF keeps
-    /// them on the actuator, not on the joint.
+    /// `<position>` / `<velocity>` / `<motor>` → one entry of
+    /// `Robot::actuators` each, under the name the file gave it (ADR-0014,
+    /// ADR-0023). A second element on an already-driven joint is a second
+    /// entry: MuJoCo sums their controls, so keeping only one would throw
+    /// away what the file said.
+    ///
+    /// `forcerange` and `ctrlrange` are also where `Limits::effort` and
+    /// `Limits::velocity` come back from — MJCF keeps them on the actuator,
+    /// not on the joint — and the joint has one of each, so the **first**
+    /// actuator to drive it fills them and a later one leaves them alone.
+    /// (Per-actuator ranges are the escape hatch's, not this plan's.)
     fn read_actuators(&mut self, root: &Node) -> Result<(), ImportError> {
         for block in root.kids("actuator") {
             for a in &block.children {
@@ -1206,11 +1213,9 @@ impl Import<'_> {
                 let force = self.nums::<2>(&a, "forcerange")?;
                 let ctrl = self.nums::<2>(&a, "ctrlrange")?;
                 // One entry per element, keyed in its own namespace
-                // (ADR-0023). A second `<actuator>` on an already-driven
-                // joint still replaces the first here; keeping it is step 7.
-                self.robot
-                    .actuators
-                    .retain(|_, a| a.target.joint() != Some(id));
+                // (ADR-0023) — a second one on this joint is a second
+                // entry, not a replacement.
+                let first = self.robot.actuators_on(id).next().is_none();
                 let aid = self.robot.next_id.alloc();
                 self.robot.actuators.insert(
                     aid,
@@ -1221,7 +1226,7 @@ impl Import<'_> {
                     },
                 );
                 let j = self.robot.joints.get_mut(&id).expect("just walked");
-                if let Some(limits) = &mut j.limits {
+                if first && let Some(limits) = &mut j.limits {
                     // Both are written as ±v and read back as the upper
                     // half; a zero one was never filled in (ADR-0014).
                     if let Some([_, upper]) = force {
@@ -1720,14 +1725,42 @@ mod tests {
             }
             assert!(asset.path.exists(), "{}", asset.path.display());
         }
+        // Both `<actuator>`s on the pan joint survive, each under the name
+        // the file gave it, and neither is the joint's (ADR-0023). Before
+        // the table, the second silently overwrote the first and both were
+        // renamed to "shoulder_pan".
+        let pan = *robot
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "shoulder_pan")
+            .unwrap()
+            .0;
         assert_eq!(
-            actuator_of(&robot, "shoulder_pan"),
-            Some(ActuatorSpec::Position {
-                kp: 120.0,
-                kv: 12.0
-            })
+            robot
+                .actuators_on(pan)
+                .map(|(_, a)| (a.name.as_str(), a.spec))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "pan",
+                    ActuatorSpec::Position {
+                        kp: 120.0,
+                        kv: 12.0
+                    }
+                ),
+                ("pan_damp", ActuatorSpec::Velocity { kv: 3.0 }),
+            ]
         );
+        // The joint has one `effort`, so the **first** actuator's
+        // `forcerange` fills it and the second one leaves it alone — it
+        // carries no `forcerange` and no `ctrlrange` of its own.
         assert_eq!(joint("shoulder_pan").limits.unwrap().effort, 30.0);
+        assert_eq!(
+            joint("shoulder_pan").limits.unwrap().velocity,
+            0.0,
+            "unfilled: the file's `<joint>` has no velocity and the second \
+             actuator's ranges are not read"
+        );
         assert_eq!(
             joint("shoulder_lift").mimic.map(|m| m.multiplier),
             Some(0.25)

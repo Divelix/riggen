@@ -675,7 +675,7 @@ meshes that repeat the visuals are `SameAsVisual`, any other set is
 downgrade), collision primitives are `Primitives`; `<mimic>` becomes a `Joint::mimic`
 (ADR-0013), resolved in a second pass so it may name a joint further down
 the file, with URDF's own defaults (multiplier 1, offset 0) filled in.
-`Joint::actuator` is always `None` on import: URDF has no actuator element
+`Robot::actuators` is always empty on import: URDF has no actuator element
 to read, which is also why nothing is dropped and no warning appears
 (ADR-0014).
 `package://name/rest`
@@ -786,11 +786,20 @@ there.
 last three coefficients are zero, the constraint is active, and neither
 joint moved its zero with a `<joint ref>` (ADR-0013).
 `<position kp kv>` / `<velocity kv>` / `<motor gear>` driving a joint
-become the three `ActuatorSpec` presets (ADR-0014), and their `forcerange`
-and `ctrlrange` are where `Limits::effort` and `Limits::velocity` come
-back from. What `validate` then refuses is dropped with its reason rather
-than failing the import — couplings first, so an actuator is not taken
-down by an `<equality>` that is itself about to go.
+become **one `Robot::actuators` entry each** (ADR-0014, ADR-0023), under
+the `name` the file gave — its joint's only when the file said so — and a
+second element on an already-driven joint is a second entry, because
+MuJoCo sums their controls. Their `forcerange` and `ctrlrange` are where
+`Limits::effort` and `Limits::velocity` come back from; the joint has one
+of each, so the **first** actuator to drive it fills them and a later one
+leaves them alone (per-actuator ranges wait for the escape hatch).
+`ActuatorDropped` is left for what the document still has no room for: an
+actuator driving a tendon, site or body, a tag outside the three presets
+(`<general>`, `<adhesion>`, `<muscle>`), a `joint` naming nothing in the
+file — and whatever `validate` refuses, dropped with its reason rather than
+failing the import, naming the **actuator** since it has a name of its own.
+Couplings go first, so an actuator is not taken down by an `<equality>`
+that is itself about to go.
 
 **Nothing is dropped silently.** Beside the shared `MimicDropped`,
 `NonUniformScale`, `PrimitiveVisualDropped`, `MixedCollisionDropped`,
@@ -823,8 +832,9 @@ The imported document is untitled until saved.
 `assets/fixtures/menagerie_style.xml` is the corpus file — degrees, a
 `<default>` tree with a `childclass` and class names that are not ours, all
 five orientation spellings, a `fromto` capsule, a non-uniform mesh scale, a
-`<general>` and a tendon actuator, and nine elements the document has no
-field for — and its test pins the result warning by warning. The round trip
+`<general>` and a tendon actuator, an `<actuator>` named something other
+than its joint plus a second one on that same joint (both kept, ADR-0023),
+and nine elements the document has no field for — and its test pins the result warning by warning. The round trip
 itself is the `mujoco` CI job's fourth model: the arm exported, imported
 and exported again, held to the *original* document's `fk.json`.
 

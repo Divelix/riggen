@@ -17,6 +17,9 @@
       <mesh vertex face>, both read as ordinary meshes (docs/plans/
       mjcf-mesh-geometry.md);
     * a <general> actuator and one driving a tendon;
+    * an <actuator> named something other than its joint, and a second one
+      on that already-driven joint — both of which the document keeps
+      (ADR-0023);
     * <option>, <light>, <camera>, <texture>, <material>, <tendon>,
       <sensor>, <contact> and <keyframe>, none of which the document holds.
 
@@ -89,6 +92,7 @@
 
   <actuator>
     <position name="pan" joint="shoulder_pan" kp="120" kv="12" forcerange="-30 30"/>
+    <velocity name="pan_damp" joint="shoulder_pan" kv="3"/>
     <general name="lift" joint="shoulder_lift" dyntype="filter" gaintype="fixed" gainprm="200"/>
     <motor name="grip" tendon="grip_tendon" gear="80"/>
   </actuator>
