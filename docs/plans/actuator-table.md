@@ -208,6 +208,36 @@ fixture reopens: `pendulum.riggen` at v1, the new frozen v3 file through
 the non-empty step, `bracket.riggen` and `arm/arm.riggen` byte-for-byte at
 v4. `cargo test` green, snapshot suite included.
 
+**Run 2026-09-07, after step 9.** Every claim above holds, with one
+caveat that is not this plan's:
+
+- `menagerie_style.xml` imported and re-exported loads in MuJoCo with zero
+  compiler warnings, agrees with `fk` to 1e-6 over 35 poses, and its
+  `<actuator>` block reads
+  `<position name="pan" joint="shoulder_pan" …/>` and
+  `<velocity name="pan_damp" joint="shoulder_pan" …/>` — the differently
+  named actuator keeps its name and the joint with two keeps both.
+  `check_actuators` matches the `--fk-samples` block element for element
+  ("2 actuator(s) match what the samples ask for").
+- **The caveat:** that run needs one substitution. The corpus's
+  `arm/thing.msh` is a **single triangle** — three vertices — and MuJoCo
+  refuses any mesh with fewer than four ("Error: at least 4 vertices
+  required", element `thing`). It is plans/mjcf-mesh-geometry's fixture
+  (commit `1f54ccc`), predates this plan and is untouched by it; the corpus
+  MJCF has never been MuJoCo-loadable. The acceptance was run with
+  `meshes/thing.stl` replaced by a tetrahedron, which changes mesh bytes
+  only — every pose in the model is written explicitly. **Making
+  `thing.msh` a real solid is a backlog line, not this plan's step.**
+- The `mujoco` job's four models all pass locally, the round-trip one held
+  to the *original* document's `fk.json`: `arm.riggen`, `arm.urdf`,
+  `bracket.riggen`, and `arm.xml` re-imported and re-exported.
+- Every fixture reopens (`cargo test -p riggen-core`): `pendulum.riggen` at
+  v1, the new `driven.riggen` at v3 through the non-empty step, and
+  `bracket.riggen` / `arm/arm.riggen` byte-for-byte at v4.
+- `cargo test --workspace` green, the 142-scenario snapshot suite included;
+  `uvx pyright` clean; `python/tests/sdk` 74 passed; `examples/arm.py`
+  exports its two actuators through the installed API.
+
 ## Docs to update on completion
 - `docs/02-data-model.md` §Core types — `Robot::actuators`, `Actuator`,
   `ActuatorTarget`; `Joint::actuator` removed from the `Joint` listing
