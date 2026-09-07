@@ -243,13 +243,21 @@ mechanical; **[2]** careful — a case to get right within a given design;
       differs only for an inverted range — noted, not touched. The
       `mujoco` job's six models pass locally with the four fields
       compared; the SDK suite and pyright are green.
-- [ ] **[2]** Step 4 — **`ActuatorSpec::General` in the document.** The
+- [x] **[2]** Step 4 — **`ActuatorSpec::General` in the document.** The
       variant, `General`, `DynType` / `GainType` / `BiasType`,
       `kind_name()` = `"general"`, `validate`'s two new refusals, and the
       `Copy`-to-`Clone` edit everywhere the enum is passed by value. No
       reader and no writer yet: the document can hold one, a hand-built
       test says `validate` accepts it and refuses a non-finite `prm` and
       an eleventh entry, and the step is revertible alone.
+      *Landed.* The three type enums carry their MJCF spellings
+      (`mjcf_name` / `from_mjcf` / `ALL`) and `General::MAX_PRM` here,
+      being the types' own; `General::default()` is MuJoCo's bare
+      `<general>`. Until step 5 the MJCF writer names a `General` in a
+      comment rather than dropping it silently; the URDF and SDF comments
+      print its three type names where a preset prints its gains; the
+      panel's gain grid shows nothing for one and its combo can still
+      replace it (step 7 adds the row).
 - [ ] **[2]** Step 5 — **the MJCF writer writes `<general>`.** The tag,
       the three type names, the `prm` vectors with MuJoCo's zero-fill
       trimmed off the end, `gear`, and the ranges from step 3. The golden

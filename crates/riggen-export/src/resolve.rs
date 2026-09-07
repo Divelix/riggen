@@ -683,7 +683,7 @@ pub fn resolve(
             Some(ResolvedActuator {
                 name: a.name.clone(),
                 joint: joint_index[&a.target.joint()?],
-                spec: a.spec,
+                spec: a.spec.clone(),
                 ranges: a.ranges,
             })
         })

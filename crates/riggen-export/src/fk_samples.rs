@@ -108,8 +108,8 @@ fn actuators(robot: &Robot) -> Vec<SampledActuator> {
         .values()
         .filter_map(|entry| {
             let joint = robot.joints.get(&entry.target.joint()?)?;
-            let actuator = entry.spec;
-            let (gains, derived_ctrl) = match actuator {
+            let actuator = &entry.spec;
+            let (gains, derived_ctrl) = match *actuator {
                 ActuatorSpec::Position { kp, kv } => (
                     BTreeMap::from([("kp".to_owned(), kp), ("kv".to_owned(), kv)]),
                     joint.limits.map(|l| [l.lower, l.upper]),
@@ -122,6 +122,12 @@ fn actuators(robot: &Robot) -> Vec<SampledActuator> {
                     BTreeMap::from([("gear".to_owned(), gear)]),
                     Some([-1.0, 1.0]),
                 ),
+                // A `<general>` has no preset to derive a `ctrlrange`
+                // from: MuJoCo's own default is unlimited, and `gear` is
+                // the one gain the check can hold it to.
+                ActuatorSpec::General(ref g) => {
+                    (BTreeMap::from([("gear".to_owned(), g.gear)]), None)
+                }
             };
             let own = entry.ranges;
             let ctrlrange = own_else(own.ctrl, own.ctrl_limited, derived_ctrl);

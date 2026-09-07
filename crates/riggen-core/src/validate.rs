@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::ids::{ActuatorId, FrameId, GeomId, JointId, LinkId, MeshId};
-use crate::robot::{ActuatorSpec, Robot};
+use crate::robot::{ActuatorSpec, General, Robot};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationError {
@@ -153,6 +153,14 @@ pub enum ValidationError {
         actuator: ActuatorId,
         what: String,
     },
+    /// A `General` actuator's `dynprm` / `gainprm` / `biasprm` holds more
+    /// than the ten entries MuJoCo has room for (ADR-0024). `what` names
+    /// the vector, `len` how long it is.
+    ActuatorPrmTooLong {
+        actuator: ActuatorId,
+        what: &'static str,
+        len: usize,
+    },
 }
 
 impl fmt::Display for ValidationError {
@@ -256,6 +264,15 @@ impl fmt::Display for ValidationError {
             Self::InvalidActuatorGain { actuator, what } => {
                 write!(f, "actuator {actuator} has {what}")
             }
+            Self::ActuatorPrmTooLong {
+                actuator,
+                what,
+                len,
+            } => write!(
+                f,
+                "actuator {actuator} has {len} {what} entries; MuJoCo holds at most {}",
+                General::MAX_PRM
+            ),
         }
     }
 }
@@ -612,7 +629,7 @@ fn check_actuators(robot: &Robot, errors: &mut Vec<ValidationError>) {
             });
             continue;
         };
-        let actuator = entry.spec;
+        let actuator = &entry.spec;
         if !joint.kind.is_movable() {
             errors.push(ValidationError::ActuatorOnFixedJoint {
                 actuator: aid,
@@ -632,13 +649,35 @@ fn check_actuators(robot: &Robot, errors: &mut Vec<ValidationError>) {
         // servo with no damping is ordinary — but never negative, which
         // would push the joint away from its target; a `gear` may be
         // negative (it reverses the joint) but never zero, which is an
-        // actuator that cannot move it at all.
-        let gains: [Option<(&str, f64, bool)>; 2] = match actuator {
+        // actuator that cannot move it at all. Those are statements about
+        // the *presets*: a `General`'s gains are MuJoCo's to interpret
+        // (ADR-0024), so only finiteness and the vectors' length are
+        // riggen's to refuse.
+        let gains: [Option<(&str, f64, bool)>; 2] = match *actuator {
             ActuatorSpec::Position { kp, kv } => {
                 [Some(("kp", kp, kp >= 0.0)), Some(("kv", kv, kv >= 0.0))]
             }
             ActuatorSpec::Velocity { kv } => [Some(("kv", kv, kv >= 0.0)), None],
             ActuatorSpec::Motor { gear } => [Some(("gear", gear, gear != 0.0)), None],
+            ActuatorSpec::General(ref general) => {
+                for (what, prm) in general.prms() {
+                    if prm.len() > General::MAX_PRM {
+                        errors.push(ValidationError::ActuatorPrmTooLong {
+                            actuator: aid,
+                            what,
+                            len: prm.len(),
+                        });
+                    }
+                    for (i, value) in prm.iter().enumerate() {
+                        if !value.is_finite() {
+                            errors.push(ValidationError::NonFinite {
+                                what: format!("{what}[{i}] of actuator {aid}"),
+                            });
+                        }
+                    }
+                }
+                [Some(("gear", general.gear, true)), None]
+            }
         };
         for (name, value, usable) in gains.into_iter().flatten() {
             if !value.is_finite() {
@@ -674,8 +713,8 @@ mod tests {
     use crate::ids::Id;
     use crate::pose::Pose;
     use crate::robot::{
-        Actuator, ActuatorRanges, ActuatorSpec, ActuatorTarget, Frame, Geom, Joint, JointKind,
-        Limits, Link, MeshAsset, Mimic,
+        Actuator, ActuatorRanges, ActuatorSpec, ActuatorTarget, BiasType, DynType, Frame, GainType,
+        General, Geom, Joint, JointKind, Limits, Link, MeshAsset, Mimic,
     };
     use riggen_mesh::glam::{DVec3, dvec3};
     use std::path::PathBuf;
@@ -1456,6 +1495,100 @@ mod tests {
                 "{err}"
             );
         }
+    }
+
+    /// A `General` (ADR-0024) is refused for exactly two things: a `prm`
+    /// vector longer than MuJoCo's ten, and a non-finite entry or `gear`.
+    /// Its gains are otherwise MuJoCo's to interpret — a negative or zero
+    /// one is **not** `InvalidActuatorGain`, which is about the presets.
+    #[test]
+    fn a_general_actuator_is_refused_only_for_length_and_finiteness() {
+        let (mut robot, [j0, _, _]) = movable_chain();
+        let filter = General {
+            dyntype: DynType::Filter,
+            gaintype: GainType::Fixed,
+            biastype: BiasType::Affine,
+            dynprm: vec![0.1],
+            gainprm: vec![200.0],
+            biasprm: vec![0.0, -200.0, -5.0],
+            gear: 1.0,
+        };
+        actuate(&mut robot, j0, ActuatorSpec::General(filter.clone()));
+        assert_eq!(validate(&robot), Ok(()));
+        // Gains the presets would refuse are fine on a `General`.
+        actuate(
+            &mut robot,
+            j0,
+            ActuatorSpec::General(General {
+                gainprm: vec![-200.0],
+                gear: 0.0,
+                ..filter.clone()
+            }),
+        );
+        assert_eq!(validate(&robot), Ok(()), "MuJoCo's to interpret");
+        // A bare one is MuJoCo's defaults and legal.
+        actuate(&mut robot, j0, ActuatorSpec::General(General::default()));
+        assert_eq!(validate(&robot), Ok(()));
+        // Ten entries fit; an eleventh does not.
+        actuate(
+            &mut robot,
+            j0,
+            ActuatorSpec::General(General {
+                biasprm: vec![1.0; General::MAX_PRM],
+                ..filter.clone()
+            }),
+        );
+        assert_eq!(validate(&robot), Ok(()));
+        let a = actuate(
+            &mut robot,
+            j0,
+            ActuatorSpec::General(General {
+                biasprm: vec![1.0; General::MAX_PRM + 1],
+                ..filter.clone()
+            }),
+        );
+        let err = validate(&robot).unwrap_err();
+        assert_eq!(
+            err,
+            ValidationError::ActuatorPrmTooLong {
+                actuator: a,
+                what: "biasprm",
+                len: 11
+            }
+        );
+        assert_eq!(
+            err.to_string(),
+            format!("actuator {a} has 11 biasprm entries; MuJoCo holds at most 10")
+        );
+        // A non-finite entry names its slot; a non-finite gear its name.
+        let a = actuate(
+            &mut robot,
+            j0,
+            ActuatorSpec::General(General {
+                dynprm: vec![0.1, f64::NAN],
+                ..filter.clone()
+            }),
+        );
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: format!("dynprm[1] of actuator {a}")
+            })
+        );
+        let a = actuate(
+            &mut robot,
+            j0,
+            ActuatorSpec::General(General {
+                gear: f64::INFINITY,
+                ..filter
+            }),
+        );
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: format!("gear of actuator {a}")
+            })
+        );
     }
 
     /// The ranges an actuator keeps from its file (ADR-0024) are numbers

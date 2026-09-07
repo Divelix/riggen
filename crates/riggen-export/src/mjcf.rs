@@ -224,19 +224,29 @@ fn write_joint(x: &mut Xml, j: &ResolvedJoint, driven: bool) {
 fn write_actuator(x: &mut Xml, a: &ResolvedActuator, j: &ResolvedJoint) {
     let pair = |[lo, hi]: [f64; 2]| format!("{} {}", num(lo), num(hi));
     let symmetric = |v: f64| (v != 0.0).then(|| pair([-v, v]));
-    let (tag, gains, derived_ctrl) = match a.spec {
+    let (tag, gains, derived_ctrl) = match &a.spec {
         ActuatorSpec::Position { kp, kv } => (
             "position",
-            vec![("kp", num(kp)), ("kv", num(kv))],
+            vec![("kp", num(*kp)), ("kv", num(*kv))],
             j.limits.map(|l| pair([l.lower, l.upper])),
         ),
         ActuatorSpec::Velocity { kv } => (
             "velocity",
-            vec![("kv", num(kv))],
+            vec![("kv", num(*kv))],
             j.limits.and_then(|l| symmetric(l.velocity)),
         ),
         ActuatorSpec::Motor { gear } => {
-            ("motor", vec![("gear", num(gear))], Some("-1 1".to_owned()))
+            ("motor", vec![("gear", num(*gear))], Some("-1 1".to_owned()))
+        }
+        // The document can hold one before the writer can say it
+        // (plans/actuator-escape-hatch step 4 before step 5): named, not
+        // silently dropped, the way every other gap in a writer is.
+        ActuatorSpec::General(_) => {
+            x.comment(&format!(
+                "actuator {}: a <general> is not written yet (plans/actuator-escape-hatch step 5)",
+                a.name
+            ));
+            return;
         }
     };
     let derived_force = j.limits.and_then(|l| symmetric(l.effort));

@@ -568,7 +568,7 @@ impl Command {
                         Actuator {
                             name,
                             target: ActuatorTarget::Joint(joint),
-                            spec,
+                            spec: spec.clone(),
                             ranges: ActuatorRanges::default(),
                         },
                     );
@@ -1638,16 +1638,16 @@ mod tests {
         assert_eq!(validate(&robot), Ok(()));
 
         let motor = ActuatorSpec::Motor { gear: 50.0 };
-        apply(&mut robot, Command::SetActuators(Some(motor))).unwrap();
+        apply(&mut robot, Command::SetActuators(Some(motor.clone()))).unwrap();
         let driver = |robot: &Robot, joint| {
             robot
                 .actuators_on(joint)
                 .next()
-                .map(|(_, a)| (a.name.clone(), a.spec))
+                .map(|(_, a)| (a.name.clone(), a.spec.clone()))
         };
         assert_eq!(
             driver(&robot, shoulder),
-            Some(("shoulder".to_owned(), motor)),
+            Some(("shoulder".to_owned(), motor.clone())),
             "one actuator per free movable joint, named after it"
         );
         assert_eq!(
@@ -1694,7 +1694,7 @@ mod tests {
             Command::AddActuator(Actuator {
                 name: "drive".to_owned(),
                 target: ActuatorTarget::Joint(shoulder),
-                spec: motor,
+                spec: motor.clone(),
                 ranges: ActuatorRanges::default(),
             }),
         )
@@ -1727,7 +1727,7 @@ mod tests {
             Command::AddActuator(Actuator {
                 name: "ghost".to_owned(),
                 target: ActuatorTarget::Joint(ghost),
-                spec: motor,
+                spec: motor.clone(),
                 ranges: ActuatorRanges::default(),
             }),
         )

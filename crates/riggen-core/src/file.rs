@@ -830,7 +830,7 @@ mod tests {
             let (&jid, _) = robot.joints.iter().find(|(_, j)| j.name == name).unwrap();
             robot.actuators_on(jid).next().map(|(_, a)| {
                 assert_eq!(a.name, name, "an actuator defaults to its joint's name");
-                a.spec
+                a.spec.clone()
             })
         };
         assert_eq!(
@@ -1038,7 +1038,7 @@ mod tests {
         let entries: Vec<(String, String, ActuatorSpec)> = robot
             .actuators
             .iter()
-            .map(|(id, a)| (id.to_string(), a.name.clone(), a.spec))
+            .map(|(id, a)| (id.to_string(), a.name.clone(), a.spec.clone()))
             .collect();
         assert_eq!(
             entries,

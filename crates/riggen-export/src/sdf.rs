@@ -176,10 +176,18 @@ fn write_joint(x: &mut Xml, robot: &ResolvedRobot, index: usize, j: &ResolvedJoi
     // may drive one joint (ADR-0023), and each is a thing the writer is
     // dropping.
     for a in robot.actuators_on(index) {
-        let gains = match a.spec {
-            ActuatorSpec::Position { kp, kv } => format!("kp {} kv {}", num(kp), num(kv)),
-            ActuatorSpec::Velocity { kv } => format!("kv {}", num(kv)),
-            ActuatorSpec::Motor { gear } => format!("gear {}", num(gear)),
+        let gains = match &a.spec {
+            ActuatorSpec::Position { kp, kv } => format!("kp {} kv {}", num(*kp), num(*kv)),
+            ActuatorSpec::Velocity { kv } => format!("kv {}", num(*kv)),
+            ActuatorSpec::Motor { gear } => format!("gear {}", num(*gear)),
+            // The three type names are what a reader of the comment can
+            // act on; ten numbers per vector would bury the joint.
+            ActuatorSpec::General(g) => format!(
+                "dyntype {} gaintype {} biastype {}",
+                g.dyntype.mjcf_name(),
+                g.gaintype.mjcf_name(),
+                g.biastype.mjcf_name()
+            ),
         };
         x.comment(&format!(
             "joint {}: a {} actuator ({gains}) is an MJCF property; not written",

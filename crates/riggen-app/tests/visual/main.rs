@@ -2546,7 +2546,10 @@ fn driver(
     robot: &riggen_core::Robot,
     joint: riggen_core::JointId,
 ) -> Option<riggen_core::ActuatorSpec> {
-    robot.actuators_on(joint).next().map(|(_, a)| a.spec)
+    robot
+        .actuators_on(joint)
+        .next()
+        .map(|(_, a)| a.spec.clone())
 }
 
 fn joint_named(
@@ -3216,7 +3219,7 @@ fn properties_joint_two_actuators() {
             .state()
             .robot()
             .actuators_on(pan)
-            .map(|(_, a)| (a.name.clone(), a.spec))
+            .map(|(_, a)| (a.name.clone(), a.spec.clone()))
             .collect();
         assert_eq!(
             listed,
@@ -3254,7 +3257,7 @@ fn properties_joint_two_actuators() {
         assert_eq!(
             app.robot()
                 .actuators_on(pan)
-                .map(|(_, a)| a.spec)
+                .map(|(_, a)| a.spec.clone())
                 .collect::<Vec<_>>(),
             [
                 riggen_core::ActuatorSpec::Position {

@@ -1229,6 +1229,7 @@ impl Import<'_> {
                 // (ADR-0023) — a second one on this joint is a second
                 // entry, not a replacement.
                 let first = self.robot.actuators_on(id).next().is_none();
+                let velocity_servo = matches!(spec, ActuatorSpec::Velocity { .. });
                 let aid = self.robot.next_id.alloc();
                 self.robot.actuators.insert(
                     aid,
@@ -1246,7 +1247,7 @@ impl Import<'_> {
                     if let Some([_, upper]) = force {
                         limits.effort = upper;
                     }
-                    if let (ActuatorSpec::Velocity { .. }, Some([_, upper])) = (spec, ctrl) {
+                    if let (true, Some([_, upper])) = (velocity_servo, ctrl) {
                         limits.velocity = upper;
                     }
                 }
@@ -1432,7 +1433,7 @@ mod tests {
     /// readout `Joint::actuator` used to be (ADR-0023).
     fn actuator_of(robot: &Robot, name: &str) -> Option<ActuatorSpec> {
         let (&jid, _) = robot.joints.iter().find(|(_, j)| j.name == name)?;
-        robot.actuators_on(jid).next().map(|(_, a)| a.spec)
+        robot.actuators_on(jid).next().map(|(_, a)| a.spec.clone())
     }
 
     /// Writes `robot`'s MJCF and its meshes into a scratch directory and
@@ -1771,7 +1772,7 @@ mod tests {
         assert_eq!(
             robot
                 .actuators_on(pan)
-                .map(|(_, a)| (a.name.as_str(), a.spec))
+                .map(|(_, a)| (a.name.as_str(), a.spec.clone()))
                 .collect::<Vec<_>>(),
             [
                 (

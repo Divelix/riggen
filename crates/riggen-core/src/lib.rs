@@ -27,8 +27,9 @@ pub use ids::{ActuatorId, FrameId, GeomId, Id, IdGen, JointId, LinkId, MeshId};
 pub use inertial::{Inertial, InertialError, LinkInertial, MeshLookup, compose_inertial};
 pub use pose::Pose;
 pub use robot::{
-    Actuator, ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Dynamics, Frame, Geom,
-    InertialSpec, Joint, JointKind, Limits, Link, Material, MeshAsset, Mimic, Primitive, Robot,
+    Actuator, ActuatorRanges, ActuatorSpec, ActuatorTarget, BiasType, CollisionPolicy, DynType,
+    Dynamics, Frame, GainType, General, Geom, InertialSpec, Joint, JointKind, Limits, Link,
+    Material, MeshAsset, Mimic, Primitive, Robot,
 };
 pub use validate::{ValidationError, validate, validation_errors};
 

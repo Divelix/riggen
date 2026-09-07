@@ -177,11 +177,16 @@ impl ActuatorTarget {
     }
 }
 
-/// How an actuator drives its target, as one of the three presets an RL
-/// user reaches for (ADR-0014). MJCF-only: it is written as an `<actuator>`
-/// element, with `ctrlrange` from the joint's limits and `forcerange` from
-/// `Limits::effort`. URDF has no actuator and says so in a comment.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// How an actuator drives its target: one of the three presets an RL user
+/// reaches for (ADR-0014), or MJCF's own general actuator model, the
+/// escape hatch for a file that wrote one (ADR-0024). MJCF-only: it is
+/// written as an `<actuator>` element, with the ranges the actuator keeps
+/// or, failing those, ones derived from the joint. URDF has no actuator
+/// and says so in a comment.
+///
+/// Not `Copy` since `General` arrived — its three `prm` vectors — so a
+/// call site that wants one by value clones it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ActuatorSpec {
     /// `<position kp kv>`: a servo tracking a target angle / offset.
     Position { kp: f64, kv: f64 },
@@ -189,18 +194,149 @@ pub enum ActuatorSpec {
     Velocity { kv: f64 },
     /// `<motor gear>`: direct force / torque, `ctrl` normalised to `-1 1`.
     Motor { gear: f64 },
+    /// `<general>`: what the three presets desugar to inside MuJoCo,
+    /// written out by a file that needed more than a preset can say.
+    General(General),
 }
 
 impl ActuatorSpec {
     /// The MJCF element name, and what the panel's combo labels it.
-    pub fn kind_name(self) -> &'static str {
+    pub fn kind_name(&self) -> &'static str {
         match self {
             Self::Position { .. } => "position",
             Self::Velocity { .. } => "velocity",
             Self::Motor { .. } => "motor",
+            Self::General(_) => "general",
         }
     }
 }
+
+/// MJCF's `<general>` actuator (ADR-0024 §1 and §4): activation dynamics,
+/// gain and bias, each a type and a parameter vector, plus the `gear` a
+/// joint transmission scales by — the first of MJCF's six, as `Motor`
+/// already reads it. The `prm` vectors hold what the file wrote, not the
+/// ten MuJoCo zero-fills to; each is at most [`General::MAX_PRM`] long.
+/// Their meaning is MuJoCo's — riggen bounds neither sign nor magnitude,
+/// only that every entry is a finite number.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct General {
+    pub dyntype: DynType,
+    pub gaintype: GainType,
+    pub biastype: BiasType,
+    pub dynprm: Vec<f64>,
+    pub gainprm: Vec<f64>,
+    pub biasprm: Vec<f64>,
+    pub gear: f64,
+}
+
+impl General {
+    /// MuJoCo's `mjNDYN` / `mjNGAIN` / `mjNBIAS`: how many entries each
+    /// `prm` vector may hold.
+    pub const MAX_PRM: usize = 10;
+
+    /// The three vectors with their MJCF attribute names, in the order
+    /// the element writes them.
+    pub fn prms(&self) -> [(&'static str, &[f64]); 3] {
+        [
+            ("dynprm", &self.dynprm),
+            ("gainprm", &self.gainprm),
+            ("biasprm", &self.biasprm),
+        ]
+    }
+}
+
+impl Default for General {
+    /// MuJoCo's own defaults for a bare `<general>`: no dynamics, a fixed
+    /// gain, no bias, every vector left for MuJoCo to fill, unit gear.
+    fn default() -> Self {
+        Self {
+            dyntype: DynType::None,
+            gaintype: GainType::Fixed,
+            biastype: BiasType::None,
+            dynprm: Vec::new(),
+            gainprm: Vec::new(),
+            biasprm: Vec::new(),
+            gear: 1.0,
+        }
+    }
+}
+
+/// `<general dyntype>`: the activation dynamics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DynType {
+    None,
+    Integrator,
+    Filter,
+    FilterExact,
+    Muscle,
+    User,
+}
+
+/// `<general gaintype>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GainType {
+    Fixed,
+    Affine,
+    Muscle,
+    User,
+}
+
+/// `<general biastype>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BiasType {
+    None,
+    Affine,
+    Muscle,
+    User,
+}
+
+/// The three type enums spell themselves the way MJCF does, so the writer
+/// and the reader share one table each rather than two strings apart.
+macro_rules! mjcf_names {
+    ($ty:ident { $($variant:ident => $name:literal),+ $(,)? }) => {
+        impl $ty {
+            /// The attribute value MJCF writes for this variant.
+            pub fn mjcf_name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)+
+                }
+            }
+
+            /// The variant an MJCF attribute value names, if any.
+            pub fn from_mjcf(name: &str) -> Option<Self> {
+                match name {
+                    $($name => Some(Self::$variant),)+
+                    _ => None,
+                }
+            }
+
+            /// Every variant, in MuJoCo's order.
+            pub const ALL: &'static [Self] = &[$(Self::$variant),+];
+        }
+    };
+}
+
+mjcf_names!(DynType {
+    None => "none",
+    Integrator => "integrator",
+    Filter => "filter",
+    FilterExact => "filterexact",
+    Muscle => "muscle",
+    User => "user",
+});
+mjcf_names!(GainType {
+    Fixed => "fixed",
+    Affine => "affine",
+    Muscle => "muscle",
+    User => "user",
+});
+mjcf_names!(BiasType {
+    None => "none",
+    Affine => "affine",
+    Muscle => "muscle",
+    User => "user",
+});
 
 impl Joint {
     /// A `Fixed` joint at identity from `parent` to `child`.
@@ -598,5 +734,46 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("materialz"), "{err}");
+    }
+
+    /// The three type enums spell themselves as MJCF does, both ways, and
+    /// a `General` serialises under its own key beside the presets — the
+    /// shape the `.riggen` file and the SDK's `spec` dict share (ADR-0024).
+    #[test]
+    fn general_actuator_types_round_trip_their_mjcf_names_and_the_json_shape() {
+        for d in DynType::ALL {
+            assert_eq!(DynType::from_mjcf(d.mjcf_name()), Some(*d));
+        }
+        for g in GainType::ALL {
+            assert_eq!(GainType::from_mjcf(g.mjcf_name()), Some(*g));
+        }
+        for b in BiasType::ALL {
+            assert_eq!(BiasType::from_mjcf(b.mjcf_name()), Some(*b));
+        }
+        assert_eq!(DynType::FilterExact.mjcf_name(), "filterexact");
+        assert_eq!(DynType::from_mjcf("spring"), None);
+        assert_eq!(
+            (DynType::ALL.len(), GainType::ALL.len(), BiasType::ALL.len()),
+            (6, 4, 4)
+        );
+
+        let spec = ActuatorSpec::General(General {
+            dyntype: DynType::Filter,
+            gainprm: vec![200.0],
+            ..General::default()
+        });
+        assert_eq!(spec.kind_name(), "general");
+        let json = serde_json::to_string(&spec).unwrap();
+        assert_eq!(
+            json,
+            r#"{"General":{"dyntype":"Filter","gaintype":"Fixed","biastype":"None","dynprm":[],"gainprm":[200.0],"biasprm":[],"gear":1.0}}"#
+        );
+        assert_eq!(serde_json::from_str::<ActuatorSpec>(&json).unwrap(), spec);
+        let err = serde_json::from_str::<ActuatorSpec>(
+            r#"{"General":{"dyntype":"Filter","gaintype":"Fixed","biastype":"None","dynprm":[],"gainprm":[],"biasprm":[],"gear":1.0,"actdim":2}}"#,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("actdim"), "{err}");
     }
 }

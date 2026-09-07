@@ -325,11 +325,15 @@ fn default_actuators() -> [ActuatorSpec; 3] {
 }
 
 /// An actuator's gains as `(label, value)`, in the order they are shown.
-fn gains(spec: ActuatorSpec) -> Vec<(&'static str, f64)> {
-    match spec {
+/// A `General` has none the grid edits (ADR-0024, plans/actuator-escape-
+/// hatch's second open question): the panel carries it and reads it back
+/// out, and the combo can still replace it with a preset.
+fn gains(spec: &ActuatorSpec) -> Vec<(&'static str, f64)> {
+    match *spec {
         ActuatorSpec::Position { kp, kv } => vec![("kp", kp), ("kv", kv)],
         ActuatorSpec::Velocity { kv } => vec![("kv", kv)],
         ActuatorSpec::Motor { gear } => vec![("gear", gear)],
+        ActuatorSpec::General(_) => Vec::new(),
     }
 }
 
@@ -1720,7 +1724,7 @@ impl RiggenApp {
                     // What "Apply to every movable joint" copies: the first
                     // control's preset, which is the only one in the case
                     // that button is for.
-                    let mut apply = driving.first().map(|(_, a)| a.spec);
+                    let mut apply = driving.first().map(|(_, a)| a.spec.clone());
                     for (row, (id, a)) in driving.iter().enumerate() {
                         // Labelled "actuator" while the name is the default
                         // — the joint's — and by its own name when it is
@@ -1731,17 +1735,14 @@ impl RiggenApp {
                         } else {
                             a.name.as_str()
                         });
-                        let mut spec = Some(a.spec);
+                        let mut spec = Some(a.spec.clone());
                         egui::ComboBox::from_id_salt(base.with(("actuator", *id)))
                             .selected_text(a.spec.kind_name())
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut spec, None, "none");
                                 for preset in default_actuators() {
-                                    ui.selectable_value(
-                                        &mut spec,
-                                        Some(preset),
-                                        preset.kind_name(),
-                                    );
+                                    let label = preset.kind_name();
+                                    ui.selectable_value(&mut spec, Some(preset), label);
                                 }
                             });
                         ui.end_row();
@@ -1749,9 +1750,9 @@ impl RiggenApp {
                         // the gains, so switching kinds and back does not
                         // carry the old ones over. "none" takes this one
                         // actuator away, not the joint's others.
-                        if spec.map(ActuatorSpec::kind_name) != Some(a.spec.kind_name()) {
+                        if spec.as_ref().map(ActuatorSpec::kind_name) != Some(a.spec.kind_name()) {
                             if row == 0 {
-                                apply = spec;
+                                apply = spec.clone();
                             }
                             commands.push(match spec {
                                 Some(spec) => {
@@ -1760,7 +1761,7 @@ impl RiggenApp {
                                 None => Command::RemoveActuator(*id),
                             });
                         }
-                        for (label, value) in gains(a.spec) {
+                        for (label, value) in gains(&a.spec) {
                             if let Some(v) = number_row(
                                 ui,
                                 state,
@@ -1769,7 +1770,7 @@ impl RiggenApp {
                                 value,
                                 STEP_UNIT,
                             ) {
-                                let mut spec = a.spec;
+                                let mut spec = a.spec.clone();
                                 set_gain(&mut spec, label, v);
                                 commands.push(Command::SetActuator(
                                     *id,
@@ -1788,16 +1789,13 @@ impl RiggenApp {
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut spec, None, "none");
                                 for preset in default_actuators() {
-                                    ui.selectable_value(
-                                        &mut spec,
-                                        Some(preset),
-                                        preset.kind_name(),
-                                    );
+                                    let label = preset.kind_name();
+                                    ui.selectable_value(&mut spec, Some(preset), label);
                                 }
                             });
                         ui.end_row();
                         if let Some(spec) = spec {
-                            apply = Some(spec);
+                            apply = Some(spec.clone());
                             commands.push(Command::AddActuator(Actuator {
                                 name: self.robot.default_actuator_name(joint),
                                 target: ActuatorTarget::Joint(joint),

@@ -120,12 +120,31 @@ pub struct ActuatorRanges {
 /// second schema bump (ADR-0023).
 pub enum ActuatorTarget { Joint(JointId) }
 
-/// How it drives it (ADR-0014). MJCF-only: URDF keeps
-/// <limit effort velocity/> and a comment naming what it lost.
+/// How it drives it (ADR-0014): a preset, or MJCF's own general actuator
+/// model, the escape hatch for a file that wrote one (ADR-0024). MJCF-only:
+/// URDF keeps <limit effort velocity/> and a comment naming what it lost.
+/// Not `Copy` since `General` — three Vecs — so a by-value site clones.
 pub enum ActuatorSpec {
     Position { kp: f64, kv: f64 },   // <position kp kv ctrlrange forcerange>
     Velocity { kv: f64 },            // <velocity kv ctrlrange forcerange>
     Motor    { gear: f64 },          // <motor gear ctrlrange forcerange>
+    General(General),                // <general dyntype gaintype biastype dynprm gainprm biasprm gear>; schema 5
+}
+
+/// What a <general> carries (ADR-0024 §4): the three types, their prm
+/// vectors as the file wrote them (at most General::MAX_PRM = 10 each, not
+/// the ten MuJoCo zero-fills to), and the first of the six `gear`s. Each
+/// type enum spells itself as MJCF does: `mjcf_name()` / `from_mjcf()`.
+/// `Default` is MuJoCo's bare <general>: None / Fixed / None, empty vectors,
+/// gear 1.
+pub struct General {
+    pub dyntype: DynType,     // None | Integrator | Filter | FilterExact | Muscle | User
+    pub gaintype: GainType,   // Fixed | Affine | Muscle | User
+    pub biastype: BiasType,   // None | Affine | Muscle | User
+    pub dynprm: Vec<f64>,
+    pub gainprm: Vec<f64>,
+    pub biasprm: Vec<f64>,
+    pub gear: f64,
 }
 
 pub enum JointKind { Fixed, Revolute, Continuous, Prismatic }
@@ -202,7 +221,12 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
   joint has no `<joint>` for MJCF to drive, and a follower is already driven
   by its `<equality>`). Its gains are finite (`NonFinite`) and usable —
   `kp` / `kv` may be zero but never negative, a `gear` may be negative but
-  never zero (`InvalidActuatorGain`). Its `ranges` are finite numbers like
+  never zero (`InvalidActuatorGain`). Those are statements about the
+  presets: a `General` (ADR-0024) is refused for exactly two things — a
+  `prm` vector longer than MuJoCo's ten (`ActuatorPrmTooLong`, naming the
+  vector and its length) and a non-finite entry or `gear` (`NonFinite`,
+  naming the slot) — and its gains are otherwise MuJoCo's to interpret,
+  not riggen's to bound. Its `ranges` are finite numbers like
   every other in the document (`NonFinite`) and nothing more: whether an
   inverted or empty range limits anything is MuJoCo's to decide under the
   flags written beside it (ADR-0024). Every refusal names the **actuator**,
