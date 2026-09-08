@@ -19,6 +19,9 @@
     * a <general> actuator whose gains come from a <default class> two
       levels up and whose gear from one level up (ADR-0024), and one
       driving a tendon;
+    * a **mimic chain**: finger_flex follows shoulder_lift, which follows
+      shoulder_pan (ADR-0025 §1), so the composed reach is 0.125 of the
+      pan's ±180° and fits the finger's own ±30°;
     * an <actuator> named something other than its joint, and a second one
       on that already-driven joint — both of which the document keeps
       (ADR-0023) — the second with an explicit ctrllimited="false" beside
@@ -86,6 +89,11 @@
             <geom class="arm_collision" type="ellipsoid" size="0.01 0.02 0.03"/>
             <body name="tool" zaxis="0 -1 0">
               <site name="tcp" pos="0 0 0.02"/>
+              <body name="finger" pos="0 0 0.03">
+                <joint name="finger_flex" axis="1 0 0" range="-30 30"/>
+                <inertial pos="0 0 0.01" mass="0.02" diaginertia="1e-5 1e-5 1e-5"/>
+                <geom class="arm_visual" mesh="pad"/>
+              </body>
             </body>
           </body>
         </body>
@@ -95,6 +103,7 @@
 
   <equality>
     <joint joint1="shoulder_lift" joint2="shoulder_pan" polycoef="0 0.25 0 0 0"/>
+    <joint joint1="finger_flex" joint2="shoulder_lift" polycoef="0 0.5 0 0 0"/>
   </equality>
 
   <actuator>

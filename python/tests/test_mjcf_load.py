@@ -149,14 +149,29 @@ def check_equalities(model: mujoco.MjModel, samples: dict) -> int:
     are zero and the rule is plain `y = a0 + a1 x`. The samples carry the
     follower's *derived* value, so the two readings of `polycoef` agree
     here or they do not agree at all — a swapped coefficient order fails.
+
+    A **chain** is written as it is, not flattened (ADR-0025 §2), so a
+    follower's leader may itself be a follower. Each equality is checked on
+    its own; the "nothing was dropped" sweep below only exempts a pair
+    coupled *transitively*, so a genuinely missing equality still fails.
     """
     q_of = {
         name: [s["q"][i] for s in samples["samples"]]
         for i, name in enumerate(samples["joints"])
     }
-    # Unordered, because the relation is symmetric: `y = a0 + a1 x` is
-    # also `x = -a0/a1 + (1/a1) y`, and one equality covers both readings.
-    coupled: set[frozenset[str]] = set()
+    # Union-find over the coupled joints. Unordered, because the relation
+    # is symmetric: `y = a0 + a1 x` is also `x = -a0/a1 + (1/a1) y`, and one
+    # equality covers both readings. Transitive, because a chain is legal
+    # (ADR-0025 §1): the two ends of `f = 0.5 l`, `l = 0.25 p` are an exact
+    # linear function of each other with no equality of their own, which is
+    # not a dropped mimic.
+    group: dict[str, str] = {}
+
+    def find(j: str) -> str:
+        while group.setdefault(j, j) != j:
+            j = group[j]
+        return j
+
     equalities = 0
     for e in range(model.neq):
         if model.eq_type[e] != mujoco.mjtEq.mjEQ_JOINT:
@@ -171,7 +186,7 @@ def check_equalities(model: mujoco.MjModel, samples: dict) -> int:
                 "riggen only ever writes the first two coefficients"
             )
         equalities += 1
-        coupled.add(frozenset({follower, leader}))
+        group[find(follower)] = find(leader)
         if follower not in q_of or leader not in q_of:
             raise AssertionError(
                 f"equality couples {follower!r} to {leader!r}, which the samples "
@@ -189,7 +204,7 @@ def check_equalities(model: mujoco.MjModel, samples: dict) -> int:
     # brought its equality with it.
     for follower, ys in q_of.items():
         for leader, xs in q_of.items():
-            if leader == follower or frozenset({follower, leader}) in coupled:
+            if leader == follower or find(follower) == find(leader):
                 continue
             fit = affine(xs, ys)
             if fit:

@@ -324,6 +324,25 @@ mod tests {
   </link>
   <link name="tip">
   </link>
+  <link name="finger">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="2.7"/>
+      <inertia ixx="0.0045" ixy="0" ixz="0" iyy="0.0045" iyz="0" izz="0.0045"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/cube.stl"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/cube.stl"/>
+      </geometry>
+    </collision>
+  </link>
   <!-- Named frames: one massless link on a fixed joint each (ADR-0012). -->
   <link name="camera_mount"/>
   <link name="tcp"/>
@@ -355,6 +374,14 @@ mod tests {
     <origin xyz="0 0 0.1" rpy="0 0 0"/>
     <parent link="wheel"/>
     <child link="tip"/>
+  </joint>
+  <joint name="finger_joint" type="revolute">
+    <origin xyz="0 0 0.1" rpy="0 0 0"/>
+    <parent link="tip"/>
+    <child link="finger"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+    <mimic joint="slider_joint" multiplier="0.5" offset="0"/>
   </joint>
   <joint name="camera_mount_fixed" type="fixed">
     <origin xyz="0 0.03 0.04" rpy="1.570796326795 0 0"/>
@@ -456,10 +483,10 @@ mod tests {
         }
         // And urdf-rs reads it whole.
         let parsed = urdf_rs::read_from_string(&urdf).unwrap();
-        // Five real links and joints, plus a dummy link and a fixed
+        // Six real links and joints, plus a dummy link and a fixed
         // joint for each of the two frames (ADR-0012).
-        assert_eq!(parsed.links.len(), 7);
-        assert_eq!(parsed.joints.len(), 6);
+        assert_eq!(parsed.links.len(), 8);
+        assert_eq!(parsed.joints.len(), 7);
         assert_eq!(parsed.joints[0].joint_type, urdf_rs::JointType::Revolute);
         assert_eq!(parsed.joints[3].joint_type, urdf_rs::JointType::Fixed);
         // The `<mimic>` is URDF's own element, not a string we invented:
@@ -469,6 +496,14 @@ mod tests {
         assert_eq!(mimic.joint, "upper_joint");
         assert_eq!(mimic.multiplier, Some(-0.5));
         assert_eq!(mimic.offset, Some(0.1));
+        // A chain is written as it is, not flattened against the free
+        // leader (ADR-0025 §2): the finger's `<mimic>` names the slider,
+        // which carries a `<mimic>` of its own.
+        let chained = parsed.joints[4].mimic.as_ref().unwrap();
+        assert_eq!(parsed.joints[4].name, "finger_joint");
+        assert_eq!(chained.joint, "slider_joint");
+        assert_eq!(chained.multiplier, Some(0.5));
+        assert_eq!(chained.offset, Some(0.0));
     }
 
     #[test]

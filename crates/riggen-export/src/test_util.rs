@@ -150,14 +150,16 @@ impl Builder {
 }
 
 /// base ─(revolute)─ upper ─(prismatic)─ slider ─(continuous)─ wheel
-/// ─(fixed)─ tip: every joint kind on one chain, an aluminium cube per
-/// link, one primitive collision, a rotated geom, two named frames —
-/// one on the root, one on the leaf, one of them rotated — one mimic (the
-/// slider follows the hinge at `-0.5 q + 0.1`, ADR-0013, a reach of
-/// -0.4..0.6 inside its own ±1) — and two actuators (ADR-0014): a position
-/// servo on the hinge and a velocity one on the limitless wheel. The
-/// slider follows, so it may carry none, and the golden keeps the
-/// "need an <actuator>" comment beside the two that have one.
+/// ─(fixed)─ tip ─(revolute)─ finger: every joint kind on one chain, an
+/// aluminium cube per link, one primitive collision, a rotated geom, two
+/// named frames — one on the root, one on the leaf, one of them rotated —
+/// a **mimic chain** (the slider follows the hinge at `-0.5 q + 0.1`, and
+/// the finger follows the slider at `0.5 q`, so it reaches
+/// -0.2..0.3 through the composed map, ADR-0013 as amended by ADR-0025)
+/// — and two actuators (ADR-0014): a position servo on the hinge and a
+/// velocity one on the limitless wheel. The two followers may carry none,
+/// and the golden keeps the "need an <actuator>" comment beside the two
+/// that have one.
 pub(crate) fn every_joint_kind() -> Builder {
     let mut b = Builder::new();
     let cube = b.mesh("cube", TriMesh::cube(0.05));
@@ -170,6 +172,7 @@ pub(crate) fn every_joint_kind() -> Builder {
     let slider = b.link("slider", upper, JointKind::Prismatic, Some(cube));
     let wheel = b.link("wheel", slider, JointKind::Continuous, Some(cube));
     let tip = b.link("tip", wheel, JointKind::Fixed, None);
+    let finger = b.link("finger", tip, JointKind::Revolute, Some(cube));
     // Damping on the hinge; a rotated visual on the wheel; a box on the
     // slider; nothing collides on the tip.
     let mut hinge = None;
@@ -180,6 +183,13 @@ pub(crate) fn every_joint_kind() -> Builder {
             hinge = Some(id);
         }
     }
+    let slider_joint = *b
+        .robot
+        .joints
+        .iter()
+        .find(|(_, j)| j.child == slider)
+        .expect("the slider hangs off the upper link")
+        .0;
     let mut driven = Vec::new();
     for (&id, j) in b.robot.joints.iter_mut() {
         if j.child == slider {
@@ -187,6 +197,14 @@ pub(crate) fn every_joint_kind() -> Builder {
                 joint: hinge.expect("the hinge is above the slider"),
                 multiplier: -0.5,
                 offset: 0.1,
+            });
+        }
+        // A follower whose leader also follows: a chain (ADR-0025).
+        if j.child == finger {
+            j.mimic = Some(riggen_core::Mimic {
+                joint: slider_joint,
+                multiplier: 0.5,
+                offset: 0.0,
             });
         }
         if j.child == upper {

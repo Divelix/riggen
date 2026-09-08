@@ -404,6 +404,13 @@ pub(crate) mod tests {
             <geom class="collision" type="mesh" mesh="cube" pos="0 0.02 0" quat="0.707106781187 0.707106781187 0 0"/>
             <body name="tip" pos="0 0 0.1">
               <site name="tcp" pos="0 0 0.05"/>
+              <body name="finger" pos="0 0 0.1">
+                <joint name="finger_joint" type="hinge" axis="0 0 1" range="-1 1"/>
+                <!-- joint finger_joint: effort 1 velocity 1 need an <actuator>; not written -->
+                <inertial pos="0 0 0" mass="2.7" fullinertia="0.0045 0.0045 0.0045 0 0 0"/>
+                <geom class="visual" mesh="cube"/>
+                <geom class="collision" type="mesh" mesh="cube"/>
+              </body>
             </body>
           </body>
         </body>
@@ -412,6 +419,7 @@ pub(crate) mod tests {
   </worldbody>
   <equality>
     <joint joint1="slider_joint" joint2="upper_joint" polycoef="0.1 -0.5 0 0 0"/>
+    <joint joint1="finger_joint" joint2="slider_joint" polycoef="0 0.5 0 0 0"/>
   </equality>
   <actuator>
     <position name="upper_joint" joint="upper_joint" kp="100" kv="5" ctrlrange="-1 1" forcerange="-1 1"/>

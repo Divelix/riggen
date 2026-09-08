@@ -23,7 +23,7 @@
     "far": 1147.35022,
     "projection": "Perspective",
     "animating": false,
-    "aspect": 0.960187,
+    "aspect": 0.928059,
     "view": [
       [
         0.707107,
@@ -52,7 +52,7 @@
     ],
     "proj": [
       [
-        2.514315,
+        2.601357,
         0.0,
         0.0,
         0.0
@@ -117,6 +117,13 @@
         "parent_joint": "j18",
         "geoms": 0,
         "material": null
+      },
+      {
+        "id": "l20",
+        "name": "finger",
+        "parent_joint": "j21",
+        "geoms": 1,
+        "material": null
       }
     ],
     "joints": [
@@ -151,11 +158,19 @@
         "parent": "l15",
         "child": "l17",
         "q": 0.0
+      },
+      {
+        "id": "j21",
+        "name": "finger_flex",
+        "kind": "Revolute",
+        "parent": "l17",
+        "child": "l20",
+        "q": 0.0
       }
     ],
     "frames": [
       {
-        "id": "f19",
+        "id": "f22",
         "name": "mount",
         "parent": "l4",
         "pos": [
@@ -171,7 +186,7 @@
         ]
       },
       {
-        "id": "f20",
+        "id": "f23",
         "name": "tcp",
         "parent": "l17",
         "pos": [
@@ -320,6 +335,36 @@
         0.25,
         1.0
       ]
+    },
+    {
+      "id": 4,
+      "link": "l20",
+      "geom": "g19",
+      "visible": true,
+      "triangles": 4,
+      "bounds": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.01,
+          0.01,
+          0.01
+        ]
+      ],
+      "position": [
+        0.024749,
+        0.024749,
+        0.155622
+      ],
+      "color": [
+        0.2,
+        0.2,
+        0.25,
+        1.0
+      ]
     }
   ],
   "selection": {
@@ -350,7 +395,7 @@
         0.535422
       ],
       "screen": [
-        505.6008,
+        519.31958,
         646.614319
       ],
       "active": true,
@@ -382,7 +427,7 @@
         0.68841
       ],
       "screen": [
-        504.475128,
+        518.193848,
         633.436951
       ],
       "active": false,
@@ -407,7 +452,7 @@
       "q": 0.0,
       "value_sweep": 0.0,
       "screen": [
-        518.094238,
+        531.812988,
         612.266418
       ],
       "active": false,
@@ -415,11 +460,40 @@
       "actuators": [
         "general"
       ]
+    },
+    {
+      "joint": "j21",
+      "name": "finger_flex",
+      "kind": "Revolute",
+      "origin": [
+        0.024749,
+        0.024749,
+        0.155622
+      ],
+      "axis": [
+        0.612372,
+        0.612372,
+        -0.5
+      ],
+      "size": 0.00866,
+      "q": 0.0,
+      "value_sweep": 0.0,
+      "band": [
+        0.003637,
+        0.005196
+      ],
+      "screen": [
+        527.691833,
+        618.672607
+      ],
+      "active": false,
+      "hovered": false,
+      "mimic": "j14"
     }
   ],
   "frame_glyphs": [
     {
-      "frame": "f19",
+      "frame": "f22",
       "name": "mount",
       "origin": [
         0.0,
@@ -428,14 +502,14 @@
       ],
       "size": 0.028579,
       "screen": [
-        505.803589,
+        519.522339,
         648.988342
       ],
       "active": false,
       "hovered": false
     },
     {
-      "frame": "f20",
+      "frame": "f23",
       "name": "tcp",
       "origin": [
         0.028284,
@@ -444,7 +518,7 @@
       ],
       "size": 0.631043,
       "screen": [
-        515.343384,
+        529.062134,
         616.542542
       ],
       "active": false,
@@ -454,7 +528,7 @@
   "snap": null,
   "status": "imported menagerie_style.xml: link \"shoulder\": shoulder.stl has a non-uniform scale; 0.002 used for every axis (+12 more warnings)",
   "viewport_rect": [
-    240.0,
+    267.4375,
     23.0,
     1060.0,
     877.0

@@ -750,8 +750,9 @@ URDF…, a dropped `.urdf`, or `riggen --export … robot.urdf` on stderr).
 `ImportWarning::MimicDropped` now carries a `reason`, and only for a
 coupling the document cannot hold: a leader that is not a joint in the file
 or is `fixed`, a joint following itself, a `<mimic>` on a `fixed` joint, a
-chain, a zero multiplier, a multiplier or offset that is not a number, and
-a reach outside the follower's own limits. `validate` owns those rules — the import runs it and phrases
+ring of followers, a zero multiplier, a multiplier or offset that is not a
+number, and a reach outside the follower's own limits. A **chain** is not
+among them any more (ADR-0025): it is read, kept and written back. `validate` owns those rules — the import runs it and phrases
 its verdict — so a refused coupling is dropped and the file still opens; it
 never turns into an `ImportError`.
 

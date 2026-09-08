@@ -131,7 +131,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   chain; `SetJoint` accepts a leader that follows. `fk` test: a chain of
   three equals the hand-resolved free model; `validate` tests for a cycle
   of two and of three and for the composed reach.
-- [ ] **[2]** Step 3 — export: chains through every writer and reader.
+- [x] **[2]** Step 3 — export: chains through every writer and reader.
   `mimic_refusals` stops dropping a chain; `urdf_in` and `mjcf_in` tests
   read one back identically; MJCF / URDF / SDF golden tests gain a chain;
   the corpus gains a `finger` body under `tool` whose joint follows
@@ -246,10 +246,7 @@ warning list naming neither `<joint ref>`, `<tendon>`, `grip` nor any
 - ~~`⚠ OPEN 3:`~~ `RemoveTendon` while actuators target it — **decided
   (ADR-0025 §4): take them**, the `RemoveLink` precedent; a removal is a
   gesture about the tendon, and the actuators are visible and undoable.
-- `⚠ OPEN 4:` a chain in URDF and SDF — written as-is (the round trip is
-  the identity; the spec does not forbid it; consumers vary) or flattened
-  against the free leader? **Human, by step 3.** Recommendation: as-is,
-  every writer the same; a consumer that refuses a chain is the user's to
-  flatten for, and the SDK makes that one loop. *ADR-0025 §2 records
-  this recommendation as the decision, marked as the human's to confirm;
-  overturning it is an addendum to the ADR before step 3 starts.*
+- ~~`⚠ OPEN 4:`~~ a chain in URDF and SDF — **decided (human, 2026-09-08,
+  before step 3): as-is, every writer the same**, confirming ADR-0025 §2.
+  A consumer that refuses a chain is the user's to flatten for, and the
+  SDK makes that one loop.

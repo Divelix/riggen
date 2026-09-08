@@ -1704,19 +1704,20 @@ mod tests {
 
         let link = |n: &str| robot.links.values().find(|l| l.name == n).unwrap();
         let joint = |n: &str| robot.joints.values().find(|j| j.name == n).unwrap();
-        assert_eq!(robot.links.len(), 5);
+        assert_eq!(robot.links.len(), 6);
         assert_eq!(robot.links[&robot.root].name, "base_link");
-        for name in ["base_link", "upper", "slider", "wheel", "tip"] {
+        for name in ["base_link", "upper", "slider", "wheel", "tip", "finger"] {
             assert_eq!(link(name).name, name);
         }
         // The fixed edge has no `<joint>` element at all, so its name is
         // the invented `<body>_joint` — which is the one the document had.
-        assert_eq!(robot.joints.len(), 4);
+        assert_eq!(robot.joints.len(), 5);
         for (name, kind) in [
             ("upper_joint", JointKind::Revolute),
             ("slider_joint", JointKind::Prismatic),
             ("wheel_joint", JointKind::Continuous),
             ("tip_joint", JointKind::Fixed),
+            ("finger_joint", JointKind::Revolute),
         ] {
             let j = joint(name);
             assert_eq!(j.kind, kind, "{name}");
@@ -1725,7 +1726,7 @@ mod tests {
         assert_eq!(joint("upper_joint").axis, DVec3::Y);
         assert_eq!(joint("upper_joint").dynamics.damping, 0.1);
         assert_eq!(joint("wheel_joint").limits, None, "Continuous keeps none");
-        for name in ["upper_joint", "slider_joint"] {
+        for name in ["upper_joint", "slider_joint", "finger_joint"] {
             assert_eq!(
                 joint(name).limits.map(|l| (l.lower, l.upper)),
                 Some((-1.0, 1.0)),
@@ -1748,6 +1749,22 @@ mod tests {
             })
         );
         assert_eq!(joint("upper_joint").mimic, None);
+        // …and the chain past it: the finger names the slider, which is
+        // itself a follower, and the reader keeps both (ADR-0025 §1/§2).
+        let slider = *robot
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "slider_joint")
+            .unwrap()
+            .0;
+        assert_eq!(
+            joint("finger_joint").mimic,
+            Some(Mimic {
+                joint: slider,
+                multiplier: 0.5,
+                offset: 0.0
+            })
+        );
         assert_eq!(
             actuator_of(&robot, "upper_joint"),
             Some(ActuatorSpec::Position { kp: 100.0, kv: 5.0 })
@@ -1837,7 +1854,7 @@ mod tests {
         let joint = |n: &str| robot.joints.values().find(|j| j.name == n).unwrap();
 
         assert_eq!(robot.name, "menagerie_style");
-        assert_eq!(robot.links.len(), 5);
+        assert_eq!(robot.links.len(), 6);
         assert_eq!(robot.links[&robot.root].name, "base_link");
         // `<compiler angle="degree">` is MJCF's default and the opposite of
         // ours: ±180° is ±π, and the class two levels up is where the range
@@ -2033,6 +2050,20 @@ mod tests {
         assert_eq!(
             joint("shoulder_lift").mimic.map(|m| m.multiplier),
             Some(0.25)
+        );
+        // …and the chain past it (ADR-0025 §1): the finger follows the
+        // lift, which follows the pan. Nothing is dropped and nothing is
+        // flattened — `resolve_q` composes it, and the reach check does
+        // too (0.125 of the pan's ±π, inside the finger's ±30°).
+        let lift = *robot
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "shoulder_lift")
+            .unwrap()
+            .0;
+        assert_eq!(
+            joint("finger_flex").mimic.map(|m| (m.joint, m.multiplier)),
+            Some((lift, 0.5))
         );
 
         assert_eq!(

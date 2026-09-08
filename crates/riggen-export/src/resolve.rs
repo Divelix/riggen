@@ -1340,14 +1340,22 @@ mod tests {
     }
 
     /// A mimic reaches the writers as an **index** into `joints`, so
-    /// neither of them needs the document (ADR-0004 §1, ADR-0013).
+    /// neither of them needs the document (ADR-0004 §1, ADR-0013). A chain
+    /// is no different: the index it names is another follower's, and the
+    /// writers pass both on unflattened (ADR-0025 §2).
     #[test]
     fn a_mimic_resolves_to_the_leaders_index() {
         let r = crate::test_util::every_joint_kind().resolve().unwrap();
         let names: Vec<&str> = r.joints.iter().map(|j| j.name.as_str()).collect();
         assert_eq!(
             names,
-            ["upper_joint", "slider_joint", "wheel_joint", "tip_joint"]
+            [
+                "upper_joint",
+                "slider_joint",
+                "wheel_joint",
+                "tip_joint",
+                "finger_joint"
+            ]
         );
         assert_eq!(r.joints[0].mimic, None);
         assert_eq!(
@@ -1361,6 +1369,15 @@ mod tests {
         assert_eq!(
             r.joints[r.joints[1].mimic.unwrap().joint].name,
             "upper_joint"
+        );
+        assert_eq!(
+            r.joints[4].mimic,
+            Some(ResolvedMimic {
+                joint: 1,
+                multiplier: 0.5,
+                offset: 0.0
+            }),
+            "the finger names the slider, which is itself a follower"
         );
     }
 }

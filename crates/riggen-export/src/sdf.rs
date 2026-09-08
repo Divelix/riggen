@@ -409,6 +409,37 @@ pub(crate) mod tests {
     <link name="tip">
       <pose relative_to="wheel">0 0 0.1 0 0 0</pose>
     </link>
+    <link name="finger">
+      <pose relative_to="tip">0 0 0.1 0 0 0</pose>
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>2.7</mass>
+        <inertia>
+          <ixx>0.0045</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.0045</iyy>
+          <iyz>0</iyz>
+          <izz>0.0045</izz>
+        </inertia>
+      </inertial>
+      <visual name="finger_visual_0">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>meshes/cube.stl</uri>
+          </mesh>
+        </geometry>
+      </visual>
+      <collision name="finger_collision_0">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>meshes/cube.stl</uri>
+          </mesh>
+        </geometry>
+      </collision>
+    </link>
     <joint name="world_joint" type="fixed">
       <parent>world</parent>
       <child>base_link</child>
@@ -461,6 +492,24 @@ pub(crate) mod tests {
       <parent>wheel</parent>
       <child>tip</child>
     </joint>
+    <joint name="finger_joint" type="revolute">
+      <parent>tip</parent>
+      <child>finger</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>-1</lower>
+          <upper>1</upper>
+          <effort>1</effort>
+          <velocity>1</velocity>
+        </limit>
+        <mimic joint="slider_joint">
+          <multiplier>0.5</multiplier>
+          <offset>0</offset>
+          <reference>0</reference>
+        </mimic>
+      </axis>
+    </joint>
     <frame name="camera_mount" attached_to="base_link">
       <pose>0 0.03 0.04 1.570796326795 0 0</pose>
     </frame>
@@ -493,14 +542,15 @@ pub(crate) mod tests {
         assert_eq!(root.attr("version"), Some(VERSION));
         let model = root.child("model").unwrap();
         assert_eq!(model.attr("name"), Some("test"));
-        assert_eq!(model.kids("link").count(), 5, "five links, flat");
+        assert_eq!(model.kids("link").count(), 6, "six links, flat");
         // The root says nothing about where it is; every other link names
         // its parent, and the chain is the tree (ADR-0016 §2).
         let links: Vec<_> = model.kids("link").collect();
         assert_eq!(links[0].child("pose"), None, "the root has no <pose>");
-        for (link, parent) in links[1..]
-            .iter()
-            .zip(["base_link", "upper", "slider", "wheel"])
+        for (link, parent) in
+            links[1..]
+                .iter()
+                .zip(["base_link", "upper", "slider", "wheel", "tip"])
         {
             assert_eq!(
                 link.child("pose").unwrap().attr("relative_to"),
@@ -540,7 +590,8 @@ pub(crate) mod tests {
                 "upper_joint",
                 "slider_joint",
                 "wheel_joint",
-                "tip_joint"
+                "tip_joint",
+                "finger_joint"
             ]
         );
         for joint in &joints {
@@ -553,7 +604,14 @@ pub(crate) mod tests {
         let kinds: Vec<&str> = joints.iter().map(|j| j.attr("type").unwrap()).collect();
         assert_eq!(
             kinds,
-            ["fixed", "revolute", "prismatic", "continuous", "fixed"]
+            [
+                "fixed",
+                "revolute",
+                "prismatic",
+                "continuous",
+                "fixed",
+                "revolute"
+            ]
         );
         // A continuous joint has an axis and no `<limit>`: SDF's ±inf
         // default is what "unlimited" means, and `0 0` would be a locked
@@ -575,6 +633,14 @@ pub(crate) mod tests {
                 .collect::<Vec<_>>(),
             ["multiplier", "offset", "reference"]
         );
+        // A chain is written as it is (ADR-0025 §2): the finger's own
+        // `<mimic>` names the slider, which is itself a follower.
+        let chained = joints[5]
+            .child("axis")
+            .unwrap()
+            .child("mimic")
+            .expect("the finger follows the slider");
+        assert_eq!(chained.attr("joint"), Some("slider_joint"));
         // Two frames, each attached to its link (ADR-0012's third spelling).
         let frames: Vec<_> = model.kids("frame").collect();
         assert_eq!(
@@ -585,8 +651,8 @@ pub(crate) mod tests {
             [("camera_mount", "base_link"), ("tcp", "tip")]
         );
         // No dummy link and no fixed joint per frame, the way URDF needs
-        // them: the five links and five joints above are all there are.
-        assert_eq!(model.kids("link").count(), 5);
+        // them: the six links and six joints above are all there are.
+        assert_eq!(model.kids("link").count(), 6);
     }
 
     /// A `General` (ADR-0024) is the same comment naming its three types
@@ -699,7 +765,7 @@ pub(crate) mod tests {
         assert!(!floating.contains("world"), "{floating}");
         let root = crate::xml::parse(&floating).unwrap();
         let model = root.child("model").unwrap();
-        assert_eq!(model.kids("joint").count(), 4, "the four real joints only");
+        assert_eq!(model.kids("joint").count(), 5, "the five real joints only");
     }
 
     /// The one place SDF beats URDF: a capsule stays a capsule, so the
