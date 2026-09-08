@@ -138,7 +138,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   `shoulder_lift` (which follows `shoulder_pan`), and the corpus test's
   warning list shrinks; `check_equalities` accepts a pair coupled through
   a third joint.
-- [ ] **[1]** Step 4 — app: chains. The leader combo lists every movable
+- [x] **[1]** Step 4 — app: chains. The leader combo lists every movable
   joint that would not close a cycle; the joint tree shows a chain
   follower read-only at its resolved value. Snapshot
   `joint_tree_chain`; `properties_joint_mimic` re-read if it moves.

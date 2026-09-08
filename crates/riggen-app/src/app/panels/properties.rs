@@ -1629,16 +1629,36 @@ impl RiggenApp {
                     }
                 }
 
-                // A coupled degree of freedom (ADR-0013). The combo offers
-                // exactly the leaders `validate` accepts: a movable joint
-                // that is not this one and does not itself follow, so a
-                // chain cannot be built by picking one.
+                // A coupled degree of freedom (ADR-0013, amended by
+                // ADR-0025). The combo offers exactly the leaders
+                // `validate` accepts: a movable joint that is not this one
+                // and whose own chain of leaders does not come back to it.
+                // A leader that itself follows is a chain, which resolves;
+                // only a ring is refused, and it cannot be picked here.
                 if data.kind.is_movable() {
+                    let closes_a_cycle = |candidate: JointId| {
+                        let mut seen = std::collections::BTreeSet::new();
+                        let mut cursor = candidate;
+                        while seen.insert(cursor) {
+                            if cursor == joint {
+                                return true;
+                            }
+                            match self.robot.joints.get(&cursor).and_then(|j| j.mimic) {
+                                Some(m) => cursor = m.joint,
+                                // A free leader, or one the document has
+                                // lost: neither closes a ring.
+                                None => break,
+                            }
+                        }
+                        false
+                    };
                     let leaders: Vec<(JointId, String)> = self
                         .robot
                         .joints
                         .iter()
-                        .filter(|(id, j)| **id != joint && j.kind.is_movable() && j.mimic.is_none())
+                        .filter(|(id, j)| {
+                            **id != joint && j.kind.is_movable() && !closes_a_cycle(**id)
+                        })
                         .map(|(&id, j)| (id, j.name.clone()))
                         .collect();
                     ui.label("mimic");

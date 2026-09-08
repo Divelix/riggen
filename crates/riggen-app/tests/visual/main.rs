@@ -3122,8 +3122,8 @@ fn properties_joint_mimic() {
         );
 
         // The leader combo (the second, after the kind combo) offers the
-        // movable joints that are not this one and do not themselves
-        // follow — so a chain cannot be built by picking one.
+        // movable joints that are not this one and would not close a ring
+        // of followers (ADR-0025 §1); here neither free joint does.
         let offered = |harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>, name: &str| {
             harness.query_all_by_label(name).count()
         };
@@ -3146,6 +3146,7 @@ fn properties_joint_mimic() {
             vec![before[0] + 1, before[1] + 1, before[2]],
             "the two free joints are offered; the follower itself is not"
         );
+
         harness.key_press(egui::Key::Escape);
         harness.step();
 
@@ -3157,6 +3158,78 @@ fn properties_joint_mimic() {
         assert_eq!(app.history().undo_depth(), depth + 1, "one SetJoint");
         let mimic = app.robot().joints[&fore].mimic.expect("still coupled");
         assert_eq!((mimic.multiplier, mimic.offset), (-0.25, 0.1));
+    });
+}
+
+/// The leader combo once a chain exists (ADR-0025 §1): a joint that
+/// itself follows is a legal leader and is offered, while one whose own
+/// chain of leaders comes back to this joint would close a ring and is
+/// not. No golden — the rule is what the combo lists, not how it looks.
+#[test]
+fn the_leader_combo_offers_a_chain_but_not_a_ring() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("arm/arm.riggen")).expect("open the sample arm");
+        let by_name = |app: &riggen_app::RiggenApp, name: &str| {
+            *app.robot()
+                .joints
+                .iter()
+                .find(|(_, j)| j.name == name)
+                .map(|(id, _)| id)
+                .unwrap()
+        };
+        let shoulder = by_name(app, "shoulder_joint");
+        let upper = by_name(app, "upper_joint");
+        let fore = by_name(app, "fore_joint");
+        // shoulder ← upper ← fore: a chain of three.
+        let driver = app.robot().actuators_on(upper).next().unwrap().0;
+        app.apply(Command::RemoveActuator(driver)).unwrap();
+        let mut edited = app.robot().joints[&upper].clone();
+        edited.mimic = Some(riggen_core::Mimic {
+            joint: shoulder,
+            multiplier: 0.5,
+            offset: 0.0,
+        });
+        app.apply(Command::SetJoint(upper, edited)).unwrap();
+
+        let offered = |harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+                       joint: riggen_core::JointId,
+                       names: [&str; 3]| {
+            harness.state_mut().select(Selection::Joint(joint));
+            settle(harness);
+            let before: Vec<usize> = names
+                .iter()
+                .map(|n| harness.query_all_by_label(n).count())
+                .collect();
+            harness
+                .get_all_by_role(egui::accesskit::Role::ComboBox)
+                .nth(1)
+                .expect("the mimic combo")
+                .click();
+            harness.step();
+            let after: Vec<usize> = names
+                .iter()
+                .map(|n| harness.query_all_by_label(n).count())
+                .collect();
+            harness.key_press(egui::Key::Escape);
+            harness.step();
+            after
+                .iter()
+                .zip(&before)
+                .map(|(a, b)| a > b)
+                .collect::<Vec<_>>()
+        };
+        let names = ["shoulder_joint", "upper_joint", "fore_joint"];
+        assert_eq!(
+            offered(harness, fore, names),
+            [true, true, false],
+            "the fore joint may follow the upper joint, which itself follows"
+        );
+        assert_eq!(
+            offered(harness, shoulder, names),
+            [false, false, false],
+            "every other movable joint's chain comes back to the shoulder"
+        );
     });
 }
 
@@ -7915,6 +7988,73 @@ fn view_joint_tree() {
 }
 
 /// A row mid-drag: the value follows the pointer across the bar — the
+/// A **mimic chain** in the joint tree (ADR-0025 §1): the upper joint is
+/// made to follow the shoulder, so the fore joint's leader is itself a
+/// follower. Both rows are read-only at their resolved values, each with
+/// its own rule under it — the tree states the document's rules, not the
+/// composed one — and driving the free shoulder moves the whole chain.
+#[test]
+fn joint_tree_chain() {
+    scenario("joint_tree_chain", |harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("arm/arm.riggen")).expect("open the corpus file");
+        app.fit_view_now();
+        let by_name = |app: &riggen_app::RiggenApp, name: &str| {
+            *app.robot()
+                .joints
+                .iter()
+                .find(|(_, j)| j.name == name)
+                .map(|(id, _)| id)
+                .unwrap()
+        };
+        let shoulder = by_name(app, "shoulder_joint");
+        let upper = by_name(app, "upper_joint");
+        let fore = by_name(app, "fore_joint");
+        // The upper joint carries a velocity actuator, and a follower is
+        // already driven by its equality (ADR-0013): it goes first.
+        let driver = app
+            .robot()
+            .actuators_on(upper)
+            .next()
+            .expect("the arm drives the upper joint")
+            .0;
+        app.apply(Command::RemoveActuator(driver)).unwrap();
+        let mut edited = app.robot().joints[&upper].clone();
+        edited.mimic = Some(riggen_core::Mimic {
+            joint: shoulder,
+            multiplier: 0.5,
+            offset: 0.0,
+        });
+        app.apply(Command::SetJoint(upper, edited))
+            .expect("a leader that itself follows is legal now");
+        app.set_mode(Mode::View);
+        settle(harness);
+
+        // Six notches up on the free joint at the head of the chain.
+        let (at, _) = slider_center(harness, "shoulder_joint");
+        scroll_at(harness, at, 6.0);
+        let s = harness.state().joint_value(shoulder);
+        assert!((s - 30f64.to_radians()).abs() < 1e-9);
+        // Both followers read the *resolved* value of their own leader,
+        // so the fore joint is the composed map of the shoulder.
+        assert!((harness.state().joint_value(upper) - 0.5 * s).abs() < 1e-9);
+        assert!((harness.state().joint_value(fore) - (-0.5 * (0.5 * s) + 0.1)).abs() < 1e-9);
+
+        // Neither follower's row takes a notch of its own.
+        for name in ["upper_joint", "fore_joint"] {
+            let (at, _) = slider_center(harness, name);
+            scroll_at(harness, at, 3.0);
+        }
+        assert!((harness.state().joint_value(upper) - 0.5 * s).abs() < 1e-9);
+        assert!((harness.state().joint_value(fore) - (-0.5 * (0.5 * s) + 0.1)).abs() < 1e-9);
+
+        // Each row states the rule the document holds, not the composed
+        // one: the fore joint still names the upper joint as its leader.
+        harness.get_by_label("= -0.5 × upper_joint + 0.1");
+        harness.get_by_label("= 0.5 × shoulder_joint");
+    });
+}
+
 /// whole width is the whole range — with nothing in the history.
 #[test]
 fn view_joint_tree_scrub() {

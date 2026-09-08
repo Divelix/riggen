@@ -1278,8 +1278,9 @@ measured size is in 03 §v0.2.
   under `target/` first, because importing it writes its inline mesh
   beside it. Every `mjEQ_JOINT` equality — a mimic joint (ADR-0013) —
   must reproduce the sampled `qpos` through its `polycoef`, and a pair of
-  joints the samples show as exactly coupled must have one, so a swapped
-  coefficient order and a dropped `<equality>` both fail. The `.fk.json`'s
+  joints the samples show as exactly coupled must be coupled — directly or
+  through a chain (ADR-0025), which the check unions rather than pairs — so
+  a swapped coefficient order and a dropped `<equality>` both fail. The `.fk.json`'s
   `actuators` block says what the `<actuator>` block should hold
   (ADR-0014, ADR-0023) — the actuator's **own** name, the driven joint as a
   separate field, the gains where MuJoCo keeps them (`gainprm` / `biasprm`
@@ -1395,7 +1396,10 @@ measured size is in 03 §v0.2.
   `tree_reparent`, `properties_link`, `properties_joint`, `pendulum_swing`,
   `materials`, `toolbar`, `gizmo_move_link`, `gizmo_rotate_joint`,
   the View-mode set `view_opens_with_the_document`, `view_joint_tree`,
-  `view_joint_tree_scrub` and `view_wheel_on_glyph` (ADR-0021),
+  `view_joint_tree_scrub`, `view_wheel_on_glyph` (ADR-0021) and
+  `joint_tree_chain` (a follower whose leader also follows: both rows
+  read-only at their resolved values, each stating its own rule,
+  ADR-0025),
   `glyph_revolute`, `glyph_prismatic`, `glyph_hover`, `snap_vertex`,
   `snap_circle`, `place_joint_bore`, `align_concentric`, `five_minute_arm`,
   `dirty_title`, `unsaved_confirm`, `file_menu`, `debug_menu`, and M3's
