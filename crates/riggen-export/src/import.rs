@@ -288,34 +288,36 @@ impl std::error::Error for ImportError {}
 pub(crate) fn mimic_refusals(robot: &Robot) -> Vec<(JointId, String)> {
     riggen_core::validation_errors(robot)
         .into_iter()
-        .filter_map(|e| match e {
-            ValidationError::SelfMimic(j) => Some((j, "a joint cannot follow itself".to_owned())),
+        .flat_map(|e| match e {
+            ValidationError::SelfMimic(j) => vec![(j, "a joint cannot follow itself".to_owned())],
             ValidationError::MimicOnFixedJoint(j) => {
-                Some((j, "a fixed joint has no value to drive".to_owned()))
+                vec![(j, "a fixed joint has no value to drive".to_owned())]
             }
             ValidationError::ZeroMimicMultiplier(j) => {
-                Some((j, "its multiplier is zero".to_owned()))
+                vec![(j, "its multiplier is zero".to_owned())]
             }
             ValidationError::DanglingMimicJoint { joint, .. } => {
-                Some((joint, "its leader is not a joint in this file".to_owned()))
+                vec![(joint, "its leader is not a joint in this file".to_owned())]
             }
             ValidationError::MimicLeaderFixed { joint, .. } => {
-                Some((joint, "its leader is a fixed joint".to_owned()))
+                vec![(joint, "its leader is a fixed joint".to_owned())]
             }
-            ValidationError::MimicChain { joint, .. } => Some((
-                joint,
-                "its leader is itself a mimic, and chains are not supported".to_owned(),
-            )),
+            // A chain resolves (ADR-0025); a ring of followers has no free
+            // leader at its head, so every joint in it loses its coupling.
+            ValidationError::MimicCycle { joints } => joints
+                .into_iter()
+                .map(|j| (j, "it is part of a cycle of followers".to_owned()))
+                .collect(),
             ValidationError::MimicExceedsLimits {
                 joint,
                 lower,
                 upper,
                 ..
-            } => Some((
+            } => vec![(
                 joint,
                 format!("it would reach {lower}..{upper}, outside its own limits"),
-            )),
-            _ => None,
+            )],
+            _ => Vec::new(),
         })
         .collect()
 }

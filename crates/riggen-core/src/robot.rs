@@ -111,9 +111,9 @@ pub struct Joint {
 /// A coupled degree of freedom: `q(this) = multiplier * q(joint) + offset`
 /// — URDF's `<mimic>`, MJCF's `<equality><joint polycoef>` (ADR-0013).
 ///
-/// `joint` is the **leader**: a movable joint, not this one, that does not
-/// itself mimic. Chains are rejected by `validate`, so resolving a
-/// follower's `q` is one pass and never recursive.
+/// `joint` is the **leader**: a movable joint, not this one, which may
+/// itself follow. `validate` refuses only a *cycle* of followers, and
+/// `fk::resolve_q` resolves a chain of any length (ADR-0025).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mimic {

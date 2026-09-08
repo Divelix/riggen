@@ -99,12 +99,12 @@ pub enum ValidationError {
         joint: JointId,
         leader: JointId,
     },
-    /// A mimic whose leader itself mimics. Chains are out of scope
-    /// (ADR-0013): consumer support for them is a lottery and MuJoCo wants
-    /// them flattened against the free joint anyway.
-    MimicChain {
-        joint: JointId,
-        leader: JointId,
+    /// A ring of followers with no free leader at its head: each joint in
+    /// `joints` follows the next, and the last follows the first. `joints`
+    /// is in follow order, starting from the lowest id in it. A *chain*
+    /// resolves (ADR-0025); a cycle has no value to resolve against.
+    MimicCycle {
+        joints: Vec<JointId>,
     },
     /// A mimic with a zero `multiplier`: the follower would be pinned to a
     /// constant, which is a `Fixed` joint spelled the hard way.
@@ -229,10 +229,14 @@ impl fmt::Display for ValidationError {
                 f,
                 "joint {joint} mimics fixed joint {leader}, which has no value to follow"
             ),
-            Self::MimicChain { joint, leader } => write!(
-                f,
-                "joint {joint} mimics {leader}, which is itself a mimic: mimic chains are not supported"
-            ),
+            Self::MimicCycle { joints } => {
+                let ring = joints
+                    .iter()
+                    .map(|j| j.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" → ");
+                write!(f, "joints {ring} follow each other in a cycle")
+            }
             Self::ZeroMimicMultiplier(j) => {
                 write!(f, "joint {j} has a zero mimic multiplier")
             }
@@ -536,9 +540,10 @@ fn check_joints(robot: &Robot, errors: &mut Vec<ValidationError>) {
     }
 }
 
-/// Mimic joints (ADR-0013): the leader must exist, move, and not itself
-/// mimic; the rule must be a real linear map; and the reach it gives the
-/// follower must fit the limits the follower will be exported with.
+/// Mimic joints (ADR-0013, amended by ADR-0025): the leader must exist and
+/// move, and may itself follow — only a *cycle* of followers is refused;
+/// the rule must be a real linear map; and the reach the whole chain gives
+/// the follower must fit the limits it will be exported with.
 fn check_mimics(robot: &Robot, errors: &mut Vec<ValidationError>) {
     for (&jid, joint) in &robot.joints {
         let Some(mimic) = joint.mimic else { continue };
@@ -574,25 +579,22 @@ fn check_mimics(robot: &Robot, errors: &mut Vec<ValidationError>) {
             });
             continue;
         }
-        if leader.mimic.is_some() {
-            errors.push(ValidationError::MimicChain {
-                joint: jid,
-                leader: mimic.joint,
-            });
-            continue;
-        }
         // A `Continuous` follower has no range to leave, so the check is
         // vacuous; a `Continuous` leader has an unbounded one, which no
         // bounded follower can contain.
         let Some(own) = joint.limits else { continue };
-        let (lo, hi) = match leader.limits {
+        // Through a chain the reach is the *free* leader's range mapped by
+        // the composed map (ADR-0025), so the promise ADR-0013 made holds
+        // however long the chain is. A cycle is reported below and has no
+        // free leader; `composed_leader` gives up on one.
+        let Some((free, multiplier, offset)) = composed_leader(robot, jid) else {
+            continue;
+        };
+        let (lo, hi) = match robot.joints[&free].limits {
             Some(l) => (l.lower, l.upper),
             None => (f64::NEG_INFINITY, f64::INFINITY),
         };
-        let ends = [
-            mimic.multiplier * lo + mimic.offset,
-            mimic.multiplier * hi + mimic.offset,
-        ];
+        let ends = [multiplier * lo + offset, multiplier * hi + offset];
         let (lower, upper) = (ends[0].min(ends[1]), ends[0].max(ends[1]));
         if lower < own.lower || upper > own.upper {
             errors.push(ValidationError::MimicExceedsLimits {
@@ -601,6 +603,77 @@ fn check_mimics(robot: &Robot, errors: &mut Vec<ValidationError>) {
                 lower,
                 upper,
             });
+        }
+    }
+    check_mimic_cycles(robot, errors);
+}
+
+/// The free joint at the head of `joint`'s chain of leaders and the affine
+/// map from its value to `joint`'s: `q(joint) = multiplier · q(free) +
+/// offset`. `None` when the chain runs into a cycle or a leader that is
+/// not a joint of the document — both reported elsewhere.
+fn composed_leader(robot: &Robot, joint: JointId) -> Option<(JointId, f64, f64)> {
+    let (mut multiplier, mut offset) = (1.0, 0.0);
+    let mut seen = BTreeSet::new();
+    let mut cursor = joint;
+    loop {
+        if !seen.insert(cursor) {
+            return None;
+        }
+        match robot.joints.get(&cursor)?.mimic {
+            // q(joint) = m·q(cursor) + o, and q(cursor) = mu·q(leader) + off.
+            Some(m) => {
+                offset += multiplier * m.offset;
+                multiplier *= m.multiplier;
+                cursor = m.joint;
+            }
+            None => return Some((cursor, multiplier, offset)),
+        }
+    }
+}
+
+/// A ring of followers (ADR-0025). A self-mimic is a ring of one and is
+/// already `SelfMimic`, so it is not reported twice.
+fn check_mimic_cycles(robot: &Robot, errors: &mut Vec<ValidationError>) {
+    let mut reported: BTreeSet<JointId> = robot
+        .joints
+        .iter()
+        .filter(|(jid, j)| j.mimic.is_some_and(|m| m.joint == **jid))
+        .map(|(&jid, _)| jid)
+        .collect();
+    for &start in robot.joints.keys() {
+        if reported.contains(&start) {
+            continue;
+        }
+        let mut path: Vec<JointId> = Vec::new();
+        let mut cursor = start;
+        let cycle = loop {
+            if let Some(pos) = path.iter().position(|&j| j == cursor) {
+                break Some(path[pos..].to_vec());
+            }
+            // Already walked from another tail, or the head of the chain.
+            if reported.contains(&cursor) {
+                break None;
+            }
+            match robot.joints.get(&cursor).and_then(|j| j.mimic) {
+                Some(mimic) => {
+                    path.push(cursor);
+                    cursor = mimic.joint;
+                }
+                None => break None,
+            }
+        };
+        reported.extend(path.iter().copied());
+        if let Some(mut cycle) = cycle {
+            let start = cycle
+                .iter()
+                .copied()
+                .min()
+                .and_then(|m| cycle.iter().position(|&j| j == m));
+            if let Some(start) = start {
+                cycle.rotate_left(start);
+            }
+            errors.push(ValidationError::MimicCycle { joints: cycle });
         }
     }
 }
@@ -1213,19 +1286,51 @@ mod tests {
         );
     }
 
-    /// A follower whose leader follows: rejected outright, not resolved
-    /// (ADR-0013).
+    /// A follower whose leader follows is a chain, and a chain resolves
+    /// (ADR-0025). Only a ring with no free leader is refused.
     #[test]
-    fn mimic_chains_are_rejected() {
+    fn mimic_chains_are_accepted_and_only_cycles_are_refused() {
         let (mut robot, [j0, j1, j2]) = movable_chain();
         mimic(&mut robot, j1, j0, 0.5, 0.0);
         mimic(&mut robot, j2, j1, 0.5, 0.0);
+        assert_eq!(validate(&robot), Ok(()), "a chain of three");
+
+        // A ring of two: j0 follows j1 follows j0.
+        mimic(&mut robot, j2, j1, 0.5, 0.0);
+        mimic(&mut robot, j0, j1, 1.0, 0.0);
         assert_eq!(
             validate(&robot),
-            Err(ValidationError::MimicChain {
-                joint: j2,
-                leader: j1
+            Err(ValidationError::MimicCycle {
+                joints: vec![j0, j1]
+            }),
+            "the ring is reported once, in follow order from its lowest id"
+        );
+        // The chain hanging off the ring is not itself a cycle.
+        assert_eq!(
+            validation_errors(&robot)
+                .iter()
+                .filter(|e| matches!(e, ValidationError::MimicCycle { .. }))
+                .count(),
+            1
+        );
+
+        // A ring of three.
+        mimic(&mut robot, j0, j2, 1.0, 0.0);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::MimicCycle {
+                joints: vec![j0, j2, j1]
             })
+        );
+
+        // A joint that follows itself stays `SelfMimic`, not a ring of one.
+        let (mut robot, [_, j1, _]) = movable_chain();
+        mimic(&mut robot, j1, j1, 1.0, 0.0);
+        assert_eq!(validate(&robot), Err(ValidationError::SelfMimic(j1)));
+        assert!(
+            !validation_errors(&robot)
+                .iter()
+                .any(|e| matches!(e, ValidationError::MimicCycle { .. }))
         );
     }
 
@@ -1245,6 +1350,37 @@ mod tests {
                 "{err:?}"
             );
         }
+    }
+
+    /// Down a chain the reach is the **free** leader's range through the
+    /// composed map, not the immediate leader's declared limits (ADR-0025):
+    /// a leader that cannot reach its own limits does not lend them on.
+    #[test]
+    fn a_chains_reach_is_composed_from_its_free_leader() {
+        let (mut robot, [j0, j1, j2]) = movable_chain();
+        robot.joints.get_mut(&j0).unwrap().limits = Some(Limits {
+            lower: -1.0,
+            upper: 1.0,
+            effort: 0.0,
+            velocity: 0.0,
+        });
+        // j1 reaches ±0.5 of its own ±3, so j2 at ×4 reaches ±2 and fits —
+        // against j1's *limits* it would have been ±12 and refused.
+        mimic(&mut robot, j1, j0, 0.5, 0.0);
+        mimic(&mut robot, j2, j1, 4.0, 0.0);
+        assert_eq!(validate(&robot), Ok(()));
+
+        // ×8 composes to ±4, outside j2's own ±3.
+        mimic(&mut robot, j2, j1, 8.0, 0.0);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::MimicExceedsLimits {
+                joint: j2,
+                leader: j1,
+                lower: -4.0,
+                upper: 4.0
+            })
+        );
     }
 
     /// The leader's whole range, mapped, has to fit the range the follower

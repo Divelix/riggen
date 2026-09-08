@@ -4,7 +4,7 @@
 //! round-trip tests compare against (ADR-0004), and what `Reparent {
 //! keep_world_pose }` reads to rewrite a joint origin.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use riggen_mesh::glam::{DQuat, DVec3};
 
@@ -59,14 +59,52 @@ pub fn motion(kind: JointKind, axis: DVec3, q: f64) -> Pose {
 /// follower's own entry in `q` is ignored rather than an error: it is
 /// derived state the caller need not know about.
 ///
-/// One pass, not a fixed point: `validate` rejects a leader that itself
-/// mimics, so every leader's value is already the caller's.
+/// A leader may itself follow: chains resolve (ADR-0025), so this is a
+/// topological pass with a memo rather than the single sweep ADR-0013
+/// allowed — a follower reads its leader's *resolved* value. It is
+/// cycle-safe on a document `validate` would refuse (`MimicCycle`): every
+/// joint in a cycle keeps its raw `q`, the way [`fk`] terminates on a link
+/// loop, and a chain leading into one resolves against those raw values.
 pub fn resolve_q(robot: &Robot, q: &JointState) -> JointState {
     let mut out = q.clone();
-    for (&jid, joint) in &robot.joints {
-        if let Some(mimic) = joint.mimic {
-            out.set(jid, mimic.multiplier * q.get(mimic.joint) + mimic.offset);
+    // A joint is `done` once its entry in `out` is final: a free leader
+    // (the caller's own number), a resolved follower, or a member of a
+    // cycle (raw, and never revisited).
+    let mut done: BTreeSet<JointId> = BTreeSet::new();
+    for &start in robot.joints.keys() {
+        // Walk up the leaders, then assign back down the path.
+        let mut path: Vec<JointId> = Vec::new();
+        let mut on_path: BTreeSet<JointId> = BTreeSet::new();
+        let mut cursor = start;
+        let cycle_at = loop {
+            if done.contains(&cursor) {
+                break None;
+            }
+            if !on_path.insert(cursor) {
+                // `cursor` is already on this path, so it was pushed: the
+                // cycle is everything from there on.
+                break path.iter().position(|&j| j == cursor);
+            }
+            // A leader that is not a joint at all (`DanglingMimicJoint`)
+            // ends the walk; its followers read its raw entry.
+            match robot.joints.get(&cursor).and_then(|j| j.mimic) {
+                Some(mimic) => {
+                    path.push(cursor);
+                    cursor = mimic.joint;
+                }
+                None => break None,
+            }
+        };
+        if let Some(at) = cycle_at {
+            done.extend(path[at..].iter().copied());
+            path.truncate(at);
         }
+        for &jid in path.iter().rev() {
+            let mimic = robot.joints[&jid].mimic.expect("only followers are pushed");
+            out.set(jid, mimic.multiplier * out.get(mimic.joint) + mimic.offset);
+            done.insert(jid);
+        }
+        done.insert(start);
     }
     out
 }
@@ -428,6 +466,73 @@ mod tests {
         assert_vec_eq(f[&tcp].t, DVec3::new(1.0, 0.5, 0.0));
         assert_vec_eq(f[&base].t, DVec3::Z * 0.1);
         assert_rot_eq(f[&base].r, DQuat::IDENTITY);
+    }
+
+    /// A chain — a follower whose leader also follows — resolves in one
+    /// topological pass, and the coupled tree matches the free tree driven
+    /// by hand (ADR-0025). A cycle terminates instead of hanging.
+    #[test]
+    fn a_mimic_chain_resolves_and_a_cycle_terminates() {
+        // j2 = 1.2·j1 + 0.2, j1 = -0.5·j0 + 0.1, so j2 = -0.6·j0 + 0.32.
+        let (mut robot, links, joints) = chain(false);
+        let [j0, j1, j2] = joints;
+        robot.joints.get_mut(&j1).unwrap().mimic = Some(crate::robot::Mimic {
+            joint: j0,
+            multiplier: -0.5,
+            offset: 0.1,
+        });
+        robot.joints.get_mut(&j2).unwrap().mimic = Some(crate::robot::Mimic {
+            joint: j1,
+            multiplier: 1.2,
+            offset: 0.2,
+        });
+        assert_eq!(crate::validate(&robot), Ok(()), "a chain is legal");
+
+        let mut free = robot.clone();
+        for j in [j1, j2] {
+            free.joints.get_mut(&j).unwrap().mimic = None;
+        }
+
+        for driver in [0.0, 0.4, -0.8] {
+            let mut q = JointState::new();
+            q.set(j0, driver);
+            q.set(j1, 99.0); // stale derived state in both followers
+            q.set(j2, -99.0);
+            let resolved = resolve_q(&robot, &q);
+            let (mid, tail) = (-0.5 * driver + 0.1, -0.6 * driver + 0.32);
+            assert!((resolved.get(j1) - mid).abs() < EPS);
+            assert!(
+                (resolved.get(j2) - tail).abs() < EPS,
+                "the tail reads its leader's resolved value, not its raw one"
+            );
+
+            let mut by_hand = JointState::new();
+            by_hand.set(j0, driver);
+            by_hand.set(j1, mid);
+            by_hand.set(j2, tail);
+            let coupled = fk(&robot, &q);
+            let expected = fk(&free, &by_hand);
+            for link in links {
+                assert_pose_eq(&coupled[&link], &expected[&link]);
+            }
+        }
+
+        // A ring of two: `validate` refuses it, `resolve_q` leaves both
+        // members raw rather than looping (the `fk` link-loop rule).
+        robot.joints.get_mut(&j0).unwrap().mimic = Some(crate::robot::Mimic {
+            joint: j1,
+            multiplier: 1.0,
+            offset: 0.0,
+        });
+        assert!(crate::validate(&robot).is_err());
+        let mut q = JointState::new();
+        q.set(j0, 0.3);
+        q.set(j1, 0.7);
+        let resolved = resolve_q(&robot, &q);
+        assert_eq!(resolved.get(j0), 0.3);
+        assert_eq!(resolved.get(j1), 0.7);
+        // …and the tail off the ring still resolves against those.
+        assert!((resolved.get(j2) - (1.2 * 0.7 + 0.2)).abs() < EPS);
     }
 
     /// A follower's pose is the one its leader implies, at every

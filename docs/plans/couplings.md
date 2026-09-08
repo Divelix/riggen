@@ -126,7 +126,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   under `autolimits="true"` with no `ctrlrange` loads with zero warnings.
   Decides OPEN 3 and OPEN 4. Row in `docs/adr/README.md`; ADR-0013 and
   ADR-0023 marked amended.
-- [ ] **[2]** Step 2 — core: chains. `resolve_q` topological and
+- [x] **[2]** Step 2 — core: chains. `resolve_q` topological and
   cycle-safe; `MimicChain` → `MimicCycle`; the limits check composes the
   chain; `SetJoint` accepts a leader that follows. `fk` test: a chain of
   three equals the hand-resolved free model; `validate` tests for a cycle

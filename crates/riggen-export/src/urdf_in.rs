@@ -860,7 +860,8 @@ mod tests {
             assert!(dropped[0].to_string().contains(reason));
         }
 
-        // A chain: j2 follows j1, and j3 — made movable — follows j2.
+        // A chain is not a refusal any more (ADR-0025): j2 follows j1, and
+        // j3 — made movable — follows j2, and both couplings are kept.
         let text = coupled(r#"<mimic joint="j1" multiplier="0.5"/>"#, "")
             .replace(
                 r#"<joint name="j3" type="fixed">"#,
@@ -873,15 +874,11 @@ mod tests {
         let (robot, warnings) = import(&text);
         let id = |n: &str| *robot.joints.iter().find(|(_, j)| j.name == n).unwrap().0;
         assert!(robot.joints[&id("j2")].mimic.is_some(), "the leader stays");
-        assert_eq!(robot.joints[&id("j3")].mimic, None);
         assert_eq!(
-            warnings,
-            vec![ImportWarning::MimicDropped {
-                joint: "j3".into(),
-                mimics: "j2".into(),
-                reason: "its leader is itself a mimic, and chains are not supported".into(),
-            }]
+            robot.joints[&id("j3")].mimic.map(|m| m.joint),
+            Some(id("j2"))
         );
+        assert_eq!(warnings, vec![]);
 
         // And a `<mimic>` on a fixed joint, which has nothing to drive.
         let text = coupled("", r#"<mimic joint="j1"/>"#);

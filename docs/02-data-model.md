@@ -206,16 +206,19 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
   origins, joint limits, frame poses and material densities are finite, and
   densities are non-negative. Geom poses and an `Override` inertial's
   numbers are **not** checked — a backlog line, not a rule.
-- A `Mimic`'s leader exists, is movable, is not the follower itself and does
-  not itself mimic — **chains are rejected** (ADR-0013), as is a mimic on a
-  `Fixed` joint. `multiplier` is finite and non-zero, `offset` is finite,
-  and the leader's range mapped through `(multiplier, offset)` fits inside
-  the follower's own limits, so MJCF's `range` and the equality constraint
-  cannot fight (`DanglingMimicJoint`, `SelfMimic`, `MimicOnFixedJoint`,
-  `MimicLeaderFixed`, `MimicChain`, `ZeroMimicMultiplier`,
-  `MimicExceedsLimits`). A `Continuous` follower has no range to leave, so
-  the last check is vacuous; a `Continuous` leader has an unbounded one,
-  which no bounded follower can hold.
+- A `Mimic`'s leader exists, is movable and is not the follower itself. It
+  **may itself follow** — a chain resolves (ADR-0025) — but a ring of
+  followers with no free leader at its head does not (`MimicCycle`, whose
+  `joints` are in follow order from the lowest id in the ring, the way
+  `Cycle` names a link loop). A mimic on a `Fixed` joint is refused.
+  `multiplier` is finite and non-zero, `offset` is finite, and the range of
+  the **free** joint at the head of the chain, mapped through the composed
+  map, fits inside the follower's own limits, so MJCF's `range` and the
+  equality constraint cannot fight (`DanglingMimicJoint`, `SelfMimic`,
+  `MimicOnFixedJoint`, `MimicLeaderFixed`, `MimicCycle`,
+  `ZeroMimicMultiplier`, `MimicExceedsLimits`). A `Continuous` follower has
+  no range to leave, so the last check is vacuous; a `Continuous` free
+  leader has an unbounded one, which no bounded follower can hold.
 - An `Actuator`'s `target` names a joint of the document
   (`DanglingActuatorTarget`), and that joint is movable and does not follow
   another one (`ActuatorOnFixedJoint`, `ActuatorOnMimicFollower`: a fixed
@@ -434,8 +437,12 @@ from the other is exactly the loss ADR-0023 closes.
 the follower's own slot is ignored, not an error — it is derived state.
 `resolve_q` is the **single implementation** of that rule; the joint tree
 and `--fk-samples` read it too, so the number the viewport draws and the
-number the export writes cannot drift apart. One pass suffices, not a fixed
-point, because `validate` rejects a leader that itself mimics.
+number the export writes cannot drift apart. A leader may itself follow, so
+it is a **topological** pass with a memo (ADR-0025): a follower reads its
+leader's resolved value, however long the chain. On a document `validate`
+would refuse with `MimicCycle` it terminates rather than looping — every
+joint in the ring keeps its raw `q`, the way `fk` terminates on a link
+loop, and a chain hanging off the ring resolves against those raw values.
 
 `origin_for_world` is the inverse of one step of it: `world(link) =
 world(parent) ∘ origin` at `q = 0`, so the origin wanted is
