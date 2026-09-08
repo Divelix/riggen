@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use riggen_core::{ActuatorSpec, JointKind, JointState, Robot, fk, resolve_q};
+use riggen_core::{ActuatorSpec, ActuatorTarget, JointKind, JointState, Robot, fk, resolve_q};
 use serde::Serialize;
 
 use crate::xml::quat_wxyz;
@@ -29,6 +29,10 @@ pub struct Samples {
     /// for a document with none — an imported URDF, say, which has no
     /// actuator to bring.
     pub actuators: Vec<SampledActuator>,
+    /// What the MJCF's `<tendon>` block should hold (ADR-0025 §4), with
+    /// each tendon's length at each sample so `check_tendons` can hold
+    /// `data.ten_length` to it. Empty for a document with no tendons.
+    pub tendons: Vec<SampledTendon>,
     pub samples: Vec<Sample>,
 }
 
@@ -42,10 +46,14 @@ pub struct SampledActuator {
     /// file may have said otherwise, so the check reads this rather than
     /// re-deriving it.
     pub name: String,
-    /// `position`, `velocity` or `motor`.
+    /// `position`, `velocity`, `motor` or `general`.
     pub kind: String,
-    /// The joint it drives.
-    pub joint: String,
+    /// What it drives: `"joint"` or `"tendon"` (ADR-0025 §4). MuJoCo's
+    /// transmission type, which is why a tendon actuator derives no range
+    /// from a joint's limits.
+    pub trntype: String,
+    /// The joint or the tendon it drives, by name.
+    pub target: String,
     /// `kp` / `kv` / `gear` by name; a `general`'s is `gear` alone, the
     /// rest of it being `general` below.
     pub gains: BTreeMap<String, f64>,
@@ -73,6 +81,35 @@ pub struct SampledGeneral {
     pub dynprm: Vec<f64>,
     pub gainprm: Vec<f64>,
     pub biasprm: Vec<f64>,
+}
+
+/// One `<tendon><fixed>` element as the numbers rather than as XML
+/// (ADR-0025 §4). `lengths` is `Σ coef · (q + qpos_ref)` at each sample —
+/// the absolute `Σ coef · qpos` MuJoCo evaluates, which is why `range` is
+/// held in those terms too and never shifted.
+#[derive(Debug, Serialize)]
+pub struct SampledTendon {
+    pub name: String,
+    /// The `<joint joint coef>` children, in the order they are written.
+    pub joints: Vec<SampledTendonJoint>,
+    /// Absent where MJCF leaves the attribute out and MuJoCo's unbounded
+    /// default stands.
+    pub range: Option<[f64; 2]>,
+    /// The `tendon_limited` MuJoCo ends up with: the tendon's own flag,
+    /// else `autolimits`' rule over the range written (ADR-0024's rule,
+    /// which a tendon shares).
+    pub limited: bool,
+    pub stiffness: f64,
+    pub damping: f64,
+    pub frictionloss: f64,
+    /// The tendon's length at each entry of `samples`, in that order.
+    pub lengths: Vec<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SampledTendonJoint {
+    pub joint: String,
+    pub coef: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -128,22 +165,25 @@ fn actuators(robot: &Robot) -> Vec<SampledActuator> {
         .actuators
         .values()
         .filter_map(|entry| {
-            // A tendon-targeted actuator has no joint to derive a range
-            // from and no `tendons` block to name yet — plans/couplings
-            // step 8 (ADR-0025 §4) gives it both; until then it is skipped
-            // here as it is in `resolve`.
-            let joint = robot.joints.get(&entry.target.joint()?)?;
+            // A tendon-targeted actuator names its tendon and derives
+            // nothing: there is no `Limits` behind it (ADR-0025 §4). A
+            // motor's normalised `-1 1` is the preset's own and stands.
+            let (trntype, target) = match entry.target {
+                ActuatorTarget::Joint(id) => ("joint", robot.joints.get(&id)?.name.clone()),
+                ActuatorTarget::Tendon(id) => ("tendon", robot.tendons.get(&id)?.name.clone()),
+            };
+            let joint = entry.target.joint().and_then(|id| robot.joints.get(&id));
+            let limits = joint.and_then(|j| j.limits);
+            let qpos_ref = joint.map_or(0.0, |j| j.qpos_ref);
             let actuator = &entry.spec;
             let (gains, derived_ctrl) = match *actuator {
                 ActuatorSpec::Position { kp, kv } => (
                     BTreeMap::from([("kp".to_owned(), kp), ("kv".to_owned(), kv)]),
-                    joint
-                        .limits
-                        .map(|l| [l.lower + joint.qpos_ref, l.upper + joint.qpos_ref]),
+                    limits.map(|l| [l.lower + qpos_ref, l.upper + qpos_ref]),
                 ),
                 ActuatorSpec::Velocity { kv } => (
                     BTreeMap::from([("kv".to_owned(), kv)]),
-                    joint.limits.and_then(|l| symmetric(l.velocity)),
+                    limits.and_then(|l| symmetric(l.velocity)),
                 ),
                 ActuatorSpec::Motor { gear } => (
                     BTreeMap::from([("gear".to_owned(), gear)]),
@@ -172,12 +212,13 @@ fn actuators(robot: &Robot) -> Vec<SampledActuator> {
             let forcerange = own_else(
                 own.force,
                 own.force_limited,
-                joint.limits.and_then(|l| symmetric(l.effort)),
+                limits.and_then(|l| symmetric(l.effort)),
             );
             Some(SampledActuator {
                 name: entry.name.clone(),
                 kind: actuator.kind_name().to_owned(),
-                joint: joint.name.clone(),
+                trntype: trntype.to_owned(),
+                target,
                 gains,
                 general,
                 ctrlrange,
@@ -200,8 +241,13 @@ pub fn samples(robot: &Robot) -> Samples {
     let mut out = Samples {
         joints: movable.iter().map(|(_, j)| j.name.clone()).collect(),
         actuators: actuators(robot),
+        tendons: Vec::new(),
         samples: Vec::new(),
     };
+    // One length per sample per tendon, filled as the configurations are
+    // resolved below (ADR-0025 §4).
+    let tendons: Vec<_> = robot.tendons.values().collect();
+    let mut lengths: Vec<Vec<f64>> = vec![Vec::new(); tendons.len()];
     for fractions in FRACTIONS {
         let mut state = JointState::new();
         for (i, (id, joint)) in movable.iter().enumerate() {
@@ -221,6 +267,21 @@ pub fn samples(robot: &Robot) -> Samples {
             .iter()
             .map(|(id, j)| state.get(**id) + j.qpos_ref)
             .collect();
+        // `Σ coef · qpos`, absolute: MuJoCo evaluates a fixed tendon over
+        // `qpos`, not over the deviations from `qpos0` an equality uses
+        // (ADR-0025 §4), so the `qpos_ref` is added here too.
+        for (t, tendon) in tendons.iter().enumerate() {
+            lengths[t].push(
+                tendon
+                    .joints
+                    .iter()
+                    .map(|tj| {
+                        let qpos_ref = robot.joints.get(&tj.joint).map_or(0.0, |j| j.qpos_ref);
+                        tj.coef * (state.get(tj.joint) + qpos_ref)
+                    })
+                    .sum(),
+            );
+        }
         let world = fk(robot, &state);
         let links = robot
             .links
@@ -242,6 +303,31 @@ pub fn samples(robot: &Robot) -> Samples {
             .collect();
         out.samples.push(Sample { q, links, sites });
     }
+    out.tendons = tendons
+        .into_iter()
+        .zip(lengths)
+        .map(|(t, lengths)| SampledTendon {
+            name: t.name.clone(),
+            joints: t
+                .joints
+                .iter()
+                .map(|tj| SampledTendonJoint {
+                    joint: robot
+                        .joints
+                        .get(&tj.joint)
+                        .map(|j| j.name.clone())
+                        .unwrap_or_default(),
+                    coef: tj.coef,
+                })
+                .collect(),
+            range: t.range,
+            limited: t.limited.unwrap_or(t.range.is_some_and(|[lo, hi]| lo < hi)),
+            stiffness: t.stiffness,
+            damping: t.damping,
+            frictionloss: t.frictionloss,
+            lengths,
+        })
+        .collect();
     out
 }
 
@@ -548,7 +634,10 @@ mod tests {
             (a[0].name.as_str(), a[0].kind.as_str()),
             ("servo", "position")
         );
-        assert_eq!(a[0].joint, "servo");
+        assert_eq!(
+            (a[0].trntype.as_str(), a[0].target.as_str()),
+            ("joint", "servo")
+        );
         assert_eq!(a[0].gains["kp"], 100.0);
         assert_eq!(a[0].gains["kv"], 10.0);
         assert_eq!(a[0].ctrlrange, Some([-1.0, 2.0]), "the joint's own range");
@@ -649,5 +738,105 @@ mod tests {
         assert_eq!((a[0].ctrlrange, a[0].ctrllimited), (None, false));
         assert_eq!(a[0].forcerange, Some([-5.0, 5.0]), "±effort still derives");
         assert!(to_json(&robot).contains("\"dyntype\": \"filter\""));
+    }
+
+    /// The `tendons` block is what `check_tendons` holds MuJoCo's
+    /// `ten_length` to, and a fixed tendon's length is the **absolute**
+    /// `Σ coef · qpos` (ADR-0025 §4) — so it is exactly the sum over the
+    /// `q` the samples already write, `qpos_ref` and all. An actuator on
+    /// the tendon names it and derives no range: there is no joint behind
+    /// it.
+    #[test]
+    fn the_tendons_block_carries_the_absolute_length_at_every_sample() {
+        let mut robot = Robot::new("r");
+        let root = robot.root;
+        for name in ["a", "b"] {
+            Command::AddLink {
+                link: Box::new(Link::new(name)),
+                parent: root,
+                joint: Joint {
+                    kind: JointKind::Revolute,
+                    axis: DVec3::Z,
+                    origin: Pose::from_translation(DVec3::X),
+                    limits: Some(Limits {
+                        lower: -1.0,
+                        upper: 2.0,
+                        effort: 5.0,
+                        velocity: 3.0,
+                    }),
+                    ..Joint::fixed(name, root, root)
+                },
+            }
+            .apply(&mut robot)
+            .unwrap();
+        }
+        let id =
+            |robot: &Robot, n: &str| *robot.joints.iter().find(|(_, j)| j.name == n).unwrap().0;
+        let (a, b) = (id(&robot, "a"), id(&robot, "b"));
+        // A `ref` on one of the two, so a length that ignored it would be
+        // off by 0.25 at every sample.
+        robot.joints.get_mut(&a).unwrap().qpos_ref = 0.25;
+        let tendon: riggen_core::TendonId = robot.next_id.alloc();
+        robot.tendons.insert(
+            tendon,
+            riggen_core::Tendon {
+                range: Some([0.0, 1.0]),
+                stiffness: 5.0,
+                ..riggen_core::Tendon::new(
+                    "grip",
+                    vec![
+                        riggen_core::TendonJoint {
+                            joint: a,
+                            coef: 1.0,
+                        },
+                        riggen_core::TendonJoint {
+                            joint: b,
+                            coef: -2.0,
+                        },
+                    ],
+                )
+            },
+        );
+        Command::AddActuator(riggen_core::Actuator {
+            name: "grip_servo".into(),
+            target: riggen_core::ActuatorTarget::Tendon(tendon),
+            spec: ActuatorSpec::Position { kp: 9.0, kv: 1.0 },
+            ranges: riggen_core::ActuatorRanges::default(),
+        })
+        .apply(&mut robot)
+        .unwrap();
+        riggen_core::validate(&robot).unwrap();
+
+        let s = samples(&robot);
+        assert_eq!(s.tendons.len(), 1);
+        let t = &s.tendons[0];
+        assert_eq!(t.name, "grip");
+        assert_eq!(
+            t.joints
+                .iter()
+                .map(|j| (j.joint.as_str(), j.coef))
+                .collect::<Vec<_>>(),
+            [("a", 1.0), ("b", -2.0)]
+        );
+        assert_eq!((t.range, t.limited), (Some([0.0, 1.0]), true));
+        assert_eq!((t.stiffness, t.damping, t.frictionloss), (5.0, 0.0, 0.0));
+        assert_eq!(t.lengths.len(), s.samples.len());
+        for (sample, length) in s.samples.iter().zip(&t.lengths) {
+            assert!(
+                (length - (sample.q[0] - 2.0 * sample.q[1])).abs() < 1e-12,
+                "the length is the sum over qpos, not over the deviations: {:?}",
+                sample.q
+            );
+        }
+        // The one actuator drives the tendon, and derives nothing.
+        assert_eq!(s.actuators.len(), 1);
+        let actuator = &s.actuators[0];
+        assert_eq!(
+            (actuator.trntype.as_str(), actuator.target.as_str()),
+            ("tendon", "grip")
+        );
+        assert_eq!((actuator.ctrlrange, actuator.forcerange), (None, None));
+        assert!(!actuator.ctrllimited && !actuator.forcelimited);
+        assert!(to_json(&robot).contains("\"trntype\": \"tendon\""));
     }
 }

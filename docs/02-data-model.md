@@ -614,6 +614,7 @@ pub struct ResolvedRobot {
     pub links: Vec<ResolvedLink>,     // topological order, root first
     pub joints: Vec<ResolvedJoint>,   // joints[i] is the parent joint of links[i + 1]
     pub actuators: Vec<ResolvedActuator>, // ActuatorId order (ADR-0023)
+    pub tendons: Vec<ResolvedTendon>, // TendonId order (ADR-0025 §4); MJCF only
     pub meshes: BTreeMap<String, Arc<TriMesh>>, // every file to write, by stem, in meters
     pub floating_base: bool,
 }
@@ -629,8 +630,12 @@ pub struct ResolvedSite { pub name: String, pub pose: Pose }  // frame in the li
 pub enum ResolvedGeom { Mesh { name, mesh: Arc<TriMesh>, pose }, Primitive(Primitive) }
 pub struct ResolvedJoint { name, kind, parent: usize, child: usize, origin: Pose, axis: DVec3, limits, dynamics,
                            mimic: Option<ResolvedMimic>, qpos_ref: f64 }  // qpos_ref: MJCF's ref, read by the MJCF writer alone
-pub struct ResolvedActuator { pub name: String, pub joint: usize, pub spec: ActuatorSpec,
-                              pub ranges: ActuatorRanges }  // joint indexes ResolvedRobot::joints; ranges as the document keeps them (ADR-0024)
+pub struct ResolvedActuator { pub name: String, pub target: ResolvedTarget, pub spec: ActuatorSpec,
+                              pub ranges: ActuatorRanges }  // ranges as the document keeps them (ADR-0024)
+pub enum ResolvedTarget { Joint(usize), Tendon(usize) }  // indexes ResolvedRobot::joints / ::tendons (ADR-0025 §4)
+pub struct ResolvedTendon { pub name: String, pub joints: Vec<ResolvedTendonJoint>, pub range: Option<[f64; 2]>,
+                            pub limited: Option<bool>, pub stiffness: f64, pub damping: f64, pub frictionloss: f64 }
+pub struct ResolvedTendonJoint { pub joint: usize, pub coef: f64 }  // joint indexes ResolvedRobot::joints
 pub struct ResolvedMimic { pub joint: usize, pub multiplier: f64, pub offset: f64 }  // joint indexes ResolvedRobot::joints
 pub struct ExportOptions { format: Format, mesh_paths: MeshPathStyle, floating_base: bool }
 pub struct Format { pub mjcf: bool, pub urdf: bool, pub sdf: bool }  // a set, not a choice; Default is all three
@@ -667,6 +672,13 @@ blocker (no modal, no spinner over the dialog).
 A `Joint::mimic` becomes a `ResolvedMimic` whose `joint` is an **index into
 `ResolvedRobot::joints`**, not a `JointId`, so every writer stays a dumb
 serialiser of the vector it already has (ADR-0004 §1, ADR-0013).
+
+Every `Tendon` becomes a `ResolvedTendon` in `TendonId` order, its joints
+the same indices (ADR-0025 §4), and an actuator's `ResolvedTarget` names a
+joint or a tendon by index for the same reason. A tendon target has no
+`Limits` behind it, so the MJCF writer derives neither range for such an
+actuator and writes only what the file said; the URDF and SDF writers
+ignore `tendons`, `qpos_ref` and a tendon-targeted actuator entirely.
 
 Every `Frame` becomes a `ResolvedSite` on its parent link, in `FrameId`
 order, carrying its link-frame pose unchanged; a frame on a link the tree
@@ -711,8 +723,9 @@ ignores it, because it has `meshdir`.
 | Root | first `<link>` | `<worldbody>` child; `floating_base` in `ExportOptions` adds `<freejoint name="root"/>` | first `<link>`; a **fixed** base is `<joint name="world_joint" type="fixed"><parent>world</parent>`, and `floating_base` is that joint left out |
 | Frame (`Frame`, a `ResolvedSite`) | a massless `<link name="tcp"/>` — no visual, collision or inertial — plus `<joint name="tcp_fixed" type="fixed">` with the frame pose as its `<origin xyz rpy/>`; the dummy links after every real link and the fixed joints after every real joint, so the file still reads root-first (ADR-0012) | `<site name pos quat/>` inside its body after the geoms, bare: no `size`, `group` or `rgba`, so MuJoCo's default 0.005 m sphere marks it (ADR-0012) | `<frame name attached_to="«link»"><pose/>` after the joints — `<pose>`'s default `relative_to` *is* `attached_to`, so the link-frame pose goes out unchanged, and no dummy link is needed |
 | Mimic (`ResolvedMimic`) | `<mimic joint multiplier offset/>` inside the follower's `<joint>`, after `<dynamics>` | `<equality><joint joint1="follower" joint2="leader" polycoef="offset multiplier 0 0 0"/></equality>` after `</worldbody>` — a **soft** solver constraint, not a reduction (ADR-0013) | `<axis><mimic joint="«leader»"><multiplier><offset><reference>0` — SDF 1.11's own element. Its rule is `follower = multiplier·(leader − reference) + offset`, which at `reference = 0` is URDF's exactly |
+| Tendon (`ResolvedTendon`) | nothing — URDF has no tendon | one `<tendon>` block after `</equality>`, one `<fixed name>` per table entry in `TendonId` order with a `<joint joint coef/>` child per joint: `limited` when the tendon says it, `range` when it has one — in MJCF's own absolute `Σ coef · qpos` terms, so **never shifted by a `qpos_ref`** (ADR-0025 §4) — and `stiffness`, `damping`, `frictionloss` only when non-zero, MuJoCo's own zeros standing otherwise | nothing, for URDF's reason |
 | `Joint::qpos_ref` | nothing — URDF's `<limit>` is in deviation terms, which `Limits` already is | `ref="…"` on the `<joint>` when non-zero, **`range` shifted by it** (MuJoCo keeps both in `qpos` terms; the document's `q` is the deviation from the authored pose, `qpos = q + qpos_ref`, ADR-0025 §3), and a `ctrlrange` *derived* from the joint's range for a `<position>` shifted the same way; a `ctrlrange` the actuator says itself is written as said, being in `qpos` terms already. The `polycoef` of a mimic over such a joint is **not** shifted: MuJoCo's deviations are from `qpos0 = ref` | nothing, for URDF's reason |
-| Actuator (`ActuatorSpec`) | nothing — `<transmission>` is a `ros_control` relic; a comment after the `<joint>` names the preset and its gains (a `General`'s three type names), like the `armature` one (ADR-0014) | one `<actuator>` block after `</equality>`, one element per table entry in `ActuatorId` order: `<position kp kv>` / `<velocity kv>` / `<motor gear>`, or `<general dyntype gaintype biastype dynprm gainprm biasprm gear>` for a `General` (ADR-0024) — the three type names always, each `prm` vector with the trailing zeros MuJoCo would fill in trimmed off but never emptied (`dynprm="0"` is zero; an absent `dynprm` is MuJoCo's one), `gear` like a motor's, and no derived `ctrlrange` since there is no preset to derive one from. `name` is the **actuator's own** (the joint's by default, ADR-0023) and `joint` the driven joint's. Several may drive one joint; MuJoCo sums them | nothing, and the same comment. Gazebo drives a joint through a `<plugin>` naming a C++ class, a shared library and a version of Gazebo — a simulator configuration, not a robot description (ADR-0016 §5) |
+| Actuator (`ActuatorSpec`) | nothing — `<transmission>` is a `ros_control` relic; a comment after the `<joint>` names the preset and its gains (a `General`'s three type names), like the `armature` one (ADR-0014) | one `<actuator>` block after `</equality>`, one element per table entry in `ActuatorId` order: `<position kp kv>` / `<velocity kv>` / `<motor gear>`, or `<general dyntype gaintype biastype dynprm gainprm biasprm gear>` for a `General` (ADR-0024) — the three type names always, each `prm` vector with the trailing zeros MuJoCo would fill in trimmed off but never emptied (`dynprm="0"` is zero; an absent `dynprm` is MuJoCo's one), `gear` like a motor's, and no derived `ctrlrange` since there is no preset to derive one from. `name` is the **actuator's own** (the joint's by default, ADR-0023) and `joint` — or `tendon`, for a tendon-targeted one (ADR-0025 §4) — the driven target's. Several may drive one target; MuJoCo sums them | nothing, and the same comment. Gazebo drives a joint through a `<plugin>` naming a C++ class, a shared library and a version of Gazebo — a simulator configuration, not a robot description (ADR-0016 §5) |
 | Effort / velocity | `<limit effort velocity/>` | **the actuator's own ranges, else the joint's** (ADR-0024): a `ctrlrange` / `forcerange` in `Actuator::ranges` is written as it was said, with an explicit `ctrllimited` / `forcelimited` whenever its flag is `Some`; only where the actuator says nothing is `forcerange="-effort effort"` derived, and `ctrlrange` — `lower upper` for a position servo, `±velocity` for a velocity one, the normalised `-1 1` for a motor. A zero `effort` / `velocity` is the *unfilled* value, so the attribute is **omitted** and MuJoCo's unbounded default stands, never `0 0`; a flag of `false` beside no range derives nothing either. A joint **no** actuator targets keeps the comment naming what was dropped (ADR-0004 §4 as amended by ADR-0014, re-keyed by ADR-0023) | `<axis><limit><effort><velocity>`, **omitted when zero** for MJCF's reason: SDF's default is infinity and a literal `0` is a joint that can exert nothing |
 | Dynamics | `<dynamics damping friction/>` | `damping`, `frictionloss`, `armature` on the `<joint>`, written only when non-zero | `<axis><dynamics><damping><friction>`, written only when either is non-zero; `armature` is a comment, as in URDF |
 | Angles | radians | **`<compiler angle="radian" meshdir="meshes" autolimits="true"/>` is always written** — MJCF's default is degrees | radians; `<pose>` is `x y z roll pitch yaw` with URDF's own `Rz·Ry·Rx` convention, through the one `Pose::to_xyz_rpy` the URDF writer uses too |

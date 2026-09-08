@@ -12,10 +12,14 @@ as (ADR-0013) — must agree with the sampled `qpos`, and a pair of joints the
 samples show as exactly coupled must have one, which is how a dropped
 `<equality>` or a `polycoef` in the wrong order would look. Every actuator
 the samples name (ADR-0014, ADR-0023) must be in the model, under its own
-name, driving the joint the samples name, with the gains and the two ranges
+name, driving the joint — or the **tendon** (ADR-0025 §4) — the samples
+name, with the gains and the two ranges
 they give — and the model
 may carry no others: `model.nu` is the count, never a `> 0` that a wrong
-preset would pass. A body carrying
+preset would pass. Every `<tendon><fixed>` the samples name must be in the
+model too, over the joints and coefficients they give, with the length they
+compute at every sampled configuration — `Σ coef · qpos`, absolute, which
+is how MuJoCo evaluates one. A body carrying
 convex-decomposition pieces
 (`<stem>_hull_0`, `_1`, … — ADR-0011) must carry more than one of them:
 MuJoCo hulls a collision mesh itself, so a single piece would mean the
@@ -228,14 +232,19 @@ def check_equalities(model: mujoco.MjModel, samples: dict) -> int:
 def check_actuators(model: mujoco.MjModel, samples: dict) -> int:
     """Every `<actuator>` riggen wrote is in the model, driving the right joint.
 
-    An actuator has a name of its own (ADR-0023) — its joint's by default,
+    An actuator has a name of its own (ADR-0023) — its target's by default,
     but a file may have said otherwise — so the check reads the sampled
-    `name` and `joint` separately rather than deriving one from the other.
+    `name` and `target` separately rather than deriving one from the other.
     It is data-driven: the samples say what should be there and an actuator
     they name that the model lacks is a failure — which is how a dropped
-    `<actuator>` looks. Several actuators may name one joint, since MuJoCo
+    `<actuator>` looks. Several actuators may name one target, since MuJoCo
     sums their controls. A URDF-imported robot legitimately has none, and
     then `model.nu` must be zero too.
+
+    An actuator drives a joint or a fixed **tendon** (ADR-0025 §4), which
+    the samples say as `trntype`; a tendon one has no joint behind it, so
+    the samples derive neither range for it and MuJoCo's own unbounded
+    defaults are what is checked.
 
     The samples say which `ctrllimited` / `forcelimited` MuJoCo must end up
     with (ADR-0024) — an actuator's own flag, else `autolimits`' rule over
@@ -261,12 +270,19 @@ def check_actuators(model: mujoco.MjModel, samples: dict) -> int:
     for spec in want:
         name = spec["name"]
         i = int(model.actuator(name).id)
-        if int(model.actuator_trntype[i]) != mujoco.mjtTrn.mjTRN_JOINT:
-            raise AssertionError(f"actuator {name!r} does not drive a joint")
-        driven = model.joint(int(model.actuator_trnid[i][0])).name
-        if driven != spec["joint"]:
+        wanted_trn = {"joint": mujoco.mjtTrn.mjTRN_JOINT, "tendon": mujoco.mjtTrn.mjTRN_TENDON}
+        kind = spec["trntype"]
+        trntype = mujoco.mjtTrn(int(model.actuator_trntype[i]))
+        if trntype != wanted_trn[kind]:
             raise AssertionError(
-                f"actuator {name!r} drives joint {driven!r}, not {spec['joint']!r}"
+                f"actuator {name!r} has transmission {trntype.name}; "
+                f"the samples say it drives a {kind}"
+            )
+        by_id = model.joint if kind == "joint" else model.tendon
+        driven = by_id(int(model.actuator_trnid[i][0])).name
+        if driven != spec["target"]:
+            raise AssertionError(
+                f"actuator {name!r} drives {kind} {driven!r}, not {spec['target']!r}"
             )
         for what in ("ctrl", "force"):
             limited = bool(getattr(model, f"actuator_{what}limited")[i])
@@ -328,6 +344,95 @@ def check_actuators(model: mujoco.MjModel, samples: dict) -> int:
                 raise AssertionError(
                     f"actuator {name!r} ({kind}, gains {gains}): mujoco has {float(got)} "
                     f"where {label} = {wanted} belongs"
+                )
+    return len(want)
+
+
+def check_tendons(model: mujoco.MjModel, samples: dict) -> int:
+    """Every `<tendon><fixed>` riggen wrote is in the model, and is its length.
+
+    A fixed tendon is a wrap list of joints with coefficients (ADR-0025
+    §4), so the check reads `model.wrap_*` and holds it to the joints and
+    coefficients the samples name, in order — a reordered or renamed wrap
+    fails, and a wrap that is not a joint means a `<spatial>` got out.
+    Then the length: MuJoCo evaluates a fixed tendon over the **absolute**
+    `qpos`, not over the deviations from `qpos0` an equality uses, so the
+    samples' `Σ coef · (q + ref)` must be `data.ten_length` at every
+    sampled configuration — a `qpos_ref` folded in on either side by
+    mistake shows up here.
+
+    A tendon the samples name that the model lacks is a failure, which is
+    how a dropped `<tendon>` would look, and the model may carry no others.
+    """
+    want = samples.get("tendons", [])
+    have = {model.tendon(i).name for i in range(model.ntendon)}
+    missing = sorted({t["name"] for t in want} - have)
+    if missing:
+        raise AssertionError(
+            f"the samples name tendon(s) {missing} the model does not have "
+            f"(it has {sorted(have)}): a <tendon> was dropped on the way out"
+        )
+    if model.ntendon != len(want):
+        raise AssertionError(
+            f"the model has {model.ntendon} tendon(s) {sorted(have)}, "
+            f"the samples name {len(want)}"
+        )
+    for spec in want:
+        name = spec["name"]
+        i = int(model.tendon(name).id)
+        adr, num = int(model.tendon_adr[i]), int(model.tendon_num[i])
+        wraps = []
+        for w in range(adr, adr + num):
+            wrap = mujoco.mjtWrap(int(model.wrap_type[w]))
+            if wrap != mujoco.mjtWrap.mjWRAP_JOINT:
+                raise AssertionError(
+                    f"tendon {name!r} wraps a {wrap.name}, not a joint: "
+                    "riggen only ever writes <fixed>"
+                )
+            wraps.append((model.joint(int(model.wrap_objid[w])).name, float(model.wrap_prm[w])))
+        wanted = [(j["joint"], j["coef"]) for j in spec["joints"]]
+        if [n for n, _ in wraps] != [n for n, _ in wanted] or not np.allclose(
+            [c for _, c in wraps], [c for _, c in wanted], rtol=0, atol=TOLERANCE
+        ):
+            raise AssertionError(
+                f"tendon {name!r} is over {wraps}, the samples say {wanted}"
+            )
+        limited = bool(model.tendon_limited[i])
+        if limited != spec["limited"]:
+            raise AssertionError(
+                f"tendon {name!r} is limited={limited} with range "
+                f"{model.tendon_range[i].tolist()}; the samples say "
+                f"limited={spec['limited']} with {spec.get('range')}"
+            )
+        if limited and (
+            spec.get("range") is None
+            or np.abs(np.asarray(spec["range"]) - model.tendon_range[i]).max() > TOLERANCE
+        ):
+            raise AssertionError(
+                f"tendon {name!r} range is {model.tendon_range[i].tolist()}, "
+                f"not {spec.get('range')}"
+            )
+        for what in ("stiffness", "damping", "frictionloss"):
+            got = float(getattr(model, f"tendon_{what}")[i])
+            if abs(got - spec[what]) > TOLERANCE:
+                raise AssertionError(
+                    f"tendon {name!r} {what} is {got}, the samples say {spec[what]}"
+                )
+    if not want:
+        return 0
+    data = mujoco.MjData(model)
+    for s, sample in enumerate(samples["samples"]):
+        mujoco.mj_resetData(model, data)
+        for jname, q in zip(samples["joints"], sample["q"]):
+            data.qpos[model.joint(jname).qposadr[0]] = q
+        mujoco.mj_forward(model, data)
+        for spec in want:
+            i = int(model.tendon(spec["name"]).id)
+            got, wanted = float(data.ten_length[i]), spec["lengths"][s]
+            if abs(got - wanted) > TOLERANCE:
+                raise AssertionError(
+                    f"tendon {spec['name']!r} at sample {s} (q={sample['q']}): "
+                    f"mujoco has ten_length {got}, riggen wrote {wanted}"
                 )
     return len(want)
 
@@ -501,6 +606,7 @@ def main(argv: list[str]) -> int:
                     n = check_fk(model, samples)
                     equalities = check_equalities(model, samples)
                     actuators = check_actuators(model, samples)
+                    tendons = check_tendons(model, samples)
                 except AssertionError as e:
                     print(f"FAIL {xml}: {e}")
                     failures += 1
@@ -510,6 +616,9 @@ def main(argv: list[str]) -> int:
                     word = "equality" if equalities == 1 else "equalities"
                     summary += f", {equalities} mimic {word} checked against the samples"
                 summary += f", {actuators} actuator(s) match what the samples ask for"
+                if tendons:
+                    word = "tendon" if tendons == 1 else "tendons"
+                    summary += f", {tendons} fixed {word} match theirs"
             if original_xml:
                 try:
                     original = load(Path(original_xml))

@@ -6,7 +6,7 @@ use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{
     Actuator, ActuatorId, ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Command,
     Frame, FrameId, Geom, Joint, JointId, JointKind, Limits, Link, LinkId, MeshAsset, MeshId, Pose,
-    Primitive, Robot,
+    Primitive, Robot, Tendon, TendonId, TendonJoint,
 };
 use riggen_mesh::TriMesh;
 
@@ -132,6 +132,45 @@ impl Builder {
             Actuator {
                 name,
                 target: ActuatorTarget::Joint(joint),
+                spec,
+                ranges: ActuatorRanges::default(),
+            },
+        );
+        id
+    }
+
+    /// A fixed tendon over `joints`, written straight into the table
+    /// (ADR-0025 §4). The caller edits the range and the dynamics through
+    /// `robot.tendons`.
+    pub(crate) fn tendon(&mut self, name: &str, joints: &[(JointId, f64)]) -> TendonId {
+        let id: TendonId = self.robot.next_id.alloc();
+        self.robot.tendons.insert(
+            id,
+            Tendon::new(
+                name,
+                joints
+                    .iter()
+                    .map(|&(joint, coef)| TendonJoint { joint, coef })
+                    .collect(),
+            ),
+        );
+        id
+    }
+
+    /// One actuator driving `tendon` — the second target ADR-0023 left
+    /// room for and ADR-0025 §4 fills in.
+    pub(crate) fn tendon_actuator(
+        &mut self,
+        name: &str,
+        tendon: TendonId,
+        spec: ActuatorSpec,
+    ) -> ActuatorId {
+        let id: ActuatorId = self.robot.next_id.alloc();
+        self.robot.actuators.insert(
+            id,
+            Actuator {
+                name: name.to_owned(),
+                target: ActuatorTarget::Tendon(tendon),
                 spec,
                 ranges: ActuatorRanges::default(),
             },

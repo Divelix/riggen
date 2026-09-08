@@ -158,7 +158,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   `target.joint()` caller audited (`SetActuators`, glyphs, properties,
   `fk_samples`, `mjcf`) for what a tendon actuator means to it. Command
   tests for add/remove/set/rename, undo, the two side effects.
-- [ ] **[3]** Step 8 — export: tendons out. `ResolvedTendon`,
+- [x] **[3]** Step 8 — export: tendons out. `ResolvedTendon`,
   `ResolvedTarget`; the MJCF writer's `<tendon>` block and `tendon=`
   transmissions; `fk_samples`' `tendons` block and target naming;
   `check_actuators` accepts `mjTRN_TENDON`, `check_tendons` verifies wrap

@@ -1285,8 +1285,9 @@ measured size is in 03 §v0.2.
   through a chain (ADR-0025), which the check unions rather than pairs — so
   a swapped coefficient order and a dropped `<equality>` both fail. The `.fk.json`'s
   `actuators` block says what the `<actuator>` block should hold
-  (ADR-0014, ADR-0023) — the actuator's **own** name, the driven joint as a
-  separate field, the gains where MuJoCo keeps them (`gainprm` / `biasprm`
+  (ADR-0014, ADR-0023) — the actuator's **own** name, what it drives as two
+  separate fields (`trntype`, `"joint"` or `"tendon"`, and the target's
+  name, ADR-0025 §4), the gains where MuJoCo keeps them (`gainprm` / `biasprm`
   / `gear`; a `general`'s three types and three `prm` vectors compared
   padded to MuJoCo's ten), the two ranges and the `ctrllimited` / `forcelimited` MuJoCo
   must end up with (the actuator's own flag, else `autolimits`' rule over
@@ -1296,7 +1297,16 @@ measured size is in 03 §v0.2.
   URDF import's actuator-less model is checked as such, not skipped. The
   three presets are covered by the two fixtures: the arm's shoulder is a
   `<position>` and its upper arm a `<velocity>`, the bracket's hinge a
-  `<motor>`; the corpus's wrist slide is the `<general>` (ADR-0024). The script also fails any body whose `<stem>_hull_N` pieces
+  `<motor>`; the corpus's wrist slide is the `<general>` (ADR-0024). The
+  `tendons` block does the same for `<tendon><fixed>` (ADR-0025 §4): each
+  tendon must be in the model, its wraps the joints and coefficients the
+  samples name **in order** (a wrap that is not a joint means a
+  `<spatial>` got out), its `limited`, `range` and three passive constants
+  what they say, and `data.ten_length` at every sampled configuration the
+  `Σ coef · (q + qpos_ref)` they computed — absolute, because MuJoCo
+  evaluates a fixed tendon over `qpos` and not over the deviations from
+  `qpos0` an equality uses, so a `ref` folded in on either side by mistake
+  fails here. The script also fails any body whose `<stem>_hull_N` pieces
   do not number at least two and run 0..N: MuJoCo hulls a collision mesh
   itself, so one piece would mean the policy bought nothing. It reads that
   off the model, not off the fixture.

@@ -7,7 +7,9 @@
 use riggen_core::glam::DVec3;
 use riggen_core::{ActuatorSpec, JointKind, Pose, Primitive};
 
-use crate::resolve::{ExportOptions, ResolvedActuator, ResolvedGeom, ResolvedJoint, ResolvedRobot};
+use crate::resolve::{
+    ExportOptions, ResolvedActuator, ResolvedGeom, ResolvedJoint, ResolvedRobot, ResolvedTarget,
+};
 use crate::xml::{Xml, num, quat, vec3};
 
 /// The translucent orange of the unirobot example's collision class.
@@ -89,6 +91,45 @@ pub fn write(robot: &ResolvedRobot, _options: &ExportOptions) -> String {
         x.close("equality");
     }
 
+    // A fixed tendon is a `<joint coef>` list under its own name
+    // (ADR-0025 §4): the length is `Σ coef · qpos`, absolute, so `range`
+    // goes out as the document holds it — no `qpos_ref` enters here. Its
+    // passive dynamics are written only where they are non-zero, the way a
+    // joint's are: a zero is MuJoCo's own default.
+    if !robot.tendons.is_empty() {
+        x.open("tendon", &[]);
+        for t in &robot.tendons {
+            let mut attrs = vec![("name", t.name.clone())];
+            if let Some(limited) = t.limited {
+                attrs.push(("limited", limited.to_string()));
+            }
+            if let Some([lo, hi]) = t.range {
+                attrs.push(("range", format!("{} {}", num(lo), num(hi))));
+            }
+            for (name, value) in [
+                ("stiffness", t.stiffness),
+                ("damping", t.damping),
+                ("frictionloss", t.frictionloss),
+            ] {
+                if value != 0.0 {
+                    attrs.push((name, num(value)));
+                }
+            }
+            x.open("fixed", &attrs);
+            for j in &t.joints {
+                x.empty(
+                    "joint",
+                    &[
+                        ("joint", robot.joints[j.joint].name.clone()),
+                        ("coef", num(j.coef)),
+                    ],
+                );
+            }
+            x.close("fixed");
+        }
+        x.close("tendon");
+    }
+
     // One element per actuator, under its own name (ADR-0023): MJCF
     // namespaces are per element type, so `model.actuator("shoulder")` and
     // `model.joint("shoulder")` coexist — and the default name is the
@@ -97,7 +138,7 @@ pub fn write(robot: &ResolvedRobot, _options: &ExportOptions) -> String {
     if !robot.actuators.is_empty() {
         x.open("actuator", &[]);
         for a in &robot.actuators {
-            write_actuator(&mut x, a, &robot.joints[a.joint]);
+            write_actuator(&mut x, robot, a);
         }
         x.close("actuator");
     }
@@ -221,7 +262,8 @@ fn write_joint(x: &mut Xml, j: &ResolvedJoint, driven: bool) {
 }
 
 /// One `<position>` / `<velocity>` / `<motor>` / `<general>`: `a` under
-/// its own name, driving `j` (ADR-0014, ADR-0023, ADR-0024).
+/// its own name, driving the joint or the tendon it names (ADR-0014,
+/// ADR-0023, ADR-0024, ADR-0025 §4).
 ///
 /// A `<general>` writes its three type names, its `prm` vectors with the
 /// zeros MuJoCo would fill in trimmed off the end — `gainprm="200"`, not
@@ -245,20 +287,30 @@ fn write_joint(x: &mut Xml, j: &ResolvedJoint, driven: bool) {
 /// the matching `*limited` off). A flag of `Some(false)` beside no range
 /// derives nothing either: the file meant unlimited, and the joint's
 /// numbers would clamp what it left open.
-fn write_actuator(x: &mut Xml, a: &ResolvedActuator, j: &ResolvedJoint) {
+///
+/// A **tendon** target has no `Limits` behind it, so every joint-derived
+/// range is absent and only what the file said is written; a motor's
+/// normalised `-1 1` is the preset's own and stands either way.
+fn write_actuator(x: &mut Xml, robot: &ResolvedRobot, a: &ResolvedActuator) {
+    let (target_attr, target_name) = match a.target {
+        ResolvedTarget::Joint(i) => ("joint", robot.joints[i].name.clone()),
+        ResolvedTarget::Tendon(i) => ("tendon", robot.tendons[i].name.clone()),
+    };
+    let j = a.target.joint().map(|i| &robot.joints[i]);
+    let limits = j.and_then(|j| j.limits);
+    let qpos_ref = j.map_or(0.0, |j| j.qpos_ref);
     let pair = |[lo, hi]: [f64; 2]| format!("{} {}", num(lo), num(hi));
     let symmetric = |v: f64| (v != 0.0).then(|| pair([-v, v]));
     let (tag, gains, derived_ctrl) = match &a.spec {
         ActuatorSpec::Position { kp, kv } => (
             "position",
             vec![("kp", num(*kp)), ("kv", num(*kv))],
-            j.limits
-                .map(|l| pair([l.lower + j.qpos_ref, l.upper + j.qpos_ref])),
+            limits.map(|l| pair([l.lower + qpos_ref, l.upper + qpos_ref])),
         ),
         ActuatorSpec::Velocity { kv } => (
             "velocity",
             vec![("kv", num(*kv))],
-            j.limits.and_then(|l| symmetric(l.velocity)),
+            limits.and_then(|l| symmetric(l.velocity)),
         ),
         ActuatorSpec::Motor { gear } => {
             ("motor", vec![("gear", num(*gear))], Some("-1 1".to_owned()))
@@ -278,13 +330,13 @@ fn write_actuator(x: &mut Xml, a: &ResolvedActuator, j: &ResolvedJoint) {
             ("general", attrs, None)
         }
     };
-    let derived_force = j.limits.and_then(|l| symmetric(l.effort));
+    let derived_force = limits.and_then(|l| symmetric(l.effort));
     let own = &a.ranges;
     let range = |said: Option<[f64; 2]>, flag: Option<bool>, derived: Option<String>| {
         said.map(pair)
             .or_else(|| (flag != Some(false)).then_some(derived).flatten())
     };
-    let mut attrs = vec![("name", a.name.clone()), ("joint", j.name.clone())];
+    let mut attrs = vec![("name", a.name.clone()), (target_attr, target_name)];
     attrs.extend(gains);
     for (limited, range) in [
         (
@@ -381,7 +433,7 @@ fn pose_attrs(pose: &Pose) -> Vec<(&'static str, String)> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::test_util::every_joint_kind;
+    use crate::test_util::{Builder, every_joint_kind};
     use riggen_core::{ActuatorRanges, BiasType, DynType, GainType, General, Limits};
 
     pub(crate) const GOLDEN: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -726,6 +778,81 @@ pub(crate) mod tests {
         // And the apology stays off a joint that any actuator drives — the
         // second one does not make it true again (ADR-0004 §4).
         assert!(!xml.contains("joint wheel_joint: effort"), "{xml}");
+    }
+
+    /// A fixed tendon is its own block, and an actuator may drive one
+    /// (ADR-0025 §4). The shared fixture keeps none — reading a `<tendon>`
+    /// back is step 9, and until then our own MJCF would import with a
+    /// warning — so the block is pinned here instead, line for line.
+    ///
+    /// The joint-derived ranges are absent from a tendon actuator: there
+    /// is no `Limits` behind it. A motor's normalised `-1 1` is the
+    /// preset's own and stands.
+    #[test]
+    fn a_fixed_tendon_is_a_block_of_its_own_and_an_actuator_may_drive_it() {
+        let mut b = every_joint_kind();
+        let joint = |b: &Builder, n: &str| {
+            *b.robot
+                .joints
+                .iter()
+                .find(|(_, j)| j.name == n)
+                .expect("in the chain")
+                .0
+        };
+        let (upper, wheel) = (joint(&b, "upper_joint"), joint(&b, "wheel_joint"));
+        let grip = b.tendon("grip", &[(upper, 1.0), (wheel, -2.0)]);
+        let plain = b.tendon("plain", &[(wheel, 1.0)]);
+        {
+            let t = b.robot.tendons.get_mut(&grip).unwrap();
+            t.range = Some([-0.5, 1.5]);
+            t.stiffness = 30.0;
+            t.frictionloss = 0.2;
+        }
+        b.tendon_actuator("grip_motor", grip, ActuatorSpec::Motor { gear: 80.0 });
+        b.tendon_actuator(
+            "grip_servo",
+            plain,
+            ActuatorSpec::Position { kp: 9.0, kv: 0.0 },
+        );
+        let xml = write(&b.resolve().unwrap(), &ExportOptions::default());
+
+        let block = |tag: &str| -> Vec<String> {
+            xml.lines()
+                .map(str::trim)
+                .skip_while(|l| *l != format!("<{tag}>"))
+                .take_while(|l| *l != format!("</{tag}>"))
+                .skip(1)
+                .map(str::to_owned)
+                .collect()
+        };
+        assert_eq!(
+            block("tendon"),
+            [
+                r#"<fixed name="grip" range="-0.5 1.5" stiffness="30" frictionloss="0.2">"#,
+                r#"<joint joint="upper_joint" coef="1"/>"#,
+                r#"<joint joint="wheel_joint" coef="-2"/>"#,
+                "</fixed>",
+                r#"<fixed name="plain">"#,
+                r#"<joint joint="wheel_joint" coef="1"/>"#,
+                "</fixed>",
+            ],
+            "in TendonId order, each joint under its coefficient\n{xml}"
+        );
+        assert_eq!(
+            block("actuator")[2..],
+            [
+                r#"<motor name="grip_motor" tendon="grip" gear="80" ctrlrange="-1 1"/>"#,
+                r#"<position name="grip_servo" tendon="plain" kp="9" kv="0"/>"#,
+            ],
+            "a tendon target derives no range from a joint\n{xml}"
+        );
+        // And the joints on a tendon keep whatever their own panel said:
+        // a tendon actuator is not "on" them (ADR-0025 §4), so the wheel's
+        // own `<velocity>` is still the only thing driving it.
+        assert!(
+            xml.contains(r#"<velocity name="wheel_joint" joint="wheel_joint" kv="2"/>"#),
+            "{xml}"
+        );
     }
 
     #[test]

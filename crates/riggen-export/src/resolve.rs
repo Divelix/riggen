@@ -12,8 +12,9 @@ use std::sync::Arc;
 use riggen_core::glam::DVec3;
 use riggen_core::inertial::{self, Inertial, InertialError, MeshLookup};
 use riggen_core::{
-    ActuatorRanges, ActuatorSpec, CollisionPolicy, Dynamics, Geom, JointId, JointKind, Limits,
-    LinkId, MeshId, Pose, Primitive, Robot, ValidationError, validation_errors,
+    ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Dynamics, Geom, JointId,
+    JointKind, Limits, LinkId, MeshId, Pose, Primitive, Robot, TendonId, ValidationError,
+    validation_errors,
 };
 use riggen_mesh::{DecompParams, TriMesh};
 
@@ -336,18 +337,77 @@ pub struct ResolvedJoint {
 }
 
 /// One `<actuator>` element (ADR-0014, as ADR-0023 keys it): its own name,
-/// the joint it drives as an **index into `ResolvedRobot::joints`** — so a
-/// writer needs nothing but the vectors it already has (ADR-0004 §1) — the
-/// preset, copied through because it is already the numbers a writer
-/// needs, and the ranges the file said, which the writer prefers over the
-/// ones it would derive from the joint (ADR-0024). Several may name one
-/// joint; MuJoCo sums them.
+/// what it drives as an **index into `ResolvedRobot::joints` or
+/// `::tendons`** — so a writer needs nothing but the vectors it already has
+/// (ADR-0004 §1) — the preset, copied through because it is already the
+/// numbers a writer needs, and the ranges the file said, which the writer
+/// prefers over the ones it would derive from the joint (ADR-0024).
+/// Several may name one target; MuJoCo sums them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedActuator {
     pub name: String,
-    pub joint: usize,
+    pub target: ResolvedTarget,
     pub spec: ActuatorSpec,
     pub ranges: ActuatorRanges,
+}
+
+/// What an actuator drives, as an index into the vector holding it
+/// (ADR-0025 §4, filling in the variant ADR-0023 shaped the enum for).
+/// A tendon target has no joint to derive a `ctrlrange` or a `forcerange`
+/// from: only what the file said is written for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolvedTarget {
+    /// An index into [`ResolvedRobot::joints`].
+    Joint(usize),
+    /// An index into [`ResolvedRobot::tendons`].
+    Tendon(usize),
+}
+
+impl ResolvedTarget {
+    /// The driven joint, if this actuator drives one at all.
+    pub fn joint(self) -> Option<usize> {
+        match self {
+            Self::Joint(j) => Some(j),
+            Self::Tendon(_) => None,
+        }
+    }
+
+    /// The driven tendon, if this actuator drives one.
+    pub fn tendon(self) -> Option<usize> {
+        match self {
+            Self::Tendon(t) => Some(t),
+            Self::Joint(_) => None,
+        }
+    }
+}
+
+/// One `<tendon><fixed>` element (ADR-0025 §4): a named linear combination
+/// of joint values, with a range and its own passive dynamics. Its joints
+/// are **indices into `ResolvedRobot::joints`**, like a mimic's leader.
+///
+/// `range` is in MJCF's own terms — the absolute `Σ coef · qpos` MuJoCo
+/// evaluates a fixed tendon as — so nothing here is shifted by a
+/// [`ResolvedJoint::qpos_ref`]. The URDF and SDF writers ignore tendons
+/// entirely.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedTendon {
+    pub name: String,
+    /// At least one, in the document's order.
+    pub joints: Vec<ResolvedTendonJoint>,
+    pub range: Option<[f64; 2]>,
+    /// MuJoCo's `auto | true | false`, as an actuator's ranges hold it.
+    pub limited: Option<bool>,
+    pub stiffness: f64,
+    pub damping: f64,
+    pub frictionloss: f64,
+}
+
+/// One `<joint joint coef>` child of a `<fixed>` tendon.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResolvedTendonJoint {
+    /// An index into [`ResolvedRobot::joints`].
+    pub joint: usize,
+    pub coef: f64,
 }
 
 /// `q(this) = multiplier * q(joints[joint]) + offset` (ADR-0013). The
@@ -368,8 +428,11 @@ pub struct ResolvedRobot {
     pub links: Vec<ResolvedLink>,
     /// `joints[i]` is the parent joint of `links[i + 1]`.
     pub joints: Vec<ResolvedJoint>,
-    /// What drives the joints, in `ActuatorId` order (ADR-0023).
+    /// What drives the joints and the tendons, in `ActuatorId` order
+    /// (ADR-0023, ADR-0025 §4).
     pub actuators: Vec<ResolvedActuator>,
+    /// The fixed tendons, in `TendonId` order (ADR-0025 §4). MJCF only.
+    pub tendons: Vec<ResolvedTendon>,
     /// Every mesh file to write, by stem: the union of what the geoms name.
     pub meshes: BTreeMap<String, Arc<TriMesh>>,
     pub floating_base: bool,
@@ -389,7 +452,9 @@ impl ResolvedRobot {
     /// The actuators driving `joints[joint]`, in order. What "this joint
     /// has an actuator" is now asked as (ADR-0023).
     pub fn actuators_on(&self, joint: usize) -> impl Iterator<Item = &ResolvedActuator> + '_ {
-        self.actuators.iter().filter(move |a| a.joint == joint)
+        self.actuators
+            .iter()
+            .filter(move |a| a.target == ResolvedTarget::Joint(joint))
     }
 }
 
@@ -678,22 +743,50 @@ pub fn resolve(
     if !errors.is_empty() {
         return Err(errors);
     }
+    // The tendons, in `TendonId` order, their joints re-expressed as
+    // indices (ADR-0025 §4). `validate` passed, so every named joint is a
+    // joint of the document, none of them `Fixed`, and every joint is some
+    // reachable link's parent joint.
+    let tendon_index: BTreeMap<TendonId, usize> = robot
+        .tendons
+        .keys()
+        .enumerate()
+        .map(|(i, &t)| (t, i))
+        .collect();
+    let tendons: Vec<ResolvedTendon> = robot
+        .tendons
+        .values()
+        .map(|t| ResolvedTendon {
+            name: t.name.clone(),
+            joints: t
+                .joints
+                .iter()
+                .map(|j| ResolvedTendonJoint {
+                    joint: joint_index[&j.joint],
+                    coef: j.coef,
+                })
+                .collect(),
+            range: t.range,
+            limited: t.limited,
+            stiffness: t.stiffness,
+            damping: t.damping,
+            frictionloss: t.frictionloss,
+        })
+        .collect();
     // The table, in `ActuatorId` order, its targets re-expressed as
-    // indices (ADR-0023). `validate` passed, so every joint target is a
-    // joint of the document and every joint is some reachable link's parent
-    // joint. A **tendon** target has no index to map to yet and is skipped
-    // here: `ResolvedTendon` and `ResolvedTarget` are plans/couplings step
-    // 8, and until then no writer sees a tendon (ADR-0025 §4).
+    // indices (ADR-0023, ADR-0025 §4). `validate` passed, so both maps
+    // hold every target.
     let actuators = robot
         .actuators
         .values()
-        .filter_map(|a| {
-            Some(ResolvedActuator {
-                name: a.name.clone(),
-                joint: joint_index[&a.target.joint()?],
-                spec: a.spec.clone(),
-                ranges: a.ranges,
-            })
+        .map(|a| ResolvedActuator {
+            name: a.name.clone(),
+            target: match a.target {
+                ActuatorTarget::Joint(j) => ResolvedTarget::Joint(joint_index[&j]),
+                ActuatorTarget::Tendon(t) => ResolvedTarget::Tendon(tendon_index[&t]),
+            },
+            spec: a.spec.clone(),
+            ranges: a.ranges,
         })
         .collect();
 
@@ -702,6 +795,7 @@ pub fn resolve(
         links,
         joints,
         actuators,
+        tendons,
         meshes: files,
         floating_base: options.floating_base,
     })
