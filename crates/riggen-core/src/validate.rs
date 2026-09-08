@@ -5,8 +5,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use crate::ids::{ActuatorId, FrameId, GeomId, JointId, LinkId, MeshId};
-use crate::robot::{ActuatorSpec, General, Robot};
+use crate::ids::{ActuatorId, FrameId, GeomId, JointId, LinkId, MeshId, TendonId};
+use crate::robot::{ActuatorSpec, ActuatorTarget, General, Robot};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationError {
@@ -119,12 +119,54 @@ pub enum ValidationError {
         lower: f64,
         upper: f64,
     },
+    // ---- fixed tendons (ADR-0025 §4) -------------------------------------
+    /// Two tendons share a name. Unique **among tendons** only: MJCF's
+    /// namespaces are per element type.
+    DuplicateTendonName(String),
+    /// A tendon with no joints: it has no length, and MJCF refuses a
+    /// `<fixed>` without a `<joint>` child.
+    EmptyTendon(TendonId),
+    /// A tendon names a joint that is not in the document.
+    DanglingTendonJoint {
+        tendon: TendonId,
+        joint: JointId,
+    },
+    /// One joint appears twice on the same tendon; the two coefficients
+    /// would be a single sum written as two children.
+    DuplicateTendonJoint {
+        tendon: TendonId,
+        joint: JointId,
+    },
+    /// A tendon runs over a `Fixed` joint, which has no value to weigh.
+    /// This is what refuses `SetJoint` to `Fixed` on such a joint, the way
+    /// [`MimicLeaderFixed`] refuses demoting a leader.
+    ///
+    /// [`MimicLeaderFixed`]: ValidationError::MimicLeaderFixed
+    TendonOnFixedJoint {
+        tendon: TendonId,
+        joint: JointId,
+    },
+    /// A `coef` of zero: the joint contributes nothing to the length, so
+    /// it is not on the tendon.
+    ZeroTendonCoef {
+        tendon: TendonId,
+        joint: JointId,
+    },
+    /// A tendon `range` that bounds nothing: `lower` is not below `upper`.
+    /// The numbers are in MJCF's own absolute terms (ADR-0025 §4), which
+    /// is why the check needs no coordinates.
+    InvalidTendonRange {
+        tendon: TendonId,
+        lower: f64,
+        upper: f64,
+    },
     // ---- actuators (ADR-0014, ADR-0023) ----------------------------------
-    /// An actuator's `target` names no joint. A name and a target are
-    /// separate fields now, so each can go wrong on its own (ADR-0023).
+    /// An actuator's `target` names no joint or tendon of the document. A
+    /// name and a target are separate fields now, so each can go wrong on
+    /// its own (ADR-0023, ADR-0025 §4).
     DanglingActuatorTarget {
         actuator: ActuatorId,
-        joint: JointId,
+        target: ActuatorTarget,
     },
     /// Two actuators share a name. Unique **among actuators** only: MJCF's
     /// namespaces are per element type, so an actuator may answer to a
@@ -249,8 +291,32 @@ impl fmt::Display for ValidationError {
                 f,
                 "joint {joint} following {leader} reaches {lower}..{upper}, outside its own limits"
             ),
-            Self::DanglingActuatorTarget { actuator, joint } => {
-                write!(f, "actuator {actuator} drives missing joint {joint}")
+            Self::DuplicateTendonName(n) => write!(f, "two tendons are named \"{n}\""),
+            Self::EmptyTendon(t) => write!(f, "tendon {t} runs over no joints"),
+            Self::DanglingTendonJoint { tendon, joint } => {
+                write!(f, "tendon {tendon} runs over missing joint {joint}")
+            }
+            Self::DuplicateTendonJoint { tendon, joint } => {
+                write!(f, "tendon {tendon} names joint {joint} twice")
+            }
+            Self::TendonOnFixedJoint { tendon, joint } => write!(
+                f,
+                "tendon {tendon} runs over fixed joint {joint}, which has no value to weigh"
+            ),
+            Self::ZeroTendonCoef { tendon, joint } => {
+                write!(f, "tendon {tendon} gives joint {joint} a zero coefficient")
+            }
+            Self::InvalidTendonRange {
+                tendon,
+                lower,
+                upper,
+            } => write!(f, "tendon {tendon} range {lower}..{upper} bounds nothing"),
+            Self::DanglingActuatorTarget { actuator, target } => {
+                let (kind, id) = match target {
+                    ActuatorTarget::Joint(j) => ("joint", j.to_string()),
+                    ActuatorTarget::Tendon(t) => ("tendon", t.to_string()),
+                };
+                write!(f, "actuator {actuator} drives missing {kind} {id}")
             }
             Self::DuplicateActuatorName(n) => write!(f, "two actuators are named \"{n}\""),
             Self::ActuatorOnFixedJoint { actuator, joint } => write!(
@@ -310,6 +376,7 @@ pub fn validation_errors(robot: &Robot) -> Vec<ValidationError> {
     check_names(robot, &mut errors);
     check_joints(robot, &mut errors);
     check_mimics(robot, &mut errors);
+    check_tendons(robot, &mut errors);
     check_actuators(robot, &mut errors);
     errors
 }
@@ -685,6 +752,80 @@ fn check_mimic_cycles(robot: &Robot, errors: &mut Vec<ValidationError>) {
     }
 }
 
+/// Fixed tendons (ADR-0025 §4): a tendon is a named linear combination of
+/// joint values, so every joint it weighs must exist, move, appear once and
+/// count for something — and a `range`, held in MJCF's own absolute terms,
+/// must bound something. Nothing here needs coordinates: the document never
+/// evaluates a tendon's length.
+fn check_tendons(robot: &Robot, errors: &mut Vec<ValidationError>) {
+    let mut seen_names = BTreeSet::new();
+    for (&tid, tendon) in &robot.tendons {
+        if !seen_names.insert(tendon.name.as_str()) {
+            errors.push(ValidationError::DuplicateTendonName(tendon.name.clone()));
+        }
+        if tendon.joints.is_empty() {
+            errors.push(ValidationError::EmptyTendon(tid));
+        }
+        let mut seen_joints = BTreeSet::new();
+        for entry in &tendon.joints {
+            let jid = entry.joint;
+            if !seen_joints.insert(jid) {
+                errors.push(ValidationError::DuplicateTendonJoint {
+                    tendon: tid,
+                    joint: jid,
+                });
+            }
+            match robot.joints.get(&jid) {
+                None => errors.push(ValidationError::DanglingTendonJoint {
+                    tendon: tid,
+                    joint: jid,
+                }),
+                Some(joint) if !joint.kind.is_movable() => {
+                    errors.push(ValidationError::TendonOnFixedJoint {
+                        tendon: tid,
+                        joint: jid,
+                    });
+                }
+                Some(_) => {}
+            }
+            if !entry.coef.is_finite() {
+                errors.push(ValidationError::NonFinite {
+                    what: format!("coef of joint {jid} on tendon {tid}"),
+                });
+            } else if entry.coef == 0.0 {
+                errors.push(ValidationError::ZeroTendonCoef {
+                    tendon: tid,
+                    joint: jid,
+                });
+            }
+        }
+        for (what, value) in [
+            ("stiffness", tendon.stiffness),
+            ("damping", tendon.damping),
+            ("frictionloss", tendon.frictionloss),
+        ] {
+            if !value.is_finite() {
+                errors.push(ValidationError::NonFinite {
+                    what: format!("{what} of tendon {tid}"),
+                });
+            }
+        }
+        if let Some([lower, upper]) = tendon.range {
+            if !lower.is_finite() || !upper.is_finite() {
+                errors.push(ValidationError::NonFinite {
+                    what: format!("range of tendon {tid}"),
+                });
+            } else if lower >= upper {
+                errors.push(ValidationError::InvalidTendonRange {
+                    tendon: tid,
+                    lower,
+                    upper,
+                });
+            }
+        }
+    }
+}
+
 /// Actuators (ADR-0014, re-keyed onto the table by ADR-0023): the target
 /// must exist, only a movable joint that is not already driven by a mimic
 /// may be driven, the gains must be numbers MuJoCo can use — and every
@@ -699,31 +840,49 @@ fn check_actuators(robot: &Robot, errors: &mut Vec<ValidationError>) {
         if !seen.insert(entry.name.as_str()) {
             errors.push(ValidationError::DuplicateActuatorName(entry.name.clone()));
         }
-        let Some(jid) = entry.target.joint() else {
-            continue;
-        };
-        let Some(joint) = robot.joints.get(&jid) else {
-            errors.push(ValidationError::DanglingActuatorTarget {
-                actuator: aid,
-                joint: jid,
-            });
-            continue;
+        // A tendon target only has to exist: a tendon's joints are free
+        // and movable by construction, so the joint-specific refusals below
+        // — `Fixed`, a mimic follower — have nothing to say about it
+        // (ADR-0025 §4). Its gains are checked like any other actuator's.
+        let joint = match entry.target {
+            ActuatorTarget::Tendon(tid) => {
+                if !robot.tendons.contains_key(&tid) {
+                    errors.push(ValidationError::DanglingActuatorTarget {
+                        actuator: aid,
+                        target: entry.target,
+                    });
+                    continue;
+                }
+                None
+            }
+            ActuatorTarget::Joint(jid) => match robot.joints.get(&jid) {
+                Some(joint) => Some((jid, joint)),
+                None => {
+                    errors.push(ValidationError::DanglingActuatorTarget {
+                        actuator: aid,
+                        target: entry.target,
+                    });
+                    continue;
+                }
+            },
         };
         let actuator = &entry.spec;
-        if !joint.kind.is_movable() {
-            errors.push(ValidationError::ActuatorOnFixedJoint {
-                actuator: aid,
-                joint: jid,
-            });
-            continue;
-        }
-        if let Some(mimic) = joint.mimic {
-            errors.push(ValidationError::ActuatorOnMimicFollower {
-                actuator: aid,
-                joint: jid,
-                leader: mimic.joint,
-            });
-            continue;
+        if let Some((jid, joint)) = joint {
+            if !joint.kind.is_movable() {
+                errors.push(ValidationError::ActuatorOnFixedJoint {
+                    actuator: aid,
+                    joint: jid,
+                });
+                continue;
+            }
+            if let Some(mimic) = joint.mimic {
+                errors.push(ValidationError::ActuatorOnMimicFollower {
+                    actuator: aid,
+                    joint: jid,
+                    leader: mimic.joint,
+                });
+                continue;
+            }
         }
         // `(name, value, is usable)`. `kp` / `kv` may be zero — a position
         // servo with no damping is ordinary — but never negative, which
@@ -794,7 +953,7 @@ mod tests {
     use crate::pose::Pose;
     use crate::robot::{
         Actuator, ActuatorRanges, ActuatorSpec, ActuatorTarget, BiasType, DynType, Frame, GainType,
-        General, Geom, Joint, JointKind, Limits, Link, MeshAsset, Mimic,
+        General, Geom, Joint, JointKind, Limits, Link, MeshAsset, Mimic, Tendon, TendonJoint,
     };
     use riggen_mesh::glam::{DVec3, dvec3};
     use std::path::PathBuf;
@@ -1580,8 +1739,23 @@ mod tests {
             validate(&robot),
             Err(ValidationError::DanglingActuatorTarget {
                 actuator: a,
-                joint: ghost
+                target: ActuatorTarget::Joint(ghost)
             })
+        );
+        // A tendon target goes wrong the same way, through the same variant
+        // (ADR-0025 §4).
+        let ghost = TendonId::from_raw(9998);
+        robot.actuators.get_mut(&a).unwrap().target = ActuatorTarget::Tendon(ghost);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::DanglingActuatorTarget {
+                actuator: a,
+                target: ActuatorTarget::Tendon(ghost)
+            })
+        );
+        assert_eq!(
+            validate(&robot).unwrap_err().to_string(),
+            format!("actuator {a} drives missing tendon t9998")
         );
     }
 
@@ -1770,6 +1944,212 @@ mod tests {
             Err(ValidationError::NonFinite {
                 what: format!("ctrlrange of actuator {a}")
             })
+        );
+    }
+    // ---- fixed tendons (ADR-0025 §4) -------------------------------------
+
+    fn tendon_mut(robot: &mut Robot, id: TendonId) -> &mut Tendon {
+        robot.tendons.get_mut(&id).unwrap()
+    }
+
+    fn with_tendon(
+        joints: impl FnOnce([JointId; 3]) -> Vec<TendonJoint>,
+    ) -> (Robot, [JointId; 3], TendonId) {
+        let (mut robot, js) = movable_chain();
+        let id: TendonId = robot.next_id.alloc();
+        robot.tendons.insert(id, Tendon::new("grip", joints(js)));
+        (robot, js, id)
+    }
+
+    /// A tendon over two free joints is the ordinary case, and every joint
+    /// it weighs must exist, move, appear once and count for something.
+    #[test]
+    fn a_tendons_joints_must_exist_move_and_each_count_once() {
+        let (mut robot, [j0, _, _], t) = with_tendon(|[j0, j1, _]| {
+            vec![
+                TendonJoint {
+                    joint: j0,
+                    coef: 1.0,
+                },
+                TendonJoint {
+                    joint: j1,
+                    coef: -1.0,
+                },
+            ]
+        });
+        assert_eq!(validate(&robot), Ok(()), "the ordinary case");
+
+        tendon_mut(&mut robot, t).joints.clear();
+        assert_eq!(validate(&robot), Err(ValidationError::EmptyTendon(t)));
+
+        let ghost = JointId::from_raw(999);
+        tendon_mut(&mut robot, t).joints = vec![TendonJoint {
+            joint: ghost,
+            coef: 1.0,
+        }];
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::DanglingTendonJoint {
+                tendon: t,
+                joint: ghost
+            })
+        );
+
+        // A `Fixed` joint has no value to weigh — this is what refuses
+        // demoting one of a tendon's joints, the way `MimicLeaderFixed`
+        // refuses demoting a leader.
+        tendon_mut(&mut robot, t).joints = vec![TendonJoint {
+            joint: j0,
+            coef: 1.0,
+        }];
+        robot.joints.get_mut(&j0).unwrap().kind = JointKind::Fixed;
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::TendonOnFixedJoint {
+                tendon: t,
+                joint: j0
+            })
+        );
+        robot.joints.get_mut(&j0).unwrap().kind = JointKind::Revolute;
+
+        tendon_mut(&mut robot, t).joints = vec![
+            TendonJoint {
+                joint: j0,
+                coef: 1.0,
+            },
+            TendonJoint {
+                joint: j0,
+                coef: 2.0,
+            },
+        ];
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::DuplicateTendonJoint {
+                tendon: t,
+                joint: j0
+            })
+        );
+
+        tendon_mut(&mut robot, t).joints = vec![TendonJoint {
+            joint: j0,
+            coef: 0.0,
+        }];
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::ZeroTendonCoef {
+                tendon: t,
+                joint: j0
+            })
+        );
+
+        tendon_mut(&mut robot, t).joints[0].coef = f64::NAN;
+        assert!(
+            matches!(validate(&robot), Err(ValidationError::NonFinite { what }) if what.contains("coef")),
+            "{:?}",
+            validate(&robot)
+        );
+    }
+
+    /// A tendon's name is its own — MJCF namespaces elements by type — and
+    /// its `range`, held in MJCF's own absolute terms, must bound something.
+    #[test]
+    fn tendon_names_are_unique_among_tendons_and_a_range_must_bound_something() {
+        let (mut robot, [j0, _, _], t) = with_tendon(|[j0, _, _]| {
+            vec![TendonJoint {
+                joint: j0,
+                coef: 1.0,
+            }]
+        });
+        // The joint it runs over is named "a_joint": one namespace each.
+        robot.tendons.get_mut(&t).unwrap().name = robot.joints[&j0].name.clone();
+        assert_eq!(validate(&robot), Ok(()));
+
+        let second: TendonId = robot.next_id.alloc();
+        let twin = robot.tendons[&t].clone();
+        robot.tendons.insert(second, twin);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::DuplicateTendonName(
+                robot.joints[&j0].name.clone()
+            ))
+        );
+        robot.tendons.remove(&second);
+
+        tendon_mut(&mut robot, t).range = Some([-0.5, 0.5]);
+        assert_eq!(validate(&robot), Ok(()));
+        tendon_mut(&mut robot, t).range = Some([0.5, 0.5]);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::InvalidTendonRange {
+                tendon: t,
+                lower: 0.5,
+                upper: 0.5
+            })
+        );
+        tendon_mut(&mut robot, t).range = Some([0.5, f64::INFINITY]);
+        assert!(
+            matches!(validate(&robot), Err(ValidationError::NonFinite { what }) if what.contains("range")),
+            "{:?}",
+            validate(&robot)
+        );
+        tendon_mut(&mut robot, t).range = None;
+
+        for set in [
+            |t: &mut Tendon| t.stiffness = f64::NAN,
+            |t: &mut Tendon| t.damping = f64::NAN,
+            |t: &mut Tendon| t.frictionloss = f64::NAN,
+        ] {
+            let mut robot = robot.clone();
+            set(robot.tendons.get_mut(&t).unwrap());
+            assert!(
+                matches!(validate(&robot), Err(ValidationError::NonFinite { .. })),
+                "a non-finite number in a tendon is refused like every other"
+            );
+        }
+    }
+
+    /// The joint-specific refusals of `check_actuators` say nothing about a
+    /// tendon actuator: a tendon's joints are free and movable by
+    /// construction, so a `Fixed` joint or a mimic follower on the tendon is
+    /// the *tendon's* refusal, not the actuator's (ADR-0025 §4).
+    #[test]
+    fn a_tendon_actuator_only_needs_its_tendon_and_its_gains() {
+        let (mut robot, [j0, j1, _], t) = with_tendon(|[j0, j1, _]| {
+            vec![
+                TendonJoint {
+                    joint: j0,
+                    coef: 1.0,
+                },
+                TendonJoint {
+                    joint: j1,
+                    coef: 1.0,
+                },
+            ]
+        });
+        // `j1` follows `j0`, which would refuse an actuator *on* `j1` — the
+        // tendon's actuator is unbothered.
+        mimic(&mut robot, j1, j0, 1.0, 0.0);
+        let a: ActuatorId = robot.next_id.alloc();
+        robot.actuators.insert(
+            a,
+            Actuator {
+                name: "grip".to_owned(),
+                target: ActuatorTarget::Tendon(t),
+                spec: ActuatorSpec::Motor { gear: 20.0 },
+                ranges: ActuatorRanges::default(),
+            },
+        );
+        assert_eq!(validate(&robot), Ok(()));
+
+        // Its gains are checked like any other actuator's.
+        robot.actuators.get_mut(&a).unwrap().spec = ActuatorSpec::Motor { gear: 0.0 };
+        assert!(
+            matches!(
+                validate(&robot),
+                Err(ValidationError::InvalidActuatorGain { actuator, .. }) if actuator == a
+            ),
+            "{:?}",
+            validate(&robot)
         );
     }
 }

@@ -1027,10 +1027,11 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A v5 document — everything today's has but `Joint::qpos_ref`
-    /// (ADR-0025 §3) — opens with every joint's ref at zero and re-saves
-    /// as v6. Built by dropping the key back out of the committed fixture,
-    /// the way the v2 and v4 ones above drop theirs (§Schema).
+    /// A v5 document — everything today's has but `Joint::qpos_ref` and
+    /// `Robot::tendons` (ADR-0025 §3 and §4) — opens with every joint's ref
+    /// at zero and no tendons, and re-saves as v6. Built by dropping both
+    /// keys back out of the committed fixture, the way the v2 and v4 ones
+    /// above drop theirs (§Schema).
     #[test]
     fn a_v5_file_opens_as_v6_with_every_joint_at_its_authored_zero() {
         let dir = scratch("v5");
@@ -1038,6 +1039,14 @@ mod tests {
         let text = std::fs::read_to_string(fixtures().join("bracket.riggen")).unwrap();
         let mut doc: serde_json::Value = serde_json::from_str(&text).unwrap();
         doc["schema_version"] = 5.into();
+        assert!(
+            doc["robot"]
+                .as_object_mut()
+                .unwrap()
+                .remove("tendons")
+                .is_some(),
+            "the committed fixture writes the tendons key"
+        );
         let joints = doc["robot"]["joints"].as_object_mut().unwrap();
         assert!(!joints.is_empty(), "the committed fixture has a joint");
         for joint in joints.values_mut() {
@@ -1047,7 +1056,10 @@ mod tests {
             );
         }
         let old = serde_json::to_string_pretty(&doc).unwrap();
-        assert!(!old.contains("qpos_ref"), "{old}");
+        assert!(
+            !old.contains("qpos_ref") && !old.contains("tendons"),
+            "{old}"
+        );
         let file = dir.join("bracket.riggen");
         std::fs::write(&file, &old).unwrap();
 
@@ -1058,6 +1070,7 @@ mod tests {
             "{:?}",
             robot.joints
         );
+        assert!(robot.tendons.is_empty(), "a v5 file coupled nothing");
         // Relocated the way the fixture tests do, so the generator's
         // absolute mesh path and this copy's agree.
         let mut relocated = bracket_sample();
@@ -1069,6 +1082,7 @@ mod tests {
         let upgraded = std::fs::read_to_string(&file).unwrap();
         assert!(upgraded.contains("\"schema_version\": 6"), "{upgraded}");
         assert!(upgraded.contains("\"qpos_ref\": 0"), "{upgraded}");
+        assert!(upgraded.contains("\"tendons\": {}"), "{upgraded}");
         assert_eq!(load(&file).unwrap().0, robot);
         std::fs::remove_dir_all(&dir).unwrap();
     }

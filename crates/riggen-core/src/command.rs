@@ -8,13 +8,13 @@
 use std::fmt;
 
 use crate::fk::{JointState, fk};
-use crate::ids::{ActuatorId, FrameId, GeomId, Id, JointId, LinkId, MeshId};
+use crate::ids::{ActuatorId, FrameId, GeomId, Id, JointId, LinkId, MeshId, TendonId};
 use crate::pose::Pose;
 use riggen_mesh::glam::{DMat3, DVec3};
 
 use crate::robot::{
     Actuator, ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Frame, Geom,
-    InertialSpec, Joint, Link, Material, MeshAsset, Robot,
+    InertialSpec, Joint, Link, Material, MeshAsset, Robot, Tendon,
 };
 use crate::validate::{ValidationError, validate};
 
@@ -113,6 +113,24 @@ pub enum Command {
     SetFrame(FrameId, Frame),
     /// The tree's inline rename, beside `RenameLink` / `RenameJoint`.
     RenameFrame(FrameId, String),
+    /// Adds a fixed tendon, allocating its `TendonId` and returning it as
+    /// [`Created::Tendon`] — the `AddFrame` shape again, for the third
+    /// top-level keyed collection (ADR-0025 §4).
+    AddTendon(Tendon),
+    /// Removes the tendon **and the actuators that drive it**: a removal is
+    /// a gesture about the tendon, its actuators are an edit of the tendon
+    /// rather than of something elsewhere in the tree, and the whole thing
+    /// undoes in one keystroke (ADR-0025 §4, the `RemoveLink` precedent).
+    RemoveTendon(TendonId),
+    /// Replaces a tendon whole — name, joints, coefficients, range and
+    /// dynamics in one value, the way [`SetFrame`] and [`SetActuator`]
+    /// replace theirs.
+    ///
+    /// [`SetFrame`]: Command::SetFrame
+    /// [`SetActuator`]: Command::SetActuator
+    SetTendon(TendonId, Tendon),
+    /// The tendon's own name, in its own namespace (ADR-0025 §4).
+    RenameTendon(TendonId, String),
     /// Adds an actuator to the table, allocating its `ActuatorId` and
     /// returning it as [`Created::Actuator`] — the `AddFrame` shape, for
     /// the other top-level keyed collection (ADR-0023, ADR-0012).
@@ -145,6 +163,7 @@ pub enum Command {
 pub enum Created {
     Link(LinkId),
     Frame(FrameId),
+    Tendon(TendonId),
     Actuator(ActuatorId),
 }
 
@@ -161,6 +180,14 @@ impl Created {
     pub fn frame(self) -> Option<FrameId> {
         match self {
             Self::Frame(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    /// The tendon, if that is what was created.
+    pub fn tendon(self) -> Option<TendonId> {
+        match self {
+            Self::Tendon(t) => Some(t),
             _ => None,
         }
     }
@@ -266,12 +293,15 @@ fn geom_mut(robot: &mut Robot, link: LinkId, geom: GeomId) -> Result<&mut Geom, 
         .ok_or_else(|| unknown(geom))
 }
 
-/// The joint an actuator names must be in the document; a dangling target
-/// is `validate`'s refusal, and this is the command layer's version of it,
-/// which names the id the caller passed.
+/// The joint or tendon an actuator names must be in the document; a
+/// dangling target is `validate`'s refusal, and this is the command layer's
+/// version of it, which names the id the caller passed.
 fn require_target(robot: &Robot, actuator: &Actuator) -> Result<(), EditError> {
-    match actuator.target.joint() {
-        Some(joint) if !robot.joints.contains_key(&joint) => Err(unknown(joint)),
+    match actuator.target {
+        ActuatorTarget::Joint(joint) if !robot.joints.contains_key(&joint) => Err(unknown(joint)),
+        ActuatorTarget::Tendon(tendon) if !robot.tendons.contains_key(&tendon) => {
+            Err(unknown(tendon))
+        }
         _ => Ok(()),
     }
 }
@@ -326,12 +356,22 @@ impl Command {
                 for l in doomed {
                     robot.links.remove(&l);
                 }
-                // An actuator whose joint is gone has nothing to drive, so
-                // it goes with it rather than being left dangling.
+                // A tendon over a removed joint loses that term rather than
+                // dangling, and one left with no terms goes with the subtree
+                // (ADR-0025 §4) — the `RemoveLink` precedent again: deleting
+                // a link never fails because of a coupling elsewhere.
                 let survivors: Vec<JointId> = robot.joints.keys().copied().collect();
-                robot
-                    .actuators
-                    .retain(|_, a| a.target.joint().is_none_or(|j| survivors.contains(&j)));
+                for tendon in robot.tendons.values_mut() {
+                    tendon.joints.retain(|t| survivors.contains(&t.joint));
+                }
+                robot.tendons.retain(|_, t| !t.joints.is_empty());
+                // An actuator whose joint or tendon is gone has nothing to
+                // drive, so it goes with it rather than being left dangling.
+                let tendons: Vec<TendonId> = robot.tendons.keys().copied().collect();
+                robot.actuators.retain(|_, a| match a.target {
+                    ActuatorTarget::Joint(j) => survivors.contains(&j),
+                    ActuatorTarget::Tendon(t) => tendons.contains(&t),
+                });
                 // A survivor that followed one of the removed joints keeps
                 // moving, freely: deleting a link is not the moment to
                 // refuse an edit somewhere else in the tree (ADR-0013).
@@ -365,7 +405,12 @@ impl Command {
                 // A `Fixed` joint has no degree of freedom to actuate, and
                 // MJCF writes no `<joint>` for one; retyping it takes its
                 // actuators with the kind rather than being refused by
-                // `validate` after the fact (ADR-0014, ADR-0023).
+                // `validate` after the fact (ADR-0014, ADR-0023). A tendon
+                // over the joint is *not* rewritten to match: demoting a
+                // joint some tendon weighs is refused by `TendonOnFixedJoint`
+                // the way demoting a mimic leader is refused by
+                // `MimicLeaderFixed` — a kind change is an edit of the
+                // coupling's own joint (ADR-0025 §4).
                 if !movable {
                     robot.actuators.retain(|_, a| a.target.joint() != Some(id));
                 }
@@ -528,6 +573,35 @@ impl Command {
             Command::RenameFrame(id, name) => {
                 robot.frames.get_mut(&id).ok_or_else(|| unknown(id))?.name = name;
             }
+            Command::AddTendon(tendon) => {
+                for entry in &tendon.joints {
+                    if !robot.joints.contains_key(&entry.joint) {
+                        return Err(unknown(entry.joint));
+                    }
+                }
+                let id: TendonId = robot.next_id.alloc();
+                robot.tendons.insert(id, tendon);
+                return Ok(Some(Created::Tendon(id)));
+            }
+            Command::RemoveTendon(id) => {
+                robot.tendons.remove(&id).ok_or_else(|| unknown(id))?;
+                // The actuators on it go with it (ADR-0025 §4).
+                robot.actuators.retain(|_, a| a.target.tendon() != Some(id));
+            }
+            Command::SetTendon(id, tendon) => {
+                for entry in &tendon.joints {
+                    if !robot.joints.contains_key(&entry.joint) {
+                        return Err(unknown(entry.joint));
+                    }
+                }
+                if !robot.tendons.contains_key(&id) {
+                    return Err(unknown(id));
+                }
+                robot.tendons.insert(id, tendon);
+            }
+            Command::RenameTendon(id, name) => {
+                robot.tendons.get_mut(&id).ok_or_else(|| unknown(id))?.name = name;
+            }
             Command::AddActuator(actuator) => {
                 require_target(robot, &actuator)?;
                 let id: ActuatorId = robot.next_id.alloc();
@@ -552,6 +626,9 @@ impl Command {
                     .name = name;
             }
             Command::SetActuators(spec) => {
+                // Only the joint-targeted half of the table is replaced: a
+                // tendon actuator is not "on" any joint, so "apply to the
+                // whole model" leaves it alone (ADR-0025 §4).
                 robot.actuators.retain(|_, a| a.target.joint().is_none());
                 let Some(spec) = spec else { return Ok(None) };
                 let free: Vec<JointId> = robot
@@ -584,7 +661,7 @@ mod tests {
     use super::*;
     use crate::fk::{JointState, fk, frames};
     use crate::ids::FrameId;
-    use crate::robot::{ActuatorSpec, Frame, JointKind, Limits, Mimic};
+    use crate::robot::{ActuatorSpec, Frame, JointKind, Limits, Mimic, TendonJoint};
     use riggen_mesh::glam::{DQuat, DVec3};
     use std::collections::BTreeMap;
     use std::f64::consts::FRAC_PI_2;
@@ -1801,5 +1878,262 @@ mod tests {
         fixed.kind = JointKind::Fixed;
         apply(&mut robot, Command::SetJoint(shoulder, fixed)).unwrap();
         assert!(robot.actuators.is_empty());
+    }
+    /// An `arm()` whose `shoulder` and `tail_joint` both move, so a tendon
+    /// has two joints to run over.
+    fn arm_with_two_movable_joints() -> (Robot, [JointId; 2], LinkId) {
+        let (mut robot, [arm, _, _, tail]) = arm();
+        let shoulder = robot.parent_joint(arm).unwrap();
+        let tail_joint = robot.parent_joint(tail).unwrap();
+        let mover = robot.joints.get_mut(&tail_joint).unwrap();
+        mover.kind = JointKind::Revolute;
+        mover.axis = DVec3::Z;
+        mover.limits = Some(Limits {
+            lower: -1.0,
+            upper: 1.0,
+            effort: 0.0,
+            velocity: 0.0,
+        });
+        assert_eq!(validate(&robot), Ok(()));
+        (robot, [shoulder, tail_joint], arm)
+    }
+
+    fn grip(joints: [JointId; 2]) -> Tendon {
+        Tendon::new(
+            "grip",
+            vec![
+                TendonJoint {
+                    joint: joints[0],
+                    coef: 1.0,
+                },
+                TendonJoint {
+                    joint: joints[1],
+                    coef: -1.0,
+                },
+            ],
+        )
+    }
+
+    /// The tendon's own quartet, following `AddFrame` / `SetFrame` /
+    /// `RenameFrame` / `RemoveFrame` and the actuators' (ADR-0025 §4): the
+    /// id comes back from the command, a joint that is not in the document
+    /// is refused before anything changes, and the name is the tendon's own.
+    #[test]
+    fn tendon_commands_add_set_rename_remove() {
+        let (mut robot, joints, _) = arm_with_two_movable_joints();
+        let id = apply(&mut robot, Command::AddTendon(grip(joints)))
+            .unwrap()
+            .and_then(Created::tendon)
+            .expect("AddTendon returns the tendon it created");
+        assert_eq!(robot.tendons[&id].name, "grip");
+        assert_eq!(robot.tendons[&id].coef_of(joints[1]), Some(-1.0));
+        assert_eq!(
+            robot
+                .tendons_on(joints[0])
+                .map(|(t, _)| t)
+                .collect::<Vec<_>>(),
+            vec![id]
+        );
+
+        // A joint that is not in the document is refused, naming it.
+        let ghost = JointId::from_raw(9999);
+        let mut dangling = grip(joints);
+        dangling.name = "ghost".to_owned();
+        dangling.joints[1].joint = ghost;
+        assert_eq!(
+            apply(&mut robot, Command::AddTendon(dangling)).unwrap_err(),
+            unknown(ghost)
+        );
+        assert_eq!(robot.tendons.len(), 1, "and nothing was added");
+
+        // `SetTendon` writes name, joints, coefficients, range and dynamics
+        // in one go; `RenameTendon` is the inline rename beside it.
+        let mut edited = grip(joints);
+        edited.joints[1].coef = -2.0;
+        edited.range = Some([-0.5, 0.5]);
+        edited.stiffness = 10.0;
+        apply(&mut robot, Command::SetTendon(id, edited.clone())).unwrap();
+        assert_eq!(robot.tendons[&id], edited);
+        apply(&mut robot, Command::RenameTendon(id, "pinch".into())).unwrap();
+        assert_eq!(robot.tendons[&id].name, "pinch");
+        assert_eq!(
+            robot.tendons[&id].joints, edited.joints,
+            "a rename only renames"
+        );
+
+        // The refusals of an id that is not there, for each of the three.
+        let no_tendon = TendonId::from_raw(9998);
+        for command in [
+            Command::RemoveTendon(no_tendon),
+            Command::RenameTendon(no_tendon, "x".into()),
+            Command::SetTendon(no_tendon, grip(joints)),
+        ] {
+            assert!(
+                matches!(
+                    apply(&mut robot, command).unwrap_err(),
+                    EditError::UnknownId { kind: "tendon", .. }
+                ),
+                "an unknown tendon is refused by id"
+            );
+        }
+
+        apply(&mut robot, Command::RemoveTendon(id)).unwrap();
+        assert!(robot.tendons.is_empty());
+    }
+
+    /// An actuator may drive a tendon (ADR-0025 §4, amending ADR-0023's one
+    /// variant): it is not "on" any of the tendon's joints, so neither the
+    /// joints' panels nor `SetActuators` claim it — and removing the tendon
+    /// takes it, the way removing a link takes the actuators on its joints.
+    #[test]
+    fn an_actuator_on_a_tendon_is_not_on_its_joints_and_goes_with_it() {
+        let (mut robot, joints, _) = arm_with_two_movable_joints();
+        let tendon = apply(&mut robot, Command::AddTendon(grip(joints)))
+            .unwrap()
+            .and_then(Created::tendon)
+            .unwrap();
+        let motor = apply(
+            &mut robot,
+            Command::AddActuator(Actuator {
+                name: "grip".to_owned(),
+                target: ActuatorTarget::Tendon(tendon),
+                spec: ActuatorSpec::Motor { gear: 20.0 },
+                ranges: ActuatorRanges::default(),
+            }),
+        )
+        .unwrap()
+        .and_then(Created::actuator)
+        .expect("a tendon is a target like a joint");
+        assert_eq!(validate(&robot), Ok(()));
+        assert_eq!(
+            robot
+                .actuators_driving(tendon)
+                .map(|(a, _)| a)
+                .collect::<Vec<_>>(),
+            vec![motor]
+        );
+        for joint in joints {
+            assert_eq!(robot.actuators_on(joint).count(), 0, "it drives the tendon");
+        }
+
+        // "Apply to every movable joint" adds one per joint and leaves the
+        // tendon's alone.
+        apply(
+            &mut robot,
+            Command::SetActuators(Some(ActuatorSpec::Motor { gear: 1.0 })),
+        )
+        .unwrap();
+        assert_eq!(robot.actuators.len(), 3);
+        assert!(robot.actuators.contains_key(&motor));
+        apply(&mut robot, Command::SetActuators(None)).unwrap();
+        assert_eq!(
+            robot.actuators.keys().collect::<Vec<_>>(),
+            vec![&motor],
+            "taking every joint's away leaves the tendon's"
+        );
+
+        // A tendon that is not in the document is refused as a target.
+        let ghost = TendonId::from_raw(9999);
+        assert_eq!(
+            apply(
+                &mut robot,
+                Command::AddActuator(Actuator {
+                    name: "ghost".to_owned(),
+                    target: ActuatorTarget::Tendon(ghost),
+                    spec: ActuatorSpec::Motor { gear: 1.0 },
+                    ranges: ActuatorRanges::default(),
+                }),
+            )
+            .unwrap_err(),
+            unknown(ghost)
+        );
+
+        // Removing the tendon takes its actuators — one gesture, one undo.
+        let mut history = crate::History::new();
+        history
+            .apply(&mut robot, Command::RemoveTendon(tendon))
+            .unwrap();
+        assert!(robot.tendons.is_empty() && robot.actuators.is_empty());
+        assert!(history.undo(&mut robot));
+        assert_eq!(robot.tendons[&tendon], grip(joints));
+        assert_eq!(
+            robot.actuators[&motor].target,
+            ActuatorTarget::Tendon(tendon)
+        );
+        assert_eq!(validate(&robot), Ok(()));
+    }
+
+    /// The two side effects of ADR-0025 §4, and the one refusal. Deleting a
+    /// link thins the tendons over its joints and drops one left empty —
+    /// deleting is never the moment to refuse an edit elsewhere in the tree
+    /// (ADR-0006) — while *demoting* one of a tendon's joints to `Fixed` is
+    /// refused naming the tendon, as demoting a mimic leader is refused
+    /// naming its follower.
+    #[test]
+    fn removing_a_link_thins_a_tendon_and_demoting_its_joint_is_refused() {
+        let (mut robot, joints, arm) = arm_with_two_movable_joints();
+        let [shoulder, tail_joint] = joints;
+        let both = apply(&mut robot, Command::AddTendon(grip(joints)))
+            .unwrap()
+            .and_then(Created::tendon)
+            .unwrap();
+        let mut solo = Tendon::new(
+            "hold",
+            vec![TendonJoint {
+                joint: shoulder,
+                coef: 2.0,
+            }],
+        );
+        solo.range = Some([-1.0, 1.0]);
+        let solo = apply(&mut robot, Command::AddTendon(solo))
+            .unwrap()
+            .and_then(Created::tendon)
+            .unwrap();
+        let motor = apply(
+            &mut robot,
+            Command::AddActuator(Actuator {
+                name: "hold".to_owned(),
+                target: ActuatorTarget::Tendon(solo),
+                spec: ActuatorSpec::Motor { gear: 5.0 },
+                ranges: ActuatorRanges::default(),
+            }),
+        )
+        .unwrap()
+        .and_then(Created::actuator)
+        .unwrap();
+
+        // Retyping a joint the tendon weighs is refused naming the tendon,
+        // and the document is left as it was.
+        let mut demoted = robot.joints[&shoulder].clone();
+        demoted.kind = JointKind::Fixed;
+        demoted.limits = None;
+        let err = apply(&mut robot, Command::SetJoint(shoulder, demoted)).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                EditError::Invalid(ValidationError::TendonOnFixedJoint { tendon, joint })
+                    if tendon == both && joint == shoulder
+            ),
+            "{err:?}"
+        );
+        assert_eq!(robot.joints[&shoulder].kind, JointKind::Revolute);
+
+        // Deleting the link under it is not refused: `grip` loses the term
+        // and stays, `hold` is left with nothing and goes — with the
+        // actuator that drove it.
+        apply(&mut robot, Command::RemoveLink(arm)).unwrap();
+        assert_eq!(
+            robot.tendons[&both].joints,
+            vec![TendonJoint {
+                joint: tail_joint,
+                coef: -1.0
+            }]
+        );
+        assert!(!robot.tendons.contains_key(&solo), "nothing left to weigh");
+        assert!(
+            !robot.actuators.contains_key(&motor),
+            "and nothing to drive"
+        );
+        assert_eq!(validate(&robot), Ok(()));
     }
 }

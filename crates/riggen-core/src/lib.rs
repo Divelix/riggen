@@ -23,13 +23,13 @@ pub use file::{
 };
 pub use fk::{JointState, fk, frames, motion, origin_for_world, resolve_q};
 pub use history::{GestureId, History};
-pub use ids::{ActuatorId, FrameId, GeomId, Id, IdGen, JointId, LinkId, MeshId};
+pub use ids::{ActuatorId, FrameId, GeomId, Id, IdGen, JointId, LinkId, MeshId, TendonId};
 pub use inertial::{Inertial, InertialError, LinkInertial, MeshLookup, compose_inertial};
 pub use pose::Pose;
 pub use robot::{
     Actuator, ActuatorRanges, ActuatorSpec, ActuatorTarget, BiasType, CollisionPolicy, DynType,
     Dynamics, Frame, GainType, General, Geom, InertialSpec, Joint, JointKind, Limits, Link,
-    Material, MeshAsset, Mimic, Primitive, Robot,
+    Material, MeshAsset, Mimic, Primitive, Robot, Tendon, TendonJoint,
 };
 pub use validate::{ValidationError, validate, validation_errors};
 

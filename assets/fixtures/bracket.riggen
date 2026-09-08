@@ -91,6 +91,7 @@
       }
     },
     "frames": {},
+    "tendons": {},
     "actuators": {
       "a5": {
         "name": "hinge",

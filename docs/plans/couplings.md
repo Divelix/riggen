@@ -152,7 +152,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   derives; `fk_samples` writes `qpos`; `check_equalities` uses
   `model.qpos0`; the corpus's `shoulder_pan` gains `ref="10"` and the
   `mujoco` job holds the re-export to the original's `fk.json` through it.
-- [ ] **[2]** Step 7 — core: tendons. `Tendon`, `TendonId`,
+- [x] **[2]** Step 7 — core: tendons. `Tendon`, `TendonId`,
   `Robot::tendons`, `ActuatorTarget::Tendon`, the quartet, `Created::Tendon`,
   the validate refusals, `RemoveLink` and `SetJoint` rules; every
   `target.joint()` caller audited (`SetActuators`, glyphs, properties,

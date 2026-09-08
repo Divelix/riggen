@@ -139,6 +139,11 @@ id_type!(
     /// in its own namespace (ADR-0023).
     ActuatorId, 'a', "actuator"
 );
+id_type!(
+    /// An entry of `Robot::tendons`: a fixed tendon, the named linear
+    /// combination of joint values an actuator may drive (ADR-0025 §4).
+    TendonId, 't', "tendon"
+);
 
 /// The document's id counter. One counter for every kind, so an id is
 /// unique across kinds too; serialised as a bare number.
@@ -191,6 +196,7 @@ mod tests {
         assert_eq!(MeshId::from_raw(1).to_string(), "m1");
         assert_eq!(FrameId::from_raw(0).to_string(), "f0");
         assert_eq!(ActuatorId::from_raw(4).to_string(), "a4");
+        assert_eq!(TendonId::from_raw(6).to_string(), "t6");
     }
 
     #[test]

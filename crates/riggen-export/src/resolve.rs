@@ -679,8 +679,11 @@ pub fn resolve(
         return Err(errors);
     }
     // The table, in `ActuatorId` order, its targets re-expressed as
-    // indices (ADR-0023). `validate` passed, so every target is a joint of
-    // the document and every joint is some reachable link's parent joint.
+    // indices (ADR-0023). `validate` passed, so every joint target is a
+    // joint of the document and every joint is some reachable link's parent
+    // joint. A **tendon** target has no index to map to yet and is skipped
+    // here: `ResolvedTendon` and `ResolvedTarget` are plans/couplings step
+    // 8, and until then no writer sees a tendon (ADR-0025 §4).
     let actuators = robot
         .actuators
         .values()

@@ -44,7 +44,8 @@ pub struct Robot {
     pub links:  BTreeMap<LinkId, Link>,
     pub joints: BTreeMap<JointId, Joint>,
     pub frames: BTreeMap<FrameId, Frame>,      // named frames on links: TCP, sensor mounts
-    pub actuators: BTreeMap<ActuatorId, Actuator>, // what drives the joints (ADR-0023); schema 4
+    pub tendons: BTreeMap<TendonId, Tendon>,   // fixed tendons (ADR-0025 §4); schema 6
+    pub actuators: BTreeMap<ActuatorId, Actuator>, // what drives a joint or a tendon (ADR-0023); schema 4
     pub assets: BTreeMap<MeshId, MeshAsset>,   // file references, not geometry
     pub root:   LinkId,
     pub materials: BTreeMap<String, Material>, // name → density (kg/m³), colour
@@ -91,6 +92,27 @@ pub struct Joint {
 /// q(this) = multiplier * q(joint) + offset — URDF's <mimic> (ADR-0013).
 pub struct Mimic { pub joint: JointId, pub multiplier: f64, pub offset: f64 }
 
+/// MJCF's <tendon><fixed>: a named linear combination of joint values,
+/// length = Σ coef · qpos, with a range and its own passive dynamics
+/// (ADR-0025 §4). Unlike a Mimic it is a constraint MuJoCo enforces with
+/// forces, not a rule that resolves a value: `fk` never reads one and every
+/// joint on a tendon stays free. `range` is in **MJCF's own absolute
+/// terms** — it is never shifted by a `qpos_ref` on either side, because
+/// MuJoCo evaluates a fixed tendon over `qpos`, not over deviations from
+/// `qpos0`. `limited` is MuJoCo's auto | true | false, as ActuatorRanges
+/// holds it. Its two consumers are the MJCF writer and the SDK.
+pub struct Tendon {
+    pub name: String,               // unique among tendons
+    pub joints: Vec<TendonJoint>,   // >= 1, each joint once, none Fixed
+    pub range: Option<[f64; 2]>,
+    pub limited: Option<bool>,
+    pub stiffness: f64,
+    pub damping: f64,
+    pub frictionloss: f64,
+}
+
+pub struct TendonJoint { pub joint: JointId, pub coef: f64 }  // coef != 0
+
 /// One <actuator> element (ADR-0023, amending ADR-0014): its own name — the
 /// target joint's by default, unique among actuators, MJCF's namespaces
 /// being per element type — what it drives, the spec saying how (a preset
@@ -117,10 +139,13 @@ pub struct ActuatorRanges {
     pub force_limited: Option<bool>,
 }
 
-/// What an actuator drives. A joint is all the document holds today; the
-/// enum is the seam a tendon, site or body target arrives at without a
-/// second schema bump (ADR-0023).
-pub enum ActuatorTarget { Joint(JointId) }
+/// What an actuator drives: a joint, or a fixed tendon — the second variant
+/// ADR-0023 shaped the enum for and ADR-0025 §4 filled in. A site or body
+/// target is still dropped on import. A tendon actuator is **not "on"** any
+/// of the tendon's joints: `target.joint()` is None for it, so no joint's
+/// panel offers it, `SetActuators` neither replaces nor counts it, and the
+/// joint-specific refusals below say nothing about it.
+pub enum ActuatorTarget { Joint(JointId), Tendon(TendonId) }
 
 /// How it drives it (ADR-0014): a preset, or MJCF's own general actuator
 /// model, the escape hatch for a file that wrote one (ADR-0024). MJCF-only:
@@ -179,10 +204,11 @@ the session and redo never reloads the file. An asset no geom references is
 dropped on save.
 
 **Ids** (ADR-0005) are `u32` newtypes — `LinkId`, `JointId`, `GeomId`,
-`MeshId`, `FrameId`, `ActuatorId` — handed out by one per-document counter
+`MeshId`, `FrameId`, `ActuatorId`, `TendonId` — handed out by one
+per-document counter
 (`Robot::next_id`, so an id is unique across kinds too), stored in
 `BTreeMap`s (iteration is id order, which is creation order), serialised as
-`"l3"` / `"j7"` / `"g2"` / `"m1"` / `"f0"` / `"a4"` strings, and never reused
+`"l3"` / `"j7"` / `"g2"` / `"m1"` / `"f0"` / `"a4"` / `"t6"` strings, and never reused
 within a document's life. A geom id inside a new link comes from the caller
 (`robot.next_id.alloc()`); link and joint ids are allocated by `AddLink`.
 
@@ -220,11 +246,24 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
   `ZeroMimicMultiplier`, `MimicExceedsLimits`). A `Continuous` follower has
   no range to leave, so the last check is vacuous; a `Continuous` free
   leader has an unbounded one, which no bounded follower can hold.
-- An `Actuator`'s `target` names a joint of the document
-  (`DanglingActuatorTarget`), and that joint is movable and does not follow
+- A `Tendon` runs over at least one joint (`EmptyTendon`), each of which is
+  in the document (`DanglingTendonJoint`), movable (`TendonOnFixedJoint` —
+  which is what refuses demoting one of a tendon's joints, the way
+  `MimicLeaderFixed` refuses demoting a leader), named once
+  (`DuplicateTendonJoint`) and weighed by a non-zero finite `coef`
+  (`ZeroTendonCoef`, `NonFinite`). Its `stiffness`, `damping` and
+  `frictionloss` are finite, and a `range` — held in MJCF's own absolute
+  terms, so the check needs no coordinates — has `lower < upper`
+  (`InvalidTendonRange`). Its name is unique **among tendons**
+  (`DuplicateTendonName`) and nowhere else, MJCF's namespaces being per
+  element type.
+- An `Actuator`'s `target` names a joint **or a tendon** of the document
+  (`DanglingActuatorTarget`). A joint target is movable and does not follow
   another one (`ActuatorOnFixedJoint`, `ActuatorOnMimicFollower`: a fixed
   joint has no `<joint>` for MJCF to drive, and a follower is already driven
-  by its `<equality>`). Its gains are finite (`NonFinite`) and usable —
+  by its `<equality>`); a **tendon** target only has to exist, because a
+  tendon's joints are free and movable by construction (ADR-0025 §4). Its
+  gains are finite (`NonFinite`) and usable —
   `kp` / `kv` may be zero but never negative, a `gear` may be negative but
   never zero (`InvalidActuatorGain`). Those are statements about the
   presets: a `General` (ADR-0024) is refused for exactly two things — a
@@ -247,7 +286,7 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
 ```rust
 pub enum Command {
     AddLink { link: Box<Link>, parent: LinkId, joint: Joint }, // allocates the link and joint ids, sets joint.parent/child
-    RemoveLink(LinkId),                                        // the whole subtree, its frames, and any mimic that followed it; root refused
+    RemoveLink(LinkId),                                        // the whole subtree, its frames, any mimic that followed it, and its joints' terms in every tendon; root refused
     RenameLink(LinkId, String), RenameJoint(JointId, String),
     AddGeom(LinkId, Geom), RemoveGeom(LinkId, GeomId), SetGeomPose(LinkId, GeomId, Pose),
     SetJoint(JointId, Joint),                                  // one gesture = one SetJoint; parent/child in the value are ignored
@@ -259,13 +298,16 @@ pub enum Command {
     SetInertial(LinkId, InertialSpec), SetCollision(LinkId, CollisionPolicy), SetRoot(LinkId),
     AddFrame(Frame),                                           // allocates the FrameId, returns it
     RemoveFrame(FrameId), SetFrame(FrameId, Frame), RenameFrame(FrameId, String),
+    AddTendon(Tendon),                                         // allocates the TendonId, returns it
+    RemoveTendon(TendonId),                                    // and the actuators driving it
+    SetTendon(TendonId, Tendon), RenameTendon(TendonId, String),
     AddActuator(Actuator),                                     // allocates the ActuatorId, returns it
     RemoveActuator(ActuatorId), SetActuator(ActuatorId, Actuator), RenameActuator(ActuatorId, String),
     SetActuators(Option<ActuatorSpec>),                        // every movable joint at once; mimic followers skipped
 }
 
 /// What a command created, for the caller that selects it afterwards.
-pub enum Created { Link(LinkId), Frame(FrameId), Actuator(ActuatorId) }
+pub enum Created { Link(LinkId), Frame(FrameId), Tendon(TendonId), Actuator(ActuatorId) }
 ```
 
 Joints are the edges of the tree (ADR-0005): a link arrives with its parent
@@ -308,12 +350,29 @@ it, `AddActuator` / `RemoveActuator` / `SetActuator` / `RenameActuator`,
 which follow the frame commands exactly: `AddActuator` allocates the
 `ActuatorId` and hands it back as `Created::Actuator`, `RenameActuator` is
 the inline rename, and `SetActuator` replaces name, target, spec and ranges in one
-value. An actuator naming a joint the document does not have is refused
-(`UnknownId`). Two things take an actuator away without being asked, both
-because `validate` would otherwise refuse the edit that caused them:
-`RemoveLink` drops the actuators of the joints it removes, and `SetJoint`
-drops the joint's own when it retypes it to `Fixed` — a fixed joint has no
-degree of freedom to drive, exactly as it has no value to mimic.
+value. An actuator naming a joint or a tendon the document does not have is
+refused (`UnknownId`). Three things take an actuator away without being
+asked. Two are because `validate` would otherwise refuse the edit that
+caused them: `RemoveLink` drops the actuators of the joints it removes, and
+`SetJoint` drops the joint's own when it retypes it to `Fixed` — a fixed
+joint has no degree of freedom to drive, exactly as it has no value to
+mimic. The third is `RemoveTendon`, below.
+
+The tendon commands are the same quartet once more (ADR-0025 §4):
+`AddTendon` allocates the `TendonId` and hands it back as
+`Created::Tendon`, `RenameTendon` is the inline rename, and `SetTendon`
+replaces name, joints, coefficients, range and dynamics in one value. A
+tendon naming a joint the document does not have is refused (`UnknownId`)
+before anything changes. **`RemoveTendon` takes the actuators that drive
+it**: a removal is a gesture about the tendon, its actuators are an edit of
+the tendon rather than of something elsewhere in the tree, and the whole
+thing undoes in one keystroke. `RemoveLink` does the same by degrees — it
+drops the removed joints' terms from every tendon, and a tendon left with
+no terms goes with the subtree, taking its actuators — while *demoting* one
+of a tendon's joints to `Fixed` through `SetJoint` is refused by `validate`
+naming the tendon, exactly as demoting a mimic leader is refused naming its
+follower. `SetActuators` leaves a tendon's actuators alone: a tendon
+actuator is not "on" any joint.
 `RemoveMaterial` is refused while a link uses the material
 (`MaterialInUse`); `RenameMaterial` rewrites the key and every link's
 reference in one step, refused for an unknown `from` (`UnknownMaterial`)
@@ -998,13 +1057,15 @@ deriving all four from the joint — is what a v4 document meant.
 pins it, from a v4 document made by dropping the `ranges` keys back out
 of the committed fixture.
 
-**Schema 6** adds `Joint::qpos_ref` (ADR-0025 §3), and `upgrade_v5_to_v6`
-is empty for the same reason again: a v5 joint has no `qpos_ref` key, and
-the default of `0.0` is what it meant — the document's `q` was already the
-deviation from the authored pose, and nothing riggen wrote ever moved
-MuJoCo's zero.
+**Schema 6** adds `Joint::qpos_ref` (ADR-0025 §3) and `Robot::tendons`
+(ADR-0025 §4) — one bump for the two, both landing in the same release —
+and `upgrade_v5_to_v6` is empty for the same reason again: a v5 joint has
+no `qpos_ref` key and the default of `0.0` is what it meant (the document's
+`q` was already the deviation from the authored pose, and nothing riggen
+wrote ever moved MuJoCo's zero), while a v5 document has no `tendons` key
+and coupled nothing.
 `file::tests::a_v5_file_opens_as_v6_with_every_joint_at_its_authored_zero`
-pins it, from a v5 document made the same way.
+pins both, from a v5 document made the same way.
 
 `CollisionPolicy::ConvexDecomposition`'s `resolution` and `concavity` are so
 far the only fields added after their variant existed, and they are the

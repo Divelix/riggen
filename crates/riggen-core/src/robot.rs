@@ -8,13 +8,14 @@ use std::path::PathBuf;
 use riggen_mesh::glam::{DMat3, DQuat, DVec3};
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{ActuatorId, FrameId, GeomId, IdGen, JointId, LinkId, MeshId};
+use crate::ids::{ActuatorId, FrameId, GeomId, IdGen, JointId, LinkId, MeshId, TendonId};
 use crate::pose::Pose;
 
 /// The whole document. `frames` holds the named frames on links (TCP,
-/// sensor mounts — ADR-0012); `actuators` holds what drives the joints,
-/// keyed in its own namespace (ADR-0023); `assets` holds file references,
-/// never geometry.
+/// sensor mounts — ADR-0012); `tendons` holds the fixed tendons, the named
+/// linear combinations of joint values (ADR-0025 §4); `actuators` holds
+/// what drives a joint or a tendon, keyed in its own namespace (ADR-0023);
+/// `assets` holds file references, never geometry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Robot {
@@ -22,6 +23,12 @@ pub struct Robot {
     pub links: BTreeMap<LinkId, Link>,
     pub joints: BTreeMap<JointId, Joint>,
     pub frames: BTreeMap<FrameId, Frame>,
+    /// MJCF's `<tendon><fixed>`: a coupling the solver enforces through
+    /// forces rather than a reduction of the configuration, so nothing in
+    /// `fk` reads it (ADR-0025 §4). Added in schema 6, hence the `default`:
+    /// a v5 file has no such key and no tendons is what it meant.
+    #[serde(default)]
+    pub tendons: BTreeMap<TendonId, Tendon>,
     /// What drives the joints in MJCF (ADR-0023). Added in schema 4, and
     /// filled in from the joints by `upgrade_v3_to_v4`, so a v3 file's
     /// actuators arrive here rather than being refused as unknown keys.
@@ -129,6 +136,66 @@ pub struct Mimic {
     pub offset: f64,
 }
 
+/// MJCF's `<tendon><fixed>`: a named linear combination of joint values,
+/// `length = Σ coef · qpos`, with a range and its own passive dynamics
+/// (ADR-0025 §4). A tendon is a constraint MuJoCo enforces with forces, not
+/// a rule that resolves a value the way a [`Mimic`] does, so `fk` never
+/// reads one and every joint on a tendon stays free.
+///
+/// `range` is in **MJCF's own terms** — the absolute `Σ coef · qpos`, not a
+/// sum of deviations — because that is how MuJoCo evaluates a fixed tendon;
+/// it is written and read verbatim, never shifted by a
+/// [`qpos_ref`](Joint::qpos_ref). `limited` is MuJoCo's `auto | true |
+/// false`, as [`ActuatorRanges`] holds it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Tendon {
+    /// Unique among tendons; MJCF namespaces elements by type, so a tendon
+    /// may answer to a joint's or an actuator's name.
+    pub name: String,
+    /// At least one, each joint at most once, none of them `Fixed`.
+    pub joints: Vec<TendonJoint>,
+    pub range: Option<[f64; 2]>,
+    pub limited: Option<bool>,
+    pub stiffness: f64,
+    pub damping: f64,
+    pub frictionloss: f64,
+}
+
+/// One `<tendon><fixed><joint joint coef>` child: a joint and what its
+/// value is multiplied by in the tendon's length. `coef` is never zero —
+/// a joint that contributes nothing is not on the tendon.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TendonJoint {
+    pub joint: JointId,
+    pub coef: f64,
+}
+
+impl Tendon {
+    /// A tendon over `joints`, with no range and no passive dynamics —
+    /// what an `AddTendon` from the SDK or the panel starts from.
+    pub fn new(name: impl Into<String>, joints: Vec<TendonJoint>) -> Self {
+        Self {
+            name: name.into(),
+            joints,
+            range: None,
+            limited: None,
+            stiffness: 0.0,
+            damping: 0.0,
+            frictionloss: 0.0,
+        }
+    }
+
+    /// This joint's coefficient in the tendon, if it is on it at all.
+    pub fn coef_of(&self, joint: JointId) -> Option<f64> {
+        self.joints
+            .iter()
+            .find(|j| j.joint == joint)
+            .map(|j| j.coef)
+    }
+}
+
 /// One `<actuator>` element: its own name, what it drives, and the preset
 /// that says how (ADR-0023, amending ADR-0014). The name defaults to the
 /// target joint's and is unique among actuators — MJCF's namespaces are
@@ -165,21 +232,33 @@ pub struct ActuatorRanges {
     pub force_limited: Option<bool>,
 }
 
-/// What an actuator drives. A joint is the only thing the document can hold
-/// today; the enum is the seam a tendon, site or body target arrives at
-/// without a second schema bump (ADR-0023). An MJCF actuator on anything
-/// else is still dropped with a warning on import.
+/// What an actuator drives: a joint, or a fixed tendon — the second
+/// variant ADR-0023 shaped the enum for and ADR-0025 §4 fills in. A site or
+/// body target is still `ActuatorDropped` on import.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ActuatorTarget {
     Joint(JointId),
+    Tendon(TendonId),
 }
 
 impl ActuatorTarget {
     /// The joint this actuator drives, if it drives a joint at all — the
-    /// `Option` is where a future non-joint target says "not one".
+    /// `Option` is where a non-joint target says "not one". A tendon
+    /// actuator is not "on" any of the tendon's joints: it is not offered
+    /// by their panels, not counted by `SetActuators`, and not refused for
+    /// anything the joint is (ADR-0025 §4).
     pub fn joint(self) -> Option<JointId> {
         match self {
             Self::Joint(j) => Some(j),
+            Self::Tendon(_) => None,
+        }
+    }
+
+    /// The tendon this actuator drives, if it drives one.
+    pub fn tendon(self) -> Option<TendonId> {
+        match self {
+            Self::Tendon(t) => Some(t),
+            Self::Joint(_) => None,
         }
     }
 }
@@ -532,6 +611,7 @@ impl Robot {
             links,
             joints: BTreeMap::new(),
             frames: BTreeMap::new(),
+            tendons: BTreeMap::new(),
             actuators: BTreeMap::new(),
             assets: BTreeMap::new(),
             root,
@@ -572,6 +652,28 @@ impl Robot {
         self.actuators
             .iter()
             .filter(move |(_, a)| a.target.joint() == Some(joint))
+            .map(|(id, a)| (*id, a))
+    }
+
+    /// The tendons `joint` is on, in `TendonId` order (ADR-0025 §4). A
+    /// joint may be on several; the properties panel lists them all.
+    pub fn tendons_on(&self, joint: JointId) -> impl Iterator<Item = (TendonId, &Tendon)> {
+        self.tendons
+            .iter()
+            .filter(move |(_, t)| t.coef_of(joint).is_some())
+            .map(|(id, t)| (*id, t))
+    }
+
+    /// The actuators driving `tendon`, in `ActuatorId` order — the tendon
+    /// half of [`actuators_on`](Self::actuators_on). Several are legal for
+    /// the same reason: MuJoCo sums them.
+    pub fn actuators_driving(
+        &self,
+        tendon: TendonId,
+    ) -> impl Iterator<Item = (ActuatorId, &Actuator)> {
+        self.actuators
+            .iter()
+            .filter(move |(_, a)| a.target.tendon() == Some(tendon))
             .map(|(id, a)| (*id, a))
     }
 
@@ -783,5 +885,59 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("actdim"), "{err}");
+    }
+    /// A tendon and a tendon-targeted actuator spell themselves the way the
+    /// `.riggen` file and the SDK's dicts will read them (ADR-0025 §4), and
+    /// `deny_unknown_fields` catches a typo in either.
+    #[test]
+    fn a_tendon_and_its_actuator_round_trip_their_json_shape() {
+        let j = JointId::from_raw(3);
+        let mut tendon = Tendon::new(
+            "grip",
+            vec![
+                TendonJoint {
+                    joint: j,
+                    coef: 1.0,
+                },
+                TendonJoint {
+                    joint: JointId::from_raw(4),
+                    coef: -0.5,
+                },
+            ],
+        );
+        tendon.range = Some([-0.2, 0.2]);
+        tendon.limited = Some(true);
+        tendon.damping = 0.1;
+        let json = serde_json::to_string(&tendon).unwrap();
+        assert_eq!(
+            json,
+            r#"{"name":"grip","joints":[{"joint":"j3","coef":1.0},{"joint":"j4","coef":-0.5}],"range":[-0.2,0.2],"limited":true,"stiffness":0.0,"damping":0.1,"frictionloss":0.0}"#
+        );
+        assert_eq!(serde_json::from_str::<Tendon>(&json).unwrap(), tendon);
+        assert_eq!(tendon.coef_of(j), Some(1.0));
+        assert_eq!(tendon.coef_of(JointId::from_raw(9)), None);
+        let err = serde_json::from_str::<Tendon>(&json.replace("damping", "dampng"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("dampng"), "{err}");
+
+        // The target is an enum variant, so it is keyed by the variant's
+        // own name — the shape `ActuatorTarget::Joint` already had.
+        let target = ActuatorTarget::Tendon(TendonId::from_raw(7));
+        assert_eq!(
+            serde_json::to_string(&target).unwrap(),
+            r#"{"Tendon":"t7"}"#
+        );
+        assert_eq!(target.tendon(), Some(TendonId::from_raw(7)));
+        assert_eq!(target.joint(), None, "it is on no joint of the tendon");
+
+        // A tendon is document state: it survives a whole-document round
+        // trip, and `Robot::new` starts with none.
+        let mut robot = Robot::new("r");
+        assert!(robot.tendons.is_empty());
+        let id: TendonId = robot.next_id.alloc();
+        robot.tendons.insert(id, tendon);
+        let back: Robot = serde_json::from_str(&serde_json::to_string(&robot).unwrap()).unwrap();
+        assert_eq!(back, robot);
     }
 }

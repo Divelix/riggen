@@ -128,6 +128,10 @@ fn actuators(robot: &Robot) -> Vec<SampledActuator> {
         .actuators
         .values()
         .filter_map(|entry| {
+            // A tendon-targeted actuator has no joint to derive a range
+            // from and no `tendons` block to name yet — plans/couplings
+            // step 8 (ADR-0025 §4) gives it both; until then it is skipped
+            // here as it is in `resolve`.
             let joint = robot.joints.get(&entry.target.joint()?)?;
             let actuator = &entry.spec;
             let (gains, derived_ctrl) = match *actuator {

@@ -320,6 +320,7 @@
         }
       }
     },
+    "tendons": {},
     "actuators": {
       "a19": {
         "name": "shoulder_joint",
