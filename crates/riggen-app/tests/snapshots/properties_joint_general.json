@@ -526,7 +526,7 @@
     }
   ],
   "snap": null,
-  "status": "imported menagerie_style.xml: link \"shoulder\": shoulder.stl has a non-uniform scale; 0.002 used for every axis (+12 more warnings)",
+  "status": "imported menagerie_style.xml: link \"shoulder\": shoulder.stl has a non-uniform scale; 0.002 used for every axis (+11 more warnings)",
   "viewport_rect": [
     267.4375,
     23.0,

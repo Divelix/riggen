@@ -23,7 +23,7 @@ use riggen_core::{
     Actuator, ActuatorId, ActuatorRanges, ActuatorSpec, ActuatorTarget, BiasType, CollisionPolicy,
     DynType, Dynamics, FileSource, Frame, FrameId, GainType, General, Geom, GeomId, InertialSpec,
     Joint, JointId, JointKind, Limits, Link, LinkId, MeshAsset, MeshId, Mimic, Pose, Primitive,
-    Robot, ValidationError, content_hash, validate,
+    Robot, Tendon, TendonId, TendonJoint, ValidationError, content_hash, validate,
 };
 use riggen_mesh::TriMesh;
 
@@ -214,6 +214,13 @@ const READ: &[&str] = &[
     "geom",
     "site",
     "equality",
+    // The tendon block and its two children: a `<fixed>` is read, a
+    // `<spatial>` only far enough to name the tendon being dropped
+    // (ADR-0025 §4). `<equality><tendon>` is a different element of the
+    // same name and is counted — see [`read_here`].
+    "tendon",
+    "fixed",
+    "spatial",
     "actuator",
     "position",
     "velocity",
@@ -229,13 +236,15 @@ const READ: &[&str] = &[
 ];
 
 /// The attributes any `<actuator>` element may carry that the document
-/// reads whatever the tag: its name and class, the joint it drives, and
-/// the four range fields (ADR-0024 §3). `group` is decorative and silent.
+/// reads whatever the tag: its name and class, the joint or tendon it
+/// drives, and the four range fields (ADR-0024 §3, ADR-0025 §4). `group`
+/// is decorative and silent.
 const ACTUATOR_COMMON: &[&str] = &[
     "name",
     "class",
     "group",
     "joint",
+    "tendon",
     "ctrllimited",
     "forcelimited",
     "ctrlrange",
@@ -259,16 +268,36 @@ const PRESET_ATTRS: &[(&str, &[&str], &[&str])] = &[
     ),
 ];
 
-/// What an actuator drives when it is not a joint, as the drop message
-/// names it. `jointinparent` is a joint, but a different transmission.
+/// What an actuator drives when it is neither a joint nor a tendon, as
+/// the drop message names it. `jointinparent` is a joint, but a different
+/// transmission.
 const ACTUATOR_TARGETS: &[(&str, &str)] = &[
-    ("tendon", "a tendon"),
     ("site", "a site"),
     ("body", "a body"),
     ("cranksite", "a cranksite"),
     ("slidersite", "a slidersite"),
     ("jointinparent", "a joint through jointinparent"),
 ];
+
+/// What a `<tendon><fixed>` carries that the document keeps (ADR-0025
+/// §4): its name and class, the range it is bounded by, and its passive
+/// dynamics.
+const TENDON_ATTRS: &[&str] = &[
+    "name",
+    "class",
+    "limited",
+    "range",
+    "stiffness",
+    "damping",
+    "frictionloss",
+];
+
+/// Decorative on a tendon the way `rgba` is on a geom: read by nothing,
+/// counted by nothing. Everything else a `<fixed>` carries —
+/// `springlength`, the four `sol*` pairs, `margin`, `armature`, `user` —
+/// is counted once per attribute name (ADR-0025 §4, on ADR-0024 §4's
+/// pattern).
+const TENDON_SILENT: &[&str] = &["group", "rgba", "width"];
 
 /// Elements that compose other files or re-shape the tree. Reading around
 /// them would silently lose bodies, so the file is refused (ADR-0015 §5).
@@ -331,6 +360,7 @@ pub fn from_mjcf(
         warnings: Vec::new(),
         dropped: BTreeMap::new(),
         joint_ids: BTreeMap::new(),
+        tendon_ids: BTreeMap::new(),
         assets: BTreeMap::new(),
         registered: BTreeMap::new(),
         sites: Vec::new(),
@@ -376,9 +406,12 @@ struct Import<'a> {
     warnings: Vec<ImportWarning>,
     /// Element name → how many were dropped, flushed into one warning each.
     dropped: BTreeMap<String, usize>,
-    /// Joint name → id, for `<equality>` and `<actuator>`, which name
-    /// joints that may be anywhere in the file.
+    /// Joint name → id, for `<equality>`, `<tendon>` and `<actuator>`,
+    /// which name joints that may be anywhere in the file.
     joint_ids: BTreeMap<String, JointId>,
+    /// Tendon name → id, for the `<actuator>`s that drive one. A tendon
+    /// that was dropped is absent, so an actuator on it is dropped too.
+    tendon_ids: BTreeMap<String, TendonId>,
     /// `<asset><mesh>` by name: the file it points at, and its scale.
     assets: BTreeMap<String, (Option<String>, [f64; 3])>,
     /// (resolved path, scale) → the asset already registered for it, so a
@@ -420,6 +453,7 @@ impl Import<'_> {
         }
         self.place_frames();
         self.read_equalities(root)?;
+        self.read_tendons(root)?;
         self.read_actuators(root)?;
         self.drop_what_validate_refuses();
         count_dropped(root, &mut self.dropped);
@@ -1196,11 +1230,137 @@ impl Import<'_> {
         Ok(())
     }
 
+    /// `<tendon><fixed>` → one entry of `Robot::tendons` each (ADR-0025
+    /// §4): a named linear combination of joint values, its `range` and
+    /// its passive dynamics. A fixed tendon's length is `Σ coef · qpos` —
+    /// **absolute**, not a deviation from `qpos0` the way an
+    /// `<equality>`'s `polycoef` is — so nothing here is shifted by a
+    /// `Joint::qpos_ref`, on the way in or on the way out.
+    ///
+    /// A `<fixed>`'s defaults come from `<default><tendon>`: MuJoCo files
+    /// the class under the block's name, not the element's, so the class
+    /// tree is resolved through a view of the element wearing that tag.
+    ///
+    /// A `<spatial>` routes over sites, wrapping geoms and pulleys, none
+    /// of which the document has, so it is dropped under its name. So is a
+    /// `<fixed>` whose joints the document cannot hold — one not in the
+    /// file, one that is fixed, one twice, a zero coefficient, none at all
+    /// — and the tendon goes **whole**: half a linear combination is a
+    /// different tendon, not a lesser one. An actuator on a dropped
+    /// tendon is then dropped in its turn, since the name is gone.
+    fn read_tendons(&mut self, root: &Node) -> Result<(), ImportError> {
+        for block in root.kids("tendon") {
+            for t in &block.children {
+                let name = match t.attr("name") {
+                    Some(n) => n.to_owned(),
+                    // MJCF lets a tendon go unnamed; the document does not,
+                    // and nothing can drive one that has no name anyway.
+                    None => format!("tendon{}", self.robot.tendons.len() + 1),
+                };
+                let drop = |im: &mut Self, reason: String| {
+                    im.warnings.push(ImportWarning::TendonDropped {
+                        tendon: name.clone(),
+                        reason,
+                    });
+                };
+                if t.tag != "fixed" {
+                    let reason = format!(
+                        "<{}> routes over sites and wrapping geoms; the document holds a fixed tendon",
+                        t.tag
+                    );
+                    drop(self, reason);
+                    continue;
+                }
+                if self.tendon_ids.contains_key(&name) {
+                    drop(
+                        self,
+                        "a tendon of that name is already in the file".to_owned(),
+                    );
+                    continue;
+                }
+                let as_tendon = Node {
+                    tag: "tendon".to_owned(),
+                    attrs: t.attrs.clone(),
+                    children: Vec::new(),
+                };
+                let f = self.resolved(&as_tendon, MAIN_CLASS)?;
+                for attr in f.attrs.keys() {
+                    let attr = attr.as_str();
+                    if !TENDON_ATTRS.contains(&attr) && !TENDON_SILENT.contains(&attr) {
+                        self.drop(&format!("<fixed {attr}>"));
+                    }
+                }
+                // MuJoCo reads `0 0` as no range at all, on a tendon as on
+                // a joint; any other range that bounds nothing is a tendon
+                // `validate` would refuse, so it is dropped by name here
+                // rather than failing the file.
+                let range = self
+                    .nums::<2>(&f, "range")?
+                    .filter(|[lo, hi]| *lo != 0.0 || *hi != 0.0);
+                if let Some([lo, hi]) = range
+                    && lo >= hi
+                {
+                    drop(self, format!("its range {lo} {hi} bounds nothing"));
+                    continue;
+                }
+                let limited = self.limited_flag(&f, "limited", range)?;
+                let mut joints: Vec<TendonJoint> = Vec::new();
+                let mut refused = None;
+                for jn in t.kids("joint") {
+                    let jn = self.resolved(jn, MAIN_CLASS)?;
+                    let jname = jn.attr("joint").unwrap_or_default().to_owned();
+                    let coef = self.num(&jn, "coef")?.unwrap_or(1.0);
+                    let Some(&id) = self.joint_ids.get(&jname) else {
+                        refused = Some(format!("no joint \"{jname}\" is in the file"));
+                        break;
+                    };
+                    if !self.robot.joints[&id].kind.is_movable() {
+                        refused = Some(format!(
+                            "joint \"{jname}\" is fixed and has no value to combine"
+                        ));
+                        break;
+                    }
+                    if joints.iter().any(|e| e.joint == id) {
+                        refused = Some(format!("joint \"{jname}\" is on it twice"));
+                        break;
+                    }
+                    if coef == 0.0 {
+                        refused = Some(format!("joint \"{jname}\" is weighed by zero"));
+                        break;
+                    }
+                    joints.push(TendonJoint { joint: id, coef });
+                }
+                if let Some(reason) = refused {
+                    drop(self, reason);
+                    continue;
+                }
+                if joints.is_empty() {
+                    drop(self, "it runs over no joints".to_owned());
+                    continue;
+                }
+                let id: TendonId = self.robot.next_id.alloc();
+                self.tendon_ids.insert(name.clone(), id);
+                let tendon = Tendon {
+                    name,
+                    joints,
+                    range,
+                    limited,
+                    stiffness: self.num(&f, "stiffness")?.unwrap_or(0.0),
+                    damping: self.num(&f, "damping")?.unwrap_or(0.0),
+                    frictionloss: self.num(&f, "frictionloss")?.unwrap_or(0.0),
+                };
+                self.robot.tendons.insert(id, tendon);
+            }
+        }
+        Ok(())
+    }
+
     /// `<position>` / `<velocity>` / `<motor>` / `<general>` driving a
-    /// joint → one entry of `Robot::actuators` each, under the name the
-    /// file gave it (ADR-0014, ADR-0023, ADR-0024). A second element on an
-    /// already-driven joint is a second entry: MuJoCo sums their controls,
-    /// so keeping only one would throw away what the file said.
+    /// joint **or a fixed tendon** → one entry of `Robot::actuators` each,
+    /// under the name the file gave it (ADR-0014, ADR-0023, ADR-0024,
+    /// ADR-0025 §4). A second element on an already-driven target is a
+    /// second entry: MuJoCo sums their controls, so keeping only one would
+    /// throw away what the file said.
     ///
     /// An element is read as a preset **iff every attribute it carries is
     /// one the preset can express** (ADR-0024 §2); a `<position gear>` or a
@@ -1212,7 +1372,7 @@ impl Import<'_> {
     /// them; so is anything else MuJoCo would refuse. `<muscle>` and
     /// `<adhesion>` stay dropped (ADR-0024: a muscle needs a `lengthrange`
     /// riggen does not compute; an adhesion drives a body), as does any
-    /// element not driving a joint.
+    /// element driving neither a joint nor a tendon.
     ///
     /// `forcerange` and `ctrlrange` are kept on the actuator as the file
     /// said them, with their `ctrllimited` / `forcelimited` (ADR-0024). A
@@ -1224,14 +1384,18 @@ impl Import<'_> {
     /// file left open. They are also where `Limits::effort` and
     /// `Limits::velocity` come back from — MJCF keeps them on the actuator,
     /// not on the joint — and the joint has one of each, so the **first**
-    /// actuator to drive it fills them and a later one leaves them alone.
+    /// actuator to drive it fills them and a later one leaves them alone —
+    /// and an actuator on a *tendon* fills neither, there being no joint
+    /// behind it (ADR-0025 §4).
     fn read_actuators(&mut self, root: &Node) -> Result<(), ImportError> {
         for block in root.kids("actuator") {
             for a in &block.children {
                 let a = self.resolved(a, MAIN_CLASS)?;
                 let name = a
                     .attr("name")
-                    .unwrap_or_else(|| a.attr("joint").unwrap_or("<unnamed>"))
+                    .or_else(|| a.attr("joint"))
+                    .or_else(|| a.attr("tendon"))
+                    .unwrap_or("<unnamed>")
                     .to_owned();
                 let drop = |im: &mut Self, reason: String| {
                     im.warnings.push(ImportWarning::ActuatorDropped {
@@ -1239,18 +1403,21 @@ impl Import<'_> {
                         reason,
                     });
                 };
-                // Anything not driving a joint is outside the document's
-                // one target (ADR-0023, ADR-0024): a tendon, a site, a
-                // body, or a joint through `jointinparent`, which is a
-                // different transmission.
-                let Some(joint) = a.attr("joint").map(str::to_owned) else {
+                // Anything driving neither a joint nor a fixed tendon is
+                // outside the document's two targets (ADR-0023, ADR-0024,
+                // ADR-0025 §4): a site, a body, a crank, or a joint
+                // through `jointinparent`, which is a different
+                // transmission.
+                let joint = a.attr("joint").map(str::to_owned);
+                let tendon = a.attr("tendon").map(str::to_owned);
+                if joint.is_none() && tendon.is_none() {
                     let target = ACTUATOR_TARGETS
                         .iter()
                         .find(|(attr, _)| a.attrs.contains_key(*attr))
                         .map_or("nothing", |(_, what)| what);
-                    drop(self, format!("it drives {target}, not a joint"));
+                    drop(self, format!("it drives {target}, not a joint or a tendon"));
                     continue;
-                };
+                }
                 let tag = a.tag.as_str();
                 let Some((_, gains, desugared)) = PRESET_ATTRS.iter().find(|(t, ..)| *t == tag)
                 else {
@@ -1353,9 +1520,24 @@ impl Import<'_> {
                         gear,
                     }),
                 };
-                let Some(&id) = self.joint_ids.get(&joint) else {
-                    drop(self, format!("no joint \"{joint}\" is in the file"));
-                    continue;
+                // A `<fixed>` MuJoCo would not load — or one riggen
+                // dropped by name — leaves no tendon to drive.
+                let target = match (&joint, &tendon) {
+                    (Some(j), _) => match self.joint_ids.get(j) {
+                        Some(&id) => ActuatorTarget::Joint(id),
+                        None => {
+                            drop(self, format!("no joint \"{j}\" is in the file"));
+                            continue;
+                        }
+                    },
+                    (None, Some(t)) => match self.tendon_ids.get(t) {
+                        Some(&id) => ActuatorTarget::Tendon(id),
+                        None => {
+                            drop(self, format!("no tendon \"{t}\" is in the file"));
+                            continue;
+                        }
+                    },
+                    (None, None) => unreachable!("both absent is dropped above"),
                 };
                 let force = self.nums::<2>(&a, "forcerange")?;
                 let ctrl = self.nums::<2>(&a, "ctrlrange")?;
@@ -1366,20 +1548,26 @@ impl Import<'_> {
                     force_limited: self.limited_flag(&a, "forcelimited", force)?,
                 };
                 // One entry per element, keyed in its own namespace
-                // (ADR-0023) — a second one on this joint is a second
+                // (ADR-0023) — a second one on this target is a second
                 // entry, not a replacement.
-                let first = self.robot.actuators_on(id).next().is_none();
+                let first = target
+                    .joint()
+                    .is_some_and(|id| self.robot.actuators_on(id).next().is_none());
                 let velocity_servo = matches!(spec, ActuatorSpec::Velocity { .. });
                 let aid = self.robot.next_id.alloc();
                 self.robot.actuators.insert(
                     aid,
                     Actuator {
                         name,
-                        target: ActuatorTarget::Joint(id),
+                        target,
                         spec,
                         ranges,
                     },
                 );
+                // `Limits::effort` / `::velocity` are a joint's, and a
+                // tendon has none behind it (ADR-0025 §4): a tendon
+                // actuator fills nothing in.
+                let Some(id) = target.joint() else { continue };
                 let j = self.robot.joints.get_mut(&id).expect("just walked");
                 if first && let Some(limits) = &mut j.limits {
                     // Both are written as ±v and read back as the upper
@@ -1582,16 +1770,37 @@ fn joint_name(j: &Node, body: &str) -> String {
 }
 
 /// Counts every element the import does not read, by tag. A dropped
-/// element's children are part of it and are not counted again.
+/// element's children are part of it and are not counted again — and
+/// neither are a read-whole element's, since its reader already named
+/// what it could not keep.
 fn count_dropped(node: &Node, out: &mut BTreeMap<String, usize>) {
     for c in &node.children {
-        if READ.contains(&c.tag.as_str()) {
-            count_dropped(c, out);
-        } else {
+        if !read_here(&node.tag, &c.tag) {
             *out.entry(format!("<{}>", c.tag)).or_default() += 1;
+        } else if !READ_WHOLE.contains(&c.tag.as_str()) {
+            count_dropped(c, out);
         }
     }
 }
+
+/// Whether `tag` under `parent` is an element the import reads. Almost
+/// every tag answers for itself, but MJCF spells two different elements
+/// `<tendon>`: the block of tendons at the root, which is read, and
+/// `<equality><tendon>`, which holds two tendons' lengths together and the
+/// document has no field for (ADR-0025 §4).
+fn read_here(parent: &str, tag: &str) -> bool {
+    if tag == "tendon" {
+        return parent != "equality";
+    }
+    READ.contains(&tag)
+}
+
+/// Elements [`Import`] reads whole: whatever is inside one belongs to it,
+/// and its reader has already warned about what it dropped, so counting
+/// the children again would say the same loss twice. A `<fixed>`'s
+/// `<joint>`s are the tendon; a `<spatial>`'s route is named with the
+/// tendon that carried it.
+const READ_WHOLE: &[&str] = &["fixed", "spatial"];
 
 #[cfg(test)]
 mod tests {
@@ -2075,6 +2284,57 @@ mod tests {
             Some((lift, 0.5))
         );
 
+        // The `<tendon><fixed>` is a document tendon now (ADR-0025 §4):
+        // its two joints in the order the file wrote them, its `range` in
+        // MuJoCo's own absolute terms — **not** shifted by any `qpos_ref`,
+        // since a fixed tendon's length is `Σ coef · qpos` — its passive
+        // dynamics, and `limited` left `auto`, which the writer reproduces
+        // under its own `autolimits="true"`.
+        let finger = *robot
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "finger_flex")
+            .unwrap()
+            .0;
+        let (tid, tendon) = robot.tendons.iter().next().expect("grip_tendon");
+        assert_eq!(tendon.name, "grip_tendon");
+        assert_eq!(
+            tendon
+                .joints
+                .iter()
+                .map(|j| (j.joint, j.coef))
+                .collect::<Vec<_>>(),
+            [(slide, 1.0), (finger, -0.02)]
+        );
+        assert_eq!(tendon.range, Some([-0.06, 0.06]));
+        assert_eq!(
+            tendon.limited, None,
+            "auto, beside a range, under autolimits"
+        );
+        assert_eq!(
+            (tendon.stiffness, tendon.damping, tendon.frictionloss),
+            (20.0, 0.5, 0.0)
+        );
+        // …and the `<motor>` on it comes back as the second target
+        // `ActuatorTarget` gained (ADR-0023 as amended): the last name in
+        // the round trip's dropped list.
+        let (_, grip) = robot
+            .actuators
+            .iter()
+            .find(|(_, a)| a.name == "grip")
+            .expect("the tendon motor is read now");
+        assert_eq!(grip.target, ActuatorTarget::Tendon(*tid));
+        assert_eq!(grip.spec, ActuatorSpec::Motor { gear: 80.0 });
+        assert_eq!(
+            grip.ranges,
+            ActuatorRanges {
+                ctrl_limited: Some(false),
+                force_limited: Some(false),
+                ..ActuatorRanges::default()
+            },
+            "no range said: unlimited, and no joint behind it to derive one from"
+        );
+
         assert_eq!(
             warnings,
             vec![
@@ -2094,19 +2354,22 @@ mod tests {
                     link: "wrist".to_owned(),
                     kind: "an ellipsoid geom".to_owned()
                 },
-                // Then the one actuator the document still has no target
-                // for (ADR-0024: the target, not the tag).
-                ImportWarning::ActuatorDropped {
-                    actuator: "grip".to_owned(),
-                    reason: "it drives a tendon, not a joint".to_owned()
-                },
-                // Then one line per element name, whatever the count.
+                // No coupling, no tendon and no actuator of this file
+                // is dropped any more (ADR-0025): the chain, the `ref`,
+                // the `<fixed>` and the `<motor>` on it all come in.
+                // Then one line per element name, whatever the count —
+                // including the one tendon attribute the document counts
+                // rather than keeps (ADR-0025 §4).
                 ImportWarning::ElementDropped {
                     element: "<camera>".to_owned(),
                     count: 1
                 },
                 ImportWarning::ElementDropped {
                     element: "<contact>".to_owned(),
+                    count: 1
+                },
+                ImportWarning::ElementDropped {
+                    element: "<fixed springlength>".to_owned(),
                     count: 1
                 },
                 ImportWarning::ElementDropped {
@@ -2127,10 +2390,6 @@ mod tests {
                 },
                 ImportWarning::ElementDropped {
                     element: "<sensor>".to_owned(),
-                    count: 1
-                },
-                ImportWarning::ElementDropped {
-                    element: "<tendon>".to_owned(),
                     count: 1
                 },
                 ImportWarning::ElementDropped {
@@ -2278,7 +2537,7 @@ mod tests {
             "joint \"k\": <mimic joint=\"j\"> dropped, the constraint is not active",
             "joint \"k\": <mimic joint=\"nope\"> dropped, no joint of that name is in the file",
             "joint \"k\": <mimic joint=\"\"> dropped, it holds one joint to a constant, not to another",
-            "actuator \"tendon_servo\" dropped, it drives a tendon, not a joint",
+            "actuator \"tendon_servo\" dropped, no tendon \"t\" is in the file",
             "actuator \"ghost\" dropped, no joint \"missing\" is in the file",
             "<weld> × 1: nothing in the document holds it; not read",
         ] {
@@ -2298,6 +2557,185 @@ mod tests {
             !said.iter().any(|s| s.contains("<joint ref>")),
             "a ref is read, not dropped (ADR-0025 §3)\n{said:#?}"
         );
+    }
+
+    /// A `<tendon><fixed>` is a document tendon (ADR-0025 §4): its joints
+    /// in the file's order with their coefficients, its `range` in
+    /// MuJoCo's own absolute terms, its passive dynamics — through
+    /// `<default><tendon>`, which is the class a `<fixed>`'s defaults are
+    /// filed under — and an actuator of any of the four kinds may drive
+    /// it. Out again it is the same block, and nothing was derived from a
+    /// joint for a target that has none.
+    #[test]
+    fn a_fixed_tendon_and_the_actuators_on_it_come_back_as_the_file_said_them() {
+        let (robot, warnings) = load(
+            r#"<mujoco model="m"><compiler angle="radian" autolimits="true"/>
+                 <default><tendon stiffness="7" damping="0.25"/></default>
+                 <worldbody>
+                   <body name="a">
+                     <body name="b"><joint name="j" range="-1 1"/><inertial pos="0 0 0" mass="1" diaginertia="1 1 1"/>
+                       <body name="c"><joint name="k" type="slide" range="0 0.5"/><inertial pos="0 0 0" mass="1" diaginertia="1 1 1"/></body>
+                     </body>
+                   </body>
+                 </worldbody>
+                 <tendon>
+                   <fixed name="grip" range="-2 2" frictionloss="0.1">
+                     <joint joint="j" coef="1"/>
+                     <joint joint="k" coef="-0.5"/>
+                   </fixed>
+                 </tendon>
+                 <actuator>
+                   <motor name="pull" tendon="grip" gear="80"/>
+                   <position name="hold" tendon="grip" kp="9"/>
+                   <velocity name="reel" tendon="grip" kv="3" ctrlrange="-4 4"/>
+                   <general name="soft" tendon="grip" dyntype="filter" dynprm="0.02"/>
+                 </actuator>
+               </mujoco>"#,
+        )
+        .unwrap();
+        assert_eq!(warnings, vec![]);
+        let joint = |n: &str| *robot.joints.iter().find(|(_, j)| j.name == n).unwrap().0;
+        let (&tid, tendon) = robot.tendons.iter().next().expect("one tendon");
+        assert_eq!(robot.tendons.len(), 1);
+        assert_eq!(
+            (
+                tendon.name.as_str(),
+                tendon.range,
+                tendon.limited,
+                tendon.stiffness,
+                tendon.damping,
+                tendon.frictionloss
+            ),
+            // `stiffness` and `damping` come from the class, `frictionloss`
+            // from the element, and `limited` stays `auto` beside a range
+            // under `autolimits` — the writer says the same thing.
+            ("grip", Some([-2.0, 2.0]), None, 7.0, 0.25, 0.1)
+        );
+        assert_eq!(
+            tendon
+                .joints
+                .iter()
+                .map(|e| (e.joint, e.coef))
+                .collect::<Vec<_>>(),
+            [(joint("j"), 1.0), (joint("k"), -0.5)]
+        );
+        assert!(
+            robot
+                .actuators
+                .values()
+                .all(|a| a.target == ActuatorTarget::Tendon(tid)),
+            "{:?}",
+            robot.actuators
+        );
+        // A tendon has no `Limits` behind it, so the first actuator on it
+        // fills nothing in — `j`'s effort and velocity are still unfilled.
+        let limits = robot.joints[&joint("j")].limits.unwrap();
+        assert_eq!((limits.effort, limits.velocity), (0.0, 0.0));
+
+        let (store, errors) = MeshStore::load(&robot, &Disk);
+        assert!(errors.is_empty(), "{errors:?}");
+        let xml = crate::mjcf::write(&resolved(&robot, &store), &options());
+        let block = |tag: &str| -> Vec<String> {
+            xml.lines()
+                .map(str::trim)
+                .skip_while(|l| *l != format!("<{tag}>"))
+                .skip(1)
+                .take_while(|l| *l != format!("</{tag}>"))
+                .map(str::to_owned)
+                .collect()
+        };
+        assert_eq!(
+            block("tendon"),
+            [
+                r#"<fixed name="grip" range="-2 2" stiffness="7" damping="0.25" frictionloss="0.1">"#,
+                r#"<joint joint="j" coef="1"/>"#,
+                r#"<joint joint="k" coef="-0.5"/>"#,
+                r#"</fixed>"#,
+            ],
+            "{xml}"
+        );
+        assert_eq!(
+            block("actuator"),
+            [
+                // What the file said is said back — `reel`'s `ctrlrange`
+                // — and nothing else: a tendon has no `Limits` behind it,
+                // so not even the motor's normalised `-1 1` is derived
+                // where the file left the range open (ADR-0025 §4). Each
+                // such actuator says `false` rather than leaving MuJoCo to
+                // guess, exactly as a joint's would.
+                r#"<motor name="pull" tendon="grip" gear="80" ctrllimited="false" forcelimited="false"/>"#,
+                r#"<position name="hold" tendon="grip" kp="9" kv="0" ctrllimited="false" forcelimited="false"/>"#,
+                r#"<velocity name="reel" tendon="grip" kv="3" ctrlrange="-4 4" forcelimited="false"/>"#,
+                r#"<general name="soft" tendon="grip" dyntype="filter" gaintype="fixed" biastype="none" dynprm="0.02" gear="1" ctrllimited="false" forcelimited="false"/>"#,
+            ],
+            "{xml}"
+        );
+    }
+
+    /// Everything about a `<tendon>` the document cannot hold is named,
+    /// and named as a **tendon** (ADR-0025 §4): a `<spatial>`, and a
+    /// `<fixed>` whose joints it has no room for — which goes whole, not
+    /// half-read. `<equality><tendon>` is a different element of the same
+    /// name and is counted like any other unread one, and an actuator on a
+    /// tendon that went is dropped in its turn.
+    #[test]
+    fn a_tendon_the_document_cannot_hold_is_dropped_whole_and_by_name() {
+        let (robot, warnings) = load(
+            r#"<mujoco model="m"><compiler angle="radian" autolimits="true"/>
+                 <worldbody>
+                   <body name="a">
+                     <body name="b"><joint name="j" range="-1 1"/>
+                       <body name="c"><joint name="k" range="-1 1"/>
+                         <body name="welded"/>
+                       </body>
+                     </body>
+                   </body>
+                 </worldbody>
+                 <tendon>
+                   <spatial name="routed"><site site="s1"/><site site="s2"/></spatial>
+                   <fixed name="ghost"><joint joint="nope" coef="1"/></fixed>
+                   <fixed name="frozen"><joint joint="welded_joint" coef="1"/></fixed>
+                   <fixed name="twice"><joint joint="j" coef="1"/><joint joint="j" coef="2"/></fixed>
+                   <fixed name="idle"><joint joint="j" coef="0"/></fixed>
+                   <fixed name="bare"/>
+                   <fixed name="backwards" range="3 1"><joint joint="j" coef="1"/></fixed>
+                   <fixed name="keeper"><joint joint="k" coef="1"/></fixed>
+                   <fixed name="keeper"><joint joint="j" coef="1"/></fixed>
+                 </tendon>
+                 <equality><tendon tendon1="keeper" tendon2="keeper"/></equality>
+                 <actuator><motor name="orphan" tendon="ghost"/></actuator>
+               </mujoco>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            robot
+                .tendons
+                .values()
+                .map(|t| t.name.as_str())
+                .collect::<Vec<_>>(),
+            ["keeper"],
+            "the first of the two names stands, and nothing else survived"
+        );
+        assert!(robot.actuators.is_empty(), "{:?}", robot.actuators);
+        let said: Vec<String> = warnings.iter().map(ToString::to_string).collect();
+        for line in [
+            "tendon \"routed\" dropped, <spatial> routes over sites and wrapping geoms; \
+             the document holds a fixed tendon",
+            "tendon \"ghost\" dropped, no joint \"nope\" is in the file",
+            "tendon \"frozen\" dropped, joint \"welded_joint\" is fixed and has no value to combine",
+            "tendon \"twice\" dropped, joint \"j\" is on it twice",
+            "tendon \"idle\" dropped, joint \"j\" is weighed by zero",
+            "tendon \"bare\" dropped, it runs over no joints",
+            "tendon \"backwards\" dropped, its range 3 1 bounds nothing",
+            "tendon \"keeper\" dropped, a tendon of that name is already in the file",
+            "actuator \"orphan\" dropped, no tendon \"ghost\" is in the file",
+            "<tendon> × 1: nothing in the document holds it; not read",
+        ] {
+            assert!(
+                said.contains(&line.to_owned()),
+                "missing {line:?}\n{said:#?}"
+            );
+        }
     }
 
     #[test]
@@ -2452,8 +2890,8 @@ mod tests {
         for line in [
             "actuator \"long\" dropped, its gainprm has 11 entries; MuJoCo holds at most 10",
             "actuator \"sinew\" dropped, a <muscle> needs a lengthrange riggen does not compute (ADR-0024)",
-            "actuator \"parented\" dropped, it drives a joint through jointinparent, not a joint",
-            "actuator \"sticky\" dropped, it drives a body, not a joint",
+            "actuator \"parented\" dropped, it drives a joint through jointinparent, not a joint or a tendon",
+            "actuator \"sticky\" dropped, it drives a body, not a joint or a tendon",
             "actuator \"ramp\" dropped, <intvelocity> is not one of the three presets or <general>",
             "<general actdim> × 1: nothing in the document holds it; not read",
             "<general actearly> × 1: nothing in the document holds it; not read",

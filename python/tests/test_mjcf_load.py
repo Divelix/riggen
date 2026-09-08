@@ -38,7 +38,10 @@ from the re-export, actuator by actuator and in order — transmission, target,
 the three types, the three `prm` vectors, `gear`, the two ranges and their
 `*limited` flags — and what riggen still drops is `ROUND_TRIP_DROPPED`: a
 name and its reason, and a promise that the actuator is *absent* from the
-re-export, so the step that starts reading it has to delete its line.
+re-export, so the step that starts reading it has to delete its line. The
+`<equality>` and `<tendon>` blocks are compared the same way (ADR-0025), and
+nothing in either is dropped by name: a coupling or a tendon that went
+missing, was flattened or was reordered is a failure.
 
     uv run --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample
 
@@ -450,9 +453,7 @@ ROUND_TRIP_FIELDS = (
 # What riggen still drops on the way through, by name and with the reason.
 # Every entry is checked both ways: the original has it, the re-export does
 # not. The step that starts reading one deletes its line here.
-ROUND_TRIP_DROPPED = {
-    "grip": "drives a tendon, and the document has none until the couplings bullet",
-}
+ROUND_TRIP_DROPPED: dict[str, str] = {}
 
 
 def actuator_fields(model: mujoco.MjModel, i: int) -> dict:
@@ -491,7 +492,15 @@ def actuator_fields(model: mujoco.MjModel, i: int) -> dict:
 
 def same(a, b) -> bool:
     if isinstance(a, list) and isinstance(b, list):
-        return len(a) == len(b) and bool(np.allclose(a, b, rtol=0, atol=TOLERANCE))
+        if len(a) != len(b):
+            return False
+        # A wrap list is `(name, coef)` pairs: the names must be equal, the
+        # numbers only close.
+        if a and isinstance(a[0], tuple):
+            return all(x[0] == y[0] and same(x[1], y[1]) for x, y in zip(a, b))
+        return bool(np.allclose(a, b, rtol=0, atol=TOLERANCE))
+    if isinstance(a, float) or isinstance(b, float):
+        return abs(a - b) <= TOLERANCE
     return a == b
 
 
@@ -532,6 +541,109 @@ def check_round_trip_actuators(original: mujoco.MjModel, model: mujoco.MjModel) 
                     f"the re-export {b[field]}"
                 )
     return len(want)
+
+
+# The couplings, compared the same way (ADR-0025 §1, §3): what MuJoCo
+# holds for a joint equality, between the original and the re-export. The
+# `polycoef` is over deviations from `qpos0`, so a `<joint ref>` the writer
+# shifted wrongly changes `data` here and not only `qpos0`.
+EQUALITY_FIELDS = ("follower", "leader", "data", "active")
+# And the tendons (ADR-0025 §4): the wrap list with its coefficients, the
+# range and its flag, the passive dynamics. A `<fixed>`'s `springlength`,
+# `margin`, `armature` and `sol*` pairs are counted on the way in and not
+# carried — the bounded promise ADR-0024 §4 made, and the reason they are
+# no more compared here than `actdim` and `lengthrange` are above.
+TENDON_FIELDS = ("wraps", "range", "limited", "stiffness", "damping", "frictionloss")
+
+
+def equality_fields(model: mujoco.MjModel, e: int) -> dict:
+    """Joint equality `e` as comparable values, its two joints by name."""
+    return {
+        "follower": model.joint(int(model.eq_obj1id[e])).name,
+        "leader": model.joint(int(model.eq_obj2id[e])).name,
+        "data": model.eq_data[e][:5].tolist(),
+        "active": bool(model.eq_active0[e]),
+    }
+
+
+def joint_equalities(model: mujoco.MjModel) -> list[int]:
+    return [e for e in range(model.neq) if model.eq_type[e] == mujoco.mjtEq.mjEQ_JOINT]
+
+
+def check_round_trip_equalities(original: mujoco.MjModel, model: mujoco.MjModel) -> int:
+    """The re-export's `<equality>` block is the original's, coupling for coupling.
+
+    In order, because MuJoCo evaluates them in order and a chain's two
+    links are not interchangeable. Returns how many agreed.
+    """
+    a, b = joint_equalities(original), joint_equalities(model)
+    want = [equality_fields(original, e) for e in a]
+    have = [equality_fields(model, e) for e in b]
+    pair = lambda f: f"{f['follower']}<-{f['leader']}"  # noqa: E731
+    if [pair(f) for f in have] != [pair(f) for f in want]:
+        raise AssertionError(
+            f"the re-export couples {[pair(f) for f in have]}, the original "
+            f"{[pair(f) for f in want]}: an <equality><joint> was dropped, "
+            "invented, flattened or reordered on the way through"
+        )
+    for x, y in zip(want, have):
+        for field in EQUALITY_FIELDS:
+            if not same(x[field], y[field]):
+                raise AssertionError(
+                    f"equality {pair(x)} {field}: the original has {x[field]}, "
+                    f"the re-export {y[field]}"
+                )
+    return len(want)
+
+
+def tendon_fields(model: mujoco.MjModel, i: int) -> dict:
+    """Tendon `i` as comparable values, its wraps as `(joint name, coef)`.
+
+    A wrap that is not a joint is a `<spatial>`, which riggen never writes,
+    so it is reported as itself rather than compared.
+    """
+    adr, num = int(model.tendon_adr[i]), int(model.tendon_num[i])
+    wraps = []
+    for w in range(adr, adr + num):
+        wrap = mujoco.mjtWrap(int(model.wrap_type[w]))
+        if wrap != mujoco.mjtWrap.mjWRAP_JOINT:
+            wraps.append((wrap.name, float(model.wrap_prm[w])))
+        else:
+            wraps.append((model.joint(int(model.wrap_objid[w])).name, float(model.wrap_prm[w])))
+    return {
+        "wraps": wraps,
+        "range": model.tendon_range[i].tolist(),
+        "limited": bool(model.tendon_limited[i]),
+        "stiffness": float(model.tendon_stiffness[i]),
+        "damping": float(model.tendon_damping[i]),
+        "frictionloss": float(model.tendon_frictionloss[i]),
+    }
+
+
+def check_round_trip_tendons(original: mujoco.MjModel, model: mujoco.MjModel) -> int:
+    """The re-export's `<tendon>` block is the original's, tendon for tendon.
+
+    In order, because a tendon's index is its slot in `ten_length` and a
+    policy reading the original addresses it by that. Returns how many
+    agreed.
+    """
+    names = [original.tendon(i).name for i in range(original.ntendon)]
+    have = [model.tendon(i).name for i in range(model.ntendon)]
+    if have != names:
+        raise AssertionError(
+            f"the re-export's tendons are {have}, the original's are {names}: "
+            "a <tendon> was dropped, invented or reordered on the way through"
+        )
+    for name in names:
+        x = tendon_fields(original, int(original.tendon(name).id))
+        y = tendon_fields(model, int(model.tendon(name).id))
+        for field in TENDON_FIELDS:
+            if not same(x[field], y[field]):
+                raise AssertionError(
+                    f"tendon {name!r} {field}: the original has {x[field]}, "
+                    f"the re-export {y[field]}"
+                )
+    return len(names)
 
 
 PIECE = re.compile(r"^(?P<stem>.+)_hull_(?P<index>\d+)$")
@@ -623,13 +735,16 @@ def main(argv: list[str]) -> int:
                 try:
                     original = load(Path(original_xml))
                     agreed = check_round_trip_actuators(original, model)
+                    coupled = check_round_trip_equalities(original, model)
+                    tied = check_round_trip_tendons(original, model)
                 except (AssertionError, WarningError, ValueError) as e:
                     print(f"FAIL {xml} against {original_xml}: {type(e).__name__}: {e}")
                     failures += 1
                     continue
                 summary += (
-                    f", {agreed} actuator(s) are {original_xml}'s field for field"
-                    f" ({len(ROUND_TRIP_DROPPED)} dropped by name)"
+                    f", {agreed} actuator(s), {coupled} equality/-ies and {tied} tendon(s)"
+                    f" are {original_xml}'s field for field"
+                    f" ({len(ROUND_TRIP_DROPPED)} actuator(s) dropped by name)"
                 )
             print(f"ok   {xml}: {summary}")
     return 1 if failures else 0

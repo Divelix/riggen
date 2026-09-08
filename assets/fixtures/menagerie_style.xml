@@ -19,6 +19,10 @@
     * a <general> actuator whose gains come from a <default class> two
       levels up and whose gear from one level up (ADR-0024), and one
       driving a tendon;
+    * a <tendon><fixed> over two joints with a range, passive dynamics and
+      a springlength the document counts rather than keeps (ADR-0025 §4),
+      driven by that <motor> (the <spatial> the import drops by name is a
+      unit test's, not this file's: MuJoCo has to load what comes back);
     * a **mimic chain**: finger_flex follows shoulder_lift, which follows
       shoulder_pan (ADR-0025 §1), so the composed reach is 0.125 of the
       pan's ±180° and fits the finger's own ±30°;
@@ -29,8 +33,8 @@
       on that already-driven joint — both of which the document keeps
       (ADR-0023) — the second with an explicit ctrllimited="false" beside
       a ctrlrange (ADR-0024);
-    * <option>, <light>, <camera>, <texture>, <material>, <tendon>,
-      <sensor>, <contact> and <keyframe>, none of which the document holds.
+    * <option>, <light>, <camera>, <texture>, <material>, <sensor>,
+      <contact> and <keyframe>, none of which the document holds.
 
   `mjcf_in::tests::the_menagerie_style_corpus_imports_with_the_warnings_it_should`
   pins what comes of all that, warning by warning.
@@ -117,8 +121,9 @@
   </actuator>
 
   <tendon>
-    <fixed name="grip_tendon">
+    <fixed name="grip_tendon" range="-0.06 0.06" stiffness="20" damping="0.5" springlength="0.01">
       <joint joint="wrist_slide" coef="1"/>
+      <joint joint="finger_flex" coef="-0.02"/>
     </fixed>
   </tendon>
   <sensor>

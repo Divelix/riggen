@@ -166,7 +166,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   tendon — a golden test and a hand-built document through the `mujoco`
   job locally (`uv run … test_mjcf_load.py`) establish that MuJoCo loads
   it with zero warnings.
-- [ ] **[2]** Step 9 — export: tendons in. `mjcf_in` reads
+- [x] **[2]** Step 9 — export: tendons in. `mjcf_in` reads
   `<tendon><fixed>` and tendon-targeted actuators of all four kinds;
   `<spatial>` and `<equality><tendon>` are `TendonDropped` /
   `ElementDropped` by name (unit tests, not corpus); the corpus's

@@ -90,10 +90,19 @@ pub enum ImportWarning {
     FreeJointDropped {
         body: String,
     },
-    /// An actuator that is not one of the three presets, or that does not
-    /// drive a joint (ADR-0014, ADR-0015 §1).
+    /// An actuator that is not one of the three presets, or that drives
+    /// neither a joint nor a tendon (ADR-0014, ADR-0015 §1, ADR-0025 §4).
     ActuatorDropped {
         actuator: String,
+        reason: String,
+    },
+    /// A `<tendon>` the document cannot hold: a `<spatial>`, which routes
+    /// over sites and wrapping geoms, or a `<fixed>` whose joints it has
+    /// no room for — one that is not in the file, one that is fixed, one
+    /// twice, a zero coefficient, none at all (ADR-0025 §4). A tendon is
+    /// dropped whole: half a linear combination is a different tendon.
+    TendonDropped {
+        tendon: String,
         reason: String,
     },
     /// A `<site>` that cannot become a `Frame`: it has no name, or its
@@ -173,6 +182,9 @@ impl fmt::Display for ImportWarning {
             ),
             Self::ActuatorDropped { actuator, reason } => {
                 write!(f, "actuator \"{actuator}\" dropped, {reason}")
+            }
+            Self::TendonDropped { tendon, reason } => {
+                write!(f, "tendon \"{tendon}\" dropped, {reason}")
             }
             Self::FrameDropped { site, reason } => {
                 write!(f, "site \"{site}\" dropped, {reason}")

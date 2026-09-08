@@ -1275,7 +1275,15 @@ measured size is in 03 §v0.2.
   three types, the three `prm` vectors, `gear`, the two ranges and their
   `*limited` flags — with what riggen still drops a named allowlist in the
   script (`ROUND_TRIP_DROPPED`, a name and its reason, checked both ways:
-  present in the original, absent from the re-export). The corpus is copied
+  present in the original, absent from the re-export; **empty** since
+  ADR-0025 §4 gave the tendon motor a target). The `<equality>` and
+  `<tendon>` blocks are compared the same way and drop nothing by name:
+  coupling for coupling in order (the two joints, the five `polycoef`
+  coefficients, `active0`), and tendon for tendon in order (the wrap list
+  with its coefficients, `range`, `limited`, the three passive constants) —
+  a `<fixed>`'s `springlength` and `sol*` pairs are counted on the way in
+  and not carried, so they are outside the comparison exactly as `actdim`
+  and `lengthrange` are. The corpus is copied
   under `target/` first, because importing it writes its inline mesh
   beside it. Every `mjEQ_JOINT` equality — a mimic joint (ADR-0013) —
   must reproduce the sampled `qpos` through its `polycoef`, read as
@@ -1560,8 +1568,8 @@ measured size is in 03 §v0.2.
   the first of those exports read back as MJCF and of the import corpus
   `menagerie_style.xml` (with `rust-cache`), then
   `python/tests/test_mjcf_load.py` on all five through `uv` (ADR-0008 §3),
-  the corpus compared with its original actuator by actuator (ADR-0024)
-  —
+  the corpus compared with its original actuator by actuator, coupling by
+  coupling and tendon by tendon (ADR-0024, ADR-0025) —
   the `sdf` job — the same three documents exported as SDF, then
   `python/tests/test_sdf_load.py` under `libsdformat`'s own Python
   bindings, installed from `packages.osrfoundation.org` (the workflow's

@@ -927,11 +927,19 @@ what the document's `q` is a deviation from, so it is a `Joint::mimic`
 exactly when the last three coefficients are zero and the constraint is
 active — a `<joint ref>` on either joint changes nothing (ADR-0013 as
 amended by ADR-0025 §3).
+`<tendon><fixed>` is a `Robot::tendons` entry (ADR-0025 §4): its
+`<joint joint coef>` children in the file's order, its `range`, `limited`
+and its passive dynamics. A fixed tendon's length is `Σ coef · qpos`,
+**absolute** — not a deviation from `qpos0` the way an `<equality>`'s
+`polycoef` is — so nothing about it is shifted by a `qpos_ref`, in either
+direction. Its defaults come from `<default><tendon>`, which is where
+MuJoCo files a `<fixed>`'s class.
 `<position kp kv>` / `<velocity kv>` / `<motor gear>` / `<general>` driving
-a joint become **one `Robot::actuators` entry each** (ADR-0014, ADR-0023,
-ADR-0024), under the `name` the file gave — its joint's only when the file
-said so — and a second element on an already-driven joint is a second
-entry, because MuJoCo sums their controls. An element is read as a preset
+a joint **or a tendon** become **one `Robot::actuators` entry each**
+(ADR-0014, ADR-0023, ADR-0024, ADR-0025 §4), under the `name` the file gave
+— its target's only when the file said so — and a second element on an
+already-driven target is a second entry, because MuJoCo sums their
+controls. An element is read as a preset
 **iff every attribute it carries is one the preset can express**
 (ADR-0024 §2); a `<position gear>` or `<position timeconst>` is what
 MuJoCo makes of it, a `General` with a fixed gain, an affine bias and the
@@ -950,13 +958,15 @@ and the writer, told nothing, would hand it the joint's range instead.
 The same two attributes are also where `Limits::effort` and
 `Limits::velocity` come back from; the joint has one of each, so the
 **first** actuator to drive it fills them and a later one leaves them
-alone.
+alone — and an actuator on a *tendon* fills neither, there being no joint
+behind it.
 `ActuatorDropped` is left for what the document still has no room for
-(ADR-0024: **the target, not the tag**): an actuator driving a tendon,
-site or body, or a joint through `jointinparent`; a `<muscle>`, which
-needs a `lengthrange` riggen does not compute; a tag outside the three
-presets and `<general>` (`<intvelocity>`, `<damper>`, `<cylinder>`); a
-`joint` naming nothing in the file — and whatever `validate` refuses,
+(ADR-0024: **the target, not the tag**): an actuator driving a site or a
+body, or a joint through `jointinparent`; a `<muscle>`, which needs a
+`lengthrange` riggen does not compute; a tag outside the three presets and
+`<general>` (`<intvelocity>`, `<damper>`, `<cylinder>`); a `joint` or a
+`tendon` naming nothing in the file — a tendon riggen itself dropped
+included — and whatever `validate` refuses,
 dropped with its reason rather than failing the import (a `prm` vector
 past ten entries included), naming the **actuator** since it has a name
 of its own. Couplings go first, so an actuator is not taken down by an
@@ -964,15 +974,26 @@ of its own. Couplings go first, so an actuator is not taken down by an
 variant holds — `actdim`, `actearly`, `actrange`, `lengthrange`,
 `cranklength`, a preset's `dampratio` / `inheritrange`, which MuJoCo
 computes from the model — is counted once per attribute name (`<general
-actdim> × 1`) and the element is read without it.
+actdim> × 1`) and the element is read without it; a `<fixed>`'s
+`springlength`, `margin`, `armature` and `sol*` pairs are counted the same
+way (ADR-0025 §4), and its `group` / `rgba` / `width` are decorative and
+silent.
+`TendonDropped` names a tendon the document cannot hold, and a tendon
+goes **whole** — half a linear combination is a different tendon: a
+`<spatial>`, which routes over sites, wrapping geoms and pulleys; a
+`<fixed>` over a joint that is not in the file or is `Fixed`, over one
+joint twice, with a zero coefficient, with no joints at all, with a range
+that bounds nothing, or under a name already taken.
+`<equality><tendon>`, a different element of the same name, is an
+`ElementDropped` like any other unread one.
 
 **Nothing is dropped silently.** Beside the shared `MimicDropped`,
 `NonUniformScale`, `PrimitiveVisualDropped`, `MixedCollisionDropped`,
 `NoInertial` and `MeshNotFound`, the MJCF variants are `ImportWarning::{
 ElementDropped, GeomDropped, FreeJointDropped, ActuatorDropped,
-FrameDropped, MassFromGeomIgnored, LimitsInvented }`. Every element the
-import does not read is counted and named once per tag — `<tendon> × 3`,
-not three warnings — and so is a robot-changing attribute like `<general
+TendonDropped, FrameDropped, MassFromGeomIgnored, LimitsInvented }`. Every
+element the import does not read is counted and named once per tag —
+`<camera> × 3`, not three warnings — and so is a robot-changing attribute like `<general
 actdim>`; the decorating ones (`solref`, `friction`, `rgba`, `group`, …) are
 not warned about, because one line each would bury the ones that matter.
 `LimitsInvented` is the document's own gap: it has no unlimited
@@ -998,18 +1019,21 @@ The imported document is untitled until saved.
 `<default>` tree with a `childclass` and class names that are not ours, all
 five orientation spellings, a `<joint ref>` on the pan with the chain's
 first equality over it (ADR-0025 §3), a `fromto` capsule, a non-uniform mesh scale, a
-`<general>` whose gains come through the class tree two levels up and a
-tendon actuator, an `<actuator>` named something other than its joint plus
+`<general>` whose gains come through the class tree two levels up, a
+`<tendon><fixed>` over two joints with a range, passive dynamics and a
+`springlength` the document counts rather than keeps, driven by a `<motor>`
+(ADR-0025 §4), an `<actuator>` named something other than its joint plus
 a second one on that same joint (both kept, ADR-0023) carrying an explicit
-`ctrllimited="false"` beside a range (ADR-0024), and nine elements the
+`ctrllimited="false"` beside a range (ADR-0024), and eight elements the
 document has no field for — and its test pins the result warning by warning. The round trip
 itself is the `mujoco` CI job's fourth model: the arm exported, imported
 and exported again, held to the *original* document's `fk.json`. The
-corpus is its fifth (ADR-0024): imported and re-exported, it must load
-with zero warnings, agree with `fk`, and carry the original's
-`<actuator>` block element for element — the model MuJoCo builds from
-each file compared per actuator, with what riggen still drops a named
-allowlist in the script (01 §Testing). Its `arm/thing.msh` is a
+corpus is its fifth (ADR-0024, ADR-0025): imported and re-exported, it
+must load with zero warnings, agree with `fk`, and carry the original's
+`<actuator>`, `<equality>` and `<tendon>` blocks element for element — the
+model MuJoCo builds from each file compared per actuator, per coupling and
+per tendon, with what riggen still drops a named allowlist in the script,
+now empty (01 §Testing). Its `arm/thing.msh` is a
 tetrahedron for that reason: MuJoCo's own `.msh` reader refuses fewer than
 four vertices.
 
