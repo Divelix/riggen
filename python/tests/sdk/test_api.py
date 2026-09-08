@@ -132,12 +132,28 @@ def test_a_mimic_couples_two_joints_all_the_way_to_the_export(pendulum_api: rigg
     follower.spec = Fixed()
     assert follower.mimic is None
 
-    # And the rules are the document's: a chain is refused, not stored.
+    # The rules are the document's: only a *cycle* is refused, not stored
+    # (ADR-0025 §2) — this one closes hinge → follower → hinge.
     follower.spec = Revolute("y", origin=(0, 0, 0.5), limits=Limits(-2, 2))
     follower.mimic = riggen.Mimic(hinge, -1.0, 0.0)
     with pytest.raises(riggen.InvalidDocument):
         hinge.mimic = riggen.Mimic(follower, 1.0, 0.0)
     assert hinge.mimic is None
+
+    # A chain — a leader that itself follows — is accepted, though: before
+    # ADR-0025 this `mimic` assignment would have raised the way the cycle
+    # above does.
+    third = robot.root.add_link(
+        "arm3",
+        Revolute("y", origin=(0, 0, 0.5), limits=Limits(-4, 4)),
+        mesh=cubes / "cube_ascii.stl",
+        material="PLA",
+        joint_name="hinge3",
+    )
+    tail = third.joint
+    tail.mimic = riggen.Mimic(follower, multiplier=2.0, offset=0.0)
+    assert tail.mimic == riggen.Mimic(follower, 2.0, 0.0)
+    assert robot.validate() == []
 
 
 def test_an_actuator_drives_a_joint_all_the_way_to_the_mjcf(pendulum_api: riggen.Robot, tmp_path: Path):
@@ -298,6 +314,67 @@ def test_the_actuator_table_is_its_own_namespace(pendulum_api: riggen.Robot, tmp
     assert hinge.actuator == riggen.Position(120.0, 8.0)
     hinge.actuator = None
     assert robot.actuators == []
+
+
+def test_a_fixed_tendon_couples_two_joints_all_the_way_to_the_mjcf(pendulum_api: riggen.Robot, cubes: Path, tmp_path: Path):
+    """`Robot.add_tendon` is MJCF's `<tendon><fixed>`: the solver's own
+    coupling — `length = Σ coef · qpos` — not a reduction `fk` derives, so
+    every joint on it stays free, and an actuator may drive it instead of a
+    joint (ADR-0025 §4)."""
+    robot = pendulum_api
+    hinge = robot.joint("hinge")
+    second = robot.root.add_link(
+        "arm2",
+        Revolute("y", origin=(0, 0, 0.5), limits=Limits(-90, 90, degrees=True)),
+        mesh=cubes / "cube_ascii.stl",
+        material="PLA",
+        joint_name="hinge2",
+    )
+    hinge2 = second.joint
+
+    assert robot.tendons == []
+    grip = robot.add_tendon("grip", {hinge: 1.0, "hinge2": -2.0}, range=(-1.0, 1.0), stiffness=5.0)
+    assert robot.tendon("grip") == grip
+    assert grip.joints == {hinge: 1.0, hinge2: -2.0}
+    assert (grip.range, grip.stiffness, grip.damping, grip.limited) == ((-1.0, 1.0), 5.0, 0.0, None)
+    assert repr(grip) == "Tendon('grip': hinge*1, hinge2*-2)"
+
+    # A tendon is a constraint the solver enforces with forces, not a rule
+    # `fk` resolves — the joints on it stay as free as any other.
+    assert hinge.mimic is None and hinge2.mimic is None
+    assert robot.validate() == []
+
+    motor = grip.add_actuator(riggen.Motor(gear=80.0))
+    assert motor.name == "grip" and motor.tendon == grip and motor.joint is None
+    assert grip.actuators == [motor] == robot.actuators
+
+    robot.export(tmp_path, format="mjcf")
+    mjcf = (tmp_path / "pendulum.xml").read_text()
+    assert '<fixed name="grip" range="-1 1" stiffness="5">' in mjcf
+    assert '<joint joint="hinge" coef="1"/>' in mjcf
+    assert '<joint joint="hinge2" coef="-2"/>' in mjcf
+    # No `Limits` behind a tendon target: the motor's normalised `-1 1`
+    # stands, and no `forcerange` is invented.
+    assert '<motor name="grip" tendon="grip" gear="80" ctrlrange="-1 1"/>' in mjcf
+
+    # Whole-value edits, like an actuator's or a frame's.
+    grip.joints = {hinge: 1.0}
+    assert grip.joints == {hinge: 1.0}
+    grip.name = "solo"
+    assert robot.tendon("solo") == grip
+    with pytest.raises(KeyError):
+        robot.tendon("grip")
+
+    # The rules are the document's: a joint contributing nothing is not on
+    # the tendon at all.
+    with pytest.raises(riggen.InvalidDocument):
+        robot.add_tendon("zero", {hinge: 0.0})
+
+    # Removing it takes the actuator driving it with it (ADR-0025 §4).
+    grip.remove()
+    assert robot.tendons == [] and robot.actuators == []
+    with pytest.raises(riggen.UnknownId):
+        grip.name
 
 
 def test_the_api_builds_the_corpus_pendulum(pendulum_api: riggen.Robot, cubes: Path):
@@ -509,6 +586,28 @@ def test_load_mjcf_warns_and_builds(tmp_path: Path):
     )
     with pytest.warns(riggen.RiggenWarning, match="<sensor>"):
         riggen.load_mjcf(foreign)
+
+
+def test_joint_qpos_ref_is_read_only_and_survives_a_retype(tmp_path: Path):
+    """MJCF's `<joint ref>` arrives as `Joint.qpos_ref`: `qpos = q +
+    qpos_ref`. Read-only — it is the source file's record of where its zero
+    was, not a pose the SDK authors; a retype through `.spec` carries it
+    over the way it carries `.mimic` (ADR-0025 §3)."""
+    mjcf = tmp_path / "ref.xml"
+    mjcf.write_text(
+        '<mujoco><worldbody><body name="a"><body name="b">'
+        '<joint name="j" ref="90" range="-180 180"/></body></body></worldbody></mujoco>'
+    )
+    robot = riggen.load_mjcf(mjcf)
+    j = robot.joint("j")
+    # MuJoCo's default angle unit is degrees; the import converts, as it
+    # does for every other angle.
+    assert j.qpos_ref == pytest.approx(math.pi / 2)
+    with pytest.raises(AttributeError):
+        j.qpos_ref = 1.0  # type: ignore[misc]
+
+    j.spec = Revolute("z", limits=Limits(-2, 2))
+    assert j.qpos_ref == pytest.approx(math.pi / 2), "a retype carries it over, like mimic"
 
 
 # ---- the examples --------------------------------------------------------------

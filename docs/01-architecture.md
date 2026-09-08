@@ -1119,7 +1119,7 @@ the id counter included. No `History`: a script has no undo.
 | `robot.to_json()` / `Robot.from_json(text)` | the current-schema envelope (3), paths as held (absolute); `from_json` validates and refuses any other version — it walks no upgrade chain, unlike `file::load` |
 | `robot.copy()` | `Robot::clone` |
 | `robot.name`, `.root`, `.next_id` | the fields; `next_id` is `IdGen::peek` |
-| `robot.links()`, `.joints()`, `.frames()`, `.assets()`, `.materials()` | `{id: doc}` dicts, materials by name |
+| `robot.links()`, `.joints()`, `.frames()`, `.tendons()`, `.assets()`, `.materials()` | `{id: doc}` dicts, materials by name |
 | `robot.link(name)`, `.joint(name)` | a name lookup, `None` when absent |
 | `robot.parent_joint(l)`, `.child_joints(l)`, `.subtree(l)` | `Robot::{parent_joint, child_joints, subtree}`; an unknown link is `UnknownId` |
 | `robot.add_asset(path, *, scale, fix_up)` | `absolute` + `hash_file` + `Robot::add_asset` (not a command) |
@@ -1128,6 +1128,8 @@ the id counter included. No `History`: a script has no undo.
 | `add_geom(link, mesh, *, pose, color)`, `remove_geom`, `set_geom_pose` | `AddGeom` (the geom id allocated here), `RemoveGeom`, `SetGeomPose` |
 | `set_joint(joint, doc)` | `SetJoint`; `parent` / `child` in the dict ignored |
 | `add_frame(name, link, *, pose)`, `remove_frame`, `rename_frame`, `set_frame(frame, doc)`, `frame(name)` | `AddFrame` (the id allocated there and returned), `RemoveFrame`, `RenameFrame`, `SetFrame`, a name lookup (ADR-0012) |
+| `add_tendon(name, joints, *, range, limited, stiffness, damping, frictionloss)`, `remove_tendon`, `rename_tendon`, `set_tendon(tendon, doc)`, `tendon(name)` | `AddTendon` (the id allocated there and returned), `RemoveTendon` (drops the actuators driving it too), `RenameTendon`, `SetTendon`, a name lookup (ADR-0025 §4) |
+| `add_actuator(spec, *, joint, tendon, name)` | `AddActuator`; exactly one of `joint` / `tendon` names the target (ADR-0023, ADR-0025 §4) |
 | `move_joint_frame(joint, origin, axis)` | `MoveJointFrame` |
 | `reparent(link, new_parent, *, keep_world_pose, q=None)` | `Reparent`; `q` is the configuration kept (`at`) |
 | `set_root(link)` | `SetRoot` |
@@ -1183,15 +1185,18 @@ over that table — no logic of its own beyond spelling:
 | `link.remove()`, `.reparent(parent, keep_world_pose=True)`, `.place(world)`, `.make_root()` | `remove_link`, `reparent`, `origin_for_world` + `set_joint`, `set_root` |
 | `link.inertial` → `Inertial(mass, com, inertia)` | `inertial` |
 | `joint.name`, `.kind`, `.parent`, `.child`; `.origin`, `.axis`, `.limits`, `.dynamics`, `.mimic`, `.spec` (get/set); `.move_frame(origin, axis)` | `set_joint` with the one field changed; `move_joint_frame` |
-| `Mimic(joint, multiplier, offset)` — `joint` is the leader's handle | the `mimic` dict, the leader as an id; a coupling is not part of a `JointSpec`, so assigning `.spec` carries it over (and a `Fixed` spec drops it, ADR-0013) |
+| `joint.qpos_ref` (read-only) | `qpos_ref`; MJCF's `<joint ref>`, `qpos = q + qpos_ref` — zero for every joint the SDK builds; `.spec`'s setter carries it the way it carries `.mimic` (ADR-0025 §3) |
+| `Mimic(joint, multiplier, offset)` — `joint` is the leader's handle, which may itself follow (a chain; only a cycle is refused, ADR-0025 §2) | the `mimic` dict, the leader as an id; a coupling is not part of a `JointSpec`, so assigning `.spec` carries it over (and a `Fixed` spec drops it, ADR-0013) |
 | `Position(kp, kv=0)`, `Velocity(kv=1)`, `Motor(gear=1)` → `ActuatorSpec` | the `spec` dict (`{"Position": {…}}`); every default is MuJoCo's own. Like a coupling it is not part of a `JointSpec`, so `.spec` carries it over and a `Fixed` spec drops it (ADR-0014) |
 | `General(dyntype="none", gaintype="fixed", biastype="none", dynprm=(), gainprm=(), biasprm=(), gear=1)` → `ActuatorSpec` | `{"General": {…}}` with the types as the document's variant names (ADR-0024). Types spelled as MJCF spells them, a wrong one a `ValueError` naming the choices; the `prm` vectors tuples of floats, an eleventh entry refused by the document; every default MuJoCo's bare `<general>` |
 | `ActuatorRanges(ctrl, force, ctrl_limited, force_limited)`; `actuator.ranges` (get/set) | the `ranges` dict (schema 5, ADR-0024): what the file said, all `None` for an actuator the SDK built — the export derives those from the joint — and `None` on a flag MJCF's `auto` |
-| `joint.actuators`, `.add_actuator(spec, *, name)`, `robot.actuators`, `robot.actuator(name)` (`KeyError`) → `Actuator` | `actuators()`, `add_actuator`, `actuator(name)`; the table is its own namespace, so an actuator and a joint may share a name (ADR-0023) |
-| `actuator.name`, `.joint`, `.spec` (get/set), `.remove()` | `rename_actuator`, `set_actuator`, `remove_actuator` |
+| `joint.actuators`, `.add_actuator(spec, *, name)`, `tendon.actuators`, `.add_actuator(spec, *, name)`, `robot.actuators`, `robot.actuator(name)` (`KeyError`) → `Actuator` | `actuators()`, `add_actuator(spec, joint=…)` / `add_actuator(spec, tendon=…)`, `actuator(name)`; the table is its own namespace, so an actuator and a joint or tendon may share a name (ADR-0023, ADR-0025 §4) |
+| `actuator.name`, `.joint`, `.tendon` (`.joint` and `.tendon` are `None` for the target the actuator does not drive), `.spec` (get/set), `.remove()` | `rename_actuator`, `set_actuator`, `remove_actuator` |
 | `joint.actuator` (get/set) | the one-actuator convenience: `set_joint_actuator`, which is `AddActuator` / `SetActuator` / `RemoveActuator` as the joint's count decides. Reads the first when several drive the joint; **assigning then raises** an `EditError` naming them, because replacing them all would throw away what an imported file brought (ADR-0023) |
 | `link.add_frame(name, pose)` → `Frame`; `link.frames`, `robot.frames`, `robot.frame(name)` (`KeyError`) | `add_frame`, `frames()`, `frame(name)` |
 | `frame.name`, `.parent`, `.pose` (get/set), `.world(q)`, `.remove()` | `rename_frame`, `set_frame`, `fk_frames`, `remove_frame`; setting `.parent` keeps the *stored* pose, so the frame moves — the app's panel is the one that keeps the world pose (ADR-0012) |
+| `robot.add_tendon(name, joints, *, range, limited, stiffness, damping, frictionloss)` → `Tendon`; `robot.tendons`, `robot.tendon(name)` (`KeyError`) | `add_tendon`, `tendons()`, `tendon(name)`; `joints` is `{joint: coef}`, by name or handle (ADR-0025 §4) |
+| `tendon.name`, `.joints`, `.range`, `.limited`, `.stiffness`, `.damping`, `.frictionloss` (get/set), `.remove()` | `rename_tendon`, `set_tendon`, `remove_tendon` (which takes the actuators driving it too); `.range` / `.limited` are MJCF's own terms, never shifted by a joint's `qpos_ref` |
 | `Pose(xyz, rpy= \| quat=, degrees=)`, `.rpy`, `.rpy_degrees`, `.to_doc()` | `rpy_to_quat` / `quat_to_rpy` (the core's convention, never re-derived); `quat` is `(w, x, y, z)` |
 | `Fixed(origin)`, `Revolute(axis, *, origin, limits, dynamics, degrees)`, `Continuous`, `Prismatic` → `JointSpec` | the joint dict; `axis` is `"x" \| "-y" \| (x, y, z)`; `limits` a `Limits` or `(lower, upper)`; the app's defaults (`±π`, `±1`, effort and velocity 0) |
 | `ComputedInertial(density)`, `OverrideInertial(mass, com, rows)`, `HybridInertial(mass)` | the `InertialSpec` dict (the tensor column-major in the file, rows here) |

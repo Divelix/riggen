@@ -45,7 +45,8 @@ class DynamicsDoc(TypedDict):
 
 class MimicDoc(TypedDict):
     """One joint following another: ``q = multiplier * q(joint) + offset``.
-    ``joint`` is the leader's id."""
+    ``joint`` is the leader's id, which may itself follow — a chain, not a
+    cycle (ADR-0025 §2)."""
 
     joint: int
     multiplier: float
@@ -57,8 +58,8 @@ class MimicDoc(TypedDict):
 # "gainprm", "biasprm", "gear"}}`` with the types as the document's variant
 # names (``"Filter"``, ``"Affine"``) and the ``prm`` vectors as lists.
 ActuatorDoc = dict[str, Any]
-# What it drives (ADR-0023). ``{"Joint": <joint id>}`` is the only shape the
-# document holds today.
+# What it drives (ADR-0023, ADR-0025 §4): ``{"Joint": <joint id>}`` or
+# ``{"Tendon": <tendon id>}``.
 ActuatorTargetDoc = dict[str, int]
 
 class ActuatorRangesDoc(TypedDict):
@@ -95,9 +96,14 @@ class JointInput(TypedDict):
     limits: LimitsDoc | None
     dynamics: DynamicsDoc
     mimic: MimicDoc | None
+    # MJCF's `<joint ref>`: `qpos = q + qpos_ref` (ADR-0025 §3). Optional on
+    # input — a missing key is 0, what every joint riggen authors itself.
+    qpos_ref: NotRequired[float]
 
 class JointDoc(JointInput):
-    """A joint as ``joints()`` returns it: with its endpoints."""
+    """A joint as ``joints()`` returns it: with its endpoints. ``qpos_ref``
+    is always present here (it is ``NotRequired`` only on the ``JointInput``
+    side, where a caller may omit it)."""
 
     parent: int
     child: int
@@ -141,6 +147,25 @@ class FrameDoc(TypedDict):
     parent: int
     pose: PoseDoc
 
+class TendonJointDoc(TypedDict):
+    """One `<joint joint coef>` child of a fixed tendon."""
+
+    joint: int
+    coef: float
+
+class TendonDoc(TypedDict):
+    """A fixed tendon (ADR-0025 §4): ``length = Σ coef · qpos``. ``range``
+    and ``limited`` are MJCF's own terms — the absolute ``qpos``, never
+    shifted by a joint's ``qpos_ref``."""
+
+    name: str
+    joints: list[TendonJointDoc]
+    range: list[float] | None
+    limited: bool | None
+    stiffness: float
+    damping: float
+    frictionloss: float
+
 class Robot:
     """The document (``riggen_core::Robot``). Every edit method applies one
     command on a copy and keeps it only on success; a refused edit raises a
@@ -163,12 +188,14 @@ class Robot:
     def links(self) -> dict[int, LinkDoc]: ...
     def joints(self) -> dict[int, JointDoc]: ...
     def frames(self) -> dict[int, FrameDoc]: ...
+    def tendons(self) -> dict[int, TendonDoc]: ...
     def actuators(self) -> dict[int, ActuatorEntryDoc]: ...
     def assets(self) -> dict[int, AssetDoc]: ...
     def materials(self) -> dict[str, MaterialDoc]: ...
     def link(self, name: str) -> int | None: ...
     def joint(self, name: str) -> int | None: ...
     def frame(self, name: str) -> int | None: ...
+    def tendon(self, name: str) -> int | None: ...
     def actuator(self, name: str) -> int | None: ...
     def parent_joint(self, link: int) -> int | None: ...
     def child_joints(self, link: int) -> list[int]: ...
@@ -196,7 +223,28 @@ class Robot:
     def remove_frame(self, frame: int) -> None: ...
     def rename_frame(self, frame: int, name: str) -> None: ...
     def set_frame(self, frame: int, value: FrameDoc) -> None: ...
-    def add_actuator(self, joint: int, spec: ActuatorDoc, *, name: str | None = None) -> int: ...
+    def add_tendon(
+        self,
+        name: str,
+        joints: list[tuple[int, float]],
+        *,
+        range: list[float] | None = None,
+        limited: bool | None = None,
+        stiffness: float = 0.0,
+        damping: float = 0.0,
+        frictionloss: float = 0.0,
+    ) -> int: ...
+    def remove_tendon(self, tendon: int) -> None: ...
+    def rename_tendon(self, tendon: int, name: str) -> None: ...
+    def set_tendon(self, tendon: int, value: TendonDoc) -> None: ...
+    def add_actuator(
+        self,
+        spec: ActuatorDoc,
+        *,
+        joint: int | None = None,
+        tendon: int | None = None,
+        name: str | None = None,
+    ) -> int: ...
     def remove_actuator(self, actuator: int) -> None: ...
     def rename_actuator(self, actuator: int, name: str) -> None: ...
     def set_actuator(self, actuator: int, value: ActuatorEntryDoc) -> None: ...

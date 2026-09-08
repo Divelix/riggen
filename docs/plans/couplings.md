@@ -181,7 +181,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   (a tendon actuator is not "on" the joint). Snapshots
   `properties_joint_ref`, `properties_joint_tendon`; `debug_state()`
   carries both.
-- [ ] **[1]** Step 11 — py: the SDK. `Tendon`, the four calls,
+- [x] **[1]** Step 11 — py: the SDK. `Tendon`, the four calls,
   `Actuator.tendon` (`None` for a joint actuator), `joint.qpos_ref`;
   `add_actuator(spec, tendon=…)`; a chain accepted where the SDK test
   today expects `EditError`; `examples/arm.py` untouched; `python/tests`

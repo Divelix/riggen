@@ -46,6 +46,7 @@ __all__ = [
     "Geom",
     "Link",
     "Joint",
+    "Tendon",
     "Robot",
     "ConvexDecomposition",
     "load",
@@ -767,15 +768,24 @@ class Actuator(_Handle):
         self.robot._inner.rename_actuator(self.id, value)
 
     @property
-    def joint(self) -> Joint:
-        """The joint it drives."""
-        return Joint(self.robot, self._doc["target"]["Joint"])
+    def joint(self) -> Joint | None:
+        """The joint it drives, or ``None`` for one that drives a
+        :attr:`tendon` instead (ADR-0025 §4)."""
+        joint = self._doc["target"].get("Joint")
+        return None if joint is None else Joint(self.robot, joint)
 
     @joint.setter
     def joint(self, value: Joint) -> None:
         doc = dict(self._doc)
         doc["target"] = {"Joint": value.id}
         self.robot._inner.set_actuator(self.id, doc)  # type: ignore[arg-type]
+
+    @property
+    def tendon(self) -> Tendon | None:
+        """The fixed tendon it drives, or ``None`` for one that drives a
+        :attr:`joint` instead (ADR-0025 §4)."""
+        tendon = self._doc["target"].get("Tendon")
+        return None if tendon is None else Tendon(self.robot, tendon)
 
     @property
     def spec(self) -> ActuatorSpec:
@@ -807,7 +817,9 @@ class Actuator(_Handle):
         self.robot._inner.remove_actuator(self.id)
 
     def __repr__(self) -> str:
-        return f"Actuator({self.name!r} on {self.joint.name!r}: {self.spec})"
+        joint, tendon = self.joint, self.tendon
+        target = repr(joint.name) if joint is not None else f"tendon {tendon.name!r}"  # type: ignore[union-attr]
+        return f"Actuator({self.name!r} on {target}: {self.spec})"
 
 
 class Frame(_Handle):
@@ -1072,10 +1084,11 @@ class Mimic:
     ``<equality><joint polycoef>`` — a *soft* solver constraint there, not
     a reduction (ADR-0013).
 
-    ``joint`` is the leader: a movable joint that is not the follower and
-    does not itself follow one — chains are refused, as is a leader whose
-    range, mapped through ``(multiplier, offset)``, leaves the follower's
-    own limits."""
+    ``joint`` is the leader: a movable joint, not the follower itself, that
+    may itself follow — a chain of any length is resolved by one
+    topological pass of ``fk``, and only a *cycle* is refused (ADR-0025
+    §2). A leader whose range, mapped through ``(multiplier, offset)``,
+    leaves the follower's own limits is refused too."""
 
     joint: Joint
     multiplier: float = 1.0
@@ -1145,10 +1158,14 @@ class Joint(_Handle):
         # is the joint's, not the spec's — but a fixed joint has no value to
         # drive, so the coupling goes with the kind (ADR-0013). Its
         # actuators go the same way, inside the command: they are the
-        # model's table now (ADR-0023).
+        # model's table now (ADR-0023). `qpos_ref` is not part of a spec
+        # either — it is the MJCF file's, not the shape's — so it is carried
+        # over the same way (ADR-0025 §3).
         movable = value.kind != "Fixed"
         mimic = self._doc["mimic"] if movable else None
-        self.robot._inner.set_joint(self.id, value.to_doc(self.name, mimic))
+        doc = value.to_doc(self.name, mimic)
+        doc["qpos_ref"] = self._doc.get("qpos_ref", 0.0)
+        self.robot._inner.set_joint(self.id, doc)
 
     @property
     def origin(self) -> Pose:
@@ -1199,6 +1216,15 @@ class Joint(_Handle):
         self._set(mimic=None if value is None else value.to_doc())
 
     @property
+    def qpos_ref(self) -> float:
+        """MJCF's ``<joint ref>``: the ``qpos`` an import's source file put
+        at this joint's authored pose, so ``qpos = q + qpos_ref``; zero for
+        every joint the SDK builds. Read-only — it is the file's record of
+        where its zero was, not a pose to author; move the joint's own
+        :attr:`origin` instead (ADR-0025 §3)."""
+        return self._doc.get("qpos_ref", 0.0)
+
+    @property
     def actuators(self) -> list[Actuator]:
         """Every :class:`Actuator` driving this joint, in creation order.
         Usually none or one; an imported file may have given it several,
@@ -1212,7 +1238,7 @@ class Joint(_Handle):
     def add_actuator(self, spec: ActuatorSpec, *, name: str | None = None) -> Actuator:
         """Gives this joint one more actuator. ``name`` defaults to the
         joint's own, suffixed ``_2``, ``_3``, … if that is taken."""
-        return Actuator(self.robot, self.robot._inner.add_actuator(self.id, spec.to_doc(), name=name))
+        return Actuator(self.robot, self.robot._inner.add_actuator(spec.to_doc(), joint=self.id, name=name))
 
     @property
     def actuator(self) -> ActuatorSpec | None:
@@ -1254,10 +1280,125 @@ class Joint(_Handle):
         return f"Joint({self.name!r}: {self.parent.name!r} -> {self.child.name!r}, {self.kind})"
 
 
+class Tendon(_Handle):
+    """MJCF's ``<tendon><fixed>``: a named linear combination of joint
+    values, ``length = Σ coef · qpos``, that the solver enforces with
+    forces rather than a rule ``fk`` resolves — every joint on it stays
+    free (ADR-0025 §4). ``range`` and ``limited`` are MJCF's own terms,
+    never shifted by a joint's :attr:`Joint.qpos_ref`.
+
+    Reach them through :attr:`Robot.tendons`, :meth:`Robot.tendon` or
+    :meth:`Robot.add_tendon`."""
+
+    __slots__ = ()
+
+    @property
+    def _doc(self) -> _riggen.TendonDoc:
+        try:
+            return self.robot._inner.tendons()[self.id]
+        except KeyError:
+            raise _unknown("tendon", self.id) from None
+
+    def _set(self, **changes: Any) -> None:
+        doc = dict(self._doc)
+        doc.update(changes)
+        self.robot._inner.set_tendon(self.id, doc)  # type: ignore[arg-type]
+
+    @property
+    def name(self) -> str:
+        """Unique among tendons; MJCF namespaces elements by type, so a
+        tendon may answer to a joint's or an actuator's name."""
+        return self._doc["name"]
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self.robot._inner.rename_tendon(self.id, value)
+
+    @property
+    def joints(self) -> dict[Joint, float]:
+        """Each joint on this tendon and its coefficient."""
+        return {Joint(self.robot, j["joint"]): j["coef"] for j in self._doc["joints"]}
+
+    @joints.setter
+    def joints(self, value: dict[Joint | str, float]) -> None:
+        self._set(
+            joints=[
+                {"joint": (self.robot.joint(j).id if isinstance(j, str) else j.id), "coef": float(c)}
+                for j, c in value.items()
+            ]
+        )
+
+    @property
+    def range(self) -> tuple[float, float] | None:
+        """The tendon's own ``qpos``-space range, or ``None``."""
+        r = self._doc["range"]
+        return None if r is None else (r[0], r[1])
+
+    @range.setter
+    def range(self, value: tuple[float, float] | None) -> None:
+        self._set(range=None if value is None else list(_floats(value, 2, "range")))
+
+    @property
+    def limited(self) -> bool | None:
+        """MuJoCo's ``auto | true | false``; ``None`` is ``auto``."""
+        return self._doc["limited"]
+
+    @limited.setter
+    def limited(self, value: bool | None) -> None:
+        self._set(limited=value)
+
+    @property
+    def stiffness(self) -> float:
+        return self._doc["stiffness"]
+
+    @stiffness.setter
+    def stiffness(self, value: float) -> None:
+        self._set(stiffness=float(value))
+
+    @property
+    def damping(self) -> float:
+        return self._doc["damping"]
+
+    @damping.setter
+    def damping(self, value: float) -> None:
+        self._set(damping=float(value))
+
+    @property
+    def frictionloss(self) -> float:
+        return self._doc["frictionloss"]
+
+    @frictionloss.setter
+    def frictionloss(self, value: float) -> None:
+        self._set(frictionloss=float(value))
+
+    @property
+    def actuators(self) -> list[Actuator]:
+        """Every :class:`Actuator` driving this tendon, in creation order."""
+        return [
+            Actuator(self.robot, id)
+            for id, doc in self.robot._inner.actuators().items()
+            if doc["target"].get("Tendon") == self.id
+        ]
+
+    def add_actuator(self, spec: ActuatorSpec, *, name: str | None = None) -> Actuator:
+        """Gives this tendon one more actuator. ``name`` defaults to the
+        tendon's own, suffixed ``_2``, ``_3``, … if that is taken."""
+        return Actuator(self.robot, self.robot._inner.add_actuator(spec.to_doc(), tendon=self.id, name=name))
+
+    def remove(self) -> None:
+        """Removes this tendon **and the actuators driving it** — a removal
+        is a gesture about the tendon, and they undo with it (ADR-0025 §4)."""
+        self.robot._inner.remove_tendon(self.id)
+
+    def __repr__(self) -> str:
+        joints = ", ".join(f"{j.name}*{c:g}" for j, c in self.joints.items())
+        return f"Tendon({self.name!r}: {joints})"
+
+
 def _unknown(kind: str, id: int) -> Exception:
     from .errors import UnknownId
 
-    prefix = {"link": "l", "joint": "j", "geom": "g", "frame": "f"}[kind]
+    prefix = {"link": "l", "joint": "j", "geom": "g", "frame": "f", "actuator": "a", "tendon": "t"}[kind]
     return UnknownId(f"no {kind} {prefix}{id} in the document")
 
 
@@ -1326,9 +1467,14 @@ class Robot:
         return [Frame(self, f) for f in self._inner.frames()]
 
     @property
+    def tendons(self) -> list[Tendon]:
+        """Every fixed tendon, in creation order (ADR-0025 §4)."""
+        return [Tendon(self, t) for t in self._inner.tendons()]
+
+    @property
     def actuators(self) -> list[Actuator]:
         """Every actuator in the model, in creation order — what drives the
-        joints in the exported MJCF (ADR-0023)."""
+        joints or tendons in the exported MJCF (ADR-0023, ADR-0025 §4)."""
         return [Actuator(self, a) for a in self._inner.actuators()]
 
     @property
@@ -1358,6 +1504,15 @@ class Robot:
             raise KeyError(f"no frame named {name!r}")
         return Frame(self, id)
 
+    def tendon(self, name: str) -> Tendon:
+        """The tendon called ``name``; ``KeyError`` when there is none. Its
+        own namespace, so a joint or an actuator may answer to the same
+        name (ADR-0025 §4)."""
+        id = self._inner.tendon(name)
+        if id is None:
+            raise KeyError(f"no tendon named {name!r}")
+        return Tendon(self, id)
+
     def actuator(self, name: str) -> Actuator:
         """The actuator called ``name``; ``KeyError`` when there is none.
         Its own namespace, so a joint may answer to the same name
@@ -1368,6 +1523,35 @@ class Robot:
         return Actuator(self, id)
 
     # -- building ------------------------------------------------------------
+
+    def add_tendon(
+        self,
+        name: str,
+        joints: dict[Joint | str, float],
+        *,
+        range: tuple[float, float] | None = None,
+        limited: bool | None = None,
+        stiffness: float = 0.0,
+        damping: float = 0.0,
+        frictionloss: float = 0.0,
+    ) -> Tendon:
+        """A fixed tendon over ``joints`` (each joint's coefficient, by
+        name or handle, in the order given): MJCF's ``<tendon><fixed>``,
+        ``length = Σ coef · qpos`` — the solver's own coupling, not a
+        reduction ``fk`` derives (ADR-0025 §4). ``range`` and ``limited``
+        are MJCF's own terms, never shifted by a joint's
+        :attr:`Joint.qpos_ref`."""
+        pairs = [((self.joint(j).id if isinstance(j, str) else j.id), float(c)) for j, c in joints.items()]
+        id = self._inner.add_tendon(
+            name,
+            pairs,
+            range=None if range is None else list(_floats(range, 2, "range")),
+            limited=limited,
+            stiffness=stiffness,
+            damping=damping,
+            frictionloss=frictionloss,
+        )
+        return Tendon(self, id)
 
     def add_link(
         self,

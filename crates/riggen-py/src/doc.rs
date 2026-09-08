@@ -4,9 +4,9 @@
 //! (docs/02-data-model.md §Schema) — with one difference: **ids are ints**.
 //! The file writes `"l5"`; Python sees `5`. The keys that hold an id are
 //! fixed by the schema (`id` a geom, `mesh` a mesh, `parent` / `child` a
-//! link, `joint` a mimic's leader, `Joint` an actuator's target), so the
-//! rule is by key and nothing else is touched — a link *named* `"l5"`
-//! lives under `name` and stays a string.
+//! link, `joint` a mimic's leader or a tendon's joint, `Joint` / `Tendon`
+//! an actuator's target), so the rule is by key and nothing else is
+//! touched — a link *named* `"l5"` lives under `name` and stays a string.
 
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -17,15 +17,17 @@ use serde_json::{Map, Number, Value};
 
 /// Schema keys whose value is an id, with the letter the file prefixes it
 /// with (`riggen_core::Id::PREFIX`).
-const ID_KEYS: [(&str, char); 6] = [
+const ID_KEYS: [(&str, char); 7] = [
     ("id", 'g'),
     ("mesh", 'm'),
     ("parent", 'l'),
     ("child", 'l'),
     ("joint", 'j'),
-    // `ActuatorTarget::Joint(JointId)` — an enum variant, so the key is
-    // the variant's own capitalised name (ADR-0023).
+    // `ActuatorTarget::Joint(JointId)` / `ActuatorTarget::Tendon(TendonId)`
+    // — enum variants, so the key is the variant's own capitalised name
+    // (ADR-0023, ADR-0025 §4).
     ("Joint", 'j'),
+    ("Tendon", 't'),
 ];
 
 /// A document value as Python, ids as ints.

@@ -685,6 +685,23 @@ impl Robot {
             .joints
             .get(&joint)
             .map_or("actuator", |j| j.name.as_str());
+        self.free_actuator_name(base)
+    }
+
+    /// The name a new actuator on `tendon` takes: the tendon's own,
+    /// suffixed the same way `default_actuator_name` suffixes a joint's
+    /// (ADR-0025 §4 — a tendon actuator is still in the one actuator
+    /// namespace).
+    pub fn default_tendon_actuator_name(&self, tendon: TendonId) -> String {
+        let base = self
+            .tendons
+            .get(&tendon)
+            .map_or("actuator", |t| t.name.as_str());
+        self.free_actuator_name(base)
+    }
+
+    /// `base`, or `base_2`, `base_3`, … whichever no actuator answers to yet.
+    fn free_actuator_name(&self, base: &str) -> String {
         let taken = |name: &str| self.actuators.values().any(|a| a.name == name);
         if !taken(base) {
             return base.to_owned();

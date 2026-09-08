@@ -18,8 +18,8 @@ use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{
     Actuator, ActuatorId, ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Command,
     Created, Disk, EditError, Frame, FrameId, Geom, GeomId, Id, InertialSpec, Joint, JointId,
-    JointState, Link, LinkId, Material, MeshAsset, MeshId, Pose, Robot, compose_inertial,
-    validation_errors,
+    JointState, Link, LinkId, Material, MeshAsset, MeshId, Pose, Robot, Tendon, TendonId,
+    TendonJoint, compose_inertial, validation_errors,
 };
 use riggen_export::{ExportError, ExportOptions, Format, MeshPathStyle, MeshStore, PackageMap};
 use serde::{Deserialize, Serialize};
@@ -288,6 +288,12 @@ impl PyRobot {
         self.map(py, self.inner.frames.iter().map(|(id, f)| (*id, f)))
     }
 
+    /// `{tendon id: tendon}` — a fixed tendon's joints, range and dynamics
+    /// (ADR-0025 §4).
+    fn tendons(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        self.map(py, self.inner.tendons.iter().map(|(id, t)| (*id, t)))
+    }
+
     /// `{mesh id: asset}`, `path` absolute.
     fn assets(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         self.map(py, self.inner.assets.iter().map(|(id, a)| (*id, a)))
@@ -322,6 +328,16 @@ impl PyRobot {
             .frames
             .iter()
             .find(|(_, f)| f.name == name)
+            .map(|(id, _)| id.raw())
+    }
+
+    /// The id of the tendon called `name`, or `None`. Its own namespace: a
+    /// joint or an actuator may answer to the same name (ADR-0025 §4).
+    fn tendon(&self, name: &str) -> Option<u32> {
+        self.inner
+            .tendons
+            .iter()
+            .find(|(_, t)| t.name == name)
             .map(|(id, _)| id.raw())
     }
 
@@ -517,6 +533,70 @@ impl PyRobot {
         Ok(())
     }
 
+    // ---- tendons ------------------------------------------------------------
+
+    /// `AddTendon`: a fixed tendon over `joints` (each `(joint id, coef)`,
+    /// in the order given), `range` / `limited` in MJCF's own terms — never
+    /// shifted by a joint's `qpos_ref` (ADR-0025 §4). Returns its id.
+    #[pyo3(signature = (name, joints, *, range = None, limited = None, stiffness = 0.0, damping = 0.0, frictionloss = 0.0))]
+    #[allow(clippy::too_many_arguments)]
+    fn add_tendon(
+        &mut self,
+        py: Python<'_>,
+        name: String,
+        joints: Vec<(u32, f64)>,
+        range: Option<[f64; 2]>,
+        limited: Option<bool>,
+        stiffness: f64,
+        damping: f64,
+        frictionloss: f64,
+    ) -> PyResult<u32> {
+        let tendon = Tendon {
+            name,
+            joints: joints
+                .into_iter()
+                .map(|(joint, coef)| TendonJoint {
+                    joint: JointId::from_raw(joint),
+                    coef,
+                })
+                .collect(),
+            range,
+            limited,
+            stiffness,
+            damping,
+            frictionloss,
+        };
+        Ok(self
+            .edit(py, Command::AddTendon(tendon))?
+            .and_then(Created::tendon)
+            .expect("AddTendon returns the tendon it created")
+            .raw())
+    }
+
+    /// `RemoveTendon`: the tendon and the actuators driving it (ADR-0025 §4).
+    fn remove_tendon(&mut self, py: Python<'_>, tendon: u32) -> PyResult<()> {
+        self.edit(py, Command::RemoveTendon(TendonId::from_raw(tendon)))?;
+        Ok(())
+    }
+
+    fn rename_tendon(&mut self, py: Python<'_>, tendon: u32, name: String) -> PyResult<()> {
+        self.edit(py, Command::RenameTendon(TendonId::from_raw(tendon), name))?;
+        Ok(())
+    }
+
+    /// `SetTendon`: name, joints, coefficients, range and dynamics in one
+    /// value.
+    fn set_tendon(
+        &mut self,
+        py: Python<'_>,
+        tendon: u32,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let value: Tendon = from_doc(value, "tendon")?;
+        self.edit(py, Command::SetTendon(TendonId::from_raw(tendon), value))?;
+        Ok(())
+    }
+
     // ---- actuators --------------------------------------------------------
 
     /// The id of the actuator called `name`, or `None`. Its own namespace:
@@ -529,25 +609,38 @@ impl PyRobot {
             .map(|(id, _)| id.raw())
     }
 
-    /// `AddActuator`: one actuator on `joint` under `name`, or under the
-    /// joint's own name when `name` is `None` (ADR-0023). Returns its id.
-    #[pyo3(signature = (joint, spec, *, name = None))]
+    /// `AddActuator`: one actuator on `joint` or on `tendon` (exactly one of
+    /// the two), under `name`, or under the target's own name when `name`
+    /// is `None` (ADR-0023, ADR-0025 §4). Returns its id.
+    #[pyo3(signature = (spec, *, joint = None, tendon = None, name = None))]
     fn add_actuator(
         &mut self,
         py: Python<'_>,
-        joint: u32,
         spec: &Bound<'_, PyAny>,
+        joint: Option<u32>,
+        tendon: Option<u32>,
         name: Option<String>,
     ) -> PyResult<u32> {
-        let joint = JointId::from_raw(joint);
+        let target = match (joint, tendon) {
+            (Some(joint), None) => ActuatorTarget::Joint(JointId::from_raw(joint)),
+            (None, Some(tendon)) => ActuatorTarget::Tendon(TendonId::from_raw(tendon)),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "add_actuator needs exactly one of joint or tendon",
+                ));
+            }
+        };
         let spec: ActuatorSpec = from_doc(spec, "actuator")?;
-        let name = name.unwrap_or_else(|| self.inner.default_actuator_name(joint));
+        let name = name.unwrap_or_else(|| match target {
+            ActuatorTarget::Joint(joint) => self.inner.default_actuator_name(joint),
+            ActuatorTarget::Tendon(tendon) => self.inner.default_tendon_actuator_name(tendon),
+        });
         Ok(self
             .edit(
                 py,
                 Command::AddActuator(Actuator {
                     name,
-                    target: ActuatorTarget::Joint(joint),
+                    target,
                     spec,
                     ranges: ActuatorRanges::default(),
                 }),
