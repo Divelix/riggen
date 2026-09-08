@@ -298,16 +298,26 @@ drops, and each is a backlog line this section now owns.
   `forcelimited` its file said, schema 5, so a `<position>` that named no
   range no longer comes back clamped to the joint's. Gains through a
   `<default class>` are read. The corpus joined the `mujoco` job, its
-  re-export compared with the original actuator by actuator; what it
-  still drops is `grip`, the tendon target. `<adhesion>` (a body target)
-  and `<muscle>` (needs a `lengthrange` riggen does not compute) stay
-  dropped by name and travel with the couplings bullet, by the human's
-  decision.
-- **Couplings the document cannot hold.** Mimic chains — a follower whose
-  leader also follows — turning `fk::resolve_q`'s one pass into a
-  topological one, no schema change; `<joint ref>`, which moves a joint's
-  zero and is warned and ignored today; `<tendon><fixed>` for a coupling
-  that really is a cable, beside the `<equality>` a mimic writes.
+  re-export compared with the original actuator by actuator — `grip`, the
+  tendon target, left the drop list once the couplings bullet gave
+  `ActuatorTarget` its second variant. `<adhesion>` (a body target) and
+  `<muscle>` (needs a `lengthrange` riggen does not compute) stay dropped
+  by name: a tendon in the document makes both *possible*, but neither is
+  a coupling, so both stayed a `docs/BACKLOG.md` line by the human's
+  decision (OPEN 1, plans/couplings).
+- **Couplings the document cannot hold.** *Landed (plans/couplings,
+  ADR-0025).* Mimic chains — a follower whose leader also follows —
+  resolve through one topological pass of `fk::resolve_q`; only a *cycle*
+  is refused. `<joint ref>` is kept as `Joint::qpos_ref`, an MJCF-only
+  offset over a `q` that stays the deviation from the authored pose,
+  shifting `range` and a derived `ctrlrange` on the way out and back on
+  the way in; nothing else learns the field exists. `<tendon><fixed>` is
+  `Robot::tendons`, a named linear combination of joint values held in
+  MJCF's own `qpos` terms, driven by the `ActuatorTarget` variant the
+  escape-hatch bullet left room for. Schema 6. The corpus gained a chain,
+  a `ref`, and a two-joint tendon, and the `mujoco` job now compares its
+  `<equality>` and `<tendon>` blocks with the original's the way it
+  already compared `<actuator>` — `ROUND_TRIP_DROPPED` is empty.
 - **Geometry the import refuses.** *Landed (plans/mjcf-mesh-geometry).* `.msh`
   meshes and an inline `<mesh vertex face>` read as an ordinary `Geom` on an
   ordinary mesh asset — no more `GeomDropped` for either; a file-less inline

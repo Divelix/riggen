@@ -24,14 +24,16 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 with scrubbers, joints the only pick, wheel drives a hovered joint, a
 glyph for range and value, zen on `Z` — with Tab to **Edit** (ADR-0021).
 A `<body>` with several `<joint>`s stays refused (**ADR-0022**). The file
-half is under way: `Robot::actuators` (ADR-0023), `.msh` / inline mesh
-geometry, and the escape hatch (ADR-0024, retired 2026-09-08) — `<general>`
-as a fourth `ActuatorSpec`, the ranges on the actuator at **schema 5**,
-the corpus in the `mujoco` job compared with its original actuator by
-actuator. **Next:** the couplings (mimic chains, `<joint ref>`, `<tendon>`)
-and composition (`<include>` / `<attach>` / `<frame>`). **Before it:**
-v0.3 (`v0.3.0`) paid down the hand-feel debt (ADR-0018/19/20); v0.2
-(`v0.2.1`) made "sim-ready" a feature — SDK wheel, V-HACD, frames /
+half: `Robot::actuators` (ADR-0023), `.msh` / inline mesh geometry, the
+escape hatch (ADR-0024) — `<general>` as a fourth `ActuatorSpec`, ranges
+on the actuator at schema 5 — and couplings (**ADR-0025**, retired
+2026-09-09) — mimic chains resolved by one topological pass, `<joint ref>`
+as `Joint::qpos_ref`, `<tendon><fixed>` as `Robot::tendons` with its own
+`ActuatorTarget` variant, schema 6; the corpus's `<equality>` and
+`<tendon>` blocks now compared with the original's too, `grip` off the
+drop list. **Next:** composition (`<include>` / `<attach>` / `<frame>`).
+**Before it:** v0.3 (`v0.3.0`) paid down the hand-feel debt (ADR-0018/19/20);
+v0.2 (`v0.2.1`) made "sim-ready" a feature — SDK wheel, V-HACD, frames /
 mimics / actuators, MJCF import, SDF export, the web demo (ADR-0009 to
 0017); M4 the wheel; M3 writers, URDF import, inertials, collision; M2
 the mouse-only arm; M1 the document and `.riggen`; M0 the viewport.
