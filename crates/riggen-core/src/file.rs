@@ -1,4 +1,4 @@
-//! The `.riggen` file: `{ "schema_version": 5, "robot": Robot }` as JSON
+//! The `.riggen` file: `{ "schema_version": 6, "robot": Robot }` as JSON
 //! (docs/01-architecture.md §File format, docs/02-data-model.md §Schema).
 //!
 //! Mesh paths are **absolute in memory and relative to the file on disk**
@@ -27,9 +27,10 @@ use crate::ids::MeshId;
 use crate::robot::Robot;
 use crate::validate::{ValidationError, validate};
 
-/// The version this build writes and the newest it reads. 5 since
-/// `Actuator::ranges` (ADR-0024); 4 was `Robot::actuators` (ADR-0023).
-pub const SCHEMA_VERSION: u32 = 5;
+/// The version this build writes and the newest it reads. 6 since
+/// `Joint::qpos_ref` (ADR-0025); 5 was `Actuator::ranges` (ADR-0024), 4
+/// `Robot::actuators` (ADR-0023).
+pub const SCHEMA_VERSION: u32 = 6;
 
 /// The oldest version [`load`] still accepts, upgrading it on the way in.
 pub const OLDEST_SCHEMA_VERSION: u32 = 1;
@@ -339,6 +340,7 @@ pub fn load_from(
             2 => upgrade_v2_to_v3(&mut doc),
             3 => upgrade_v3_to_v4(&mut doc),
             4 => upgrade_v4_to_v5(&mut doc),
+            5 => upgrade_v5_to_v6(&mut doc),
             _ => unreachable!("no upgrade step from schema {from}"),
         }
     }
@@ -440,6 +442,13 @@ fn upgrade_v3_to_v4(doc: &mut serde_json::Value) {
 /// default (every range and flag `None`: the writer derives them from the
 /// joint) is exactly what a v4 document meant.
 fn upgrade_v4_to_v5(_doc: &mut serde_json::Value) {}
+
+/// v5 → v6: `Joint::qpos_ref` (ADR-0025 §3), empty for the same reason as
+/// v1 → v2, v2 → v3 and v4 → v5 — a v5 joint has no `qpos_ref` key, and
+/// serde's default of `0.0` is exactly what it meant: the document's `q`
+/// was already the deviation from the authored pose, and nothing riggen
+/// wrote ever moved MuJoCo's zero.
+fn upgrade_v5_to_v6(_doc: &mut serde_json::Value) {}
 
 /// `target` expressed relative to `dir`, with `..` where needed and forward
 /// slashes. Both must be absolute. A target on another Windows drive has no
@@ -610,7 +619,7 @@ mod tests {
         save(&robot, &file).unwrap();
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(
-            text.starts_with("{\n  \"schema_version\": 5,\n  \"robot\": {"),
+            text.starts_with("{\n  \"schema_version\": 6,\n  \"robot\": {"),
             "{text}"
         );
         assert!(text.contains("\"path\": \"base.stl\""), "{text}");
@@ -707,7 +716,7 @@ mod tests {
             std::fs::write(
                 &file,
                 text.replacen(
-                    "\"schema_version\": 5",
+                    "\"schema_version\": 6",
                     &format!("\"schema_version\": {bogus}"),
                     1,
                 ),
@@ -718,7 +727,7 @@ mod tests {
                 matches!(err, FileError::UnsupportedVersion { found, .. } if found == bogus),
                 "{err:?}"
             );
-            assert!(err.to_string().contains("1–5"), "{err}");
+            assert!(err.to_string().contains("1–6"), "{err}");
         }
         std::fs::write(&file, &text).unwrap();
         // A hand-edited file that breaks an invariant.
@@ -766,8 +775,8 @@ mod tests {
         // `frames` is a v1 field that finally holds something, so the
         // schema does not move.
         assert_eq!(
-            SCHEMA_VERSION, 5,
-            "the actuator ranges are schema 5 (ADR-0024)"
+            SCHEMA_VERSION, 6,
+            "`Joint::qpos_ref` is schema 6 (ADR-0025)"
         );
         assert_eq!(robot.frames.len(), 2);
         let frame = |n: &str| robot.frames.values().find(|f| f.name == n).unwrap();
@@ -925,18 +934,18 @@ mod tests {
         }
         save(&relocated, &again).unwrap();
         let upgraded = std::fs::read_to_string(&again).unwrap();
-        assert!(upgraded.contains("\"schema_version\": 5"), "{upgraded}");
+        assert!(upgraded.contains("\"schema_version\": 6"), "{upgraded}");
         assert!(upgraded.contains("\"mimic\": null"), "{upgraded}");
         assert!(upgraded.contains("\"actuators\": {}"), "{upgraded}");
         assert_eq!(load(&again).unwrap().0, relocated);
     }
 
     /// A v2 document — one written before `Joint::actuator` existed
-    /// (ADR-0014) — opens with an empty table and re-saves as v5. Built by
-    /// dropping the actuators back out of the committed v5 fixture, so it
+    /// (ADR-0014) — opens with an empty table and re-saves as v6. Built by
+    /// dropping the actuators back out of the committed fixture, so it
     /// is a whole real document rather than a fragment (§Schema).
     #[test]
-    fn a_v2_file_opens_as_v5_with_no_actuators() {
+    fn a_v2_file_opens_as_v6_with_no_actuators() {
         let dir = scratch("v2");
         std::fs::copy(fixtures().join("bracket.stl"), dir.join("bracket.stl")).unwrap();
         let text = std::fs::read_to_string(fixtures().join("bracket.riggen")).unwrap();
@@ -948,7 +957,7 @@ mod tests {
                 .unwrap()
                 .remove("actuators")
                 .is_some_and(|a| !a.as_object().unwrap().is_empty()),
-            "the v5 fixture has the table this drops"
+            "the committed fixture has the table this drops"
         );
         let old = serde_json::to_string_pretty(&doc).unwrap();
         assert!(!old.contains("actuator"), "{old}");
@@ -960,29 +969,32 @@ mod tests {
         assert!(robot.actuators.is_empty());
         save(&robot, &file).unwrap();
         let upgraded = std::fs::read_to_string(&file).unwrap();
-        assert!(upgraded.contains("\"schema_version\": 5"), "{upgraded}");
+        assert!(upgraded.contains("\"schema_version\": 6"), "{upgraded}");
         assert!(upgraded.contains("\"actuators\": {}"), "{upgraded}");
         assert_eq!(load(&file).unwrap().0, robot);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A v4 document — the table, but no `Actuator::ranges` (ADR-0024) —
-    /// opens with every range and flag `None` and re-saves as v5. Built by
-    /// dropping the `ranges` key back out of the committed v5 fixture, the
+    /// opens with every range and flag `None` and re-saves as v6. Built by
+    /// dropping the `ranges` key back out of the committed fixture, the
     /// way the v2 one above drops the table (§Schema).
     #[test]
-    fn a_v4_file_opens_as_v5_with_the_writer_deriving_every_range() {
+    fn a_v4_file_opens_as_v6_with_the_writer_deriving_every_range() {
         let dir = scratch("v4");
         std::fs::copy(fixtures().join("bracket.stl"), dir.join("bracket.stl")).unwrap();
         let text = std::fs::read_to_string(fixtures().join("bracket.riggen")).unwrap();
         let mut doc: serde_json::Value = serde_json::from_str(&text).unwrap();
         doc["schema_version"] = 4.into();
         let table = doc["robot"]["actuators"].as_object_mut().unwrap();
-        assert!(!table.is_empty(), "the v5 fixture has an actuator to strip");
+        assert!(
+            !table.is_empty(),
+            "the committed fixture has an actuator to strip"
+        );
         for entry in table.values_mut() {
             assert!(
                 entry.as_object_mut().unwrap().remove("ranges").is_some(),
-                "the v5 fixture writes the ranges key"
+                "the committed fixture writes the ranges key"
             );
         }
         let old = serde_json::to_string_pretty(&doc).unwrap();
@@ -1006,11 +1018,57 @@ mod tests {
         for asset in relocated.assets.values_mut() {
             asset.path = dir.join(asset.path.file_name().unwrap());
         }
-        assert_eq!(robot, relocated, "a v4 file means what a v5 one does");
+        assert_eq!(robot, relocated, "a v4 file means what a v6 one does");
         save(&robot, &file).unwrap();
         let upgraded = std::fs::read_to_string(&file).unwrap();
-        assert!(upgraded.contains("\"schema_version\": 5"), "{upgraded}");
+        assert!(upgraded.contains("\"schema_version\": 6"), "{upgraded}");
         assert!(upgraded.contains("\"ranges\": {"), "{upgraded}");
+        assert_eq!(load(&file).unwrap().0, robot);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A v5 document — everything today's has but `Joint::qpos_ref`
+    /// (ADR-0025 §3) — opens with every joint's ref at zero and re-saves
+    /// as v6. Built by dropping the key back out of the committed fixture,
+    /// the way the v2 and v4 ones above drop theirs (§Schema).
+    #[test]
+    fn a_v5_file_opens_as_v6_with_every_joint_at_its_authored_zero() {
+        let dir = scratch("v5");
+        std::fs::copy(fixtures().join("bracket.stl"), dir.join("bracket.stl")).unwrap();
+        let text = std::fs::read_to_string(fixtures().join("bracket.riggen")).unwrap();
+        let mut doc: serde_json::Value = serde_json::from_str(&text).unwrap();
+        doc["schema_version"] = 5.into();
+        let joints = doc["robot"]["joints"].as_object_mut().unwrap();
+        assert!(!joints.is_empty(), "the committed fixture has a joint");
+        for joint in joints.values_mut() {
+            assert!(
+                joint.as_object_mut().unwrap().remove("qpos_ref").is_some(),
+                "the committed fixture writes the qpos_ref key"
+            );
+        }
+        let old = serde_json::to_string_pretty(&doc).unwrap();
+        assert!(!old.contains("qpos_ref"), "{old}");
+        let file = dir.join("bracket.riggen");
+        std::fs::write(&file, &old).unwrap();
+
+        let (robot, warnings) = load(&file).unwrap();
+        assert_eq!(warnings, vec![]);
+        assert!(
+            robot.joints.values().all(|j| j.qpos_ref == 0.0),
+            "{:?}",
+            robot.joints
+        );
+        // Relocated the way the fixture tests do, so the generator's
+        // absolute mesh path and this copy's agree.
+        let mut relocated = bracket_sample();
+        for asset in relocated.assets.values_mut() {
+            asset.path = dir.join(asset.path.file_name().unwrap());
+        }
+        assert_eq!(robot, relocated, "a v5 file means what a v6 one does");
+        save(&robot, &file).unwrap();
+        let upgraded = std::fs::read_to_string(&file).unwrap();
+        assert!(upgraded.contains("\"schema_version\": 6"), "{upgraded}");
+        assert!(upgraded.contains("\"qpos_ref\": 0"), "{upgraded}");
         assert_eq!(load(&file).unwrap().0, robot);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1018,7 +1076,7 @@ mod tests {
     /// `assets/fixtures/driven.riggen`, the **v3** corpus and frozen at 3
     /// forever: the first upgrade step that is not empty needs a real old
     /// document to move, and the two byte-for-byte fixtures cannot be it —
-    /// they re-save at 4 (§Schema, ADR-0023). Small and mesh-less on
+    /// they re-save at `SCHEMA_VERSION` (§Schema, ADR-0023). Small and mesh-less on
     /// purpose, so the migration is pinned entry by entry in a diff a human
     /// can read.
     #[test]
@@ -1070,12 +1128,12 @@ mod tests {
             "13 in the file, two allocated by the upgrade"
         );
 
-        // And the upgraded document re-saves as v4 and reopens unchanged.
+        // And the upgraded document re-saves as v6 and reopens unchanged.
         let dir = scratch("driven");
         let again = dir.join("driven.riggen");
         save(&robot, &again).unwrap();
         let upgraded = std::fs::read_to_string(&again).unwrap();
-        assert!(upgraded.contains("\"schema_version\": 5"), "{upgraded}");
+        assert!(upgraded.contains("\"schema_version\": 6"), "{upgraded}");
         assert!(!upgraded.contains("\"actuator\":"), "{upgraded}");
         assert_eq!(load(&again).unwrap().0, robot);
         std::fs::remove_dir_all(&dir).unwrap();

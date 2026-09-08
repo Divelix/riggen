@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "robot": {
     "name": "arm",
     "links": {
@@ -165,7 +165,8 @@
           "friction": 0.0,
           "armature": 0.0
         },
-        "mimic": null
+        "mimic": null,
+        "qpos_ref": 0.0
       },
       "j8": {
         "name": "shoulder_joint",
@@ -201,7 +202,8 @@
           "friction": 0.0,
           "armature": 0.0
         },
-        "mimic": null
+        "mimic": null,
+        "qpos_ref": 0.0
       },
       "j12": {
         "name": "upper_joint",
@@ -237,7 +239,8 @@
           "friction": 0.0,
           "armature": 0.0
         },
-        "mimic": null
+        "mimic": null,
+        "qpos_ref": 0.0
       },
       "j16": {
         "name": "fore_joint",
@@ -277,7 +280,8 @@
           "joint": "j12",
           "multiplier": -0.5,
           "offset": 0.1
-        }
+        },
+        "qpos_ref": 0.0
       }
     },
     "frames": {

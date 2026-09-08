@@ -85,6 +85,7 @@ pub struct Joint {
     pub limits: Option<Limits>, // required for Revolute/Prismatic, absent for Continuous
     pub dynamics: Dynamics,     // damping, friction, armature (MJCF); defaults zero
     pub mimic: Option<Mimic>,   // this joint follows another one (ADR-0013); schema 2
+    pub qpos_ref: f64,          // MJCF <joint ref>: qpos = q + qpos_ref (ADR-0025); schema 6
 }
 
 /// q(this) = multiplier * q(joint) + offset — URDF's <mimic> (ADR-0013).
@@ -203,8 +204,8 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
 - A movable joint's `axis` is finite and non-zero; the properties panel
   normalises it on commit.
 - A `Revolute`/`Prismatic` joint has `limits` with `lower <= upper`. Joint
-  origins, joint limits, frame poses and material densities are finite, and
-  densities are non-negative. Geom poses and an `Override` inertial's
+  origins, joint limits, `qpos_ref`, frame poses and material densities are
+  finite, and densities are non-negative. Geom poses and an `Override` inertial's
   numbers are **not** checked — a backlog line, not a rule.
 - A `Mimic`'s leader exists, is movable and is not the follower itself. It
   **may itself follow** — a chain resolves (ADR-0025) — but a ring of
@@ -930,7 +931,7 @@ four vertices.
 
 ## Schema
 
-`{ "schema_version": 5, "robot": Robot }`. `Robot` derives
+`{ "schema_version": 6, "robot": Robot }`. `Robot` derives
 `serde::{Serialize, Deserialize}` with `#[serde(deny_unknown_fields)]` on
 every struct (the envelope too) so a typo in a hand-edited file fails loudly
 with the field's name, and `#[serde(default)]` only on fields added in a
@@ -953,18 +954,18 @@ parse at all reports one. `assets/fixtures/pendulum.riggen` (base + arm from the
 fixtures, one revolute hinge, produced by `save` itself) is the first corpus
 file and is frozen at **schema 1**: it is what the upgrade chain reads, and
 `file::tests::corpus_pendulum_opens` keeps it opening forever and re-saving
-as a v5 document that round-trips. `assets/fixtures/driven.riggen` is the
+as a v6 document that round-trips. `assets/fixtures/driven.riggen` is the
 second, frozen at **schema 3**: small, mesh-less and hand-written, it is
 what the first *non-empty* step moves, and
 `file::tests::corpus_driven_upgrades_its_actuators_into_the_table` pins that
-migration entry by entry. The byte-for-byte fixtures are the v5 ones,
+migration entry by entry. The byte-for-byte fixtures are the v6 ones,
 `bracket.riggen` and `arm/arm.riggen`.
 
 **Schema 2** adds `Joint::mimic` (ADR-0013) and **schema 3** adds
 `Joint::actuator` (ADR-0014). Both `upgrade_` steps are empty for the same
 reason — an older file simply has no such key and `#[serde(default)]` fills
 in the `None` it meant — and they are the first two links of the chain
-`load` walks; `file::tests::a_v2_file_opens_as_v5_with_no_actuators` pins
+`load` walks; `file::tests::a_v2_file_opens_as_v6_with_no_actuators` pins
 the second, from a v2 document made by dropping the actuators back out of
 the committed fixture.
 
@@ -981,9 +982,17 @@ would refuse a v3 file before any step could move it.
 empty for schema 2's and 3's reason: a v4 actuator has no `ranges` key,
 and the `#[serde(default)]` — every range and flag `None`, the writer
 deriving all four from the joint — is what a v4 document meant.
-`file::tests::a_v4_file_opens_as_v5_with_the_writer_deriving_every_range`
+`file::tests::a_v4_file_opens_as_v6_with_the_writer_deriving_every_range`
 pins it, from a v4 document made by dropping the `ranges` keys back out
 of the committed fixture.
+
+**Schema 6** adds `Joint::qpos_ref` (ADR-0025 §3), and `upgrade_v5_to_v6`
+is empty for the same reason again: a v5 joint has no `qpos_ref` key, and
+the default of `0.0` is what it meant — the document's `q` was already the
+deviation from the authored pose, and nothing riggen wrote ever moved
+MuJoCo's zero.
+`file::tests::a_v5_file_opens_as_v6_with_every_joint_at_its_authored_zero`
+pins it, from a v5 document made the same way.
 
 `CollisionPolicy::ConvexDecomposition`'s `resolution` and `concavity` are so
 far the only fields added after their variant existed, and they are the

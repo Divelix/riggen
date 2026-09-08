@@ -232,6 +232,7 @@ mod tests {
                 },
                 dynamics: Default::default(),
                 mimic: None,
+                qpos_ref: 0.0,
             },
         );
     }

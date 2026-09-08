@@ -646,6 +646,9 @@ impl Import<'_> {
                 armature: self.num(jn, "armature")?.unwrap_or(0.0),
             },
             mimic: None,
+            // `<joint ref>` is dropped above; step 6 of plans/couplings
+            // reads it.
+            qpos_ref: 0.0,
         })
     }
 

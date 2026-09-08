@@ -150,6 +150,8 @@ pub fn from_urdf(
                 // A `<mimic>` may name a joint further down the file, so
                 // the couplings are resolved in a second pass below.
                 mimic: None,
+                // URDF has no `<joint ref>` (ADR-0025 §3).
+                qpos_ref: 0.0,
             },
         );
         joint_ids.insert(joint.name.as_str(), id);

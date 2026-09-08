@@ -106,6 +106,13 @@ pub struct Joint {
     /// Added in schema 2, hence the `default`: a v1 file has no such key.
     #[serde(default)]
     pub mimic: Option<Mimic>,
+    /// MJCF's `<joint ref>`: the value of MuJoCo's `qpos` at which the
+    /// child link sits at its authored pose. The document's own `q` is the
+    /// **deviation** from that pose, so `qpos = q + qpos_ref` and nothing
+    /// but the MJCF reader, the MJCF writer and `--fk-samples` reads this
+    /// field (ADR-0025 §3). Added in schema 6, hence the `default`.
+    #[serde(default)]
+    pub qpos_ref: f64,
 }
 
 /// A coupled degree of freedom: `q(this) = multiplier * q(joint) + offset`
@@ -351,6 +358,7 @@ impl Joint {
             limits: None,
             dynamics: Dynamics::default(),
             mimic: None,
+            qpos_ref: 0.0,
         }
     }
 }

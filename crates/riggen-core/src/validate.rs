@@ -519,6 +519,13 @@ fn check_joints(robot: &Robot, errors: &mut Vec<ValidationError>) {
         if joint.kind.is_movable() && (!joint.axis.is_finite() || joint.axis.length() == 0.0) {
             errors.push(ValidationError::ZeroAxis(jid));
         }
+        // `qpos_ref` reaches MJCF's `<joint ref>` untouched (ADR-0025 §3),
+        // and shifts the range the writer derives from it.
+        if !joint.qpos_ref.is_finite() {
+            errors.push(ValidationError::NonFinite {
+                what: format!("qpos_ref of joint {jid}"),
+            });
+        }
         match joint.limits {
             None if joint.kind.requires_limits() => {
                 errors.push(ValidationError::MissingLimits(jid));

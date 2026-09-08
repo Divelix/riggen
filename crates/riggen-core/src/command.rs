@@ -1612,6 +1612,31 @@ mod tests {
         assert_eq!(validate(&robot), Ok(()));
     }
 
+    /// `qpos_ref` is part of the joint, so one `SetJoint` carries it the
+    /// way it carries `mimic` — and a non-finite one is refused, like every
+    /// other number in the document (ADR-0025 §3).
+    #[test]
+    fn set_joint_carries_qpos_ref_and_refuses_a_non_finite_one() {
+        let (mut robot, [arm, _, _, _]) = arm();
+        let shoulder = robot.parent_joint(arm).unwrap();
+        let mut edited = robot.joints[&shoulder].clone();
+        edited.qpos_ref = 0.25;
+        apply(&mut robot, Command::SetJoint(shoulder, edited.clone())).unwrap();
+        assert_eq!(robot.joints[&shoulder].qpos_ref, 0.25);
+
+        edited.qpos_ref = f64::NAN;
+        let err = apply(&mut robot, Command::SetJoint(shoulder, edited)).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                EditError::Invalid(ValidationError::NonFinite { what })
+                    if what.contains("qpos_ref")
+            ),
+            "{err:?}"
+        );
+        assert_eq!(robot.joints[&shoulder].qpos_ref, 0.25, "and nothing moved");
+    }
+
     /// "Apply to every movable joint" is one command and one undo, and it
     /// skips what `validate` would refuse rather than failing (ADR-0014).
     #[test]

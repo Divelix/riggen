@@ -142,7 +142,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   joint that would not close a cycle; the joint tree shows a chain
   follower read-only at its resolved value. Snapshot
   `joint_tree_chain`; `properties_joint_mimic` re-read if it moves.
-- [ ] **[2]** Step 5 — core + file: `Joint::qpos_ref`, schema 6 (the
+- [x] **[2]** Step 5 — core + file: `Joint::qpos_ref`, schema 6 (the
   bump this plan makes once; `tendons` lands at the same version in step
   7). `validate` finite; `file` test `a_v5_file_opens_as_v6_…`; the v6
   fixtures re-saved; `Command::SetJoint` carries it like `mimic`.
