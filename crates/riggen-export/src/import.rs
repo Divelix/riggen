@@ -71,8 +71,9 @@ pub enum ImportWarning {
     // name, whichever file it came out of.
     // ---------------------------------------------------------------
     /// An element — or a robot-changing attribute — the document has no
-    /// field for: `<tendon>`, `<sensor>`, `<contact>`, `<joint ref>`. One
-    /// warning per name with a count, not one per occurrence (ADR-0015 §1).
+    /// field for: `<tendon>`, `<sensor>`, `<contact>`, `<general actdim>`.
+    /// One warning per name with a count, not one per occurrence (ADR-0015
+    /// §1).
     ElementDropped {
         element: String,
         count: usize,

@@ -77,6 +77,9 @@ pub struct SampledGeneral {
 
 #[derive(Debug, Serialize)]
 pub struct Sample {
+    /// MuJoCo's `qpos`, one per `joints` entry: the document's `q` plus the
+    /// joint's `qpos_ref` (ADR-0025 §3), so `check_fk` can hand it to
+    /// `data.qpos` whole.
     pub q: Vec<f64>,
     /// World pose per link name (an MJCF `<body>`).
     pub links: BTreeMap<String, WorldPose>,
@@ -107,7 +110,9 @@ impl WorldPose {
 ///
 /// Each range is **the actuator's own, else the joint's**: what the file
 /// said stands, and only where it said nothing is one derived from the
-/// driven joint — and not even then when the file's flag says `false`,
+/// driven joint — a position servo's from the joint's range, shifted by
+/// its `qpos_ref` into the `qpos` terms MJCF keeps a `ctrlrange` in
+/// (ADR-0025 §3) — and not even then when the file's flag says `false`,
 /// which is an imported actuator that meant unlimited. The flag MuJoCo
 /// ends up with is the written one, else `autolimits`' rule over the
 /// range that was written.
@@ -128,7 +133,9 @@ fn actuators(robot: &Robot) -> Vec<SampledActuator> {
             let (gains, derived_ctrl) = match *actuator {
                 ActuatorSpec::Position { kp, kv } => (
                     BTreeMap::from([("kp".to_owned(), kp), ("kv".to_owned(), kv)]),
-                    joint.limits.map(|l| [l.lower, l.upper]),
+                    joint
+                        .limits
+                        .map(|l| [l.lower + joint.qpos_ref, l.upper + joint.qpos_ref]),
                 ),
                 ActuatorSpec::Velocity { kv } => (
                     BTreeMap::from([("kv".to_owned(), kv)]),
@@ -203,9 +210,13 @@ pub fn samples(robot: &Robot) -> Samples {
         }
         // A follower's slot holds its **derived** value, not the fraction
         // rule's (ADR-0013), so `q` is a `qpos` MuJoCo can be given whole
-        // — the equality is soft and would otherwise fight it.
+        // — the equality is soft and would otherwise fight it. And it is
+        // `qpos`, not the document's `q`: MJCF adds `ref` (ADR-0025 §3).
         let state = resolve_q(robot, &state);
-        let q: Vec<f64> = movable.iter().map(|(id, _)| state.get(**id)).collect();
+        let q: Vec<f64> = movable
+            .iter()
+            .map(|(id, j)| state.get(**id) + j.qpos_ref)
+            .collect();
         let world = fk(robot, &state);
         let links = robot
             .links
@@ -390,6 +401,73 @@ mod tests {
         let first: Vec<f64> = s.samples.iter().map(|s| s.q[0]).collect();
         assert_eq!(first.len(), 5);
         assert!(first.windows(2).any(|w| w[0] != w[1]));
+    }
+
+    /// `q` in the samples is MuJoCo's `qpos` — the document's `q` plus the
+    /// joint's `qpos_ref` (ADR-0025 §3) — and a position servo's derived
+    /// `ctrlrange` is shifted the same way, as the MJCF writer shifts the
+    /// `<joint range>` it repeats. A follower's rule is over the document's
+    /// `q`, so its `qpos` is the derived deviation plus its *own* ref.
+    #[test]
+    fn qpos_ref_shifts_the_sampled_q_and_a_derived_ctrlrange() {
+        let mut robot = Robot::new("r");
+        let root = robot.root;
+        let limits = Some(Limits {
+            lower: -1.0,
+            upper: 1.0,
+            effort: 1.0,
+            velocity: 1.0,
+        });
+        for (name, link) in [("j1", "a"), ("j2", "b")] {
+            Command::AddLink {
+                link: Box::new(Link::new(link)),
+                parent: root,
+                joint: Joint {
+                    kind: JointKind::Revolute,
+                    axis: DVec3::Z,
+                    origin: Pose::from_translation(DVec3::X),
+                    limits,
+                    ..Joint::fixed(name, root, root)
+                },
+            }
+            .apply(&mut robot)
+            .unwrap();
+        }
+        let id = |n: &str| *robot.joints.iter().find(|(_, j)| j.name == n).unwrap().0;
+        let (leader, follower) = (id("j1"), id("j2"));
+        robot.joints.get_mut(&leader).unwrap().qpos_ref = 0.25;
+        let f = robot.joints.get_mut(&follower).unwrap();
+        f.qpos_ref = -0.5;
+        f.mimic = Some(riggen_core::Mimic {
+            joint: leader,
+            multiplier: -0.5,
+            offset: 0.1,
+        });
+        riggen_core::Command::AddActuator(riggen_core::Actuator {
+            name: "servo".into(),
+            target: riggen_core::ActuatorTarget::Joint(leader),
+            spec: ActuatorSpec::Position { kp: 10.0, kv: 1.0 },
+            ranges: riggen_core::ActuatorRanges::default(),
+        })
+        .apply(&mut robot)
+        .unwrap();
+        riggen_core::validate(&robot).unwrap();
+
+        let s = samples(&robot);
+        assert_eq!(s.joints, ["j1", "j2"]);
+        assert_eq!(
+            s.samples[0].q[0], 0.25,
+            "rest is the middle of ±1, plus ref"
+        );
+        for sample in &s.samples {
+            let q1 = sample.q[0] - 0.25;
+            assert!((-1.0..=1.0).contains(&q1), "{:?}", sample.q);
+            let q2 = -0.5 * q1 + 0.1;
+            assert!((sample.q[1] - (q2 - 0.5)).abs() < 1e-12, "{:?}", sample.q);
+        }
+        assert_eq!(s.actuators.len(), 1);
+        assert_eq!(s.actuators[0].ctrlrange, Some([-0.75, 1.25]));
+        assert_eq!(s.actuators[0].forcerange, Some([-1.0, 1.0]), "unshifted");
     }
 
     /// The `actuators` block is what `test_mjcf_load.py` holds MuJoCo to,

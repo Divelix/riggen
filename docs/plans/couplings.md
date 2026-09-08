@@ -146,7 +146,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   bump this plan makes once; `tendons` lands at the same version in step
   7). `validate` finite; `file` test `a_v5_file_opens_as_v6_…`; the v6
   fixtures re-saved; `Command::SetJoint` carries it like `mimic`.
-- [ ] **[3]** Step 6 — export: `ref` round trip. Import reads and
+- [x] **[3]** Step 6 — export: `ref` round trip. Import reads and
   converts it, shifts the range, keeps the `polycoef` it used to drop,
   deletes `moved_zero`; the writer writes it back and shifts what it
   derives; `fk_samples` writes `qpos`; `check_equalities` uses

@@ -65,9 +65,11 @@ pub fn write(robot: &ResolvedRobot, _options: &ExportOptions) -> String {
 
     // MJCF has no `<mimic>`: a coupled DoF is a solver equality, and
     // `polycoef` is `y - y0 = a0 + a1(x - x0) + …` over the two joints'
-    // deviations from `qpos0`. We never write `ref`, so both references
-    // are zero and `(offset, multiplier, 0, 0, 0)` is exactly URDF's rule
-    // (ADR-0013). It is a *soft* constraint, not a reduction.
+    // deviations from `qpos0`. `qpos0` is each joint's `ref`, and the
+    // document's `q` is exactly that deviation (ADR-0025 §3), so `(offset,
+    // multiplier, 0, 0, 0)` is URDF's rule whatever `ref` either joint
+    // carries — nothing here is shifted (ADR-0013). It is a *soft*
+    // constraint, not a reduction.
     if robot.joints.iter().any(|j| j.mimic.is_some()) {
         x.open("equality", &[]);
         for j in &robot.joints {
@@ -177,8 +179,21 @@ fn write_joint(x: &mut Xml, j: &ResolvedJoint, driven: bool) {
         ),
         ("axis", vec3(j.axis)),
     ];
+    // `range` and `ref` are in MuJoCo's `qpos`, and `Limits` is in the
+    // document's `q` — the deviation from the authored pose — so the range
+    // is shifted by what MJCF adds (ADR-0025 §3). The import undoes it.
     if let Some(l) = &j.limits {
-        attrs.push(("range", format!("{} {}", num(l.lower), num(l.upper))));
+        attrs.push((
+            "range",
+            format!(
+                "{} {}",
+                num(l.lower + j.qpos_ref),
+                num(l.upper + j.qpos_ref)
+            ),
+        ));
+    }
+    if j.qpos_ref != 0.0 {
+        attrs.push(("ref", num(j.qpos_ref)));
     }
     let d = &j.dynamics;
     if d.damping != 0.0 {
@@ -217,8 +232,11 @@ fn write_joint(x: &mut Xml, j: &ResolvedJoint, driven: bool) {
 /// The ranges are **the actuator's own, else the joint's** (ADR-0024).
 /// What the file said — `ResolvedActuator::ranges` — is written as it was
 /// said, its `ctrllimited` / `forcelimited` explicit whenever the flag is
-/// `Some`; only where it said nothing is a range derived: `ctrlrange` is
-/// the joint's own range for a position servo and `±velocity` for a
+/// `Some`; a said `ctrlrange` was in `qpos` terms when read and is held so,
+/// since it exists for MJCF alone. Only where it said nothing is a range
+/// derived: `ctrlrange` is the joint's own range for a position servo —
+/// shifted by `qpos_ref` like the `<joint range>` it repeats (ADR-0025
+/// §3) — and `±velocity` for a
 /// velocity one — both out of `Limits`, so a `Continuous` joint has none —
 /// while a motor's `ctrl` is the normalised `-1 1` that `gear` scales, and
 /// `forcerange` is `±effort`. A zero `effort` or `velocity` is the
@@ -234,7 +252,8 @@ fn write_actuator(x: &mut Xml, a: &ResolvedActuator, j: &ResolvedJoint) {
         ActuatorSpec::Position { kp, kv } => (
             "position",
             vec![("kp", num(*kp)), ("kv", num(*kv))],
-            j.limits.map(|l| pair([l.lower, l.upper])),
+            j.limits
+                .map(|l| pair([l.lower + j.qpos_ref, l.upper + j.qpos_ref])),
         ),
         ActuatorSpec::Velocity { kv } => (
             "velocity",
@@ -405,7 +424,7 @@ pub(crate) mod tests {
             <body name="tip" pos="0 0 0.1">
               <site name="tcp" pos="0 0 0.05"/>
               <body name="finger" pos="0 0 0.1">
-                <joint name="finger_joint" type="hinge" axis="0 0 1" range="-1 1"/>
+                <joint name="finger_joint" type="hinge" axis="0 0 1" range="-0.8 1.2" ref="0.2"/>
                 <!-- joint finger_joint: effort 1 velocity 1 need an <actuator>; not written -->
                 <inertial pos="0 0 0" mass="2.7" fullinertia="0.0045 0.0045 0.0045 0 0 0"/>
                 <geom class="visual" mesh="cube"/>
@@ -607,6 +626,63 @@ pub(crate) mod tests {
                 force_limited: Some(false),
             }),
             r#"<position name="upper_joint" joint="upper_joint" kp="100" kv="5" ctrllimited="true" ctrlrange="-1 1" forcelimited="false" forcerange="-2 2"/>"#
+        );
+    }
+
+    /// `<joint range>` and a derived `ctrlrange` are in `qpos` terms, so a
+    /// `qpos_ref` shifts both by itself (ADR-0025 §3); a `ctrlrange` the
+    /// file said is already in those terms and goes out verbatim, and the
+    /// `polycoef` of a follower over the joint is untouched, because
+    /// MuJoCo's deviations are from `qpos0 = ref`.
+    #[test]
+    fn qpos_ref_shifts_the_range_and_a_derived_ctrlrange_and_nothing_else() {
+        let mut b = every_joint_kind();
+        for j in b.robot.joints.values_mut() {
+            if j.name == "upper_joint" {
+                j.qpos_ref = 0.25;
+            }
+        }
+        let xml = write(&b.resolve().unwrap(), &ExportOptions::default());
+        let line = |needle: &str| {
+            xml.lines()
+                .find(|l| l.contains(needle))
+                .map(str::trim)
+                .unwrap_or_default()
+                .to_owned()
+        };
+        assert_eq!(
+            line(r#"<joint name="upper_joint""#),
+            r#"<joint name="upper_joint" type="hinge" axis="0 1 0" range="-0.75 1.25" ref="0.25" damping="0.1"/>"#
+        );
+        assert_eq!(
+            line(r#"<position name="upper_joint""#),
+            r#"<position name="upper_joint" joint="upper_joint" kp="100" kv="5" ctrlrange="-0.75 1.25" forcerange="-1 1"/>"#
+        );
+        assert_eq!(
+            line(r#"joint1="slider_joint""#),
+            r#"<joint joint1="slider_joint" joint2="upper_joint" polycoef="0.1 -0.5 0 0 0"/>"#,
+            "the equality is over deviations from qpos0 = ref: unshifted"
+        );
+        // What the file said stands as said (ADR-0024), `ref` or not.
+        let upper = *b
+            .robot
+            .joints
+            .iter()
+            .find(|(_, j)| j.name == "upper_joint")
+            .unwrap()
+            .0;
+        let (id, mut a) = b
+            .robot
+            .actuators_on(upper)
+            .next()
+            .map(|(id, a)| (id, a.clone()))
+            .unwrap();
+        a.ranges.ctrl = Some([-0.5, 0.5]);
+        b.robot.actuators.insert(id, a);
+        let xml = write(&b.resolve().unwrap(), &ExportOptions::default());
+        assert!(
+            xml.contains(r#"kp="100" kv="5" ctrlrange="-0.5 0.5" forcerange="-1 1"/>"#),
+            "{xml}"
         );
     }
 

@@ -329,6 +329,10 @@ pub struct ResolvedJoint {
     pub dynamics: Dynamics,
     /// This joint follows another one (ADR-0013).
     pub mimic: Option<ResolvedMimic>,
+    /// MJCF's `<joint ref>`, copied through (ADR-0025 §3): `qpos = q +
+    /// qpos_ref`. The MJCF writer shifts `range` and a derived `ctrlrange`
+    /// by it; the URDF and SDF writers never read it.
+    pub qpos_ref: f64,
 }
 
 /// One `<actuator>` element (ADR-0014, as ADR-0023 keys it): its own name,
@@ -463,6 +467,7 @@ pub fn resolve(
                     multiplier: m.multiplier,
                     offset: m.offset,
                 }),
+                qpos_ref: joint.qpos_ref,
             });
         }
 

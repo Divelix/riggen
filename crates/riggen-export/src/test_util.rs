@@ -155,8 +155,10 @@ impl Builder {
 /// named frames — one on the root, one on the leaf, one of them rotated —
 /// a **mimic chain** (the slider follows the hinge at `-0.5 q + 0.1`, and
 /// the finger follows the slider at `0.5 q`, so it reaches
-/// -0.2..0.3 through the composed map, ADR-0013 as amended by ADR-0025)
-/// — and two actuators (ADR-0014): a position servo on the hinge and a
+/// -0.2..0.3 through the composed map, ADR-0013 as amended by ADR-0025),
+/// the finger carrying a `qpos_ref` of 0.2 so the MJCF writer's `ref` and
+/// its shifted `range` are in every golden (ADR-0025 §3) — and two
+/// actuators (ADR-0014): a position servo on the hinge and a
 /// velocity one on the limitless wheel. The two followers may carry none,
 /// and the golden keeps the "need an <actuator>" comment beside the two
 /// that have one.
@@ -199,13 +201,15 @@ pub(crate) fn every_joint_kind() -> Builder {
                 offset: 0.1,
             });
         }
-        // A follower whose leader also follows: a chain (ADR-0025).
+        // A follower whose leader also follows: a chain (ADR-0025) — and
+        // a `<joint ref>`, which the URDF and SDF writers never see.
         if j.child == finger {
             j.mimic = Some(riggen_core::Mimic {
                 joint: slider_joint,
                 multiplier: 0.5,
                 offset: 0.0,
             });
+            j.qpos_ref = 0.2;
         }
         if j.child == upper {
             driven.push((id, ActuatorSpec::Position { kp: 100.0, kv: 5.0 }));

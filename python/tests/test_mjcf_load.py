@@ -2,7 +2,8 @@
 
 For every directory given on the command line: load its `*.xml` with
 `mujoco.MjModel.from_xml_path`, failing on any compiler warning, and — when
-a `<name>.fk.json` sits beside it — set each sampled joint configuration,
+a `<name>.fk.json` sits beside it — set each sampled joint configuration
+(its `q` is MuJoCo's `qpos`: the document's `q` plus `<joint ref>`, ADR-0025),
 `mj_forward`, and compare every body's and every **site's** world pose with
 what `riggen_core::fk` wrote, to 1e-6. A site the samples name and the model
 does not have is a failure, not a skip: it is how a dropped `<site>` would
@@ -145,10 +146,12 @@ def check_equalities(model: mujoco.MjModel, samples: dict) -> int:
 
     A mimic joint is an `<equality><joint polycoef>` (ADR-0013), where
     `polycoef` is `y - y0 = a0 + a1 (x - x0) + …` over the two joints'
-    deviations from `qpos0`. riggen never writes `ref`, so both references
-    are zero and the rule is plain `y = a0 + a1 x`. The samples carry the
-    follower's *derived* value, so the two readings of `polycoef` agree
-    here or they do not agree at all — a swapped coefficient order fails.
+    deviations from `qpos0`, and `qpos0` is each joint's `<joint ref>` —
+    which riggen writes as `Joint::qpos_ref` (ADR-0025 §3) — so the
+    deviations are read through `model.qpos0` here, and a `ref` the writer
+    shifted wrongly would fail. The samples carry the follower's *derived*
+    value, so the two readings of `polycoef` agree here or they do not agree
+    at all — a swapped coefficient order fails.
 
     A **chain** is written as it is, not flattened (ADR-0025 §2), so a
     follower's leader may itself be a follower. Each equality is checked on
@@ -159,6 +162,10 @@ def check_equalities(model: mujoco.MjModel, samples: dict) -> int:
         name: [s["q"][i] for s in samples["samples"]]
         for i, name in enumerate(samples["joints"])
     }
+
+    def qpos0(name: str) -> float:
+        return float(model.qpos0[model.joint(name).qposadr[0]])
+
     # Union-find over the coupled joints. Unordered, because the relation
     # is symmetric: `y = a0 + a1 x` is also `x = -a0/a1 + (1/a1) y`, and one
     # equality covers both readings. Transitive, because a chain is legal
@@ -192,12 +199,14 @@ def check_equalities(model: mujoco.MjModel, samples: dict) -> int:
                 f"equality couples {follower!r} to {leader!r}, which the samples "
                 f"do not name (they have {sorted(q_of)})"
             )
+        f0, l0 = qpos0(follower), qpos0(leader)
         for i, (f, l) in enumerate(zip(q_of[follower], q_of[leader])):
-            want = a0 + a1 * l
+            want = f0 + a0 + a1 * (l - l0)
             if abs(f - want) > TOLERANCE:
                 raise AssertionError(
-                    f"equality {follower!r} = {a0} + {a1} * {leader!r}: sample {i} has "
-                    f"{follower}={f} and {leader}={l}, which polycoef makes {want}"
+                    f"equality {follower!r} - {f0} = {a0} + {a1} * ({leader!r} - {l0}): "
+                    f"sample {i} has {follower}={f} and {leader}={l}, which polycoef "
+                    f"makes {want}"
                 )
     # …and nothing was dropped on the way out: a joint whose sampled values
     # are an exact linear function of another's is a mimic, and must have

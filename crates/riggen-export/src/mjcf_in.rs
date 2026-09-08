@@ -334,7 +334,6 @@ pub fn from_mjcf(
         assets: BTreeMap::new(),
         registered: BTreeMap::new(),
         sites: Vec::new(),
-        moved_zero: BTreeSet::new(),
         unnamed: 0,
         inline_hash: BTreeMap::new(),
         inline_meshes: Vec::new(),
@@ -380,10 +379,6 @@ struct Import<'a> {
     /// Joint name → id, for `<equality>` and `<actuator>`, which name
     /// joints that may be anywhere in the file.
     joint_ids: BTreeMap<String, JointId>,
-    /// Joints whose `<joint ref>` moved their zero. A coupling over one of
-    /// them is not `q(follower) = m·q(leader) + o` in the document's terms,
-    /// so it cannot be kept.
-    moved_zero: BTreeSet<String>,
     /// `<asset><mesh>` by name: the file it points at, and its scale.
     assets: BTreeMap<String, (Option<String>, [f64; 3])>,
     /// (resolved path, scale) → the asset already registered for it, so a
@@ -593,30 +588,41 @@ impl Import<'_> {
             None => self.compiler.autolimits && range.is_some_and(|[a, b]| a != 0.0 || b != 0.0),
         };
         let range = range.filter(|_| limited);
-        let span = |lower: f64, upper: f64| Limits {
-            lower,
-            upper,
+        // `ref` is the `qpos` at which the body sits at its authored pose
+        // (ADR-0025 §3): an angle on a hinge, a length on a slide, held as
+        // `Joint::qpos_ref`. `range` is in `qpos` terms too, and
+        // `Limits` is in the document's `q` — the deviation from that
+        // pose — so it is shifted by `ref` on the way in; the writer shifts
+        // it back. An invented ±1 m is already a deviation and stays.
+        let ref_ = self.num(jn, "ref")?.unwrap_or(0.0);
+        let span = |lower: f64, upper: f64, qpos_ref: f64| Limits {
+            lower: lower - qpos_ref,
+            upper: upper - qpos_ref,
             // MJCF keeps these on the `<actuator>`, not the joint (ADR-0014).
             effort: 0.0,
             velocity: 0.0,
         };
-        let (kind, limits) = match jn.attr("type").unwrap_or("hinge") {
-            "hinge" => match range {
-                Some([a, b]) => (
-                    JointKind::Revolute,
-                    Some(span(conv.radians(a), conv.radians(b))),
-                ),
-                None => (JointKind::Continuous, None),
-            },
+        let (kind, limits, qpos_ref) = match jn.attr("type").unwrap_or("hinge") {
+            "hinge" => {
+                let qpos_ref = conv.radians(ref_);
+                match range {
+                    Some([a, b]) => (
+                        JointKind::Revolute,
+                        Some(span(conv.radians(a), conv.radians(b), qpos_ref)),
+                        qpos_ref,
+                    ),
+                    None => (JointKind::Continuous, None, qpos_ref),
+                }
+            }
             "slide" => match range {
-                Some([a, b]) => (JointKind::Prismatic, Some(span(a, b))),
+                Some([a, b]) => (JointKind::Prismatic, Some(span(a, b, ref_)), ref_),
                 None => {
                     self.warnings.push(ImportWarning::LimitsInvented {
                         joint: name.clone(),
                         lower: -1.0,
                         upper: 1.0,
                     });
-                    (JointKind::Prismatic, Some(span(-1.0, 1.0)))
+                    (JointKind::Prismatic, Some(span(-1.0, 1.0, 0.0)), ref_)
                 }
             },
             other => {
@@ -626,12 +632,6 @@ impl Import<'_> {
                 });
             }
         };
-        // `ref` moves the joint's zero, which the document has no field for
-        // and which would quietly shift the whole subtree.
-        if jn.attrs.contains_key("ref") {
-            self.drop("<joint ref>");
-            self.moved_zero.insert(name.clone());
-        }
         Ok(Joint {
             name,
             kind,
@@ -646,9 +646,7 @@ impl Import<'_> {
                 armature: self.num(jn, "armature")?.unwrap_or(0.0),
             },
             mimic: None,
-            // `<joint ref>` is dropped above; step 6 of plans/couplings
-            // reads it.
-            qpos_ref: 0.0,
+            qpos_ref,
         })
     }
 
@@ -1145,10 +1143,12 @@ impl Import<'_> {
     /// `<equality><joint polycoef>` → `Joint::mimic` (ADR-0013).
     ///
     /// `polycoef` is `y − y0 = a0 + a1(x − x0) + …` over the two joints'
-    /// deviations from `qpos0`, so it is our `q(follower) = a1·q(leader) +
-    /// a0` exactly when the last three terms are zero and neither joint
-    /// moved its zero with a `ref`. Anything else is dropped with the
-    /// reason, the way the URDF import phrases a `<mimic>` it cannot keep.
+    /// deviations from `qpos0`, and `qpos0` is each joint's `ref` — which is
+    /// exactly what the document's `q` is a deviation from (ADR-0025 §3) —
+    /// so it is our `q(follower) = a1·q(leader) + a0` exactly when the last
+    /// three terms are zero, whatever `ref` either joint carries. Anything
+    /// else is dropped with the reason, the way the URDF import phrases a
+    /// `<mimic>` it cannot keep.
     fn read_equalities(&mut self, root: &Node) -> Result<(), ImportError> {
         for block in root.kids("equality") {
             for e in block.kids("joint") {
@@ -1176,10 +1176,6 @@ impl Import<'_> {
                 }
                 if a2 != 0.0 || a3 != 0.0 || a4 != 0.0 {
                     drop(self, "its polycoef is not linear");
-                    continue;
-                }
-                if self.moved_zero.contains(&follower) || self.moved_zero.contains(&leader) {
-                    drop(self, "a <joint ref> moved one of the two zeros");
                     continue;
                 }
                 let (Some(&id), true) = (
@@ -1729,6 +1725,12 @@ mod tests {
         assert_eq!(joint("upper_joint").axis, DVec3::Y);
         assert_eq!(joint("upper_joint").dynamics.damping, 0.1);
         assert_eq!(joint("wheel_joint").limits, None, "Continuous keeps none");
+        // The finger's `ref` went out as `ref="0.2" range="-0.8 1.2"` and
+        // comes back as the `qpos_ref` and the ±1 it left with (ADR-0025).
+        assert_eq!(joint("finger_joint").qpos_ref, 0.2);
+        for name in ["upper_joint", "slider_joint"] {
+            assert_eq!(joint(name).qpos_ref, 0.0, "{name}");
+        }
         for name in ["upper_joint", "slider_joint", "finger_joint"] {
             assert_eq!(
                 joint(name).limits.map(|l| (l.lower, l.upper)),
@@ -1861,10 +1863,14 @@ mod tests {
         assert_eq!(robot.links[&robot.root].name, "base_link");
         // `<compiler angle="degree">` is MJCF's default and the opposite of
         // ours: ±180° is ±π, and the class two levels up is where the range
-        // came from at all.
+        // came from at all. The pan's `ref="10"` is 10° too (ADR-0025 §3),
+        // and the range — in `qpos` terms in the file — comes in shifted
+        // by it, so `Limits` bounds the deviation from the authored pose.
+        let ten = 10f64.to_radians();
+        assert!((joint("shoulder_pan").qpos_ref - ten).abs() < 1e-12);
         let pan = joint("shoulder_pan").limits.unwrap();
-        assert!((pan.lower + std::f64::consts::PI).abs() < 1e-12);
-        assert!((pan.upper - std::f64::consts::PI).abs() < 1e-12);
+        assert!((pan.lower + std::f64::consts::PI + ten).abs() < 1e-12);
+        assert!((pan.upper - std::f64::consts::PI + ten).abs() < 1e-12);
         // …and `damping` / `armature` / `frictionloss` from the root class.
         assert_eq!(
             joint("shoulder_pan").dynamics,
@@ -2135,6 +2141,56 @@ mod tests {
         );
     }
 
+    /// `<joint ref>` is `Joint::qpos_ref` (ADR-0025 §3): angle-converted on
+    /// a hinge, verbatim on a slide, and `range` — which MuJoCo keeps in
+    /// `qpos` terms, unshifted by the compiler — comes in as the deviation
+    /// it bounds. A `polycoef` over such a joint is read as the mimic it
+    /// is, since MuJoCo's deviations are from `qpos0 = ref`.
+    #[test]
+    fn a_joint_ref_is_read_as_qpos_ref_and_the_range_is_shifted_by_it() {
+        let (robot, warnings) = load(
+            r#"<mujoco model="m"><compiler angle="degree"/><worldbody>
+                 <body name="a">
+                   <body name="b"><joint name="h" ref="10" range="-30 60"/>
+                     <body name="c"><joint name="s" type="slide" ref="0.2" range="-0.5 1"/>
+                       <body name="d"><joint name="free" ref="45"/></body>
+                     </body>
+                   </body>
+                 </body>
+               </worldbody>
+               <equality>
+                 <joint joint1="s" joint2="h" polycoef="0.1 0.5 0 0 0"/>
+               </equality>
+               </mujoco>"#,
+        )
+        .unwrap();
+        let joint = |n: &str| robot.joints.values().find(|j| j.name == n).unwrap();
+        let deg = f64::to_radians;
+        let h = joint("h");
+        assert!((h.qpos_ref - deg(10.0)).abs() < 1e-12);
+        let l = h.limits.unwrap();
+        assert!((l.lower - deg(-40.0)).abs() < 1e-12, "{}", l.lower);
+        assert!((l.upper - deg(50.0)).abs() < 1e-12, "{}", l.upper);
+        let s = joint("s");
+        assert_eq!(s.qpos_ref, 0.2, "a length: no conversion");
+        assert_eq!(s.limits.map(|l| (l.lower, l.upper)), Some((-0.7, 0.8)));
+        // No range: `Continuous`, and the ref is still its own.
+        let free = joint("free");
+        assert_eq!((free.kind, free.limits), (JointKind::Continuous, None));
+        assert!((free.qpos_ref - deg(45.0)).abs() < 1e-12);
+        let hid = *robot.joints.iter().find(|(_, j)| j.name == "h").unwrap().0;
+        assert_eq!(
+            s.mimic,
+            Some(Mimic {
+                joint: hid,
+                multiplier: 0.5,
+                offset: 0.1
+            }),
+            "the coupling over two ref joints is kept as written"
+        );
+        assert_eq!(warnings, vec![], "nothing about `ref`");
+    }
+
     #[test]
     fn a_coupling_and_an_actuator_the_document_cannot_hold_are_named() {
         let (robot, warnings) = load(
@@ -2142,7 +2198,7 @@ mod tests {
                  <body name="a">
                    <body name="b"><joint name="j" range="-1 1"/>
                      <body name="c"><joint name="k" range="-1 1"/>
-                       <body name="d"><joint name="l" ref="0.2" range="-1 1"/></body>
+                       <body name="d"><joint name="l" ref="0.2" range="-1.5 1.5"/></body>
                      </body>
                    </body>
                  </body>
@@ -2168,15 +2224,31 @@ mod tests {
         .unwrap();
         let joint = |n: &str| robot.joints.values().find(|j| j.name == n).unwrap();
         // The last coupling written for a follower is the one that stands,
-        // and only the linear, active, `ref`-free one survives at all.
+        // and only a linear, active one survives at all — `ref` on one of
+        // the two joints is no reason any more (ADR-0025 §3): `l`'s zero is
+        // 0.2, its range comes in shifted to the deviation it bounds, and
+        // the `polycoef` MuJoCo reads from `qpos0` is the mimic as written.
         assert_eq!(joint("k").mimic.map(|m| (m.multiplier, m.offset)), None);
+        let jid = *robot.joints.iter().find(|(_, j)| j.name == "j").unwrap().0;
+        assert_eq!(
+            joint("l").mimic,
+            Some(Mimic {
+                joint: jid,
+                multiplier: 1.0,
+                offset: 0.0
+            })
+        );
+        assert_eq!(joint("l").qpos_ref, 0.2);
+        assert_eq!(
+            joint("l").limits.map(|l| (l.lower, l.upper)),
+            Some((-1.7, 1.3))
+        );
         assert_eq!(
             actuator_of(&robot, "j"),
             Some(ActuatorSpec::Motor { gear: 50.0 })
         );
         // The `<general>` beside it is the joint's second actuator now
         // (ADR-0024), not a warning.
-        let jid = *robot.joints.iter().find(|(_, j)| j.name == "j").unwrap().0;
         assert_eq!(
             robot
                 .actuators_on(jid)
@@ -2203,26 +2275,28 @@ mod tests {
         let said: Vec<String> = warnings.iter().map(ToString::to_string).collect();
         for line in [
             "joint \"k\": <mimic joint=\"j\"> dropped, its polycoef is not linear",
-            "joint \"l\": <mimic joint=\"j\"> dropped, a <joint ref> moved one of the two zeros",
             "joint \"k\": <mimic joint=\"j\"> dropped, the constraint is not active",
             "joint \"k\": <mimic joint=\"nope\"> dropped, no joint of that name is in the file",
             "joint \"k\": <mimic joint=\"\"> dropped, it holds one joint to a constant, not to another",
             "actuator \"tendon_servo\" dropped, it drives a tendon, not a joint",
             "actuator \"ghost\" dropped, no joint \"missing\" is in the file",
             "<weld> × 1: nothing in the document holds it; not read",
-            "<joint ref> × 1: nothing in the document holds it; not read",
         ] {
             assert!(
                 said.contains(&line.to_owned()),
                 "missing {line:?}\n{said:#?}"
             );
         }
-        // The one coupling that was fine is the one `validate` then refused
-        // — `k` would reach ±2, outside its own ±1 — and it says so.
+        // The linear coupling on `k` is the one `validate` then refused —
+        // `k` would reach ±2, outside its own ±1 — and it says so.
         assert!(
             said.iter()
                 .any(|s| s.contains("it would reach -2..2, outside its own limits")),
             "{said:#?}"
+        );
+        assert!(
+            !said.iter().any(|s| s.contains("<joint ref>")),
+            "a ref is read, not dropped (ADR-0025 §3)\n{said:#?}"
         );
     }
 
@@ -3113,10 +3187,6 @@ mod tests {
                     count: 1
                 },
                 ImportWarning::ElementDropped {
-                    element: "<joint ref>".to_owned(),
-                    count: 1
-                },
-                ImportWarning::ElementDropped {
                     element: "<light>".to_owned(),
                     count: 1
                 },
@@ -3133,9 +3203,15 @@ mod tests {
             "joint \"s\" has no range and the document has no unlimited prismatic; -1..1 used"
         );
         assert_eq!(
-            warnings[8].to_string(),
+            warnings[7].to_string(),
             "<sensor> × 1: nothing in the document holds it; not read"
         );
+        // …and `<joint ref>` is not among them: it is `Joint::qpos_ref`
+        // now, with the range shifted into the document's own terms
+        // (ADR-0025 §3).
+        let j = robot.joints.values().find(|j| j.name == "j").unwrap();
+        assert_eq!(j.qpos_ref, 0.2);
+        assert_eq!(j.limits.map(|l| (l.lower, l.upper)), Some((-1.2, 0.8)));
     }
 
     #[test]

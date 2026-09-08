@@ -22,6 +22,9 @@
     * a **mimic chain**: finger_flex follows shoulder_lift, which follows
       shoulder_pan (ADR-0025 §1), so the composed reach is 0.125 of the
       pan's ±180° and fits the finger's own ±30°;
+    * a <joint ref> on the pan (ADR-0025 §3): its range is in qpos terms
+      and the equality over it is in deviations from qpos0 = ref, both of
+      which the re-export has to say back in MuJoCo's own words;
     * an <actuator> named something other than its joint, and a second one
       on that already-driven joint — both of which the document keeps
       (ADR-0023) — the second with an explicit ctrllimited="false" beside
@@ -72,7 +75,7 @@
       <geom class="arm_collision" mesh="base" quat="0.7071068 0 0 0.7071068"/>
       <site name="mount" pos="0 0 0.03" euler="90 0 0"/>
       <body name="shoulder" pos="0 0 0.04" euler="0 0 45">
-        <joint name="shoulder_pan" axis="0 0 1"/>
+        <joint name="shoulder_pan" axis="0 0 1" ref="10"/>
         <inertial pos="0 0 0.03" mass="0.3" fullinertia="0.001 0.001 0.001 0 0 0"/>
         <geom class="arm_visual" mesh="shoulder"/>
         <geom class="arm_visual" mesh="grip"/>

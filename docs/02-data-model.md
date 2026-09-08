@@ -569,7 +569,7 @@ pub struct ResolvedLink {
 pub struct ResolvedSite { pub name: String, pub pose: Pose }  // frame in the link frame
 pub enum ResolvedGeom { Mesh { name, mesh: Arc<TriMesh>, pose }, Primitive(Primitive) }
 pub struct ResolvedJoint { name, kind, parent: usize, child: usize, origin: Pose, axis: DVec3, limits, dynamics,
-                           mimic: Option<ResolvedMimic> }
+                           mimic: Option<ResolvedMimic>, qpos_ref: f64 }  // qpos_ref: MJCF's ref, read by the MJCF writer alone
 pub struct ResolvedActuator { pub name: String, pub joint: usize, pub spec: ActuatorSpec,
                               pub ranges: ActuatorRanges }  // joint indexes ResolvedRobot::joints; ranges as the document keeps them (ADR-0024)
 pub struct ResolvedMimic { pub joint: usize, pub multiplier: f64, pub offset: f64 }  // joint indexes ResolvedRobot::joints
@@ -652,16 +652,18 @@ ignores it, because it has `meshdir`.
 | Root | first `<link>` | `<worldbody>` child; `floating_base` in `ExportOptions` adds `<freejoint name="root"/>` | first `<link>`; a **fixed** base is `<joint name="world_joint" type="fixed"><parent>world</parent>`, and `floating_base` is that joint left out |
 | Frame (`Frame`, a `ResolvedSite`) | a massless `<link name="tcp"/>` — no visual, collision or inertial — plus `<joint name="tcp_fixed" type="fixed">` with the frame pose as its `<origin xyz rpy/>`; the dummy links after every real link and the fixed joints after every real joint, so the file still reads root-first (ADR-0012) | `<site name pos quat/>` inside its body after the geoms, bare: no `size`, `group` or `rgba`, so MuJoCo's default 0.005 m sphere marks it (ADR-0012) | `<frame name attached_to="«link»"><pose/>` after the joints — `<pose>`'s default `relative_to` *is* `attached_to`, so the link-frame pose goes out unchanged, and no dummy link is needed |
 | Mimic (`ResolvedMimic`) | `<mimic joint multiplier offset/>` inside the follower's `<joint>`, after `<dynamics>` | `<equality><joint joint1="follower" joint2="leader" polycoef="offset multiplier 0 0 0"/></equality>` after `</worldbody>` — a **soft** solver constraint, not a reduction (ADR-0013) | `<axis><mimic joint="«leader»"><multiplier><offset><reference>0` — SDF 1.11's own element. Its rule is `follower = multiplier·(leader − reference) + offset`, which at `reference = 0` is URDF's exactly |
+| `Joint::qpos_ref` | nothing — URDF's `<limit>` is in deviation terms, which `Limits` already is | `ref="…"` on the `<joint>` when non-zero, **`range` shifted by it** (MuJoCo keeps both in `qpos` terms; the document's `q` is the deviation from the authored pose, `qpos = q + qpos_ref`, ADR-0025 §3), and a `ctrlrange` *derived* from the joint's range for a `<position>` shifted the same way; a `ctrlrange` the actuator says itself is written as said, being in `qpos` terms already. The `polycoef` of a mimic over such a joint is **not** shifted: MuJoCo's deviations are from `qpos0 = ref` | nothing, for URDF's reason |
 | Actuator (`ActuatorSpec`) | nothing — `<transmission>` is a `ros_control` relic; a comment after the `<joint>` names the preset and its gains (a `General`'s three type names), like the `armature` one (ADR-0014) | one `<actuator>` block after `</equality>`, one element per table entry in `ActuatorId` order: `<position kp kv>` / `<velocity kv>` / `<motor gear>`, or `<general dyntype gaintype biastype dynprm gainprm biasprm gear>` for a `General` (ADR-0024) — the three type names always, each `prm` vector with the trailing zeros MuJoCo would fill in trimmed off but never emptied (`dynprm="0"` is zero; an absent `dynprm` is MuJoCo's one), `gear` like a motor's, and no derived `ctrlrange` since there is no preset to derive one from. `name` is the **actuator's own** (the joint's by default, ADR-0023) and `joint` the driven joint's. Several may drive one joint; MuJoCo sums them | nothing, and the same comment. Gazebo drives a joint through a `<plugin>` naming a C++ class, a shared library and a version of Gazebo — a simulator configuration, not a robot description (ADR-0016 §5) |
 | Effort / velocity | `<limit effort velocity/>` | **the actuator's own ranges, else the joint's** (ADR-0024): a `ctrlrange` / `forcerange` in `Actuator::ranges` is written as it was said, with an explicit `ctrllimited` / `forcelimited` whenever its flag is `Some`; only where the actuator says nothing is `forcerange="-effort effort"` derived, and `ctrlrange` — `lower upper` for a position servo, `±velocity` for a velocity one, the normalised `-1 1` for a motor. A zero `effort` / `velocity` is the *unfilled* value, so the attribute is **omitted** and MuJoCo's unbounded default stands, never `0 0`; a flag of `false` beside no range derives nothing either. A joint **no** actuator targets keeps the comment naming what was dropped (ADR-0004 §4 as amended by ADR-0014, re-keyed by ADR-0023) | `<axis><limit><effort><velocity>`, **omitted when zero** for MJCF's reason: SDF's default is infinity and a literal `0` is a joint that can exert nothing |
 | Dynamics | `<dynamics damping friction/>` | `damping`, `frictionloss`, `armature` on the `<joint>`, written only when non-zero | `<axis><dynamics><damping><friction>`, written only when either is non-zero; `armature` is a comment, as in URDF |
 | Angles | radians | **`<compiler angle="radian" meshdir="meshes" autolimits="true"/>` is always written** — MJCF's default is degrees | radians; `<pose>` is `x y z roll pitch yaw` with URDF's own `Rz·Ry·Rx` convention, through the one `Pose::to_xyz_rpy` the URDF writer uses too |
 
 MJCF's `polycoef` is `a0 a1 a2 a3 a4` in `y − y0 = a0 + a1(x − x0) + …`,
-where `x` and `y` are the two joints' deviations from their `qpos0`. We
-never write `ref`, so both references are zero and `(offset, multiplier, 0,
-0, 0)` is exactly URDF's `q_y = k·q_x + o`; the last three slots are always
-zero, because non-linear coupling is not modelled.
+where `x` and `y` are the two joints' deviations from their `qpos0`, and
+`qpos0` is each joint's `ref`. The document's `q` is exactly that deviation
+(ADR-0025 §3), so `(offset, multiplier, 0, 0, 0)` is URDF's `q_y = k·q_x +
+o` whatever `qpos_ref` either joint carries; the last three slots are
+always zero, because non-linear coupling is not modelled.
 
 **`pybullet` reads the SDF wrong**, by our choice and not by accident. It
 ignores `//pose/@relative_to` — it will place a child link at its parent's
@@ -800,6 +802,13 @@ nesting is the tree. One `<joint>` becomes the edge above its body —
 `armature` fill `Limits` and `Dynamics`. A range is a limit when `limited`
 says so, else when `autolimits` is on and the range is not `0 0`; hinge
 ranges are converted out of `<compiler angle>`, slide ranges are lengths.
+`ref` is `Joint::qpos_ref`, converted like the range on a hinge and a
+length on a slide, and **the range is shifted by it** on the way in
+(ADR-0025 §3): MuJoCo keeps `range` in `qpos` terms, `Limits` bounds the
+document's `q` — the deviation from the authored pose — and the writer
+shifts it back, so a `ref` joint's range round-trips and every check
+`validate` makes keeps its meaning. An invented ±1 m on an unranged slide
+is already a deviation and is not shifted.
 MJCF anchors a joint at `<joint pos>` in the **body** frame while the
 document's joint frame *is* the child link frame (§Conventions), so the
 link frame is moved onto the anchor: the parent joint's `origin` carries
@@ -841,9 +850,11 @@ saved-and-reopened document never depends on the source MJCF still being
 there.
 
 **The two blocks after `</worldbody>`.** `<equality><joint polycoef>` is
-`y − y0 = a0 + a1(x − x0) + …`, so it is a `Joint::mimic` exactly when the
-last three coefficients are zero, the constraint is active, and neither
-joint moved its zero with a `<joint ref>` (ADR-0013).
+`y − y0 = a0 + a1(x − x0) + …` over deviations from `qpos0 = ref`, which is
+what the document's `q` is a deviation from, so it is a `Joint::mimic`
+exactly when the last three coefficients are zero and the constraint is
+active — a `<joint ref>` on either joint changes nothing (ADR-0013 as
+amended by ADR-0025 §3).
 `<position kp kv>` / `<velocity kv>` / `<motor gear>` / `<general>` driving
 a joint become **one `Robot::actuators` entry each** (ADR-0014, ADR-0023,
 ADR-0024), under the `name` the file gave — its joint's only when the file
@@ -889,8 +900,8 @@ actdim> × 1`) and the element is read without it.
 ElementDropped, GeomDropped, FreeJointDropped, ActuatorDropped,
 FrameDropped, MassFromGeomIgnored, LimitsInvented }`. Every element the
 import does not read is counted and named once per tag — `<tendon> × 3`,
-not three warnings — and so is a robot-changing attribute like `<joint
-ref>` or `<general actdim>`; the decorating ones (`solref`, `friction`, `rgba`, `group`, …) are
+not three warnings — and so is a robot-changing attribute like `<general
+actdim>`; the decorating ones (`solref`, `friction`, `rgba`, `group`, …) are
 not warned about, because one line each would bury the ones that matter.
 `LimitsInvented` is the document's own gap: it has no unlimited
 `Prismatic`, so an unranged `slide` gets ±1 m and is told so.
@@ -913,7 +924,8 @@ document one.
 The imported document is untitled until saved.
 `assets/fixtures/menagerie_style.xml` is the corpus file — degrees, a
 `<default>` tree with a `childclass` and class names that are not ours, all
-five orientation spellings, a `fromto` capsule, a non-uniform mesh scale, a
+five orientation spellings, a `<joint ref>` on the pan with the chain's
+first equality over it (ADR-0025 §3), a `fromto` capsule, a non-uniform mesh scale, a
 `<general>` whose gains come through the class tree two levels up and a
 tendon actuator, an `<actuator>` named something other than its joint plus
 a second one on that same joint (both kept, ADR-0023) carrying an explicit

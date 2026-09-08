@@ -1259,7 +1259,8 @@ measured size is in 03 §v0.2.
   `mj_forward` body **and site** poses must match the `<name>.fk.json` the
   export wrote with `--fk-samples` to 1e-6 at five joint configurations (a
   site the samples name and the model lacks fails the file, which is what a
-  dropped `<site>` looks like) — for the
+  dropped `<site>` looks like; the sampled `q` is MuJoCo's `qpos`, the
+  document's `q` plus `qpos_ref`, ADR-0025 §3) — for the
   sample's export, the export of its URDF import,
   `assets/fixtures/bracket.riggen`, the decomposition acceptance
   (ADR-0011), and the arm's export imported back and exported again, the
@@ -1277,7 +1278,9 @@ measured size is in 03 §v0.2.
   present in the original, absent from the re-export). The corpus is copied
   under `target/` first, because importing it writes its inline mesh
   beside it. Every `mjEQ_JOINT` equality — a mimic joint (ADR-0013) —
-  must reproduce the sampled `qpos` through its `polycoef`, and a pair of
+  must reproduce the sampled `qpos` through its `polycoef`, read as
+  deviations from `model.qpos0` — which is `<joint ref>`, so the corpus's
+  `ref="10"` on the pan is held to MuJoCo's own reading of it — and a pair of
   joints the samples show as exactly coupled must be coupled — directly or
   through a chain (ADR-0025), which the check unions rather than pairs — so
   a swapped coefficient order and a dropped `<equality>` both fail. The `.fk.json`'s
