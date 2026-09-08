@@ -43,6 +43,12 @@ pub fn round32(x: f32) -> f64 {
     round(x as f64)
 }
 
+/// Whether a rounded field is zero, for the `skip_serializing_if` that keeps
+/// a field a file never set out of the goldens written before it existed.
+fn is_zero(x: &f64) -> bool {
+    *x == 0.0
+}
+
 /// A whole frame's worth of app state, as JSON.
 #[derive(Debug, Clone, Serialize)]
 pub struct DebugState {
@@ -148,8 +154,26 @@ pub struct DocumentDebug {
     /// golden written before frames existed is unchanged.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub frames: Vec<FrameDebug>,
+    /// The fixed tendons the document holds (ADR-0025 §4). Omitted when
+    /// there are none, so every golden written before them is unchanged.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tendons: Vec<TendonDebug>,
     /// `"link l3"` / `"joint j7"` / `"frame f2"`, or `None`.
     pub selection: Option<String>,
+}
+
+/// A fixed tendon, as the joint properties panel reads it out: what it is
+/// over, and what drives it. The actuators are here and not in the joint's
+/// own list because a tendon actuator is on the *tendon* (ADR-0023).
+#[derive(Debug, Clone, Serialize)]
+pub struct TendonDebug {
+    pub id: String,
+    pub name: String,
+    /// Joint name and coefficient, in the order the tendon holds them.
+    pub joints: Vec<(String, f64)>,
+    /// `"<name> (<preset>)"` per actuator driving it, in `ActuatorId` order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub actuators: Vec<String>,
 }
 
 /// A named frame as the document holds it (ADR-0012).
@@ -201,6 +225,10 @@ pub struct JointDebug {
     pub child: String,
     /// The current joint value (`JointState`), radians or meters.
     pub q: f64,
+    /// MJCF's `<joint ref>`: `qpos = q + qpos_ref` (ADR-0025 §3). Omitted
+    /// when zero, which is every joint riggen authored itself.
+    #[serde(skip_serializing_if = "crate::debug::is_zero")]
+    pub qpos_ref: f64,
 }
 
 /// What the ID buffer resolved: the hovered and the selected triangle.
@@ -418,6 +446,7 @@ impl RiggenApp {
                     parent: joint.parent.to_string(),
                     child: joint.child.to_string(),
                     q: round(self.joint_value(*id)),
+                    qpos_ref: round(joint.qpos_ref),
                 })
                 .collect(),
             frames: robot
@@ -436,6 +465,29 @@ impl RiggenApp {
                         ],
                         quat: [round(w), round(x), round(y), round(z)],
                     }
+                })
+                .collect(),
+            tendons: robot
+                .tendons
+                .iter()
+                .map(|(id, tendon)| TendonDebug {
+                    id: id.to_string(),
+                    name: tendon.name.clone(),
+                    joints: tendon
+                        .joints
+                        .iter()
+                        .map(|tj| {
+                            let name = robot
+                                .joints
+                                .get(&tj.joint)
+                                .map_or_else(|| tj.joint.to_string(), |j| j.name.clone());
+                            (name, round(tj.coef))
+                        })
+                        .collect(),
+                    actuators: robot
+                        .actuators_driving(*id)
+                        .map(|(_, a)| format!("{} ({})", a.name, a.spec.kind_name()))
+                        .collect(),
                 })
                 .collect(),
             selection: match self.selection() {

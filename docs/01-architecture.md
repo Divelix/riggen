@@ -508,7 +508,14 @@ below.
   while it runs, or the reason there are none. Every
   commit is one `SetInertial` / `SetCollision`. A joint's name, kind
   (limits appear with Revolute/Prismatic, defaulting to ±π / ±1 m),
-  origin, axis (normalised on commit), limits in ° or m, dynamics. A
+  origin, axis (normalised on commit), limits in ° or m, dynamics, and two
+  **read-only** rows a file authors and the SDK edits (ADR-0025): `ref`,
+  when the import found a non-zero `<joint ref>` — without it the limits
+  above would silently be a different pair of numbers from the exported
+  ones — and one row per fixed tendon the joint is on, naming the tendon,
+  its coefficient and the actuators driving it, which are on the *tendon*
+  and so appear in neither the actuator combo above nor "Apply to every
+  movable joint". A
   frame's name, the link it hangs on (a combo — changing it keeps the frame
   where it is in the world, the panel re-expressing the pose through `fk`
   in the zero configuration so `SetFrame` stays as dumb as `SetJoint`) and

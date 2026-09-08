@@ -80,7 +80,7 @@
   "document": {
     "file": null,
     "name": "menagerie_style",
-    "dirty": true,
+    "dirty": false,
     "import_scale": 1.0,
     "links": [
       {
@@ -230,7 +230,7 @@
     "renaming": null,
     "windows": [],
     "modal": null,
-    "title": "untitled* — riggen",
+    "title": "untitled — riggen",
     "overlays": [
       "collision"
     ]

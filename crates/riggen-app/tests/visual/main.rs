@@ -3423,6 +3423,117 @@ fn properties_joint_general() {
     });
 }
 
+/// Properties › Joint for a joint an import gave a `<joint ref>`: one
+/// read-only row, in degrees, saying where the source file put its zero
+/// (ADR-0025 §3). The row exists so the two limits above it, which are the
+/// document's deviations, are not silently a different pair of numbers
+/// from the ones the exported MJCF carries.
+#[test]
+fn properties_joint_ref() {
+    scenario("properties_joint_ref", |harness| {
+        open_for_editing(harness.state_mut(), &menagerie_style_scratch())
+            .expect("the corpus MJCF imports");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        let pan = joint_named(harness, "shoulder_pan");
+        harness.state_mut().select(Selection::Joint(pan));
+        settle(harness);
+
+        // `ref="10"` on a hinge: radians in the document, degrees on screen
+        // beside the other angles.
+        let joint = harness.state().robot().joints[&pan].clone();
+        assert!((joint.qpos_ref - 10f64.to_radians()).abs() < 1e-12);
+        harness.get_by_label("ref \u{b0}");
+        assert_eq!(harness.query_all_by_label("10").count(), 1, "the value");
+        // Read-only: no field to type into, and looking changes nothing.
+        assert!(!harness.state().history().is_dirty());
+
+        // Every other joint in the corpus was authored at zero, so the row
+        // is theirs to *not* have.
+        let lift = joint_named(harness, "shoulder_lift");
+        harness.state_mut().select(Selection::Joint(lift));
+        settle(harness);
+        assert_eq!(
+            harness.query_all_by_label("ref \u{b0}").count(),
+            0,
+            "no ref, no row"
+        );
+        // `debug_state()` carries it either way, omitting the zero.
+        let joints = harness.state().debug_state().document.joints;
+        let of = |name: &str| {
+            joints
+                .iter()
+                .find(|j| j.name == name)
+                .unwrap_or_else(|| panic!("no joint {name:?}"))
+                .qpos_ref
+        };
+        assert!((of("shoulder_pan") - 0.174_533).abs() < 1e-6);
+        assert_eq!(of("shoulder_lift"), 0.0);
+
+        // The picture is the row: back to the joint that has one.
+        harness.state_mut().select(Selection::Joint(pan));
+        settle(harness);
+    });
+}
+
+/// Properties › Joint for a joint on a fixed tendon: a read-only row per
+/// tendon, its coefficient, and the actuators driving it (ADR-0025 §4, the
+/// plan's OPEN 2). `wrist_slide` is on `grip_tendon` at `coef 1` and the
+/// corpus's `grip` motor pulls the tendon, not the joint — so the row
+/// above it, the joint's own `<general>`, is still the only thing the
+/// actuator combo and "Apply to every movable joint" can see.
+#[test]
+fn properties_joint_tendon() {
+    scenario("properties_joint_tendon", |harness| {
+        open_for_editing(harness.state_mut(), &menagerie_style_scratch())
+            .expect("the corpus MJCF imports");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        let slide = joint_named(harness, "wrist_slide");
+        harness.state_mut().select(Selection::Joint(slide));
+        settle(harness);
+
+        harness.get_by_label("tendon");
+        harness.get_by_label("grip_tendon \u{b7} coef 1 \u{b7} driven by grip (motor)");
+
+        // The tendon's motor is not on the joint: the combo shows `lift`
+        // and only `lift`, and `SetActuators` would copy that one.
+        let robot = harness.state().robot();
+        let on: Vec<String> = robot
+            .actuators_on(slide)
+            .map(|(_, a)| a.name.clone())
+            .collect();
+        assert_eq!(on, ["lift"], "a tendon actuator is not on the joint");
+        assert_eq!(harness.query_all_by_label("grip").count(), 0, "not a row");
+
+        // The follower on the same tendon: no actuator section at all
+        // (it mimics), and the tendon row is still there with its own
+        // coefficient — which is the whole reason the section exists.
+        let flex = joint_named(harness, "finger_flex");
+        harness.state_mut().select(Selection::Joint(flex));
+        settle(harness);
+        harness.get_by_label("grip_tendon \u{b7} coef -0.02 \u{b7} driven by grip (motor)");
+
+        // `debug_state()` carries the tendon whole, so a scenario asserts
+        // the coupling and not only the two strings above.
+        let tendons = harness.state().debug_state().document.tendons;
+        assert_eq!(tendons.len(), 1);
+        assert_eq!(tendons[0].name, "grip_tendon");
+        assert_eq!(
+            tendons[0].joints,
+            [
+                ("wrist_slide".to_owned(), 1.0),
+                ("finger_flex".to_owned(), -0.02)
+            ]
+        );
+        assert_eq!(tendons[0].actuators, ["grip (motor)"]);
+
+        // The picture is the joint whose panel shows both sections.
+        harness.state_mut().select(Selection::Joint(slide));
+        settle(harness);
+    });
+}
+
 /// The same section's other half: the combo retypes the actuator (and the
 /// gain rows change with it), and one button gives the whole arm the same
 /// one — skipping the forearm, which follows and is already driven

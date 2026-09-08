@@ -1629,6 +1629,28 @@ impl RiggenApp {
                     }
                 }
 
+                // MJCF's `<joint ref>`, read-only (ADR-0025 §3). The
+                // document's `q` — the scrubber, the glyph, both writers —
+                // is the deviation from the authored pose; this is what
+                // MuJoCo adds to it, so the two limits above read one way
+                // here and another in the exported file. Shown only when a
+                // file brought one, and not editable: it is the importer's
+                // record of where the source put its zero, not a pose the
+                // user authors. Moving the zero is the origin's job.
+                if data.kind.is_movable() && data.qpos_ref != 0.0 {
+                    let (unit, value) = if data.kind == JointKind::Prismatic {
+                        ("m", data.qpos_ref)
+                    } else {
+                        ("\u{b0}", data.qpos_ref.to_degrees())
+                    };
+                    ui.label(format!("ref {unit}")).on_hover_text(
+                        "MJCF <joint ref>: the exported qpos at which this joint sits \
+                         at q = 0. Read-only.",
+                    );
+                    ui.label(fmt_num(value));
+                    ui.end_row();
+                }
+
                 // A coupled degree of freedom (ADR-0013, amended by
                 // ADR-0025). The combo offers exactly the leaders
                 // `validate` accepts: a movable joint that is not this one
@@ -1856,6 +1878,37 @@ impl RiggenApp {
                         commands.push(Command::SetActuators(apply));
                     }
                     ui.end_row();
+                }
+
+                // The tendons the joint is on, read-only (ADR-0025 §4,
+                // the plan's OPEN 2 answered the way ADR-0024 answered its
+                // own: show it, edit it in the SDK or the file). A tendon
+                // is not the joint's — it is a linear combination several
+                // joints share — and the actuators driving one are on the
+                // tendon, so neither the combo above nor
+                // `Command::SetActuators` sees them. Without this section
+                // a `<motor tendon>` an import brought in would move the
+                // joint with nothing on the screen to say why.
+                if data.kind.is_movable() {
+                    for (id, tendon) in self.robot.tendons_on(joint) {
+                        let coef = tendon.coef_of(joint).unwrap_or(0.0);
+                        let mut text = format!("{} \u{b7} coef {}", tendon.name, fmt_num(coef));
+                        let driving: Vec<String> = self
+                            .robot
+                            .actuators_driving(id)
+                            .map(|(_, a)| format!("{} ({})", a.name, a.spec.kind_name()))
+                            .collect();
+                        if !driving.is_empty() {
+                            text.push_str(" \u{b7} driven by ");
+                            text.push_str(&driving.join(", "));
+                        }
+                        ui.label("tendon").on_hover_text(
+                            "a fixed tendon this joint is on: length = \u{3a3} coef \u{b7} qpos. \
+                             Read-only \u{2014} edit it through the Python SDK or the file.",
+                        );
+                        ui.label(text);
+                        ui.end_row();
+                    }
                 }
 
                 let d = data.dynamics;

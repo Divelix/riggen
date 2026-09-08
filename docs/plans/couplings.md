@@ -174,7 +174,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   `grip` leaves `ROUND_TRIP_DROPPED` (now empty); the `@ORIGINAL`
   comparison gains `check_round_trip_equalities` and
   `check_round_trip_tendons`, field for field like the actuators.
-- [ ] **[2]** Step 10 — app: what the panel shows. Joint properties gain
+- [x] **[2]** Step 10 — app: what the panel shows. Joint properties gain
   a read-only `ref` row (non-zero only) and a read-only "tendons" section
   — each tendon through the joint with its coefficient and the actuators
   driving it; the actuator combo's `SetActuators` still skips nothing new
@@ -239,10 +239,12 @@ warning list naming neither `<joint ref>`, `<tendon>`, `grip` nor any
   `lengthrange` ADR-0024 §4 counts; `<adhesion>` is a body target. With a
   tendon in the document both become *possible*; the backlog line is
   rewritten to say so and stays.
-- `⚠ OPEN 2:` a Tendons list panel now that an actuator can exist no
+- ~~`⚠ OPEN 2:`~~ a Tendons list panel now that an actuator can exist no
   joint's panel owns (ADR-0023's own condition) — or the read-only rows of
-  step 10? **Human, by step 10.** Recommendation: the rows; a panel is a
-  backlog line until a user edits tendons in the GUI rather than the SDK.
+  step 10? **Decided (human, 2026-09-09, before step 10): the rows.** A
+  panel stays unbuilt until a user edits tendons in the GUI rather than
+  the SDK; the rows answer ADR-0023's condition — the tendon actuator is
+  on the screen — the way ADR-0024 answered its own for `<general>`.
 - ~~`⚠ OPEN 3:`~~ `RemoveTendon` while actuators target it — **decided
   (ADR-0025 §4): take them**, the `RemoveLink` precedent; a removal is a
   gesture about the tendon, and the actuators are visible and undoable.
