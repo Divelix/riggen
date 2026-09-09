@@ -1,5 +1,5 @@
 //! [`Pose`]: a rigid transform, "this frame expressed in the parent frame"
-//! (docs/02-data-model.md §Conventions). Composition is `parent ∘ child`; a
+//! (docs/DATA-MODEL.md §Conventions). Composition is `parent ∘ child`; a
 //! matrix is derived, never stored.
 
 use riggen_mesh::glam::{DMat3, DMat4, DQuat, DVec3};

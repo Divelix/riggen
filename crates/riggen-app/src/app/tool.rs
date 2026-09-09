@@ -1,6 +1,6 @@
 //! The active tool and the toolbar that floats in the viewport's top-left
 //! corner beside the `View | Edit` control, in Edit only
-//! (docs/01-architecture.md §Panels and menus, ADR-0021).
+//! (docs/ARCHITECTURE.md §Panels and menus, ADR-0021).
 //!
 //! A tool is *modal*: it decides what a click and a drag in the viewport
 //! mean. `Select` is the M1 behaviour and the resting state — `Esc` always

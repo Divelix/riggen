@@ -1,6 +1,6 @@
 // ID-buffer pick pass: rasterizes each triangle's packed pick id (see
 // `crate::pick_id`) into an R32Uint target instead of a shaded color
-// (docs/01-architecture.md §Picking and snapping).
+// (docs/ARCHITECTURE.md §Picking and snapping).
 
 struct Uniforms {
     view_proj: mat4x4<f32>,

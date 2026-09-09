@@ -1,5 +1,5 @@
 //! Packs `(instance slot, triangle)` into the `u32` pixel values written by
-//! the ID-buffer pick pass (docs/01-architecture.md §Picking and snapping).
+//! the ID-buffer pick pass (docs/ARCHITECTURE.md §Picking and snapping).
 //!
 //! Layout: `slot` in the top 12 bits, `triangle + 1` in the low 20. `0` is
 //! reserved for "nothing under the cursor" — the pick target's clear value —

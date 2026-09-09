@@ -1,5 +1,5 @@
 //! File › Export…: the modal that turns the document into MJCF / URDF /
-//! SDF (docs/02-data-model.md §`ResolvedRobot`, ADR-0008, ADR-0016). It
+//! SDF (docs/DATA-MODEL.md §`ResolvedRobot`, ADR-0008, ADR-0016). It
 //! resolves the document when it opens and whenever an option changes,
 //! lists every `ExportError` with the link it names, and keeps the Export
 //! button disabled while any exist — the sanity checks MuJoCo fails

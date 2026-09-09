@@ -1,6 +1,6 @@
 //! Rigid-body mass properties of a closed triangle mesh: the signed-tetrahedra
 //! port of RoboCAD's `mass.rs` onto [`TriMesh`] / glam
-//! (docs/02-data-model.md §Inertials).
+//! (docs/DATA-MODEL.md §Inertials).
 //!
 //! RoboCAD had truck compute a second, independent volume and used the
 //! discrepancy as its "is this mesh closed?" signal. Riggen has the welded

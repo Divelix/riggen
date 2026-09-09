@@ -2,9 +2,9 @@
 
 - Status: Accepted
 - Date: 2026-09-05
-- Supersedes: the per-tool `q` reset of `docs/01-architecture.md` §Panels
+- Supersedes: the per-tool `q` reset of `docs/ARCHITECTURE.md` §Panels
   (plans/m2-placement-ux OPEN 1); narrows the `Reparent`-at-the-current-`q`
-  paragraph of `docs/02-data-model.md` §Commands (plans/panels-and-numbers
+  paragraph of `docs/DATA-MODEL.md` §Commands (plans/panels-and-numbers
   OPEN 4) to the SDK
 - Amends: the switch table of [ADR-0010](0010-gizmo-egui-glue-is-ours.md)
   §Decision 3 as [ADR-0019](0019-the-wheel-is-claimable-and-a-drag-keeps-the-hover-pick.md)
@@ -28,7 +28,7 @@ the only thing under the cursor and the wheel to turn it; editing wants
 the mesh under the cursor, the gizmo to claim the left drag, and — because
 every frame-rewriting command works in the zero configuration — the robot
 *un*-posed. Today the second wins by default and the first is a window.
-Everything else in `docs/03-roadmap.md` §The window (the joint tree,
+Everything else in `docs/ROADMAP.md` §The window (the joint tree,
 joints-only picking, the wheel on a glyph, the glyph's hover target, the
 visibility row, zen) needs to know which mode it is in.
 

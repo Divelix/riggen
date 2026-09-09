@@ -1,4 +1,4 @@
-//! Every edit of the document is a [`Command`] (docs/02-data-model.md
+//! Every edit of the document is a [`Command`] (docs/DATA-MODEL.md
 //! §Commands and history). A command is applied to a clone, the result is
 //! validated, and only then does it replace the document — so a refused
 //! command leaves nothing behind. Joints are tree edges (ADR-0005): a link

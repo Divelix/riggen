@@ -1,6 +1,6 @@
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
-    // The startup budget's clock (docs/03-roadmap.md §M4): everything from
+    // The startup budget's clock (docs/ROADMAP.md §M4): everything from
     // here to the first painted frame — window, wgpu device, `new`, the
     // first `ui` pass — is what `--timing` reports.
     let started = std::time::Instant::now();
@@ -35,7 +35,7 @@ fn main() -> eframe::Result<()> {
         }
     };
     // `riggen robot.riggen` opens a document; `riggen a.stl b.obj` drops
-    // meshes as links under the root (docs/03-roadmap.md §M1); `--example
+    // meshes as links under the root (docs/ROADMAP.md §M1); `--example
     // arm` unpacks the bundled sample to a temp directory and opens it first.
     let mut files = Vec::new();
     if let Some(example) = open.example {
@@ -59,7 +59,7 @@ fn main() -> eframe::Result<()> {
     // The backends are the platform's native ones only (Vulkan, Metal,
     // DX12): eframe's default adds GL, and enumerating it loads the GLX/EGL
     // stack and the vendor's GL driver for an adapter the app never picks —
-    // 100–150 ms of the startup budget (docs/03-roadmap.md §M4) on the dev
+    // 100–150 ms of the startup budget (docs/ROADMAP.md §M4) on the dev
     // machine. `WGPU_BACKEND=gl` is the escape hatch for a machine with no
     // Vulkan driver at all.
     let mut wgpu_setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();

@@ -3,7 +3,7 @@ use glam::{DMat3, DMat4, DVec3};
 use crate::{Aabb, MeshError};
 
 /// An indexed triangle soup: the one mesh type every crate speaks
-/// (docs/01-architecture.md §Crates).
+/// (docs/ARCHITECTURE.md §Crates).
 ///
 /// Right-handed, Z-up, in whatever unit the file was in until M1's
 /// `MeshAsset` scales it (AGENTS.md). Counter-clockwise winding seen from

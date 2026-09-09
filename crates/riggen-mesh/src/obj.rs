@@ -2,7 +2,7 @@
 //!
 //! Every shape in the file is merged into one [`TriMesh`]: M0 shows a
 //! dropped file as one instance, and a link's visual is one mesh
-//! (docs/02-data-model.md). Faces are triangulated; `single_index` makes
+//! (docs/DATA-MODEL.md). Faces are triangulated; `single_index` makes
 //! `tobj` unweld wherever a position is used with different normals, so the
 //! result is welded exactly as far as the file's normals allow. Normals are
 //! taken from the file when every vertex has one and recomputed flat

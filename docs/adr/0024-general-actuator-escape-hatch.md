@@ -106,7 +106,7 @@ clamped to the joint's range.
 document state, round-trips: `dyntype`, `gaintype`, `biastype`, `dynprm`,
 `gainprm`, `biasprm`, `gear`, and the four range fields of point 3.
 Counted and warned once per attribute name, the way an unread element
-already is (`docs/02-data-model.md` §Nothing is dropped silently):
+already is (`docs/DATA-MODEL.md` §Nothing is dropped silently):
 `actdim`, `actearly`, `actrange`, `lengthrange`, `cranklength`. `group`
 stays decorative and silent, as it already is for the three presets. The
 promise is bounded and stated, rather than "everything" and untrue.

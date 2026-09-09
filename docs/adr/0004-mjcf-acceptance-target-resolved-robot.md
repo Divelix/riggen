@@ -18,7 +18,7 @@ design it then". It is now.
 ## Decision
 
 1. The MVP exports both formats, from a single `resolve(&Robot) ->
-   ResolvedRobot` (02-data-model) that fixes conventions — joint frame equals
+   ResolvedRobot` (Data Model) that fixes conventions — joint frame equals
    child link frame, radians, meters, inertials about CoM in link axes — and
    from which each writer is a dumb serialiser.
 2. **MJCF is the acceptance target** for M3: the milestone closes when

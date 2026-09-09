@@ -2,7 +2,7 @@
 
 One line per raw idea. Picking one up means `/idea` (needs thinking) or
 `/plan` (obvious); the line is removed then — as is a line a roadmap cycle
-has committed to, which now lives in `docs/03-roadmap.md` instead. Rejected ideas keep one line
+has committed to, which now lives in `docs/ROADMAP.md` instead. Rejected ideas keep one line
 below with the reason, so the same idea is not re-brainstormed.
 
 - `validate` does not check that geom poses or an `Override` inertial's numbers are finite (joint origins, joint limits, frame poses and densities are); a NaN typed into a geom pose reaches the export

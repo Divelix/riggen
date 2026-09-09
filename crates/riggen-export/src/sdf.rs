@@ -1,4 +1,4 @@
-//! The SDF writer (ADR-0016, docs/02-data-model.md §Format mapping): the
+//! The SDF writer (ADR-0016, docs/DATA-MODEL.md §Format mapping): the
 //! third dumb serialiser of one `ResolvedRobot`, and the one that has to
 //! apologise least. SDF's own defaults are riggen's conventions — a
 //! joint's pose is the child link frame (ADR-0004), an axis is expressed

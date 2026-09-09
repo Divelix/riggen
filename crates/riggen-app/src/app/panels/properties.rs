@@ -214,7 +214,7 @@ enum DecompReadout {
     NoMesh,
     /// The browser: `jobs` has no thread there, so the run would freeze the
     /// tab and is waiting to be asked for (ADR-0011,
-    /// docs/01-architecture.md §Jobs and threads).
+    /// docs/ARCHITECTURE.md §Jobs and threads).
     NeedsConsent,
 }
 
@@ -634,7 +634,7 @@ impl RiggenApp {
                 });
             });
         // A scrub's commands coalesce under its gesture; release ends it
-        // after the last one lands (docs/02-data-model.md §Commands and
+        // after the last one lands (docs/DATA-MODEL.md §Commands and
         // history: one gesture = one history entry).
         let gesture = self.props.gesture.take();
         let ended = std::mem::take(&mut self.props.gesture_ended);
@@ -1192,7 +1192,7 @@ impl RiggenApp {
     }
 
     /// Properties › Inertial: the mode, its fields, and what the meshes
-    /// say beside it (docs/02-data-model.md §Inertials). Every committed
+    /// say beside it (docs/DATA-MODEL.md §Inertials). Every committed
     /// field is one `SetInertial`.
     fn inertial_properties(
         &mut self,

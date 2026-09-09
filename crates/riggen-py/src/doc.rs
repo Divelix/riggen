@@ -1,7 +1,7 @@
 //! The boundary's value shape: Python dicts, lists and scalars ↔
 //! `serde_json::Value` ↔ the document types, so a `Joint`, a `Pose`, an
 //! `InertialSpec` cross exactly as the `.riggen` file spells them
-//! (docs/02-data-model.md §Schema) — with one difference: **ids are ints**.
+//! (docs/DATA-MODEL.md §Schema) — with one difference: **ids are ints**.
 //! The file writes `"l5"`; Python sees `5`. The keys that hold an id are
 //! fixed by the schema (`id` a geom, `mesh` a mesh, `parent` / `child` a
 //! link, `joint` a mimic's leader or a tendon's joint, `Joint` / `Tendon`

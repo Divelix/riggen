@@ -1,12 +1,12 @@
 //! Mesh geometry: [`TriMesh`], STL/OBJ/MSH loaders, [`Aabb`], ray/triangle,
 //! the [`feature`] module (welded adjacency, circle fits),
-//! [`mass_properties`] (docs/02-data-model.md §Inertials), [`convex_hull`]
+//! [`mass_properties`] (docs/DATA-MODEL.md §Inertials), [`convex_hull`]
 //! (quickhull), [`decompose`] (V-HACD, the [`decomp`] module) and [`fit`]
 //! (box / sphere / cylinder / capsule) for collision. No egui, no wgpu
-//! (docs/01-architecture.md §Crates).
+//! (docs/ARCHITECTURE.md §Crates).
 //!
 //! `f64` throughout — the document is f64 and mass properties want it; the
-//! GPU path narrows to `f32` at upload (docs/02-data-model.md).
+//! GPU path narrows to `f32` at upload (docs/DATA-MODEL.md).
 //! `glam` is re-exported so no other crate names it directly.
 
 pub use glam;
@@ -50,7 +50,7 @@ pub fn load_mesh(path: &std::path::Path) -> Result<TriMesh, MeshError> {
 /// [`load_mesh`] for bytes already in memory — a browser drop, a zip entry,
 /// an `include_bytes!` — dispatching on `name`'s extension exactly as
 /// [`load_mesh`] does. `name` never has to exist: it is the file's name and
-/// what error messages quote (docs/01-architecture.md §File format).
+/// what error messages quote (docs/ARCHITECTURE.md §File format).
 pub fn load_mesh_bytes(name: &std::path::Path, bytes: &[u8]) -> Result<TriMesh, MeshError> {
     match extension_of(name).as_str() {
         "stl" => parse_stl(bytes, name),
@@ -88,7 +88,7 @@ fn unsupported(path: &std::path::Path) -> MeshError {
 
 /// The most triangles one mesh may have: the viewport's pick id spends 20
 /// bits on `triangle + 1`, with `0` reserved for "miss"
-/// (docs/01-architecture.md §Picking). Loaders reject bigger meshes with
+/// (docs/ARCHITECTURE.md §Picking). Loaders reject bigger meshes with
 /// [`MeshError::TooManyTriangles`]; decimating them is a backlog item.
 pub const MAX_TRIANGLES: usize = (1 << 20) - 1;
 

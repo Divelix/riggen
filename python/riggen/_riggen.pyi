@@ -2,7 +2,7 @@
 
 Mirrors everything the Rust module exposes; ``pyright`` reads this, not the
 ``.so``. Values cross the boundary in the document's own serde shape — the
-v1 schema of docs/02-data-model.md §Schema — with ids as ``int``s; the
+v1 schema of docs/DATA-MODEL.md §Schema — with ids as ``int``s; the
 ``*Doc`` TypedDicts below are that shape. The public API over this is
 ``riggen.Robot`` (``python/riggen/robot.py``, plans/python-sdk step 6).
 """

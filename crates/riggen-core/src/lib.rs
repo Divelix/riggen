@@ -1,6 +1,6 @@
 //! The `Robot` document, commands, history and kinematics
-//! (docs/02-data-model.md). Never depends on egui or wgpu
-//! (docs/01-architecture.md §Crates).
+//! (docs/DATA-MODEL.md). Never depends on egui or wgpu
+//! (docs/ARCHITECTURE.md §Crates).
 //!
 //! Meters, radians, right-handed, Z-up, `f64` everywhere. Ids are
 //! per-document counters and joints are the edges of the link tree

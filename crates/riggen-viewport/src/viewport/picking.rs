@@ -1,5 +1,5 @@
 //! The async ID-buffer pick: what is requested, what is read back, and how
-//! the readback resolves (docs/01-architecture.md §Picking and snapping).
+//! the readback resolves (docs/ARCHITECTURE.md §Picking and snapping).
 
 use std::sync::{Arc, Mutex};
 

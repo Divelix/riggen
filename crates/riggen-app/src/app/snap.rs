@@ -1,5 +1,5 @@
 //! Snapping: what the cursor is *really* pointing at
-//! (docs/01-architecture.md §Picking and snapping).
+//! (docs/ARCHITECTURE.md §Picking and snapping).
 //!
 //! The ID buffer says which triangle is under the cursor. That is enough to
 //! recover an exact point with `ray_triangle`, and — through

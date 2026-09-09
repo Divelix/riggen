@@ -8,7 +8,7 @@ use super::orientation::{ISO_PITCH, MAX_PITCH, Projection, StandardView, ViewOri
 /// Turntable orbit camera around a focus point, Z-up (AGENTS.md).
 ///
 /// `f32` throughout: this is the GPU side of the boundary
-/// (docs/02-data-model.md). Angles are radians.
+/// (docs/DATA-MODEL.md). Angles are radians.
 #[derive(Debug, Clone)]
 pub struct OrbitCamera {
     pub target: Vec3,

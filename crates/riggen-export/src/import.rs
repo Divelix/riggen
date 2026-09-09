@@ -427,7 +427,7 @@ mod tests {
         // Every asset's path rebases the same way `dropped()` laid the set
         // out — most of them under `arm/` (`<compiler meshdir>`), but the
         // one inline mesh sits beside the source file itself, same as on
-        // disk (docs/02-data-model.md §Geometry).
+        // disk (docs/DATA-MODEL.md §Geometry).
         let fixtures_abs = riggen_core::absolute(&fixtures()).unwrap();
         for asset in from_disk.assets.values_mut() {
             let rel = asset.path.strip_prefix(&fixtures_abs).unwrap();

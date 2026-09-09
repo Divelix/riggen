@@ -1,5 +1,5 @@
 //! World-space primitives drawn over the rendered scene with egui's painter
-//! (docs/01-architecture.md §Layer map).
+//! (docs/ARCHITECTURE.md §Layer map).
 //!
 //! The viewport owns the projection, so it owns the overlay: everything
 //! drawn on top of the scene — joint glyphs, snap markers, readouts —

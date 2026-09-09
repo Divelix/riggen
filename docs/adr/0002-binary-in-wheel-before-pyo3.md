@@ -34,7 +34,7 @@ and the GUI can never outlive the interpreter call.
 - Distribution risk retires at M4 with zero binding code; the UX risk (M2)
   gets the time instead.
 - `riggen-core` and `riggen-export` must stay free of egui/wgpu so the SDK can
-  link them; the layer rule in 01-architecture is what enforces it.
+  link them; the layer rule in Architecture is what enforces it.
 - Two build artefacts per platform in v0.2 (bin + cdylib); CI handles it the
   way Rerun's does.
 - Users who want a live link between a running script and the GUI (log joint

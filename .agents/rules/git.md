@@ -22,7 +22,7 @@
 type(scope): imperative summary, lower case, no period  (plans/<slug> step N)
 
 Why this change, not what — the diff already says what. Reference ADRs
-(ADR-0004) and docs (docs/02-data-model.md §Inertials) that justify or were
+(ADR-0004) and docs (docs/DATA-MODEL.md §Inertials) that justify or were
 updated by it.
 ```
 

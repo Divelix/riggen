@@ -20,7 +20,7 @@ license = "MIT OR Apache-2.0"
 
 # `cargo run` is the interactive loop, and an unoptimized wgpu/egui is slow
 # enough to be felt. Deps are built once at full optimization; our own crates
-# stay at `1` so backtraces and stepping still work (docs/01-architecture.md
+# stay at `1` so backtraces and stepping still work (docs/ARCHITECTURE.md
 # §Cargo workspace, carried from RoboCAD).
 [profile.dev]
 opt-level = 1
@@ -42,7 +42,7 @@ strip = true
 lto = "thin"
 codegen-units = 1
 
-# The web demo (ADR-0017, 01-architecture §The web build). What the browser
+# The web demo (ADR-0017, Architecture §The web build). What the browser
 # pays for
 # is the *download*, not the last few percent of throughput: `opt-level = "s"`
 # and fat LTO over the whole graph trade a little speed for a much smaller

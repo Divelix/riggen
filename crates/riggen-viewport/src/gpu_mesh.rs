@@ -1,6 +1,6 @@
 //! A [`TriMesh`] on the GPU: the shaded vertex/index buffers, the pick
 //! vertices tagged with [`crate::pick_id`]s, and the fixed axes triad.
-//! `f64` → `f32` happens here and nowhere else (docs/02-data-model.md).
+//! `f64` → `f32` happens here and nowhere else (docs/DATA-MODEL.md).
 
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::util::DeviceExt;

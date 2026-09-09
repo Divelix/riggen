@@ -1,10 +1,10 @@
 //! `riggen._riggen`, the extension module behind the Python SDK
-//! (docs/01-architecture.md §Python SDK, ADR-0009). A thin, typed layer over
+//! (docs/ARCHITECTURE.md §Python SDK, ADR-0009). A thin, typed layer over
 //! `riggen-core` and `riggen-export`: one method per `Command`, no sugar —
 //! the public API lives in `python/riggen/`. Never depends on egui or wgpu.
 //!
 //! Values cross the boundary in the document's own serde shape — the v1
-//! schema of docs/02-data-model.md §Schema, with ids as ints ([`doc`]) —
+//! schema of docs/DATA-MODEL.md §Schema, with ids as ints ([`doc`]) —
 //! so the mapping table is the schema. Errors are the exception classes of
 //! `python/riggen/errors.py`, raised by name ([`errors`]).
 //!

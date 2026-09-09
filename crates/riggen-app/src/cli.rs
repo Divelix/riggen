@@ -3,7 +3,7 @@
 //! (ADR-0008, ADR-0016) that returns before eframe starts — it is what
 //! CI's `mujoco` and `sdf` jobs run, so it must need no display.
 //! `--help`, `--version` and `--example arm` are the rest
-//! (docs/01-architecture.md §Crates). `INPUT` is a `.riggen` document, a
+//! (docs/ARCHITECTURE.md §Crates). `INPUT` is a `.riggen` document, a
 //! `.urdf` or an MJCF `.xml` (imported through `riggen_export::urdf_in` or
 //! `mjcf_in` first).
 //!
@@ -305,7 +305,7 @@ fn join_errors(errors: &[riggen_export::ExportError]) -> String {
         .join("\n")
 }
 
-/// Step 2's decision (docs/02-data-model.md §Geometry): an inline
+/// Step 2's decision (docs/DATA-MODEL.md §Geometry): an inline
 /// `<mesh vertex face>` becomes a real file beside the source MJCF, which
 /// is where `mjcf_in::load` already pointed its `MeshAsset::path`.
 fn write_inline_meshes(source: &Path, inline_meshes: &[(String, Vec<u8>)]) -> Result<(), String> {

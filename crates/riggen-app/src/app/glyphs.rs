@@ -1,5 +1,5 @@
 //! Joint glyphs: the document turned into overlay primitives
-//! (docs/01-architecture.md §Panels and menus).
+//! (docs/ARCHITECTURE.md §Panels and menus).
 //!
 //! A joint has no geometry, so without a glyph it is invisible in the
 //! viewport — the tree is the only place it exists, and "which way does this

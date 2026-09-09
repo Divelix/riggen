@@ -46,7 +46,7 @@ dynamic = ["version"]
 # No `[project.scripts]` on purpose: maturin drops the `riggen` binary into
 # the wheel's `scripts/` directory — the venv's `bin/` — so the `riggen`
 # command *is* the binary, with no Python interpreter in front of it (the
-# startup budget, docs/03-roadmap.md §M4). A console script of the same
+# startup budget, docs/ROADMAP.md §M4). A console script of the same
 # name would shadow it.
 
 [project.urls]

@@ -1,4 +1,4 @@
-//! `Robot` → [`ResolvedRobot`] (docs/02-data-model.md §`ResolvedRobot`):
+//! `Robot` → [`ResolvedRobot`] (docs/DATA-MODEL.md §`ResolvedRobot`):
 //! links in topological order, joints beside them, every geom a mesh in
 //! meters or a primitive, every inertial composed and checked. Everything
 //! that can block an export is found here, all of it, so the export dialog
@@ -143,7 +143,7 @@ pub enum MeshPathStyle {
     Absolute,
 }
 
-/// Everything the export dialog decides (docs/02-data-model.md
+/// Everything the export dialog decides (docs/DATA-MODEL.md
 /// §`ResolvedRobot`). Not a document field: two exports of one document may
 /// differ in all of it.
 #[derive(Debug, Clone, PartialEq, Default)]

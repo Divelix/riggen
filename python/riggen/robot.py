@@ -2,11 +2,11 @@
 :class:`Geom` handles, :class:`Pose`, the joint and inertial specs, and the
 :func:`load` / :func:`load_urdf` / :func:`load_mjcf` readers.
 
-Pure Python over ``riggen._riggen`` (docs/01-architecture.md §Python SDK).
+Pure Python over ``riggen._riggen`` (docs/ARCHITECTURE.md §Python SDK).
 Every mutating property or method here is exactly one document command,
 applied on a copy and kept only on success — a refused edit raises a
 :class:`riggen.EditError` subclass and changes nothing. Meters, radians,
-right-handed, Z-up (docs/02-data-model.md §Conventions); ``degrees=True``
+right-handed, Z-up (docs/DATA-MODEL.md §Conventions); ``degrees=True``
 is offered wherever an angle is typed.
 """
 

@@ -1,4 +1,4 @@
-# 02 — Data Model & Conventions
+# Data Model & Conventions
 
 Everything in this document is `riggen-core` or `riggen-export`, and none of
 it knows egui exists.

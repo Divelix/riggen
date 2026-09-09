@@ -1,4 +1,4 @@
-//! The document invariants (docs/02-data-model.md §Core types). The command
+//! The document invariants (docs/DATA-MODEL.md §Core types). The command
 //! layer never produces a violating state (ADR-0005); `validate` is the
 //! safety net behind every command and the gate before save and export.
 

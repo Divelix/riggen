@@ -101,7 +101,7 @@ under its content hash.
   build, which still compiles even though nothing exercises it in a browser.
 - It is **not** cheap enough for a frame: seconds on a real part, dominated
   by O(`resolution`³) voxelization. The app computes it on a job thread
-  (docs/01-architecture.md §Jobs and threads) keyed by `(MeshId, params)`;
+  (docs/ARCHITECTURE.md §Jobs and threads) keyed by `(MeshId, params)`;
   the CLI and the SDK run it inline, where a blocking second is expected.
 - Three glam versions are in the lock file. Nothing of ours names two of
   them; `cargo tree -d` showing three glams is expected, not a warning.

@@ -1,5 +1,5 @@
 //! The eframe shell: the bin `riggen` on native, a `WebHandle` cdylib on
-//! wasm32 (docs/01-architecture.md §Crates).
+//! wasm32 (docs/ARCHITECTURE.md §Crates).
 
 mod app;
 #[cfg(not(target_arch = "wasm32"))]
@@ -29,7 +29,7 @@ mod web {
 
     /// JS-side handle: `new WebHandle()` then `.start(canvas)` from
     /// `web/main.js`, which owns the page, the WebGPU probe and the panic
-    /// sheet (docs/01-architecture.md §Cargo workspace, `web/`).
+    /// sheet (docs/ARCHITECTURE.md §Cargo workspace, `web/`).
     #[wasm_bindgen]
     pub struct WebHandle {
         runner: eframe::WebRunner,

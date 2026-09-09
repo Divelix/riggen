@@ -22,7 +22,7 @@ pub fn raise(py: Python<'_>, class: &str, message: impl Into<String>) -> PyErr {
 }
 
 /// Every `EditError` variant is its own subclass of `riggen.EditError`
-/// (docs/01-architecture.md §Python SDK).
+/// (docs/ARCHITECTURE.md §Python SDK).
 pub fn edit_error(py: Python<'_>, e: EditError) -> PyErr {
     let class = match &e {
         EditError::Invalid(_) => "InvalidDocument",

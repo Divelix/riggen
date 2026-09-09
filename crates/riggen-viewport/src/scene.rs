@@ -4,7 +4,7 @@
 //! Uploading one instance's mesh touches exactly that entry; showing,
 //! hiding or moving one costs no upload at all. The `model` matrix is how a
 //! joint preview or FK pose moves a link — by writing a transform, never by
-//! re-uploading (docs/01-architecture.md §The document is the only state).
+//! re-uploading (docs/ARCHITECTURE.md §The document is the only state).
 
 use riggen_mesh::glam::{DMat4, DVec3};
 use riggen_mesh::{Aabb, TriMesh};
@@ -53,7 +53,7 @@ pub const DEFAULT_INSTANCE_COLOR: [f32; 4] = [0.55, 0.65, 0.78, 1.0];
 /// depth; translucent ones draw after every opaque one, alpha-blended and
 /// depth-tested without writing depth, and the pick pass skips them — a
 /// collision hull over a part must not steal the part's clicks
-/// (docs/01-architecture.md §Frame loop).
+/// (docs/ARCHITECTURE.md §Frame loop).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RenderGroup {
     #[default]

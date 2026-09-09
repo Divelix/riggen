@@ -1,7 +1,7 @@
 //! New / Open / Save / Save As / Quit, the unsaved-changes confirm, the
 //! window title and the import-units choice. Every route that would drop
 //! the current document asks first when it is dirty; the answer decides
-//! whether the pending action runs (docs/03-roadmap.md §M1).
+//! whether the pending action runs (docs/ROADMAP.md §M1).
 
 use std::path::{Path, PathBuf};
 

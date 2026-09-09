@@ -1,4 +1,4 @@
-# 01 — Architecture
+# Architecture
 
 ## Layer map
 
@@ -183,7 +183,7 @@ layout) survive a restart through eframe storage.
 
 ## The document is the only state
 
-`riggen-app` owns one `Robot` (02-data-model) plus derived, never-saved
+`riggen-app` owns one `Robot` (Data Model) plus derived, never-saved
 state:
 
 ```rust

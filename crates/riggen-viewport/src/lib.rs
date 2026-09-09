@@ -1,5 +1,5 @@
 //! The wgpu viewport: orbit camera, instance scene, ID-buffer picking,
-//! ported from `robocad-viewport` (ADR-0001, docs/01-architecture.md).
+//! ported from `robocad-viewport` (ADR-0001, docs/ARCHITECTURE.md).
 
 mod camera;
 mod gpu_mesh;
@@ -22,7 +22,7 @@ pub use viewport::depth::DepthImage;
 pub use viewport::{InstanceState, Viewport};
 
 /// What the cursor is over: one triangle of one instance
-/// (docs/01-architecture.md §Picking and snapping).
+/// (docs/ARCHITECTURE.md §Picking and snapping).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PickHit {
     pub instance: InstanceId,

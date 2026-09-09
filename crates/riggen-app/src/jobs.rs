@@ -1,4 +1,4 @@
-//! The job thread (docs/01-architecture.md §Jobs and threads): work that
+//! The job thread (docs/ARCHITECTURE.md §Jobs and threads): work that
 //! is more than a frame's worth, run off the UI thread so the window keeps
 //! painting.
 //!

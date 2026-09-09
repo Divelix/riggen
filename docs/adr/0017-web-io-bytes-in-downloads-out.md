@@ -5,7 +5,7 @@
 
 ## Context
 
-`docs/03-roadmap.md`'s last open v0.2 line is the web demo: riggen at a
+`docs/ROADMAP.md`'s last open v0.2 line is the web demo: riggen at a
 public URL, with the sample arm already in it and your own meshes droppable
 onto the page. The viewport, the document, the writers and the importers are
 all already portable — `riggen-core` and `riggen-export` never touch egui or
@@ -71,7 +71,7 @@ names, and its `FileSource::read` looks only at `path.file_name()`. So
 `meshes/base.stl`, `../base.stl` and `base.stl` all mean *the file called
 `base.stl` that came with this drop*. Dropped files are given the synthetic
 directory `/dropped/`, which exists nowhere, so every path in the document
-is absolute exactly as it is on disk (docs/01-architecture.md §File format)
+is absolute exactly as it is on disk (docs/ARCHITECTURE.md §File format)
 and no code has to learn a second kind of path.
 
 A reference the set does not carry is **missing**, and the reader that asked

@@ -1,5 +1,5 @@
 //! The `.riggen` file: `{ "schema_version": 6, "robot": Robot }` as JSON
-//! (docs/01-architecture.md §File format, docs/02-data-model.md §Schema).
+//! (docs/ARCHITECTURE.md §File format, docs/DATA-MODEL.md §Schema).
 //!
 //! Mesh paths are **absolute in memory and relative to the file on disk**
 //! (forward slashes): [`save`] rebases them on the way out, [`load`]
@@ -185,7 +185,7 @@ pub fn hash_file(path: &Path) -> io::Result<u64> {
 /// reader in the workspace — the `.riggen` loader here, `MeshStore`, the
 /// URDF and MJCF imports — reads through this one trait, so both worlds run
 /// the same reader rather than a second, thinner web version of it
-/// (docs/01-architecture.md §File format).
+/// (docs/ARCHITECTURE.md §File format).
 pub trait FileSource {
     fn read(&self, path: &Path) -> io::Result<Vec<u8>>;
 

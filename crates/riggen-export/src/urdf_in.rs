@@ -1,4 +1,4 @@
-//! URDF → `Robot` (docs/02-data-model.md §URDF import), over `urdf-rs`.
+//! URDF → `Robot` (docs/DATA-MODEL.md §URDF import), over `urdf-rs`.
 //! Links and joints map directly — URDF's joint-frame convention is ours
 //! (ADR-0004) — `<inertial>` becomes `InertialSpec::Override`, a uniform
 //! `<mesh scale>` becomes `MeshAsset::scale`, a `<collision>` mesh that is

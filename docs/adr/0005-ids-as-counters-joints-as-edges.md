@@ -5,7 +5,7 @@
 
 ## Context
 
-02-data-model asked for two things at once: ids that are `slotmap` keys and
+Data Model asked for two things at once: ids that are `slotmap` keys and
 ids that serialise as readable `"l3"` / `"j7"` strings so a `.riggen` diff
 can be read. A `slotmap` key carries a generation counter next to its index;
 writing only the index loses it, so a load would need a remap pass that
@@ -43,7 +43,7 @@ could only be checked on save and export, and every consumer of the document
 - A dropped mesh always lands as a link under a parent (the selection or
   the root) with a `Fixed` joint at identity; "just a loose part" does not
   exist in the document.
-- 02-data-model's `SlotMap` fields and `AddJoint` / `RemoveJoint` lines are
+- Data Model's `SlotMap` fields and `AddJoint` / `RemoveJoint` lines are
   superseded by this ADR and rewritten when plan `m1-document-tree-joints`
   retires.
 

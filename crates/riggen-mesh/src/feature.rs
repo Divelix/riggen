@@ -1,5 +1,5 @@
 //! Mesh features: what "click the bore, get the joint axis" is made of
-//! (docs/02-data-model.md §Mesh features, docs/01-architecture.md
+//! (docs/DATA-MODEL.md §Mesh features, docs/ARCHITECTURE.md
 //! §Picking and snapping).
 //!
 //! There is no B-Rep. An STL is a triangle soup with the same coordinates

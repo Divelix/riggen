@@ -6,7 +6,7 @@
 ## Context
 
 `Frame { name, parent, pose }` has been in the schema since M1 and always
-empty (`docs/02-data-model.md` §Core types). It is the TCP, the sensor
+empty (`docs/DATA-MODEL.md` §Core types). It is the TCP, the sensor
 mount, the grasp pose — a named pose on a link that carries no mass and no
 geometry, and that downstream tools are supposed to be able to name.
 
@@ -63,7 +63,7 @@ likewise not be an existing joint's name.
 - Round-tripping our own URDF through `urdf_in` gains two links per two
   frames: the frames come back as ordinary massless links, and re-exporting
   writes them as links. This is the accepted cost of the import decision,
-  and it is recorded in `docs/02-data-model.md` §URDF import so nobody
+  and it is recorded in `docs/DATA-MODEL.md` §URDF import so nobody
   reports it as a bug.
 - The MJCF route round-trips exactly, once MJCF import exists — a `<site>`
   is unambiguous.

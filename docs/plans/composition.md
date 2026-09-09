@@ -1,7 +1,7 @@
 # Plan: composition
 
 - Started: 2026-09-09
-- Milestone: v0.4, the file half — "Composition" (`docs/03-roadmap.md` §v0.4),
+- Milestone: v0.4, the file half — "Composition" (`docs/ROADMAP.md` §v0.4),
   the last unlanded line of the cycle
 - Idea: `docs/ideas/composition.md` (absorbed) — option **B**, its
   measured corpus numbers, and its three subsidiary preferences
@@ -190,14 +190,14 @@ message.
 
 ## Docs to update on completion
 
-- `docs/02-data-model.md` §MJCF import — a **Composition** paragraph
+- `docs/DATA-MODEL.md` §MJCF import — a **Composition** paragraph
   before "Read before any body is": the pre-pass, what it resolves, what
   it refuses, the include resolution rule, and the stated cost (a
   re-export is one flat file); the sentence naming `<include>` /
   `<frame>` among the refusals.
-- `docs/01-architecture.md` — the crate layout line for
+- `docs/ARCHITECTURE.md` — the crate layout line for
   `mjcf_compose.rs`; §Testing, the corpus's second file.
-- `docs/03-roadmap.md` §v0.4 — the Composition bullet *Landed
+- `docs/ROADMAP.md` §v0.4 — the Composition bullet *Landed
   (plans/composition, ADR-0026)*, amended to name the two that landed and
   the two that stay refused (idea decision 5).
 - `docs/BACKLOG.md` — `<attach>` (with the one-`Robot`-or-two question)

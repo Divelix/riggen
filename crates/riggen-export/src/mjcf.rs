@@ -1,4 +1,4 @@
-//! The MJCF writer (docs/02-data-model.md §Format mapping, ADR-0004,
+//! The MJCF writer (docs/DATA-MODEL.md §Format mapping, ADR-0004,
 //! ADR-0008): nested `<body>`s in the resolved order, one `<joint>` per
 //! movable edge inside the child body, `<inertial pos mass fullinertia>`
 //! so MuJoCo does the principal-axes decomposition itself, meshes by stem

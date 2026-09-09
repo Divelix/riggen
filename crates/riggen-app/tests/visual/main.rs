@@ -1,4 +1,4 @@
-//! Visual snapshot scenarios (ADR-0003, docs/01-architecture.md §Testing).
+//! Visual snapshot scenarios (ADR-0003, docs/ARCHITECTURE.md §Testing).
 //!
 //! Each scenario drives the real `RiggenApp` headlessly and captures two
 //! things: the rendered frame, compared against a committed PNG, and
@@ -34,7 +34,7 @@ fn fixture(name: &str) -> std::path::PathBuf {
 /// A scratch copy of `menagerie_style.xml` and the meshes it references.
 /// Opening it through `Files::Disk` can now write a file beside it — its
 /// one inline mesh synthesizes a `.stl` there (plans/mjcf-mesh-geometry
-/// step 2, docs/02-data-model.md §Geometry) — so a test that opens it must
+/// step 2, docs/DATA-MODEL.md §Geometry) — so a test that opens it must
 /// not point at the tracked fixture directory.
 fn menagerie_style_scratch() -> std::path::PathBuf {
     let dir = scratch_dir("menagerie-style");
@@ -206,7 +206,7 @@ fn collision_hull() {
 }
 
 /// The job thread, end to end through the app (`riggen_app::jobs`,
-/// docs/01-architecture.md §Jobs and threads): setting a link's collision
+/// docs/ARCHITECTURE.md §Jobs and threads): setting a link's collision
 /// to `ConvexDecomposition` makes the frame ask for the decomposition, the
 /// thread computes it, `drain_jobs` puts it in the cache, and the app is
 /// not settled until it lands. No sleep and no frame count — the loop ends
@@ -1925,7 +1925,7 @@ fn the_mode_control_switches_modes() {
 
 /// Properties numbers scrub: a horizontal drag on the hinge's origin `x`
 /// moves the arm in the viewport one `SetJoint` per frame, and the whole
-/// drag is one undo entry (docs/02-data-model.md §Commands and history,
+/// drag is one undo entry (docs/DATA-MODEL.md §Commands and history,
 /// one gesture = one history entry). The golden shows the moved arm and
 /// the field reading what the drag produced.
 #[test]
@@ -7397,7 +7397,7 @@ fn set_slider_value(harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenAp
     harness.step();
 }
 
-/// The M1 acceptance (docs/03-roadmap.md §M1): two cube fixtures dropped
+/// The M1 acceptance (docs/ROADMAP.md §M1): two cube fixtures dropped
 /// as base and arm, the joint typed numerically in the properties panel
 /// (kind, origin, axis, limits), the joint tree's bar swung to 45° within
 /// its limits, undo twice / redo twice back to the same document, saved to a
@@ -7589,7 +7589,7 @@ fn example_arm_opens_from_the_bundle() {
     });
 }
 
-/// The startup budget (docs/03-roadmap.md §M4): `RiggenApp::new` to the
+/// The startup budget (docs/ROADMAP.md §M4): `RiggenApp::new` to the
 /// first painted frame in under 500 ms on the CPU adapter, 2000 ms under
 /// `CI` (lavapipe on a shared runner is not the dev machine). What this
 /// guards is a regression — a font atlas, a pipeline, a persistence load

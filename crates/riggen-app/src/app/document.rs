@@ -1,4 +1,4 @@
-//! The document and everything derived from it (docs/01-architecture.md
+//! The document and everything derived from it (docs/ARCHITECTURE.md
 //! §The document is the only state): commands go through `History`, and
 //! after every change [`RiggenApp::sync_scene`] makes the viewport's
 //! instance table match the document's visual geoms at the FK pose for
@@ -571,7 +571,7 @@ impl RiggenApp {
     }
 
     /// The link's inertial under its `InertialSpec`, from the loaded meshes
-    /// (docs/02-data-model.md §Inertials). What the properties panel's
+    /// (docs/DATA-MODEL.md §Inertials). What the properties panel's
     /// Inertial block shows and the export resolves.
     pub fn link_inertial(&self, link: LinkId) -> Result<LinkInertial, InertialError> {
         let data = self
@@ -913,7 +913,7 @@ impl RiggenApp {
     pub(crate) fn request_decompositions(&mut self) {
         // In a browser the run is inline and freezes the tab, so it waits
         // for the answer the properties panel asks for (ADR-0011,
-        // docs/01-architecture.md §Jobs and threads).
+        // docs/ARCHITECTURE.md §Jobs and threads).
         if !self.decomp_consent {
             return;
         }

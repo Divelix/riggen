@@ -1,4 +1,4 @@
-# 03 — Roadmap
+# Roadmap
 
 Every milestone ends with something you can run and show, and each retires
 the scariest remaining unknown first. A milestone's "out" list is as binding
@@ -15,7 +15,7 @@ Spine: M0 → M1 → M2 → M3 → M4, then v0.2 → v0.3 → v0.4.
 
 **Status: done 2026-08-29, tag `m0`.**
 
-- Workspace of 01-architecture; CI (fmt, clippy, test, wasm build check).
+- Workspace of Architecture; CI (fmt, clippy, test, wasm build check).
 - `riggen-mesh`: `TriMesh`, STL (binary + ASCII) and OBJ loaders, AABB,
   ray/triangle.
 - `riggen-viewport` ported from `robocad-viewport`: cgmath → glam, `BodyId`
@@ -43,7 +43,7 @@ scenarios pass on the CPU adapter; wasm target builds.
 **Status: done 2026-08-29, tag `m1`.** Decisions: ADR-0005 (ids, joints as
 edges), ADR-0006 (drops, removal, import scale).
 
-- `riggen-core`: types of 02-data-model, `validate`, `fk`, snapshot
+- `riggen-core`: types of Data Model, `validate`, `fk`, snapshot
   `History`, `.riggen` v1 serde with relative mesh paths and content hash.
 - Link tree panel (add/remove/rename/reparent by drag), properties panel
   with numeric pose entry (xyz + RPY, editable in degrees, stored in radians),
@@ -65,7 +65,7 @@ under five minutes, without typing a coordinate.*
 
 **Status: done 2026-08-29, tag `m2`.** The risk — a circle fit good enough
 to place a joint from one click on STL data with no B-Rep — came out
-cheaper than feared; the method is 02-data-model §Mesh features. Decisions:
+cheaper than feared; the method is Data Model §Mesh features. Decisions:
 ADR-0007 (the gizmo from `transform-gizmo-egui`, bridged through `mint`),
 amended by ADR-0010 (its egui glue is ours, the pointer shared per handle).
 The by-hand exit gate came back "generally fine" with nine backlog lines;
@@ -141,7 +141,7 @@ re-exporting it as MJCF loads too.
 workspace that installs and runs on a clean venv — was retired at step 1
 and held through the container matrix. Decisions: ADR-0002, amended by
 ADR-0009 (one wheel: the abi3 extension plus the binary as data); the
-layout is 01-architecture §Python distribution.
+layout is Architecture §Python distribution.
 
 Two measurements this file is the only record of. **Startup** on the dev
 machine (RTX 5090, X11): `RiggenApp::new` to the first frame 8 ms — the
@@ -321,7 +321,7 @@ drops, and each is a backlog line this section now owns.
 - **Geometry the import refuses.** *Landed (plans/mjcf-mesh-geometry).* `.msh`
   meshes and an inline `<mesh vertex face>` read as an ordinary `Geom` on an
   ordinary mesh asset — no more `GeomDropped` for either; a file-less inline
-  mesh is materialized as a `.stl` beside the source MJCF (`docs/02-data-model.md`
+  mesh is materialized as a `.stl` beside the source MJCF (`docs/DATA-MODEL.md`
   §Geometry).
 - **Composition.** `<include>`, `<attach>`, `<replicate>` and MuJoCo 3's
   `<frame>` wrapper — every one an `ImportError::UnsupportedElement`

@@ -253,9 +253,9 @@ https://github.com/Divelix/riggen riggen-app`; publishing the workspace to
 crates.io so that `cargo install riggen` works is a later release.
 
 Read, in order: [`SEED.md`](SEED.md) (what and why),
-[`docs/01-architecture.md`](docs/01-architecture.md),
-[`docs/02-data-model.md`](docs/02-data-model.md),
-[`docs/03-roadmap.md`](docs/03-roadmap.md), [`docs/adr/`](docs/adr/) — then
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
+[`docs/DATA-MODEL.md`](docs/DATA-MODEL.md),
+[`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/adr/`](docs/adr/) — then
 [`AGENTS.md`](AGENTS.md) for the rules, agent or human. The SDK's own
 tests are `python/tests/sdk/` (pytest, against the built wheel).
 

@@ -5,7 +5,7 @@
 
 ## Context
 
-`docs/03-roadmap.md`'s last v0.2 line is "MJCF import; SDF export"; the
+`docs/ROADMAP.md`'s last v0.2 line is "MJCF import; SDF export"; the
 import half landed as ADR-0015. The export half is the third dumb
 serialiser of `ResolvedRobot` that ADR-0004 §Consequences promised —
 "adding SDF later is a new writer, not a new resolve" — so what needed
@@ -191,7 +191,7 @@ checker.
   the workflow, and it exists because the reference parser for the format
   we are writing is not packaged anywhere else.
 - `pybullet` reads riggen's SDF wrong, by our choice and not by accident.
-  The README and `docs/02-data-model.md` say so; the answer for a pybullet
+  The README and `docs/DATA-MODEL.md` say so; the answer for a pybullet
   user is the `.urdf` that the same export writes.
 - Three of riggen's apologies lose their SDF counterpart: the capsule is a
   capsule, the frame is a frame, and the mimic is a constraint. Only the

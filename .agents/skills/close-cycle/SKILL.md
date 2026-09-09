@@ -1,15 +1,15 @@
 ---
 name: close-cycle
-description: Close a finished release cycle or milestone — verify nothing is still open, run the mandated drift review of every design doc against the code, compress the finished section of docs/03-roadmap.md to its status line, open the next cycle's section, update the spine and AGENTS.md, and hand the tag to the human. Use when the human says "close the cycle", "v0.2 is done", "milestone is done", "what's next after this release", or when the last line of a roadmap cycle has been retired. Never tags and never pushes.
+description: Close a finished release cycle or milestone — verify nothing is still open, run the mandated drift review of every design doc against the code, compress the finished section of docs/ROADMAP.md to its status line, open the next cycle's section, update the spine and AGENTS.md, and hand the tag to the human. Use when the human says "close the cycle", "v0.2 is done", "milestone is done", "what's next after this release", or when the last line of a roadmap cycle has been retired. Never tags and never pushes.
 argument-hint: <cycle or milestone, e.g. v0.2 — and optionally the next cycle's theme>
 ---
 
 # /close-cycle — one roadmap, one section per cycle
 
-`docs/03-roadmap.md` is a **living design doc**, not a log. It is never
-forked into `04-roadmap.md` and never accumulates plans: a finished cycle
-shrinks to its status line, and the next cycle is appended below it. The
-numbered docs are *topics* — 01 architecture, 02 data model, 03 roadmap — so
+`docs/ROADMAP.md` is a **living design doc**, not a log. It is never
+forked into a second roadmap file and never accumulates plans: a finished
+cycle shrinks to its status line, and the next cycle is appended below it.
+The design docs are *topics* — Architecture, Data Model, Roadmap — so
 a second roadmap file would only ever raise "which one is current?".
 
 ## Do

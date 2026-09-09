@@ -31,7 +31,7 @@ overlay, and a run that is behind geometry is drawn dimmed, not dropped.**
 
 1. **The offscreen depth texture gains `COPY_SRC`, and the frame copies it
    to a mapped buffer** — the same shape as the ID-buffer pick
-   (docs/01-architecture.md §Picking and snapping): recorded during the
+   (docs/ARCHITECTURE.md §Picking and snapping): recorded during the
    paint callback, mapped with `map_async`, taken whenever wgpu has filled
    it in, never waited on. A readback that never lands is abandoned after
    eight frames, exactly as `MAX_PICK_FRAMES` abandons a pick, so one lost

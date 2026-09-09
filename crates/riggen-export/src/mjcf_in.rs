@@ -1,4 +1,4 @@
-//! MJCF → `Robot` (docs/02-data-model.md §MJCF import, ADR-0015), over the
+//! MJCF → `Robot` (docs/DATA-MODEL.md §MJCF import, ADR-0015), over the
 //! reading half of [`crate::xml`].
 //!
 //! MJCF is a MuJoCo *scene*, not a robot description, so the import reads
@@ -36,7 +36,7 @@ pub const MAIN_CLASS: &str = "main";
 
 /// [`load`] / [`from_mjcf`]'s result: the document, its warnings, and one
 /// `(filename, bytes)` pair per inline `<mesh vertex face>` the file
-/// declared, for the caller to place beside the source (docs/02-data-model.md
+/// declared, for the caller to place beside the source (docs/DATA-MODEL.md
 /// §Geometry).
 pub type MjcfImport = (Robot, Vec<ImportWarning>, Vec<(String, Vec<u8>)>);
 
@@ -313,7 +313,7 @@ const REFUSED: &[&str] = &["include", "replicate", "attach", "frame"];
 /// `<mesh vertex face>` the file declared — the caller writes each beside
 /// `path` (or, with nowhere to write, adds it under that name to its own
 /// drop set), which is where every `MeshAsset` this import produced for
-/// one already points (docs/02-data-model.md §Geometry).
+/// one already points (docs/DATA-MODEL.md §Geometry).
 pub fn load(path: &Path, source: &dyn FileSource) -> Result<MjcfImport, ImportError> {
     let io = |e: std::io::Error| ImportError::Io {
         path: path.to_owned(),
@@ -428,7 +428,7 @@ struct Import<'a> {
     inline_hash: BTreeMap<String, u64>,
     /// `(synthesized filename, STL bytes)` for every inline mesh, handed
     /// back to the caller to place beside the source file (step 2's
-    /// decision, docs/02-data-model.md §Geometry).
+    /// decision, docs/DATA-MODEL.md §Geometry).
     inline_meshes: Vec<(String, Vec<u8>)>,
     /// Counts unnamed inline meshes, for `inline_N`.
     unnamed_meshes: usize,
@@ -782,7 +782,7 @@ impl Import<'_> {
     /// inline mesh. Parsed into a real `TriMesh`, written out as `.stl`
     /// bytes and registered like any other asset, `path` pointing beside
     /// the source file — the caller places the bytes there once import
-    /// finishes (step 2's decision, docs/02-data-model.md §Geometry). A
+    /// finishes (step 2's decision, docs/DATA-MODEL.md §Geometry). A
     /// `vertex` with no `face` asks MuJoCo for its convex hull, which is
     /// out of scope (docs/plans/mjcf-mesh-geometry.md non-goals) and stays
     /// refused, exactly as every file-less mesh was before this.
@@ -1090,7 +1090,7 @@ impl Import<'_> {
         };
         // The one way a path enters the document: absolute and lexically
         // normalised, so `meshdir="."` is not part of it forever
-        // (docs/01-architecture.md §File format).
+        // (docs/ARCHITECTURE.md §File format).
         let path = riggen_core::absolute(&path).unwrap_or(path);
         let key = (path.clone(), used.to_bits());
         if let Some(&id) = self.registered.get(&key) {
@@ -2057,7 +2057,7 @@ mod tests {
         let (robot, warnings, inline) = super::load(&path, &Disk).unwrap();
         // `pad`, the corpus's one inline mesh: its bytes are synthesized,
         // not found on disk, so they are checked on their own rather than
-        // through the asset-path loop below (docs/02-data-model.md
+        // through the asset-path loop below (docs/DATA-MODEL.md
         // §Geometry).
         assert_eq!(inline.len(), 1);
         assert_eq!(inline[0].0, "pad.stl");
@@ -3364,7 +3364,7 @@ mod tests {
             from_mjcf(&parse(text).unwrap(), Path::new("/nowhere/m.xml"), &Disk).unwrap();
         assert_eq!(warnings, vec![], "an inline mesh is read like any other");
 
-        // The synthesized file — step 2's decision, docs/02-data-model.md
+        // The synthesized file — step 2's decision, docs/DATA-MODEL.md
         // §Geometry — named after the `<mesh name>`, beside the source.
         assert_eq!(inline.len(), 1);
         let (name, bytes) = &inline[0];

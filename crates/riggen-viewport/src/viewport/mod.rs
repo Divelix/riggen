@@ -82,7 +82,7 @@ fn raw_wheel_delta_y(input: &egui::InputState, options: &egui::InputOptions) -> 
 
 /// One instance as `debug_state()` reports it. An accessor type rather than
 /// a serialised one, so `serde` stays out of this crate
-/// (docs/01-architecture.md §Crates).
+/// (docs/ARCHITECTURE.md §Crates).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InstanceState {
     pub id: InstanceId,

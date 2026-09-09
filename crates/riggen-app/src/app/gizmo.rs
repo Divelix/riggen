@@ -1,5 +1,5 @@
 //! The transform gizmo: `transform-gizmo-egui` behind a thin adapter
-//! (ADR-0007, docs/01-architecture.md §Frame loop).
+//! (ADR-0007, docs/ARCHITECTURE.md §Frame loop).
 //!
 //! What the gizmo edits follows the selection (plans/m2-placement-ux
 //! OPEN 2):

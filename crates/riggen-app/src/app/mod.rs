@@ -54,7 +54,7 @@ pub use tool::{
 };
 
 /// The eframe app: one `Robot` and what is derived from it
-/// (docs/01-architecture.md §The document is the only state).
+/// (docs/ARCHITECTURE.md §The document is the only state).
 pub struct RiggenApp {
     robot: Robot,
     history: History,
@@ -63,7 +63,7 @@ pub struct RiggenApp {
     /// Mesh geometry beside the document, keyed by asset, loaded once per
     /// file and shared across history snapshots.
     mesh_store: HashMap<MeshId, LoadedMesh>,
-    /// The viewport's instance per visual geom (docs/02-data-model.md
+    /// The viewport's instance per visual geom (docs/DATA-MODEL.md
     /// §Geom): the only map between document and scene.
     instances: BTreeMap<(LinkId, GeomId), InstanceId>,
     /// The translucent instance per collision shape, keyed by the link and
@@ -74,7 +74,7 @@ pub struct RiggenApp {
     /// five toggles (`overlays.rs`). Remembered through eframe storage,
     /// never in the document.
     overlays: Overlays,
-    /// The job thread (`crate::jobs`, docs/01-architecture.md §Jobs and
+    /// The job thread (`crate::jobs`, docs/ARCHITECTURE.md §Jobs and
     /// threads). Drained once per frame.
     jobs: Jobs,
     /// Convex decompositions by `(mesh, parameters)`: derived state, never
@@ -138,7 +138,7 @@ pub struct RiggenApp {
     pub(crate) props: PropertiesState,
     /// The materials table window and its in-progress edits.
     pub(crate) materials_window: MaterialsWindow,
-    /// Whether a V-HACD run may start (ADR-0011, docs/01-architecture.md
+    /// Whether a V-HACD run may start (ADR-0011, docs/ARCHITECTURE.md
     /// §Jobs and threads). Always true on the desktop, where the job has a
     /// thread and nothing to consent to. In a browser `jobs` has no thread
     /// and the run happens inline, freezing the tab for a few seconds, so
@@ -176,7 +176,7 @@ pub struct RiggenApp {
     pub(crate) last_frame_dt: Option<f32>,
     /// When the process started (`main`'s first line), or when `new` ran
     /// when nobody handed one in — the startup budget's clock
-    /// (docs/03-roadmap.md §M4).
+    /// (docs/ROADMAP.md §M4).
     started: Instant,
     /// Milliseconds from `started` to the end of the first `ui` pass, i.e.
     /// the first frame that is painted. `None` until then.
@@ -492,7 +492,7 @@ impl eframe::App for RiggenApp {
             .show(ui, |ui| {
                 // Glyphs are derived from the document and the current `q`,
                 // so they are rebuilt every frame and handed to the viewport
-                // before it paints (docs/01-architecture.md §Frame loop).
+                // before it paints (docs/ARCHITECTURE.md §Frame loop).
                 // The hover has to be resolved first: it decides both what is
                 // drawn hot and whether the viewport gets the pointer at all.
                 let glyphs = self.joint_glyphs();

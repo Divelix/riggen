@@ -4,7 +4,7 @@ The extension module (``crates/riggen-py``) raises these by name with the
 Rust error's message, so ``except riggen.EditError`` catches every refused
 edit and ``except riggen.RiggenError`` everything riggen itself reports.
 The :class:`EditError` subclasses are ``riggen_core::EditError``'s variants,
-one class each (docs/02-data-model.md §Commands and history).
+one class each (docs/DATA-MODEL.md §Commands and history).
 """
 
 from __future__ import annotations

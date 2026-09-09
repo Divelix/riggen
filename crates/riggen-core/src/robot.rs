@@ -1,4 +1,4 @@
-//! The `Robot` document and its parts (docs/02-data-model.md §Core types).
+//! The `Robot` document and its parts (docs/DATA-MODEL.md §Core types).
 //! Plain data with serde derives; every struct is `deny_unknown_fields` so a
 //! typo in a hand-edited `.riggen` fails loudly (§Schema).
 
@@ -42,7 +42,7 @@ pub struct Robot {
 }
 
 /// A mesh file the document references. `path` is absolute in memory and
-/// rebased relative to the `.riggen` file on disk (docs/01-architecture.md
+/// rebased relative to the `.riggen` file on disk (docs/ARCHITECTURE.md
 /// §File format).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

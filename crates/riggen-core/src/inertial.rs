@@ -1,4 +1,4 @@
-//! A link's inertial from its geoms (docs/02-data-model.md §Inertials).
+//! A link's inertial from its geoms (docs/DATA-MODEL.md §Inertials).
 //!
 //! Core stores no geometry, so the meshes come through [`MeshLookup`] —
 //! the app's mesh store and the export CLI both implement it. Per geom,

@@ -1,4 +1,4 @@
-//! Forward kinematics (docs/02-data-model.md §Kinematics):
+//! Forward kinematics (docs/DATA-MODEL.md §Kinematics):
 //! `world(child) = world(parent) ∘ joint.origin ∘ motion(kind, axis, q)`,
 //! one depth-first pass from the root. This is the oracle the export
 //! round-trip tests compare against (ADR-0004), and what `Reparent {

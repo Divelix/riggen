@@ -1,5 +1,5 @@
 //! The Align tool: two clicks put a part exported out of place *in* place
-//! (docs/01-architecture.md §Panels and menus).
+//! (docs/ARCHITECTURE.md §Panels and menus).
 //!
 //! First click a feature on the **selected link**, second click a feature
 //! anywhere. Two circles are made **concentric** — the minimal rotation

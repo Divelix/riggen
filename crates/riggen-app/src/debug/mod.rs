@@ -87,7 +87,7 @@ pub struct DebugState {
     pub timing: Option<TimingDebug>,
 }
 
-/// The startup budget's readout (docs/03-roadmap.md §M4).
+/// The startup budget's readout (docs/ROADMAP.md §M4).
 #[derive(Debug, Clone, Serialize)]
 pub struct TimingDebug {
     /// Milliseconds from the start clock (`main`, or `new` in a harness)
@@ -712,7 +712,7 @@ impl RiggenApp {
     ///
     /// Always true on the desktop; the browser starts at `false` and the
     /// properties panel asks once, because `jobs` has no thread there and
-    /// the run freezes the tab (docs/01-architecture.md §Jobs and threads).
+    /// the run freezes the tab (docs/ARCHITECTURE.md §Jobs and threads).
     /// The snapshot suite sets it to see the browser's half of that panel
     /// on a native runner (ADR-0003).
     pub fn set_decomp_consent(&mut self, consent: bool) {

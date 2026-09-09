@@ -1,5 +1,5 @@
 //! The scene's depth buffer, read back so an egui-painter overlay can be
-//! depth-tested (ADR-0020, docs/01-architecture.md §Frame loop).
+//! depth-tested (ADR-0020, docs/ARCHITECTURE.md §Frame loop).
 //!
 //! egui's painter has no depth buffer of its own, so the only way an
 //! overlay can know that a glyph runs behind a part is to be told what the

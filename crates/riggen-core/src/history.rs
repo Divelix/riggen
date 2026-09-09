@@ -1,4 +1,4 @@
-//! Snapshot undo/redo (docs/02-data-model.md §Commands and history). The
+//! Snapshot undo/redo (docs/DATA-MODEL.md §Commands and history). The
 //! document is small, so a [`History`] entry is a whole `Robot` clone: undo
 //! is a swap, nothing has an inverse, and a refused command costs nothing.
 //!

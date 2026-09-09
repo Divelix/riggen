@@ -9,7 +9,7 @@
 ## Context
 
 Two of the three gestures v0.3 still owes the viewport
-(`docs/03-roadmap.md` §v0.3, "The viewport answers the mouse") need the
+(`docs/ROADMAP.md` §v0.3, "The viewport answers the mouse") need the
 pointer split more finely than the four switches can express.
 
 **The wheel.** The rotate gizmo answers only a drag. A drag is the wrong

@@ -5,7 +5,7 @@ tree, place joints, compute inertials and collision geometry, export MJCF and
 URDF. Rust + egui/eframe + own wgpu viewport, shipped as a Python wheel.
 
 Read in this order: `SEED.md` (charter, competition, stack), `README.md`
-(what the user sees: install, first run, the CLI), `docs/01-architecture.md`, `docs/02-data-model.md`, `docs/03-roadmap.md`,
+(what the user sees: install, first run, the CLI), `docs/ARCHITECTURE.md`, `docs/DATA-MODEL.md`, `docs/ROADMAP.md`,
 `docs/adr/`, then the rules in `.agents/rules/*.md` (git, docs lifecycle) —
 Claude Code loads them automatically via `.claude/rules`; any other agent
 reads them here. Skills for the idea → plan → work → retire → close-cycle pipeline live in

@@ -24,7 +24,7 @@ use super::document::name_from_stem;
 use super::{LoadedMesh, Mode, RiggenApp};
 
 /// The directory dropped files are given, so that every path in the
-/// document is absolute exactly as it is on disk (docs/01-architecture.md
+/// document is absolute exactly as it is on disk (docs/ARCHITECTURE.md
 /// §File format). No such directory exists anywhere; [`DroppedSet`] never
 /// looks at it.
 pub(crate) const DROPPED_ROOT: &str = "/dropped";
@@ -260,7 +260,7 @@ impl RiggenApp {
         self.finish_import(at, imported)
     }
 
-    /// Step 2's decision (docs/02-data-model.md §Geometry): an inline
+    /// Step 2's decision (docs/DATA-MODEL.md §Geometry): an inline
     /// `<mesh vertex face>` becomes an ordinary, disk- or drop-backed mesh
     /// the moment it is imported. `at`'s own directory is where every
     /// `MeshAsset::path` this import produced already points
@@ -356,7 +356,7 @@ impl RiggenApp {
         // A mesh drop is building, not looking (ADR-0021 §4, ADR-0006).
         self.set_mode(Mode::Edit);
         // An open shell has no volume to weigh: say so at the drop, since
-        // the export will refuse it later (docs/02-data-model.md §Inertials).
+        // the export will refuse it later (docs/DATA-MODEL.md §Inertials).
         let closed = self
             .mesh_store
             .get_mut(&mesh)
@@ -713,7 +713,7 @@ mod tests {
     /// `<mesh vertex face>`, place its bytes the way `open_mjcf` does for
     /// `Files::Disk`, then prove the *document* survives a native
     /// save/reopen with nothing dangling — the failure this plan exists to
-    /// avoid (docs/02-data-model.md §Geometry). `RiggenApp` itself is not
+    /// avoid (docs/DATA-MODEL.md §Geometry). `RiggenApp` itself is not
     /// constructible here: `RiggenApp::new` hard-requires a GPU-backed
     /// `eframe::CreationContext` (only the visual test harness has one), so
     /// this exercises `write_inline_meshes` — `open_mjcf`'s own placement

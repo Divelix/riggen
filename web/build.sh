@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the web demo into `web/dist/` (docs/01-architecture.md §The web
+# Build the web demo into `web/dist/` (docs/ARCHITECTURE.md §The web
 # build, ADR-0017).
 #
 #   web/build.sh            release, the bundle that is deployed

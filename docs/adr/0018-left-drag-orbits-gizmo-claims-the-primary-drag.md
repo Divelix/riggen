@@ -17,7 +17,7 @@ viewport does nothing at all, and three groups walk into that:
   rerun, three.js `OrbitControls`, Sketchfab and every browser viewer this
   audience has met. Riggen's layout — a tree beside a viewer — reads as one
   of those, so the first gesture is a left-drag.
-- Every by-hand run since M2 listed it; `docs/03-roadmap.md` opens v0.3
+- Every by-hand run since M2 listed it; `docs/ROADMAP.md` opens v0.3
   with it.
 
 It was never a one-liner because the left button is already spoken for

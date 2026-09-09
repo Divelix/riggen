@@ -48,5 +48,5 @@ with the tool feels:
   case (a new part) need a deselect first, and the rarer case has a button.
 - **Splicing children onto the removed link's parent** — matches no tree
   UI the users know, and produces poses nobody asked for.
-- **A per-drop import dialog** (02-data-model's original text) — a modal on
+- **A per-drop import dialog** (Data Model's original text) — a modal on
   every drop; deferred until a mixed-units workflow shows up.

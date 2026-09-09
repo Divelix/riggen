@@ -12,7 +12,7 @@ ID-buffer picking, hover/selection tint, axes triad), and
 the human to describe the screen.
 
 Design and rationale: `docs/adr/0003-headless-visual-snapshots.md` and
-`docs/01-architecture.md` §Testing. Read those before changing how the
+`docs/ARCHITECTURE.md` §Testing. Read those before changing how the
 harness works; this file is how to *use* it.
 
 ## Which of the two do you want?

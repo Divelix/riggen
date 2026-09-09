@@ -1,5 +1,5 @@
 //! The visibility row: five class toggles in the viewport's top-right
-//! corner (docs/01-architecture.md §Panels and menus).
+//! corner (docs/ARCHITECTURE.md §Panels and menus).
 //!
 //! Everything riggen draws over the robot used to be drawn always, and
 //! `View › Collision geometry` was the one thing anybody could turn off —
@@ -16,7 +16,7 @@
 //!
 //! Visibility is app state, remembered through eframe storage and never in
 //! the document: what a robot *is* does not depend on what the window is
-//! showing (docs/02-data-model.md).
+//! showing (docs/DATA-MODEL.md).
 
 use super::RiggenApp;
 

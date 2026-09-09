@@ -15,7 +15,7 @@
 //! [`decompose`] sits beside [`crate::convex_hull`]: the hull is the
 //! one-piece answer, this is the N-piece one. Neither is cheap enough for a
 //! frame — the app runs this on a job thread
-//! (docs/01-architecture.md §Jobs and threads).
+//! (docs/ARCHITECTURE.md §Jobs and threads).
 
 use std::fmt;
 

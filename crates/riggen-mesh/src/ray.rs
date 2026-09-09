@@ -18,7 +18,7 @@ impl Ray {
 /// for a miss, a hit behind the origin, or a ray parallel to the triangle.
 ///
 /// Two-sided on purpose. The ID buffer has already decided which triangle
-/// the cursor is over (docs/01-architecture.md §Picking and snapping); this
+/// the cursor is over (docs/ARCHITECTURE.md §Picking and snapping); this
 /// only recovers the exact point on it, and must not lose the hit because
 /// the renderer drew a back face.
 pub fn ray_triangle(ray: &Ray, tri: &[DVec3; 3]) -> Option<f64> {

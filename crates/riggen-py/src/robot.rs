@@ -1,5 +1,5 @@
 //! `riggen._riggen.Robot`: the document, one method per `Command`
-//! (docs/02-data-model.md §Commands and history), read access in the
+//! (docs/DATA-MODEL.md §Commands and history), read access in the
 //! schema's shape ([`crate::doc`]), ids as ints.
 //!
 //! Every edit runs on a clone and replaces the document only on success —
@@ -1001,7 +1001,7 @@ impl PyRobot {
         riggen_export::fk_samples::to_json(&self.inner)
     }
 
-    /// Imports a URDF (docs/02-data-model.md §URDF import): mesh paths
+    /// Imports a URDF (docs/DATA-MODEL.md §URDF import): mesh paths
     /// resolved against the file and `packages` (`{name: directory}` for
     /// `package://name/…`). Returns the document and the warnings — what
     /// the URDF held that the document does not. Raises
@@ -1020,7 +1020,7 @@ impl PyRobot {
         Ok((Self { inner }, warnings))
     }
 
-    /// Imports an MJCF (docs/02-data-model.md §MJCF import, ADR-0015):
+    /// Imports an MJCF (docs/DATA-MODEL.md §MJCF import, ADR-0015):
     /// mesh files resolved against the file and its `<compiler meshdir>`.
     /// Returns the document and the warnings — what the MJCF held that the
     /// document does not. Raises `riggen.MjcfImportError`.
@@ -1028,7 +1028,7 @@ impl PyRobot {
     fn load_mjcf(py: Python<'_>, path: PathBuf) -> PyResult<(Self, Vec<String>)> {
         let (inner, warnings, inline_meshes) = riggen_export::mjcf_in::load(&path, &Disk)
             .map_err(|e| raise(py, "MjcfImportError", e.to_string()))?;
-        // Step 2's decision (docs/02-data-model.md §Geometry): an inline
+        // Step 2's decision (docs/DATA-MODEL.md §Geometry): an inline
         // `<mesh vertex face>` becomes a real file beside the source MJCF,
         // which is where `mjcf_in::load` already pointed its
         // `MeshAsset::path`.

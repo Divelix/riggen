@@ -1,4 +1,4 @@
-//! The URDF writer (docs/02-data-model.md §Format mapping, ADR-0004): a
+//! The URDF writer (docs/DATA-MODEL.md §Format mapping, ADR-0004): a
 //! flat list of `<link>`s and `<joint>`s in the resolved order, `<origin
 //! xyz rpy>` from `Pose::to_xyz_rpy`, `<inertia>` about the CoM in link
 //! axes, `<mesh filename>` in the chosen [`MeshPathStyle`]. Verified by
