@@ -65,3 +65,10 @@ the mouse-only arm; M1 the document and `.riggen`; M0 the viewport.
   and RoboCAD at `~/Documents/code/pet/cad/robocad` (the ancestor: viewport,
   `mass.rs`, snapshot harness, the `consume_key` shortcut lesson in its
   `CLAUDE.md`) are reference reading, never `path =` deps.
+- MuJoCo Menagerie is cloned at `~/Documents/code/sim/mujoco_menagerie`
+  (261 models with their meshes). Scan it to *size* an import decision —
+  run the built binary over every `.xml` and bucket the outcomes, which is
+  how the composition idea got its numbers — but it is never a CI
+  dependency and never a committed fixture: what a scan finds gets
+  concentrated into `assets/fixtures/menagerie_style.xml` by hand, which is
+  the corpus the `mujoco` job actually runs.
