@@ -12,6 +12,7 @@ pub mod fk_samples;
 pub mod import;
 pub mod mesh_store;
 pub mod mjcf;
+mod mjcf_compose;
 pub mod mjcf_in;
 pub mod resolve;
 pub mod sdf;
