@@ -397,8 +397,11 @@ mod tests {
         ("fore_hull.stl", "arm/fore_hull.stl"),
     ];
 
-    const MJCF_SET: [(&str, &str); 7] = [
+    const MJCF_SET: [(&str, &str); 8] = [
         ("menagerie_style.xml", "menagerie_style.xml"),
+        // The half the main file `<include>`s (ADR-0026): a dropped set
+        // has to carry it, exactly as it carries the meshes.
+        ("menagerie_style_arm.xml", "menagerie_style_arm.xml"),
         ("arm/base.stl", "arm/base.stl"),
         ("arm/shoulder.stl", "arm/shoulder.stl"),
         ("arm/upper.stl", "arm/upper.stl"),

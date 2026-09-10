@@ -31,7 +31,8 @@ fn fixture(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
-/// A scratch copy of `menagerie_style.xml` and the meshes it references.
+/// A scratch copy of `menagerie_style.xml`, the half it `<include>`s and
+/// the meshes it references.
 /// Opening it through `Files::Disk` can now write a file beside it — its
 /// one inline mesh synthesizes a `.stl` there (plans/mjcf-mesh-geometry
 /// step 2, docs/DATA-MODEL.md §Geometry) — so a test that opens it must
@@ -41,6 +42,7 @@ fn menagerie_style_scratch() -> std::path::PathBuf {
     std::fs::create_dir_all(dir.join("arm")).unwrap();
     for rel in [
         "menagerie_style.xml",
+        "menagerie_style_arm.xml",
         "arm/base.stl",
         "arm/shoulder.stl",
         "arm/thing.msh",

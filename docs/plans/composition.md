@@ -168,7 +168,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   never reached because `<frame>` refused first — the Goal's "plus the 1
   `<frame>` model" is wrong, the acceptance's 69 (= 56 + 13 include
   files) is not.
-- [ ] **[2]** Step 5 — the corpus and the `mujoco` job.
+- [x] **[2]** Step 5 — the corpus and the `mujoco` job.
   `menagerie_style.xml` grows a `<frame>` around a body with a joint in
   it and moves a block (its `<asset>` and one body) into a sibling
   `menagerie_style_arm.xml` it `<include>`s; the CI job copies both files
@@ -176,6 +176,17 @@ mechanical; **[2]** careful — a case to get right within a given design;
   still agrees with the *original* document's `fk.json` to 1e-6, and its
   `<actuator>` / `<equality>` / `<tendon>` blocks still equal the
   original's field for field with `ROUND_TRIP_DROPPED` empty.
+  *Found (2026-09-10):* the split is the Menagerie shape — the fragment
+  holds the `<asset>` and the whole robot under `<mujocoinclude>`, the
+  main file keeps `<compiler>`, `<default>`, `<equality>`, `<actuator>`
+  and `<tendon>` — and both it and the frame are made **document-neutral**
+  on purpose: the frame carries the `pos` and the `childclass` its body
+  already had, so the corpus's warning-by-warning pins and the four app
+  snapshots that open it stay exactly as they were, and a fold that got a
+  number wrong would show up as a diff rather than as a snapshot to
+  refresh. A rotating frame would have moved every pose by ~1e-13 (the
+  fold writes a `quat` at twelve decimals), which the unit tests cover
+  better than a churned snapshot would.
 - [ ] **[2]** Step 6 — the app, the SDK and the docs. `load_dropped`
   treats a dropped `.xml` that another dropped `.xml` includes as a
   fragment and does not open it (OPEN 2); the missing-include message

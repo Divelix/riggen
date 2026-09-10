@@ -132,8 +132,10 @@ riggen/
 │                           # bracket.stl (a U-channel) and bracket.riggen, the convex
 │                           # decomposition fixture and the `mujoco` and `sdf` jobs'
 │                           # third model;
-│                           # menagerie_style.xml, the foreign MJCF import corpus
-│                           # (02 §MJCF import) — hand-written, not ours
+│                           # menagerie_style.xml + menagerie_style_arm.xml, the foreign
+│                           # MJCF import corpus (02 §MJCF import) — hand-written, not
+│                           # ours, and two files since ADR-0026: the main one <include>s
+│                           # the other, which holds a <frame>
 ├── python/riggen/          # the wheel's Python half: __init__ (the public names,
 │                           # __version__), robot.py (the API), show.py (the window,
 │                           # binary_path), errors.py, __main__ (execs the bundled
@@ -1280,7 +1282,9 @@ measured size is in 03 §v0.2.
   and the round trip uses it to hold that second model to the *original*
   document's `fk.json`: agreeing with its own samples would not catch an
   import that lost something. And the foreign round trip (ADR-0024): the
-  import corpus `menagerie_style.xml` imported and re-exported, its
+  import corpus `menagerie_style.xml` — two files since ADR-0026, the main
+  one `<include>`ing `menagerie_style_arm.xml` and a `<frame>` in there, so
+  the round trip runs on a composed model — imported and re-exported, its
   argument ending in `@ORIGINAL.xml`, which makes the script compare the
   model MuJoCo builds from the original with the one it builds from the
   re-export, actuator by actuator and in order — transmission, target, the
