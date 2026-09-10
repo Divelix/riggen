@@ -1004,10 +1004,14 @@ UnsupportedElement }` beside the URDF import's `UnsupportedJoint`,
 `MultipleRoots`, `NoRoot`, `Io`, `Parse` and `Invalid`: several `<joint>`s
 in one `<body>` (MuJoCo's ball or planar DoF against a tree whose joints
 are its edges), a joint on the root body (whose link has no parent joint),
-`type="ball"` and a `type="free"` anywhere but the root, and `<include>` /
+`type="ball"` and a `type="free"` anywhere but the root, and
 `<replicate>` / `<attach>` / `<frame>` / `<compiler
 coordinate="global">`. Each of those would change the robot if imported
-anyway, which is the line ADR-0015 §5 draws. The composite one was asked
+anyway, which is the line ADR-0015 §5 draws. `<include>` is not among
+them: a pre-pass splices every included file into the tree before the
+reader looks (ADR-0026), with `IncludeNotFound` for a file neither the
+model's directory nor the including file's holds and `DuplicateInclude`
+for a file included twice — MuJoCo's own hard error. The composite one was asked
 again in v0.4 and refused again with the corpus behind it (ADR-0022): its
 message says what the shape means and that splitting the body into nested
 bodies with one joint each is the same model, imported. A `<freejoint>` on the root

@@ -116,7 +116,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   included file has a fallback riggen does not have — OPEN 5; a class
   name in two `<default>` blocks is MuJoCo's error and our merge
   (ADR-0026 §6, noted, unchanged).
-- [ ] **[3]** Step 2 — `mjcf_compose.rs`: the pass and `<include>`.
+- [x] **[3]** Step 2 — `mjcf_compose.rs`: the pass and `<include>`.
   Splice at the site, both root tags, recursion with the main-dir-first
   resolution, a visited set that makes a duplicate include
   `DuplicateInclude` and a cycle terminate, `IncludeNotFound` naming the

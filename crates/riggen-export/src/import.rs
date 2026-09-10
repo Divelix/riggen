@@ -245,11 +245,28 @@ pub enum ImportError {
         body: String,
         joint: String,
     },
-    /// An element that composes files or re-shapes the tree —
-    /// `<include>`, `<replicate>`, `<attach>`, `<frame>` — or a
-    /// `<compiler coordinate="global">`.
+    /// An element that re-shapes the tree — `<replicate>`, `<attach>`,
+    /// `<frame>` — or a `<compiler coordinate="global">`. `<include>` is
+    /// not one: it is spliced before the reader looks (ADR-0026).
     UnsupportedElement {
         element: String,
+    },
+    /// An `<include file>` that neither the model's directory nor the
+    /// including file's holds. Its own variant rather than `Io` because the
+    /// message has to say what else to bring: on the web a `scene.xml`
+    /// dropped without its `robot.xml` is the common case (ADR-0017,
+    /// ADR-0026 §2). `file` is the path as written; `from` is the file
+    /// that asked for it.
+    IncludeNotFound {
+        file: PathBuf,
+        from: PathBuf,
+    },
+    /// The same `<include file>` — as written, normalised — a second time,
+    /// which is also how a cycle and a self-include present. MuJoCo makes
+    /// it a hard error, and a file MuJoCo refuses should not open here
+    /// (ADR-0026 §2).
+    DuplicateInclude {
+        file: PathBuf,
     },
     /// The result breaks a document invariant (a bad name, a loop).
     Invalid(ValidationError),
@@ -287,6 +304,18 @@ impl fmt::Display for ImportError {
             Self::UnsupportedElement { element } => {
                 write!(f, "{element} is not supported")
             }
+            Self::IncludeNotFound { file, from } => write!(
+                f,
+                "{} includes {}, which is neither in the model's directory nor \
+                 beside the including file; the model needs that file with it",
+                from.display(),
+                file.display()
+            ),
+            Self::DuplicateInclude { file } => write!(
+                f,
+                "{} is included twice; MuJoCo refuses that, and so does the import",
+                file.display()
+            ),
             Self::Invalid(e) => write!(f, "{e}"),
         }
     }

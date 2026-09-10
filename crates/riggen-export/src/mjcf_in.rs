@@ -13,7 +13,10 @@
 //! The class tree is **resolved here and dropped**: the document holds
 //! resolved numbers, exactly as `resolve` hands the writers resolved numbers
 //! (ADR-0004 §1, ADR-0015 §3). Re-exporting an imported foreign file
-//! therefore produces a flat, class-free MJCF of the same model.
+//! therefore produces a flat, class-free MJCF of the same model. Before any
+//! of this, [`crate::mjcf_compose`] splices every `<include>` into the tree
+//! (ADR-0026): the reader only ever sees one composition-free `<mujoco>`,
+//! and a re-export is one flat file for that reason too.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -299,17 +302,19 @@ const TENDON_ATTRS: &[&str] = &[
 /// pattern).
 const TENDON_SILENT: &[&str] = &["group", "rgba", "width"];
 
-/// Elements that compose other files or re-shape the tree. Reading around
-/// them would silently lose bodies, so the file is refused (ADR-0015 §5).
-/// `<frame>` is here for that second reason: it is a transform wrapper, and
-/// the bodies inside one are not children of any body.
-const REFUSED: &[&str] = &["include", "replicate", "attach", "frame"];
+/// Elements that re-shape the tree. Reading around them would silently
+/// lose bodies, so the file is refused (ADR-0015 §5, amended by ADR-0026:
+/// `<include>` is spliced by [`crate::mjcf_compose`] before this list is
+/// checked). `<frame>` is here for that second reason: it is a transform
+/// wrapper, and the bodies inside one are not children of any body.
+const REFUSED: &[&str] = &["replicate", "attach", "frame"];
 
-/// Reads `path` through `source` and builds the document; mesh files are
-/// resolved against the file's directory and its `<compiler meshdir>`, and
-/// hashed through the same `source` — the filesystem natively
-/// ([`riggen_core::Disk`]), the drop gesture's files in a browser
-/// (ADR-0017). The third element is one `(name, bytes)` pair per inline
+/// Reads `path` through `source` and builds the document; the files it
+/// `<include>`s come through the same `source` (ADR-0026), and so do the
+/// mesh files, resolved against the file's directory and its `<compiler
+/// meshdir>` and hashed — the filesystem natively ([`riggen_core::Disk`]),
+/// the drop gesture's files in a browser (ADR-0017). The third element is
+/// one `(name, bytes)` pair per inline
 /// `<mesh vertex face>` the file declared — the caller writes each beside
 /// `path` (or, with nowhere to write, adds it under that name to its own
 /// drop set), which is where every `MeshAsset` this import produced for
@@ -331,9 +336,9 @@ pub fn load(path: &Path, source: &dyn FileSource) -> Result<MjcfImport, ImportEr
 }
 
 /// The conversion itself, for a parsed file. `path` is the model file: its
-/// directory is where a relative `meshdir` and the mesh files are looked
-/// for, and its name is what a parse error is reported against. See
-/// [`load`] for the third element of the result.
+/// directory is where an `<include file>`, a relative `meshdir` and the
+/// mesh files are looked for, and its name is what a parse error is
+/// reported against. See [`load`] for the third element of the result.
 pub fn from_mjcf(
     root: &Node,
     path: &Path,
@@ -345,6 +350,9 @@ pub fn from_mjcf(
             message: format!("<{}> is not a <mujoco> model", root.tag),
         });
     }
+    // Composition first (ADR-0026): an included `<compiler>` governs the
+    // main file, so nothing below may read the tree before it is one tree.
+    let root = &crate::mjcf_compose::compose(root.clone(), path, source)?;
     refuse(root)?;
     let parse_err = |m: String| ImportError::Parse {
         path: path.to_owned(),
@@ -374,7 +382,8 @@ pub fn from_mjcf(
     Ok((im.robot, im.warnings, im.inline_meshes))
 }
 
-/// `<include>` and friends, anywhere in the file (ADR-0015 §5).
+/// [`REFUSED`] and `<compiler coordinate="global">`, anywhere in the file
+/// (ADR-0015 §5).
 fn refuse(node: &Node) -> Result<(), ImportError> {
     for c in &node.children {
         if REFUSED.contains(&c.tag.as_str()) {
@@ -3550,7 +3559,6 @@ mod tests {
         assert_eq!(load(&model("")).unwrap_err(), ImportError::NoRoot);
         assert_eq!(load("<mujoco/>").unwrap_err(), ImportError::NoRoot);
         for (text, element) in [
-            (r#"<mujoco><include file="x.xml"/></mujoco>"#, "<include>"),
             (
                 r#"<mujoco><worldbody><frame pos="0 0 1"><body name="a"/></frame></worldbody></mujoco>"#,
                 "<frame>",
@@ -3571,6 +3579,68 @@ mod tests {
             load("<robot name=\"a\"/>").unwrap_err(),
             ImportError::Parse { .. }
         ));
+    }
+
+    /// A model spelled across three files — an `<include>` at the top and
+    /// one inside a `<body>` — imports as the document its flat twin does,
+    /// through [`load`] and the same `FileSource` the meshes use
+    /// (ADR-0026). Drop one of the files and the error names it and the
+    /// file that asked for it.
+    #[test]
+    fn a_split_model_imports_as_its_flat_twin() {
+        use riggen_core::MemorySource;
+        let root = Path::new("/dropped");
+        let mut memory = MemorySource::default();
+        for (name, text) in [
+            (
+                "scene.xml",
+                r#"<mujoco model="m"><include file="robot.xml"/></mujoco>"#,
+            ),
+            (
+                "robot.xml",
+                r#"<mujocoinclude><compiler angle="radian"/>
+                     <worldbody><body name="base">
+                       <geom type="box" size="1 1 1" mass="1"/>
+                       <include file="upper.xml"/>
+                     </body></worldbody></mujocoinclude>"#,
+            ),
+            (
+                "upper.xml",
+                r#"<mujoco><body name="upper" pos="0 0 1">
+                     <joint name="j" axis="0 1 0" range="-1 1"/>
+                     <geom type="box" size="1 1 1" mass="1"/>
+                   </body></mujoco>"#,
+            ),
+        ] {
+            memory.insert(root.join(name), text.as_bytes().to_vec());
+        }
+        let (split, split_warnings, _) = super::load(&root.join("scene.xml"), &memory).unwrap();
+        let (flat, flat_warnings) = load(
+            r#"<mujoco model="m"><compiler angle="radian"/>
+                 <worldbody><body name="base">
+                   <geom type="box" size="1 1 1" mass="1"/>
+                   <body name="upper" pos="0 0 1">
+                     <joint name="j" axis="0 1 0" range="-1 1"/>
+                     <geom type="box" size="1 1 1" mass="1"/>
+                   </body>
+                 </body></worldbody></mujoco>"#,
+        )
+        .unwrap();
+        assert_eq!(split_warnings, flat_warnings);
+        assert_eq!(
+            serde_json::to_value(&split).unwrap(),
+            serde_json::to_value(&flat).unwrap()
+        );
+        assert_eq!(split.links.len(), 2);
+
+        memory.0.remove(&root.join("upper.xml"));
+        assert_eq!(
+            super::load(&root.join("scene.xml"), &memory).unwrap_err(),
+            ImportError::IncludeNotFound {
+                file: PathBuf::from("upper.xml"),
+                from: root.join("robot.xml"),
+            }
+        );
     }
 
     #[test]
