@@ -21,3 +21,12 @@ Full rules in `docs/README.md` ("Document lifecycle"). The short version:
   `/close-cycle` closes a roadmap cycle once its last plan is retired —
   drift review, the finished section compressed to its status line, the
   next section opened. One roadmap file, always; never an `04-roadmap.md`.
+- A **closed roadmap section is five parts and under ~40 lines**: goal,
+  one status line (the risk retired, the ADRs taken), in, out, accept.
+  The narrative goes at that boundary; a fact that lives only there is
+  relocated to the topic doc or the ADR that owns it, never dropped, and
+  never to gitignored `docs/notes/`.
+- **No `CHANGELOG.md`.** What landed is in the git log, the status line
+  and the ADRs; the user-facing telling is the **GitHub Release body**,
+  which `/close-cycle` derives from the status line once per cycle and
+  hands to the human with the tag. Nothing maintained per commit.

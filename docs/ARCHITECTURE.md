@@ -1069,7 +1069,13 @@ with **two halves**:
   install there (BACKLOG).
 - `[profile.release]`: `strip = true`, `lto = "thin"`, `codegen-units =
   1`. linux x86_64 at 0.2.0: the binary 21.9 MB, the extension 1.3 MB,
-  the wheel 10.1 MB (M4's binary-only wheel was 9.6).
+  the wheel 10.1 MB (M4's binary-only wheel was 9.6). The five wheels
+  `release.yml` published at `v0.2.0` — what a user actually downloads —
+  are linux x86_64 9.7 MB, linux aarch64 9.2, macOS arm64 6.2, macOS
+  x86_64 6.6, Windows 7.4, and the sdist 0.3; the abi3 extension is 1.3 MB
+  of each. That 9.7 and the 10.1 above are the same version built in the
+  release container and locally, and the 0.4 MB between them has not been
+  chased.
 - `riggen --version` prints `riggen <cargo version> (<hash> <date>)`;
   `build.rs` takes the hash and date from `RIGGEN_GIT_HASH` /
   `RIGGEN_BUILD_DATE` when set, else from git (`-dirty` when the tree
@@ -1090,7 +1096,9 @@ with **two halves**:
   is a silent no-op, so the workspace version is a `-dev` pre-release
   between releases and a final one only for the tag) and `publish-pypi` + a GitHub Release on a
   `v*` tag push, both through PyPI trusted publishing (environments
-  `testpypi` / `pypi`, no token in the repository).
+  `testpypi` / `pypi`, no token in the repository). PyPI's CDN can serve
+  the previous version for some minutes after an upload, so a `pip
+  install` straight after a release may lag.
 
 `riggen.show(robot)` (§Python SDK) serialises to a temp
 `.riggen` and spawns the bundled binary on it — the `rr.spawn()` model.
@@ -1247,8 +1255,16 @@ opened in a browser is untitled and Save behaves as Save As.
 
 `pages.yml` builds and deploys on every push to `main` — `main` is always
 green, and the demo should be what riggen is now — and the `wasm` CI job
-builds the same bundle on every push, so a break shows up in CI first. The
-measured size is in 03 §v0.2.
+builds the same bundle on every push, so a break shows up in CI first, and
+`pages.yml` prints the size into the run summary so a regression is visible
+in the log.
+
+At the first deploy the bundle was 10.40 MB raw and **3.35 MB gzipped** —
+what a visitor downloads, confirmed at 3.42 MB over the wire, so GitHub
+Pages does compress `application/wasm`. `[profile.web]` (`opt-level = "s"`,
+fat LTO) is worth 0.32 MB gzipped over `--release`. `wasm-opt` is **not**
+used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
+~0.12 MB **back on** the gzipped one.
 
 ## Testing
 
@@ -1400,7 +1416,10 @@ measured size is in 03 §v0.2.
   guards a regression in `new` — a font atlas, a pipeline, a persistence
   load — not the number the user sees: the real window's clock starts in
   `main` (`riggen --timing` prints it) and holds the OS window and the
-  wgpu device too; see 03 §M4 for the measured figure.
+  wgpu device too. Measured on the dev machine (RTX 5090, X11): `new` to
+  the first frame **8 ms** — the part this test pins — and launch to the
+  first frame **380–500 ms**, of which ~200 ms is NVIDIA's Vulkan device
+  creation and the rest the X11 window.
 - **The web bundle** (the `wasm` CI job): `web/build.sh` on every push, so
   the bundle `pages.yml` deploys is built and checked for its three files
   before it is deployed. A break that only shows under wasm-bindgen breaks

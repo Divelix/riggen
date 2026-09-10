@@ -66,10 +66,8 @@ under five minutes, without typing a coordinate.*
 **Status: done 2026-08-29, tag `m2`.** The risk — a circle fit good enough
 to place a joint from one click on STL data with no B-Rep — came out
 cheaper than feared; the method is Data Model §Mesh features. Decisions:
-ADR-0007 (the gizmo from `transform-gizmo-egui`, bridged through `mint`),
-amended by ADR-0010 (its egui glue is ours, the pointer shared per handle).
-The by-hand exit gate came back "generally fine" with nine backlog lines;
-the last two — the ViewCube and the fly camera — are v0.5's.
+ADR-0007 (the gizmo, bridged through `mint`), amended by ADR-0010. The
+exit gate's findings are backlog lines.
 
 - `transform-gizmo-egui` on a link (its parent joint's origin; the subtree
   follows) or on a joint (its pivot, the geometry staying put); drag =
@@ -84,8 +82,7 @@ the last two — the ViewCube and the fly camera — are v0.5's.
   joint in the tree → highlight it in 3D and vice versa.
 - Align: two clicks bring a part exported out of place onto a feature, as
   one `SetJoint` through `fk::origin_for_world`. Reparenting stayed the
-  tree drag it was in M1 — the gizmo moves a link *within* its parent, and
-  the two gestures turned out not to want the same handle.
+  tree drag it was in M1.
 - Snapshot tests for every gizmo/glyph state; iterate on this milestone with
   the snapshots open, not after.
 
@@ -101,6 +98,12 @@ annoying; that list is the M2 exit gate.
 *Goal: the exported MJCF loads in MuJoCo with zero warnings and moves like
 the viewport does.*
 
+**Status: done 2026-08-29, tag `m3`.** The risk — MuJoCo loading our MJCF
+with zero compiler warnings and agreeing with `fk` — was retired at step 5
+and held through the URDF import; the `mujoco` CI job runs both arms.
+Decisions: ADR-0008. The `mujoco.viewer` look is still the human's; the
+exit gate's findings are an M3 heading in the backlog.
+
 - Mass properties ported from `robocad-kernel/src/mass.rs`; `compose_inertial`;
   `InertialSpec` modes and the comparison readout; closed-mesh detection.
 - `CollisionPolicy`: convex hull (`riggen-mesh::hull`, quickhull), fitted
@@ -110,12 +113,6 @@ the viewport does.*
 - URDF import via `urdf-rs`; `riggen robot.urdf` on the command line.
 - Round-trip FK test in CI; MuJoCo load test in CI (Python job).
 - Sample robot in `assets/` used by the tests and the README screenshot.
-
-**Status: done 2026-08-29, tag `m3`.** The risk — MuJoCo loading our MJCF
-with zero compiler warnings and agreeing with `fk` — was retired at step 5
-and held through the URDF import; the `mujoco` CI job runs both arms.
-Decisions: ADR-0008 (export conventions). The `mujoco.viewer` look is still
-the human's; the exit gate's findings are an M3 heading in the backlog.
 
 **Out:** convex decomposition, actuators, MJCF import.
 
@@ -128,6 +125,13 @@ re-exporting it as MJCF loads too.
 
 *Goal: `uv add riggen && riggen` on a machine that has never seen Rust.*
 
+**Status: done 2026-08-30, tag `m4`.** The risk — a wheel from this
+workspace that installs and runs on a clean venv — was retired at step 1
+and held through the container matrix. Decisions: ADR-0002, amended by
+ADR-0009; the layout and the measured sizes are Architecture §Python
+distribution. The clean-VM window run is still the human's; the exit
+gate's findings are an M4 heading in the backlog.
+
 - `python/pyproject.toml` with maturin `bindings = "bin"`; `python -m riggen`.
 - CI wheels for linux x86_64/aarch64, macOS arm64/x86_64, Windows x86_64;
   `uv build` locally; TestPyPI first, then PyPI. Reserve the crates.io name
@@ -136,25 +140,6 @@ re-exporting it as MJCF loads too.
   `--help`; a `--version` that prints the git hash.
 - Startup time budget: window visible in < 500 ms on the dev machine, measured
   and asserted in a test.
-
-**Status: done 2026-08-30, tag `m4`.** The risk — a wheel from this
-workspace that installs and runs on a clean venv — was retired at step 1
-and held through the container matrix. Decisions: ADR-0002, amended by
-ADR-0009 (one wheel: the abi3 extension plus the binary as data); the
-layout is Architecture §Python distribution.
-
-Two measurements this file is the only record of. **Startup** on the dev
-machine (RTX 5090, X11): `RiggenApp::new` to the first frame 8 ms — the
-part the budget test pins — and launch to the first frame 380–500 ms, of
-which ~200 ms is NVIDIA's Vulkan device creation and the rest the X11
-window. **Wheels** at `v0.2.0`: linux x86_64 9.7 MB, linux aarch64 9.2,
-macOS arm64 6.2, macOS x86_64 6.6, Windows 7.4, sdist 0.3; the abi3
-extension is 1.3 MB of that.
-
-PyPI's CDN can serve the previous version for some minutes after an
-upload, so a `pip install` straight after a release may lag. The clean-VM
-window run is still the human's; the exit gate's findings are an M4
-heading in the backlog.
 
 **Accept:** a clean VM installs the wheel and opens the sample arm; the
 release workflow is a tag push.
@@ -166,39 +151,18 @@ release workflow is a tag push.
 *Goal: a robot you can build from ten lines of Python, and the mesh work
 the window could not do.*
 
+**Status: done 2026-09-02, tag `v0.2.1`.** The risk — that "sim-ready" was
+a claim rather than a feature — was retired piece by piece: `model.nu`
+stopped being zero, the pose graph is checked by the spec's own parser,
+and a foreign MJCF opens. Decisions: ADR-0009 to ADR-0017; the bundle the
+demo ships is measured in Architecture §The web build.
+
 - `riggen-py` (PyO3 over core + export): `Robot`, `Link`, `Joint`, `fk`,
   `validate`, `export_mjcf`, `export_urdf`, `load_urdf`; `riggen.show()`.
 - Convex decomposition (CoACD port or a bundled binary — decide with an ADR).
 - Named frames / MJCF sites; mimic joints; actuator presets.
 - MJCF import; SDF export.
 - Web demo build if the wasm check has stayed green.
-
-**Status: done 2026-09-02, tag `v0.2.1`.** The risk — that "sim-ready" was
-a claim rather than a feature — was retired piece by piece: `model.nu`
-stopped being zero (ADR-0014), the pose graph is checked by the spec's own
-parser (ADR-0016), and a foreign MJCF opens (ADR-0015). Decisions:
-ADR-0009 (one wheel: the abi3 extension plus the binary as data),
-ADR-0010 (the gizmo shares the viewport pointer), ADR-0011 (V-HACD from
-`parry3d-f64`; the merge step is ours), ADR-0012 (frames as sites and
-dummy links), ADR-0013 (mimics through one `fk::resolve_q`), ADR-0014
-(three actuator presets, amending ADR-0004 §4), ADR-0015 (the MJCF import
-subset and one import vocabulary), ADR-0016 (SDF 1.11 conventions),
-ADR-0017 (web IO: one `FileSource` in, downloads out).
-
-Two guesses this section made that the work overturned, kept because the
-next cycle will make the same kind: convex decomposition needed **no**
-CoACD port or bundled binary — `parry3d-f64` has V-HACD in pure Rust at
-f64 — and the web demo was **not** merely "a build if the wasm check has
-stayed green", but the seam that made `riggen-core` and `riggen-export`
-runnable with no filesystem under them.
-
-A measurement this file is the only record of. **The wasm bundle** at the
-first deploy: 10.40 MB raw, **3.35 MB gzipped**, which is what a visitor
-downloads — confirmed at 3.42 MB over the wire, so GitHub Pages does
-compress `application/wasm`. The `web` profile (`opt-level = "s"`, fat
-LTO) is worth 0.32 MB gzipped over `--release`; `wasm-opt` is *not* used,
-because `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
-~0.12 MB **back on** the gzipped one.
 
 **Out:** physics, a second renderer, and anything in §What not to spend
 agent time on; a web worker for `jobs`, a WebGL2 fallback and a touch
@@ -217,39 +181,23 @@ slider swings the arm, and its Export is byte-identical to the CLI's.
 exported; what is already there answers the mouse and the keyboard the way
 a CAD tool does.*
 
-**Status: done 2026-09-04, tag `v0.3.0`.** The risk — that three exit gates
-(M2, M3, M4) had each ended with a list of small frictions and none had been
-paid down since M2, while the public demo was putting that UI in front of
-people who have read no docs — was retired plan by plan: `panels-and-numbers`,
-`orbit-left-drag`, `viewport-answers-the-mouse`, `overlay-tells-the-truth`.
-The cycle expected one ADR and took three, all of them about who owns the
-pointer or what the user is allowed to believe: ADR-0018 (left = orbit; a
-gizmo handle claims the primary drag), ADR-0019 (the wheel is claimable and
-a drag keeps its hover pick) — both amendments to the switch table ADR-0010
-published, which is now five switches and `set_pick_excluded` — and ADR-0020
-(the overlay reads the scene's depth back). Two decisions were taken as
-paragraphs in 01 and 02 rather than ADRs: history gestures, and `Reparent`
-at the current `q`.
+**Status: done 2026-09-04, tag `v0.3.0`.** The risk — that three exit
+gates (M2, M3, M4) had each ended with a list of small frictions, none
+paid down since M2, while the public demo put that UI in front of people
+who have read no docs — was retired plan by plan. Decisions: ADR-0018 and
+ADR-0019, both amending ADR-0010's switch table, and ADR-0020.
 
-- **The overlay tells the truth.** A depth-tested overlay, so a glyph behind
-  a part reads as behind it; a badge or tint on a joint glyph that is driven
-  (ADR-0013) or actuated (ADR-0014), which before this looked like free
-  joints.
-- **Numbers are editable.** Properties fields as drag/scroll scrubbers
-  (Blender-style, wheel to step); the inertial tensor readable — 2.86e-5
-  must not render as a clipped `0.000029`.
-- **The panels stop hiding things.** The Joints window opens itself when a
-  document has a movable joint; a tool that wants the other kind of
-  selection says so instead of doing nothing; clicking empty space with a
-  joint selected clears it; per-geom collision editing; a material can be
-  renamed.
-- **The tree says what a drag will do.** A ghost row at the cursor and a
-  grab cursor while reparenting; `Reparent { keep_world_pose }` at the
-  current `q` rather than the zero configuration.
-- **The viewport answers the mouse.** Left-drag orbits (shift+left and right
-  pan, the middle pair kept); the five tools have keys `V` `G` `R` `J` `B`;
-  the wheel over a rotate ring steps that ring by 5°, or 1° with shift; a
-  translate drag runs the snap ladder under the cursor.
+- **The overlay tells the truth** — depth-tested, so a glyph behind a part
+  reads as behind it, and a driven or actuated joint stops looking free.
+- **Numbers are editable** — properties fields as drag/scroll scrubbers,
+  and an inertial tensor readable at 2.86e-5.
+- **The panels stop hiding things** — the Joints window opens itself, a
+  tool that wants the other selection says so, per-geom collision editing,
+  a renamable material.
+- **The tree says what a drag will do** — a ghost row and a grab cursor
+  while reparenting, at the current `q` rather than the zero configuration.
+- **The viewport answers the mouse** — left-drag orbits, the five tools
+  have keys, the wheel steps a rotate ring, a translate drag snaps.
 
 **Out:** any new format, importer or writer; distribution (crates.io, the
 screencast, notarization); the demo's four gaps (web worker, WebGL2, touch,
@@ -264,49 +212,32 @@ visible change (ADR-0003).
 
 ## v0.4 — the round trip keeps what it read, and the window has two modes
 
-*Goal: a foreign MJCF survives import → edit → export with nothing silently
-lost — what riggen has no field for, it gains a field for — and the window
-that opens it opens in the mode a researcher wants first, the one for
-looking and posing.*
+*Goal: a foreign MJCF survives import → edit → export with nothing
+silently lost — what riggen has no field for, it gains a field for — and
+the window opens in the mode a researcher wants first, for looking and
+posing.*
 
-**Status: done 2026-09-10, tag `v0.4.0`.** Two halves, one cycle. The
-file's risk — that a round trip through riggen still cost the user their
-hand-edited XML — was retired field by field, schema 3 → 6, until
-`ROUND_TRIP_DROPPED` was empty: ADR-0023 (actuators are a model-level
-table in their own namespace), ADR-0024 (the `<general>` escape hatch
-beside the three presets, and an actuator keeps the ranges its file said),
-ADR-0025 (couplings: mimic chains, `<joint ref>` as `Joint::qpos_ref`,
-`<tendon><fixed>` as `Robot::tendons`), and ADR-0026 (composition is
-resolved at import and never stored — every `<include>` spliced and every
-`<frame>` folded away before the reader looks, taking Menagerie's
-importing files from 93 to 172 of 261). ADR-0022 asked the composite-joint
-question again with the corpus behind it and refused again; `<replicate>`
-and `<attach>` stay refused too, now saying what each *is*. The window's
-risk came from the human's notes rather than an exit gate — the window had
-one mode, the editing one, and a floating slider window over it was how a
-robot got posed — and ADR-0021 with its three amendments retired it.
+**Status: done 2026-09-10, tag `v0.4.0`.** Two halves. The file's risk —
+that a round trip still cost the user their hand-edited XML — was retired
+field by field, schema 3 → 6, until `ROUND_TRIP_DROPPED` was empty; the
+window's, that it had one mode and a floating window was how a robot got
+posed. Decisions: ADR-0021 to ADR-0026, ADR-0022 refusing again.
 
-- **The file: nothing silently lost.** `Robot::actuators` with its own
-  names and an `ActuatorTarget`; `<general>` as a fourth `ActuatorSpec`;
-  mimic chains through one `fk::resolve_q`, `qpos_ref` as an MJCF-only
-  offset, fixed tendons as a document table; `.msh` and inline
-  `<mesh vertex face>` geometry materialised as ordinary assets;
-  `mjcf_compose` ahead of the reader.
-- **The window: View and Edit.** `Tab` between them, the joint tree with
-  its scrubbers in place of the Joints window, joints the only thing under
-  the cursor in View with the wheel driving a hovered one, the limit arc as
-  a range-and-value band, Edit locked to the zero configuration, zen on
-  `Z`, and a visibility row in the corner the Joints window vacated.
+- **The file: nothing silently lost** — actuators as a model-level table
+  with a `<general>` escape hatch, couplings (mimic chains, `qpos_ref`,
+  fixed tendons), `.msh` and inline mesh geometry, and composition
+  resolved ahead of the reader.
+- **The window: View and Edit** — `Tab` between them, the joint tree with
+  its scrubbers in place of the Joints window, joints the only pick in
+  View with the wheel driving a hovered one, the limit arc as a
+  range-and-value band, Edit at the zero configuration, zen on `Z`.
 
 **Out:** SDF import — the reading direction stays URDF and MJCF, and
 `libsdformat` stays a CI test dependency (ADR-0016 §6); a Gazebo model
-package; the demo's four gaps and distribution, both still backlog lines;
-§What not to spend agent time on stands. No new *writer*: the file half is
-about what survives the way in and back out, not a fourth format. On the
-window side: no rework of Edit beyond locking `q` — whether the gizmo on a
-*link* (which moves its parent joint's origin with the subtree, ADR-0007)
-survives a mode whose gesture is "move the joint relative to its parent"
-is a backlog line, not this cycle's; no docking, no theming.
+package; the demo's four gaps and distribution, both still backlog lines.
+No new *writer*: the file half is about what survives the way in and back
+out, not a fourth format. No rework of Edit beyond locking `q` (a backlog
+line); no docking, no theming; §What not to spend agent time on stands.
 
 **Accept:** `menagerie_style.xml`, grown to carry the elements above,
 imported and re-exported loads in MuJoCo with zero warnings, agrees with

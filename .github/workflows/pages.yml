@@ -41,8 +41,9 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: web/build.sh
-      # The measurement docs/ROADMAP.md records, printed where a
-      # regression is visible in the log rather than only on a stopwatch.
+      # The measurement docs/ARCHITECTURE.md §The web build records,
+      # printed where a regression is visible in the log rather than only
+      # on a stopwatch.
       - run: |
           raw=$(stat -c%s web/dist/riggen_app_bg.wasm)
           gz=$(gzip -9 -c web/dist/riggen_app_bg.wasm | wc -c)
