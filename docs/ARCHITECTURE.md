@@ -116,16 +116,20 @@ riggen/
 │       │                   # --export …` headless (ADR-0008)
 │       ├── src/app/        # document, file_io, file_menu, export_dialog, debug_menu,
 │       │                   # shortcuts, status_bar, tool, gizmo, glyphs, snap, align,
-│       │                   # panels/{tree, properties, joints, materials}
+│       │                   # mode (View | Edit and zen, ADR-0021), overlays (the
+│       │                   # visibility row), panels/{tree, joint_tree, properties,
+│       │                   # materials}
 │       └── src/debug/      # debug_state(): what the app thinks it drew, as JSON (ADR-0003)
 │   ├── riggen-py/          # cdylib `_riggen`, the PyO3 abi3 extension module `riggen._riggen`
 │   │                       # over core + export; `test = false`, tested from Python (ADR-0009)
 │   └── riggen/             # the crates.io name reservation: an empty 0.0.1 lib with its
 │                           # own README; publishing the app under this name is a backlog
 │                           # line (SEED.md §5)
-├── assets/fixtures/        # cube_binary.stl, cube_ascii.stl, cube.obj — the unit cube
-│                           # (TriMesh::cube(0.5)) in every format; pendulum.riggen, the
-│                           # .riggen v1 corpus file (02 §Schema); arm/*.stl in mm, the
+├── assets/fixtures/        # cube_binary.stl, cube_ascii.stl, cube.obj, cube.msh — the
+│                           # unit cube (TriMesh::cube(0.5)) in every format riggen reads;
+│                           # pendulum.riggen, the .riggen v1 corpus file, and
+│                           # driven.riggen, the v3 one the actuator-table upgrade moves
+│                           # (02 §Schema); arm/*.stl in mm, the
 │                           # M2 acceptance's four parts plus fore_hull.stl (an ignored
 │                           # generator test writes them); arm/arm.riggen, the M3 sample
 │                           # robot (`write_arm_sample`), and arm/arm.urdf, the hand-written
@@ -137,7 +141,8 @@ riggen/
 │                           # menagerie_style.xml + menagerie_style_arm.xml, the foreign
 │                           # MJCF import corpus (02 §MJCF import) — hand-written, not
 │                           # ours, and two files since ADR-0026: the main one <include>s
-│                           # the other, which holds a <frame>
+│                           # the other, which holds a <frame> and the arm/thing.msh
+│                           # tetrahedron the corpus's .msh geometry comes from
 ├── python/riggen/          # the wheel's Python half: __init__ (the public names,
 │                           # __version__), robot.py (the API), show.py (the window,
 │                           # binary_path), errors.py, __main__ (execs the bundled
@@ -1120,7 +1125,7 @@ the id counter included. No `History`: a script has no undo.
 | `Robot(name)` | `Robot::new` |
 | `Robot.load(path) -> (robot, warnings)` | `file::load`; `Warning`s as strings |
 | `robot.save(path)` | `file::save` (paths rebased, unreferenced assets dropped) |
-| `robot.to_json()` / `Robot.from_json(text)` | the current-schema envelope (3), paths as held (absolute); `from_json` validates and refuses any other version — it walks no upgrade chain, unlike `file::load` |
+| `robot.to_json()` / `Robot.from_json(text)` | the current-schema envelope (`file::SCHEMA_VERSION`, 6), paths as held (absolute); `from_json` validates and refuses any other version — it walks no upgrade chain, unlike `file::load` |
 | `robot.copy()` | `Robot::clone` |
 | `robot.name`, `.root`, `.next_id` | the fields; `next_id` is `IdGen::peek` |
 | `robot.links()`, `.joints()`, `.frames()`, `.tendons()`, `.assets()`, `.materials()` | `{id: doc}` dicts, materials by name |
@@ -1423,8 +1428,10 @@ measured size is in 03 §v0.2.
   lavapipe, so local and CI agree) and diffs PNGs. This is how an agent sees
   the window. A `debug_state()` JSON dump of what the app believes it drew
   (camera with near/far, the document — file, name, dirty, import scale,
-  links, joints with `q`, frames, selection — the `ui` section — rename in
-  progress, open windows, modal, title, collision view — instances with
+  links, joints with `q` and `qpos_ref`, frames, tendons, selection — the
+  `ui` section — mode, zen, tool, rename in progress, open windows, modal,
+  title, the visibility row's `overlays` (the classes switched *off*), a
+  tree row being dragged — instances with
   their link/geom key, position and colour, viewport selection, the gizmo,
   the joint glyphs, the frame glyphs, the snap candidate, the viewport's
   pointer policy (`input`, omitted while nothing is suppressed), status,
@@ -1437,7 +1444,12 @@ measured size is in 03 §v0.2.
   `tree_reparent`, `properties_link`, `properties_joint`, `pendulum_swing`,
   `materials`, `toolbar`, `gizmo_move_link`, `gizmo_rotate_joint`,
   the View-mode set `view_opens_with_the_document`, `view_joint_tree`,
-  `view_joint_tree_scrub`, `view_wheel_on_glyph` (ADR-0021) and
+  `view_joint_tree_scrub`, `view_wheel_on_glyph`,
+  `view_glyph_hover_band` (the band and its interior as View's target,
+  ADR-0021 §6), the two `zen_view` / `zen_edit` (the same key and the same
+  empty window in both modes) and the visibility row's `overlay_row`,
+  `overlay_row_joints_off`, `overlay_row_names_off`, `overlay_row_links_off`
+  (ADR-0021, amended) and
   `joint_tree_chain` (a follower whose leader also follows: both rows
   read-only at their resolved values, each stating its own rule,
   ADR-0025),
@@ -1452,9 +1464,12 @@ measured size is in 03 §v0.2.
   the mimic and actuator set — `properties_joint_mimic`, `properties_joint_actuator`,
   `properties_joint_actuator_applied`, and v0.4's
   `properties_joint_two_actuators` (an imported joint's whole list, each
-  under its own name) and `properties_joint_general` (an imported
+  under its own name), `properties_joint_general` (an imported
   `<general>`'s read-only row — name, kind, its three type names, no gain
-  fields — which the combo can still make a preset; ADR-0024) —
+  fields — which the combo can still make a preset; ADR-0024),
+  `properties_joint_ref` and `properties_joint_tendon` (the two read-only
+  rows a file authors and the SDK edits, ADR-0025) and `missing_include`
+  (an `<include>` whose file was not brought, naming it; ADR-0026) —
   and the frame set — `frames_tree`, `frame_properties`,
   `add_frame_button`, `gizmo_move_frame` — and `decomp_needs_consent`, the
   browser's half of the Collision block, which a native runner renders by
@@ -1463,8 +1478,7 @@ measured size is in 03 §v0.2.
   `properties_wheel` (three Ctrl+wheel notches),
   `tools_say_what_they_need`, `click_empty_clears`,
   `properties_collision_meshes`, `materials_rename`, `tree_drag_ghost`
-  (captured mid-drag), `tree_reparent_posed` (a drop with the arm
-  swung), `orbit_left_drag` (the sample arm turned by a plain
+  (captured mid-drag), `orbit_left_drag` (the sample arm turned by a plain
   left-drag), `gizmo_ring_hover` (the rotate ring under the cursor, drawn
   hot), `gizmo_drag_snaps_to_a_vertex` (captured mid-drag: the marker on
   the corner, the part already on it, nothing committed),

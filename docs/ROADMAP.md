@@ -5,7 +5,7 @@ the scariest remaining unknown first. A milestone's "out" list is as binding
 as its "in" list. Calibration: RoboCAD went from empty to 58k lines in three
 weeks; this roadmap is smaller than that.
 
-Spine: M0 → M1 → M2 → M3 → M4, then v0.2 → v0.3 → v0.4.
+Spine: M0 → M1 → M2 → M3 → M4, then v0.2 → v0.3 → v0.4 → v0.5.
 
 ---
 
@@ -69,7 +69,7 @@ cheaper than feared; the method is Data Model §Mesh features. Decisions:
 ADR-0007 (the gizmo from `transform-gizmo-egui`, bridged through `mint`),
 amended by ADR-0010 (its egui glue is ours, the pointer shared per handle).
 The by-hand exit gate came back "generally fine" with nine backlog lines;
-eight remain.
+the last two — the ViewCube and the fly camera — are v0.5's.
 
 - `transform-gizmo-egui` on a link (its parent joint's origin; the subtree
   follows) or on a joint (its pivot, the geometry staying put); drag =
@@ -269,147 +269,34 @@ lost — what riggen has no field for, it gains a field for — and the window
 that opens it opens in the mode a researcher wants first, the one for
 looking and posing.*
 
-Two halves, one cycle. The first is the file's; the second is the window's,
-and it came out of the human's notes after v0.3 closed rather than an exit
-gate: the window still has one mode, the editing one, and a floating slider
-window over it is how a robot gets posed.
+**Status: done 2026-09-10, tag `v0.4.0`.** Two halves, one cycle. The
+file's risk — that a round trip through riggen still cost the user their
+hand-edited XML — was retired field by field, schema 3 → 6, until
+`ROUND_TRIP_DROPPED` was empty: ADR-0023 (actuators are a model-level
+table in their own namespace), ADR-0024 (the `<general>` escape hatch
+beside the three presets, and an actuator keeps the ranges its file said),
+ADR-0025 (couplings: mimic chains, `<joint ref>` as `Joint::qpos_ref`,
+`<tendon><fixed>` as `Robot::tendons`), and ADR-0026 (composition is
+resolved at import and never stored — every `<include>` spliced and every
+`<frame>` folded away before the reader looks, taking Menagerie's
+importing files from 93 to 172 of 261). ADR-0022 asked the composite-joint
+question again with the corpus behind it and refused again; `<replicate>`
+and `<attach>` stay refused too, now saying what each *is*. The window's
+risk came from the human's notes rather than an exit gate — the window had
+one mode, the editing one, and a floating slider window over it was how a
+robot got posed — and ADR-0021 with its three amendments retired it.
 
-### The file: nothing silently lost
-
-SEED §3 says the common case is editing, not building, and §4's fourth
-differentiator is "import existing URDF, edit, export MJCF". ADR-0015 bought
-the first half: a Menagerie-style file opens. The second half is what this
-cycle is for — the import warns and drops, so a round trip through riggen
-still costs the user their hand-edited XML. Every line below is one of those
-drops, and each is a backlog line this section now owns.
-
-- **Actuators become a model-level table.** *Landed (plans/actuator-table,
-  ADR-0023).* `Robot::actuators: BTreeMap<ActuatorId, Actuator>`, each with
-  its own name and an `ActuatorTarget`; schema 4. An actuator whose name
-  differs from its joint's keeps it, and a second actuator on an
-  already-driven joint is kept, not silently overwritten. An actuator
-  driving a tendon, site or body still warns and drops — that seam is the
-  target enum's next variant, not this bullet's.
-- **The escape hatch beside the three presets.** *Landed
-  (plans/actuator-escape-hatch, ADR-0024).* `<general>` on a joint is a
-  fourth `ActuatorSpec`, read iff no preset can express the element and
-  written back with its three types and trimmed `prm` vectors; the
-  actuator keeps the `ctrlrange` / `forcerange` / `ctrllimited` /
-  `forcelimited` its file said, schema 5, so a `<position>` that named no
-  range no longer comes back clamped to the joint's. Gains through a
-  `<default class>` are read. The corpus joined the `mujoco` job, its
-  re-export compared with the original actuator by actuator — `grip`, the
-  tendon target, left the drop list once the couplings bullet gave
-  `ActuatorTarget` its second variant. `<adhesion>` (a body target) and
-  `<muscle>` (needs a `lengthrange` riggen does not compute) stay dropped
-  by name: a tendon in the document makes both *possible*, but neither is
-  a coupling, so both stayed a `docs/BACKLOG.md` line by the human's
-  decision (OPEN 1, plans/couplings).
-- **Couplings the document cannot hold.** *Landed (plans/couplings,
-  ADR-0025).* Mimic chains — a follower whose leader also follows —
-  resolve through one topological pass of `fk::resolve_q`; only a *cycle*
-  is refused. `<joint ref>` is kept as `Joint::qpos_ref`, an MJCF-only
-  offset over a `q` that stays the deviation from the authored pose,
-  shifting `range` and a derived `ctrlrange` on the way out and back on
-  the way in; nothing else learns the field exists. `<tendon><fixed>` is
-  `Robot::tendons`, a named linear combination of joint values held in
-  MJCF's own `qpos` terms, driven by the `ActuatorTarget` variant the
-  escape-hatch bullet left room for. Schema 6. The corpus gained a chain,
-  a `ref`, and a two-joint tendon, and the `mujoco` job now compares its
-  `<equality>` and `<tendon>` blocks with the original's the way it
-  already compared `<actuator>` — `ROUND_TRIP_DROPPED` is empty.
-- **Geometry the import refuses.** *Landed (plans/mjcf-mesh-geometry).* `.msh`
-  meshes and an inline `<mesh vertex face>` read as an ordinary `Geom` on an
-  ordinary mesh asset — no more `GeomDropped` for either; a file-less inline
-  mesh is materialized as a `.stl` beside the source MJCF (`docs/DATA-MODEL.md`
-  §Geometry).
-- **Composition.** *Landed (plans/composition, ADR-0026).* Two of the
-  four, not all four. `mjcf_compose` rewrites the parsed tree into a
-  composition-free one before anything reads it: every `<include>` spliced
-  at its site — main directory first, the including file's second, through
-  the same `FileSource` the meshes come through, any root tag, recursively,
-  with `IncludeNotFound` naming what else to bring and `DuplicateInclude`
-  reproducing MuJoCo's hard error — and every `<frame>` folded into what it
-  wraps, pose composed onto each child, `childclass` pushed down, a joint
-  `axis` and a geom `fromto` rotated, nested frames composing outer-first.
-  Composition never reaches the document, exactly as `<default>` has not
-  since ADR-0015 §3, and the stated cost is that a re-export is one flat
-  file. `<replicate>` and `<attach>` stay refused, now with messages that
-  say what each *is* — a subtree copied k times; a second model under a
-  name prefix, which is two robots composed and a document question of its
-  own (both `docs/BACKLOG.md` lines). Measured over Menagerie's 261 files:
-  `<include>` refusals **113 → 0**, `<frame>` **1 → 0**, files that import
-  **93 → 172**, and no file that imported before stopped. The corpus is
-  two files with a `<frame>` in one, so the `mujoco` job's round trip runs
-  on a composed model.
-
-A `<body>` with several `<joint>`s stays `ImportError::CompositeJoint`,
-asked again and answered no in **ADR-0022**: the synthesis opens five
-Menagerie directories, three of them not robots, and the cheap version
-does not round-trip at all — MuJoCo refuses a massless moving body, as our
-own `ZeroMassMovableLink` already does. The refusal says what the shape
-means and how to split the body; the ADR names A2 as the shape if it is
-ever reopened.
-
-### The window: View and Edit
-
-What a researcher does with a robot most of the time is look at it and
-pose it; building and fixing it is the rarer, more dangerous thing, and the
-window makes no difference between the two. Every line below is a backlog
-line this section now owns.
-
-- **Two modes, Tab between them.** *Landed.* A document opens in **View**.
-  Tab goes through `consume_key` like the tool keys (the RoboCAD lesson),
-  and the status bar names the mode. The switch table ADR-0010 published
-  and ADR-0018/0019 amended gained a mode dimension — which picks answer,
-  who owns the wheel — written as **ADR-0021**, this half's first line the
-  way v0.3's was.
-- **View: the joint tree, with the sliders.** *Landed.* The left panel
-  shows the movable joints as a tree in kinematic order, each row a scrubber aligned
-  right — drag or wheel, the value and both limits readable on it, the
-  scrubber idiom v0.3 built. It replaces the floating Joints window, which
-  went with its open-itself rule (01 §Panels, plans/panels-and-numbers
-  OPEN 3). A follower's row stays what its slider was: read-only, at the
-  resolved `q` (ADR-0013).
-- **View: joints are the only thing under the cursor.** *Landed.* A mesh
-  is neither hover-tinted nor selectable; the glyph is what answers, and
-  the wheel over a hovered joint **drives it** instead of zooming —
-  ADR-0019's `set_wheel_claimed`, claimed by a glyph the way a rotate ring
-  claims it, with the ring's 5° / 1° steps, and no history entry because
-  `q` is derived state. In Edit the wheel is still the camera's unless a
-  rotate ring takes it (ADR-0010).
-- **The glyph shows the range and the value.** *Landed.* The limit arc is
-  a **band** (01 §Joint glyphs): an annulus of three translucent sectors
-  resulting in the full circle at 0.2, the limits over it at 0.5 and the
-  run from zero to `q` at 0.9, the white spoke kept, a slide getting the
-  same two as bars beside its axis. Sized from the part it belongs to —
-  and now from the part's *own* frame, so the size no longer breathes as
-  the joint turns — and depth-tested quad by quad (ADR-0020). Every state
-  of it is in the snapshot suite (ADR-0003) and `glyph_driven_joint`'s
-  amber survived.
-- **Edit: the tree as it is, `q` locked.** *Landed.* The link tree,
-  properties, gizmos and tools stayed what v0.3 left; joints are
-  highlighted in the tree but not posable there — posing is View's — and
-  the gizmo moves a joint relative to its parent as it did. `q` is zero
-  for the whole of the mode, stashed on the way in and restored on the way
-  out (ADR-0021 §2), which retired the per-tool reset.
-- **Zen mode on `Z`.** *Landed.* Every panel — menu bar, tree, properties,
-  status bar, toolbar, the visibility row — hidden, the viewport filling the
-  window with the robot alone; `Z` again brings them back, byte-for-byte,
-  and the Materials window with them. Bare `Z` is free (undo is Ctrl+Z,
-  read first, `consume_key` in the same order), and zen is **orthogonal to
-  the mode**: the same key and the same state in View and Edit, `Tab` still
-  switching between them from inside it, the row's toggles and the five
-  switches untouched. Never persisted, and `Esc` leaves it too — there is
-  no status bar left in it to read (ADR-0021, amended a third time).
-- **A visibility row, top-right of the viewport.** *Landed.* Five toggles
-  in the corner the Joints window vacated — joints, joint names, frames,
-  links, collision — each a drawn mark rather than a word (01 §Panels).
-  The View menu is deleted with its one item. A toggle turns its class off
-  **completely**: the drawing and the pointer target go together, so
-  hiding joints leaves View with nothing under the cursor and the status
-  bar says what is hidden (ADR-0021, amended). The toolbar keeps the
-  top-left.
+- **The file: nothing silently lost.** `Robot::actuators` with its own
+  names and an `ActuatorTarget`; `<general>` as a fourth `ActuatorSpec`;
+  mimic chains through one `fk::resolve_q`, `qpos_ref` as an MJCF-only
+  offset, fixed tendons as a document table; `.msh` and inline
+  `<mesh vertex face>` geometry materialised as ordinary assets;
+  `mjcf_compose` ahead of the reader.
+- **The window: View and Edit.** `Tab` between them, the joint tree with
+  its scrubbers in place of the Joints window, joints the only thing under
+  the cursor in View with the wheel driving a hovered one, the limit arc as
+  a range-and-value band, Edit locked to the zero configuration, zen on
+  `Z`, and a visibility row in the corner the Joints window vacated.
 
 **Out:** SDF import — the reading direction stays URDF and MJCF, and
 `libsdformat` stays a CI test dependency (ADR-0016 §6); a Gazebo model
@@ -432,6 +319,71 @@ glyph and the joint tree's scrubbers, without a menu or a floating window
 in the way; `Z`, and the robot is all there is; Tab, and it is the v0.3
 editor again — every visible state of both modes in the snapshot suite
 (ADR-0003).
+
+---
+
+## v0.5 — the viewport and the camera
+
+*Goal: the viewport stops being M0's. You always know which way you are
+looking, you can get inside an assembly instead of only orbiting round it,
+a part reads as standing somewhere rather than floating in a gradient, and
+an edge is an edge.*
+
+The oldest untouched cluster in the backlog, most of it from the M2 exit
+gate. v0.3 paid down the hand-feel debt in the *panels* and the pointer;
+this is the same debt in the camera and the pass under it, and the
+viewport is what the demo puts in front of people who have read no docs.
+Every line below is a backlog line this section now owns.
+
+- **A ViewCube in the corner.** RoboCAD has one; M0 ships the axes triad
+  and a text `persp` / `ortho` label. Clicking a face snaps the view the
+  way `Num1/3/7` already do, and the projection toggle lives on the cube
+  rather than beside it. It is corner chrome like the mode control and the
+  visibility row (`chrome_rects`, 01 §Panels and menus), so the camera
+  holds still and the picks are off under it.
+- **A fly camera on `W A S D E Q`.** The keys are already reserved off the
+  tool shortcuts (`tool.rs`); M0 ships the turntable orbit alone, and a
+  joint buried inside an assembly is something you can orbit round but not
+  get to. rerun's viewer is the reference, including **drawing the orbit
+  pivot while the camera moves** — which the turntable wants too, and which
+  is the half of this line that is not a new camera at all.
+- **A ground grid at z = 0.** RoboCAD never had one either; M0 ships the
+  gradient background alone, so a part at the origin and a part a metre up
+  read the same. Z-up and meters are the document's (02 §Conventions), so
+  the grid is simply where the floor is.
+- **MSAA on the offscreen colour pass.** RoboCAD had none. The scene
+  renders into an offscreen colour + `Depth32Float` pair and is blitted in
+  `paint()` (01 §Frame loop), so this is that pair and the blit. The
+  **pick pass stays single-sampled** — an `R32Uint` ID buffer cannot be
+  resolved, and averaging two instance ids would invent a third.
+- **Snapping during a rotate gizmo drag.** ADR-0019 §5 left the drag snap
+  to translation because a rotation about a named axis has nothing in the
+  ladder to land on. The answer is aligning the dragged frame's axis to a
+  snapped feature's (a circle's, a face normal), which needs a rule for
+  *which* of the three axes aligns and a second overlay idiom — an ADR if
+  the rule turns out to be contested.
+
+**Out:** any new format, importer or writer, and the import gap's last
+mile — the 31 Menagerie files that import and then refuse to *export*,
+`<attach>`, a `PackageMap` UI — all still backlog lines. Distribution
+(crates.io, the screencast, notarization) and the demo's four gaps (web
+worker, WebGL2, touch, directory drop) stay backlog lines too; a WebGL2
+fallback in particular is a *second picking mechanism*, not a camera
+change. A snap quantum for a translate drag stays out beside them: the
+wheel's 5° step is the rotation half of it and the document has nowhere to
+keep a general one. §What not to spend agent time on stands — no second
+renderer, no docking, no theming.
+
+**Accept:** the M2 arm build, run by hand once more, is navigated with the
+ViewCube and the fly keys and never with the numpad; a part dropped at the
+origin reads as standing on the grid rather than hanging in the gradient;
+an edge at 1440×900 is smooth while a pick on the pixel beside it still
+names the right instance and triangle; and a rotate drag lands the dragged
+frame's axis on a bore's. Every visible state in the snapshot suite
+(ADR-0003) — and because MSAA moves every golden at once, that refresh is
+one `snapshots:` commit that says so and nothing else.
+
+---
 
 ## What not to spend agent time on
 

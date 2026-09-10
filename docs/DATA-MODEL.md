@@ -30,7 +30,10 @@ it knows egui exists.
   and re-expresses the body's contents against it (§MJCF import). Our own
   writer emits no `pos`, so the round trip moves nothing.
 - **Inertial frames:** the stored tensor is about the link's CoM, in link
-  axes. URDF writes it that way; MJCF gets a principal-axes decomposition.
+  axes. Both writers say it that way — URDF's `<inertia ixx …/>` and MJCF's
+  `fullinertia`, MuJoCo doing the principal-axes decomposition itself
+  (ADR-0008). The principal moments are computed for the properties panel's
+  readout and `inertial::check`, never for a file.
 - **Numbers are f64** in every quantity that has units — poses, masses,
   densities, limits — and in the kinematics. The exceptions are colours
   (`Material::color`, `Geom::color`), which are `[f32; 4]` because they go
