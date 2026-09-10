@@ -140,7 +140,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   attribute name) that `rebase_included_meshes` consumes and removes once
   the merged `meshdir` is known. ADR-0026 §6 rewritten: one knowing
   difference from MuJoCo left, not two.
-- [ ] **[2]** Step 4 — `<frame>` folding, and the two that stay refused.
+- [x] **[2]** Step 4 — `<frame>` folding, and the two that stay refused.
   Pose composition onto every child (`<body>`, `<geom>`, `<site>`,
   `<joint>`, `<camera>`, `<light>`, nested `<frame>`) in whichever of the
   five spellings either side used, the frame's `childclass` — or `class`,
@@ -153,6 +153,21 @@ mechanical; **[2]** careful — a case to get right within a given design;
   mean (a subtree copy; a submodel attached under a prefix) rather than
   just the tag. Unit tests per case, each against the hand-flattened
   equivalent.
+  *Found (2026-09-10):* a `<default>` class can carry the very attributes
+  a frame has to transform — above all a joint's `axis`, which most of
+  Menagerie spells in a class — so the fold writes the class's `pos` /
+  orientation / `axis` / `dir` / `fromto` onto the child *before*
+  composing (`Frames::materialize`); the pass therefore reads the
+  `<default>` tree as well as the `<compiler>`, but only when the tree
+  actually holds a frame, so a file without one keeps the reader's error
+  for a bad `<compiler>`. `ImportError::UnsupportedElement` gained a
+  `meaning` field rather than a longer `element`, so
+  `<compiler coordinate="global">` says what it means too. And
+  **`apptronik_apollo` still does not import**: it has two root bodies
+  (`base_link` and a bare `world_link`), an ADR-0015 refusal the scan
+  never reached because `<frame>` refused first — the Goal's "plus the 1
+  `<frame>` model" is wrong, the acceptance's 69 (= 56 + 13 include
+  files) is not.
 - [ ] **[2]** Step 5 — the corpus and the `mujoco` job.
   `menagerie_style.xml` grows a `<frame>` around a body with a joint in
   it and moves a block (its `<asset>` and one body) into a sibling

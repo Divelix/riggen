@@ -245,11 +245,14 @@ pub enum ImportError {
         body: String,
         joint: String,
     },
-    /// An element that re-shapes the tree — `<replicate>`, `<attach>`,
-    /// `<frame>` — or a `<compiler coordinate="global">`. `<include>` is
-    /// not one: it is spliced before the reader looks (ADR-0026).
+    /// An element that re-shapes the tree — `<replicate>`, `<attach>` — or
+    /// a `<compiler coordinate="global">`. `<include>` and `<frame>` are
+    /// not among them: they are resolved before the reader looks
+    /// (ADR-0026). `meaning` says what the element does, so the refusal
+    /// leaves the user able to act (ADR-0022 §2).
     UnsupportedElement {
         element: String,
+        meaning: String,
     },
     /// An `<include file>` that neither the model's directory nor the
     /// including file's holds. Its own variant rather than `Io` because the
@@ -301,8 +304,8 @@ impl fmt::Display for ImportError {
                 f,
                 "root body \"{body}\" carries joint \"{joint}\"; the root link has no parent joint"
             ),
-            Self::UnsupportedElement { element } => {
-                write!(f, "{element} is not supported")
+            Self::UnsupportedElement { element, meaning } => {
+                write!(f, "{element} is not supported: {meaning}")
             }
             Self::IncludeNotFound { file, from } => write!(
                 f,

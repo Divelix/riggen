@@ -73,12 +73,15 @@ use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
 use riggen_core::FileSource;
+use riggen_core::glam::{DQuat, DVec3};
 
 use crate::import::ImportError;
-use crate::xml::Node;
+use crate::mjcf_in::{Compiler, Defaults, MAIN_CLASS};
+use crate::xml::{AngleConvention, Node, ORIENTATION_ATTRS};
 
 /// The composition-free tree the reader reads: `root` — the parsed main
-/// file — with every `<include>` under it spliced. `path` is the main
+/// file — with every `<include>` under it spliced and every `<frame>`
+/// folded into what it wrapped. `path` is the main
 /// file, whose directory is where an included file is looked for first;
 /// `source` is where its bytes come from, the same one the meshes come
 /// through (ADR-0017). A pure tree → tree rewrite: no document types, no
@@ -97,6 +100,7 @@ pub(crate) fn compose(
     };
     let mut root = includes.splice(root, path)?;
     rebase_included_meshes(&mut root, &main_dir, source);
+    fold_frames(&mut root, path)?;
     Ok(root)
 }
 
@@ -214,9 +218,7 @@ fn rebase_included_meshes(root: &mut Node, main_dir: &Path, source: &dyn FileSou
     // The merged `meshdir` of the *composed* tree, which is why this runs
     // after splicing. A `<compiler>` the reader will refuse outright reads
     // here as no `meshdir`; the reader reports it a moment later.
-    let meshdir = crate::mjcf_in::Compiler::read(root)
-        .map(|c| c.meshdir)
-        .unwrap_or_default();
+    let meshdir = Compiler::read(root).map(|c| c.meshdir).unwrap_or_default();
     rebase(root, &main_dir.join(meshdir), source);
 }
 
@@ -247,6 +249,272 @@ fn rebase(node: &mut Node, first_dir: &Path, source: &dyn FileSource) {
         node.attrs
             .insert("file".to_owned(), fallback.display().to_string());
     }
+}
+
+// ---------------------------------------------------------------------------
+// `<frame>` (ADR-0026 §3)
+// ---------------------------------------------------------------------------
+
+/// The tags a frame's pose reaches. Everything else one may wrap — an
+/// `<inertial>`, a `<freejoint>`, a `<plugin>` — is spliced through
+/// exactly as written, which is what MuJoCo does with it (the module
+/// comment's "Left alone").
+const POSED: &[&str] = &["body", "geom", "site", "joint", "camera", "light"];
+
+/// Of [`POSED`], those that take a `class`; a `<body>` takes a
+/// `childclass` instead, and gets one in [`push_class`].
+const CLASSED: &[&str] = &["geom", "site", "joint", "camera", "light"];
+
+/// Attributes a `<default>` class would have given an element that the
+/// frame's pose has to reach — the pose itself in any of its five
+/// spellings, a joint's `axis`, a light's `dir`, a geom's `fromto`.
+const REACHED: &[&str] = &[
+    "pos",
+    "quat",
+    "euler",
+    "axisangle",
+    "xyaxes",
+    "zaxis",
+    "axis",
+    "dir",
+    "fromto",
+];
+
+/// Every `<frame>` in `root` folded into what it wraps, until none is
+/// left. Reading the `<compiler>` and the `<default>` tree is what a frame
+/// costs — the frame's own orientation is spelled under `angle` and
+/// `eulerseq`, and half of Menagerie's joints take the `axis` a rotating
+/// frame has to turn from a class — so a tree without one pays nothing and
+/// keeps the reader's error for a bad `<compiler>`.
+fn fold_frames(root: &mut Node, path: &Path) -> Result<(), ImportError> {
+    if !has_frame(root) {
+        return Ok(());
+    }
+    let parse = |m: String| ImportError::Parse {
+        path: path.to_owned(),
+        message: m,
+    };
+    let frames = Frames {
+        conv: Compiler::read(root).map_err(parse)?.angle,
+        defaults: Defaults::read(root).map_err(parse)?,
+        path: path.to_owned(),
+    };
+    frames.walk(root, MAIN_CLASS)
+}
+
+fn has_frame(node: &Node) -> bool {
+    node.children
+        .iter()
+        .any(|c| c.tag == "frame" || has_frame(c))
+}
+
+/// The `<frame>` half of the pass.
+struct Frames {
+    conv: AngleConvention,
+    /// The classes, for [`Frames::materialize`] — an element's pose may be
+    /// its class's, and the frame composes onto the pose it *has*.
+    defaults: Defaults,
+    /// The main file, which every error here is reported against: it is
+    /// the arithmetic that failed, not a file that was opened.
+    path: PathBuf,
+}
+
+impl Frames {
+    fn err(&self, message: String) -> ImportError {
+        ImportError::Parse {
+            path: self.path.clone(),
+            message,
+        }
+    }
+
+    /// `node`'s children with every `<frame>` among them replaced by what
+    /// it wrapped, then the same over each child's subtree. `inherited` is
+    /// the `childclass` in force, which a frame's children need to find
+    /// their own defaults before the frame's pose is composed onto them.
+    fn walk(&self, node: &mut Node, inherited: &str) -> Result<(), ImportError> {
+        let childclass = Defaults::childclass(node, inherited).to_owned();
+        for child in std::mem::take(&mut node.children) {
+            if child.tag == "frame" {
+                node.children.extend(self.unwrap(child, None, &childclass)?);
+            } else {
+                node.children.push(child);
+            }
+        }
+        for child in &mut node.children {
+            self.walk(child, &childclass)?;
+        }
+        Ok(())
+    }
+
+    /// One `<frame>` gone: its children, in document order, each with
+    /// `child = frame ∘ child` composed onto it and the frame's class
+    /// pushed onto it. A nested frame is composed onto and then unwrapped
+    /// in turn, so the outer transform reaches the inner frame's children
+    /// — outer-first — and the outer class reaches through an inner frame
+    /// that names none.
+    fn unwrap(
+        &self,
+        frame: Node,
+        outer_class: Option<&str>,
+        inherited: &str,
+    ) -> Result<Vec<Node>, ImportError> {
+        let pos = frame
+            .vec3("pos")
+            .map_err(|e| self.err(e))?
+            .unwrap_or(DVec3::ZERO);
+        let rot = frame
+            .orientation(self.conv)
+            .map_err(|e| self.err(e))?
+            .unwrap_or(DQuat::IDENTITY);
+        // `class` on a frame means `childclass` (the module comment's
+        // "childclass").
+        let class = frame
+            .attr("childclass")
+            .or(frame.attr("class"))
+            .or(outer_class)
+            .map(str::to_owned);
+        let mut out = Vec::new();
+        for mut kid in frame.children {
+            if kid.tag == "frame" {
+                self.transform(&mut kid, pos, rot)?;
+                out.extend(self.unwrap(kid, class.as_deref(), inherited)?);
+                continue;
+            }
+            let in_force = kid
+                .attr("class")
+                .or(class.as_deref())
+                .unwrap_or(inherited)
+                .to_owned();
+            self.materialize(&mut kid, &in_force);
+            self.transform(&mut kid, pos, rot)?;
+            if let Some(class) = &class {
+                push_class(&mut kid, class);
+            }
+            out.push(kid);
+        }
+        Ok(out)
+    }
+
+    /// Whichever of [`REACHED`] this element's class would have given it
+    /// written onto the element itself, so that the composition below acts
+    /// on the pose the element really has and the class cannot smuggle an
+    /// untransformed one in behind it. Everything else the class carries
+    /// is left to the reader, which applies it again — over attributes the
+    /// element now owns, so it changes nothing. An unknown class is left
+    /// alone: the reader reports it a moment later.
+    fn materialize(&self, node: &mut Node, class: &str) {
+        if !POSED.contains(&node.tag.as_str()) {
+            return;
+        }
+        // `apply` already drops the class's rotation when the element
+        // spells its own, in whichever of the five spellings each used.
+        let Ok(resolved) = self.defaults.apply(node, class) else {
+            return;
+        };
+        for a in REACHED {
+            if let (None, Some(v)) = (node.attrs.get(*a), resolved.attrs.get(*a)) {
+                node.attrs.insert((*a).to_owned(), v.clone());
+            }
+        }
+    }
+
+    /// `child = frame ∘ child`, in place.
+    fn transform(&self, node: &mut Node, fp: DVec3, fq: DQuat) -> Result<(), ImportError> {
+        match node.tag.as_str() {
+            "body" | "site" | "camera" | "frame" => {
+                self.moved(node, "pos", fp, fq)?;
+                self.turned(node, fq)?;
+            }
+            // `fromto` names two points in the parent's frame and replaces
+            // the geom's pose; a geom may carry either.
+            "geom" => {
+                self.moved(node, "pos", fp, fq)?;
+                self.turned(node, fq)?;
+                if let Some(ends) = node.nums::<6>("fromto").map_err(|e| self.err(e))? {
+                    let end = |i: usize| fp + fq * DVec3::new(ends[i], ends[i + 1], ends[i + 2]);
+                    let (a, b) = (end(0), end(3));
+                    let both = format!("{} {}", crate::xml::vec3(a), crate::xml::vec3(b));
+                    node.attrs.insert("fromto".to_owned(), both);
+                }
+            }
+            // A joint and a light spell a direction, not an orientation:
+            // MJCF gives neither of them a `quat`. The defaults are MJCF's
+            // own, and a rotating frame turns them like any other vector.
+            "joint" => {
+                self.moved(node, "pos", fp, fq)?;
+                self.turned_vec(node, "axis", DVec3::Z, fq)?;
+            }
+            "light" => {
+                self.moved(node, "pos", fp, fq)?;
+                self.turned_vec(node, "dir", -DVec3::Z, fq)?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// A point: `fp + fq · p`, written only when it is not the origin the
+    /// element already implied.
+    fn moved(&self, node: &mut Node, name: &str, fp: DVec3, fq: DQuat) -> Result<(), ImportError> {
+        let p = node.vec3(name).map_err(|e| self.err(e))?;
+        let moved = fp + fq * p.unwrap_or(DVec3::ZERO);
+        if p.is_some() || moved != DVec3::ZERO {
+            node.attrs.insert(name.to_owned(), crate::xml::vec3(moved));
+        }
+        Ok(())
+    }
+
+    /// A rotation: `fq · q`, as a `quat`, replacing whichever of the five
+    /// spellings the element used. A frame that only moves leaves the
+    /// element's own spelling alone.
+    fn turned(&self, node: &mut Node, fq: DQuat) -> Result<(), ImportError> {
+        if fq == DQuat::IDENTITY {
+            return Ok(());
+        }
+        let q = node
+            .orientation(self.conv)
+            .map_err(|e| self.err(e))?
+            .unwrap_or(DQuat::IDENTITY);
+        for a in ORIENTATION_ATTRS {
+            node.attrs.remove(a);
+        }
+        node.attrs
+            .insert("quat".to_owned(), crate::xml::quat(fq * q));
+        Ok(())
+    }
+
+    /// A direction: `fq · v`, with MJCF's own default for `v` when the
+    /// element leaves it out — an unwritten `axis` is `0 0 1` and a
+    /// rotating frame turns it just the same.
+    fn turned_vec(
+        &self,
+        node: &mut Node,
+        name: &str,
+        default: DVec3,
+        fq: DQuat,
+    ) -> Result<(), ImportError> {
+        if fq == DQuat::IDENTITY {
+            return Ok(());
+        }
+        let v = node.vec3(name).map_err(|e| self.err(e))?.unwrap_or(default);
+        node.attrs.insert(name.to_owned(), crate::xml::vec3(fq * v));
+        Ok(())
+    }
+}
+
+/// The frame's class onto a child that names none: a `<body>` takes it as
+/// its `childclass`, so its whole subtree inherits it, and everything else
+/// that takes one as its `class`. A child's own wins (the module comment's
+/// "childclass").
+fn push_class(node: &mut Node, class: &str) {
+    let attr = match node.tag.as_str() {
+        "body" => "childclass",
+        t if CLASSED.contains(&t) => "class",
+        _ => return,
+    };
+    node.attrs
+        .entry(attr.to_owned())
+        .or_insert_with(|| class.to_owned());
 }
 
 #[cfg(test)]
@@ -555,6 +823,227 @@ mod tests {
         assert_eq!(file("gone").as_deref(), Some("nowhere.stl"));
         assert_eq!(file("main").as_deref(), Some("here.stl"));
         assert_eq!(file("inline"), None, "an inline mesh has no file to rebase");
+    }
+
+    /// `compose` over one file gives the tree `flat` parses to: a model
+    /// with a `<frame>` in it against the same model hand-flattened.
+    fn assert_folds_to(model: &str, flat: &str) {
+        assert_flattens_to(&[("scene.xml", model)], flat);
+    }
+
+    /// `child = frame ∘ child` for everything a frame poses, with the
+    /// frame's rotation read under the file's `<compiler angle>` and the
+    /// child's own — in any of the five spellings — composed onto rather
+    /// than replaced. The frame itself is gone.
+    #[test]
+    fn a_frame_moves_and_turns_what_it_wraps() {
+        assert_folds_to(
+            r#"<mujoco><worldbody>
+                 <frame pos="0 0 1" euler="0 0 90">
+                   <body name="b" pos="1 0 0"/>
+                   <geom name="g" pos="0 2 0" euler="0 0 90"/>
+                   <site name="s" quat="0 1 0 0"/>
+                   <camera name="c" pos="1 1 1"/>
+                 </frame>
+               </worldbody></mujoco>"#,
+            r#"<mujoco><worldbody>
+                 <body name="b" pos="0 1 1" quat="0.707106781187 0 0 0.707106781187"/>
+                 <geom name="g" pos="-2 0 1" quat="0 0 0 1"/>
+                 <site name="s" pos="0 0 1" quat="0 0.707106781187 0.707106781187 0"/>
+                 <camera name="c" pos="-1 1 2" quat="0.707106781187 0 0 0.707106781187"/>
+               </worldbody></mujoco>"#,
+        );
+    }
+
+    /// A frame that only moves leaves every rotation exactly as spelled —
+    /// nothing is rewritten that the composition does not touch.
+    #[test]
+    fn a_frame_that_only_moves_keeps_the_childs_spelling() {
+        assert_folds_to(
+            r#"<mujoco><worldbody><body name="p">
+                 <frame pos="0 0 1">
+                   <geom name="g" euler="0 0 45" size="1"/>
+                   <joint name="j" axis="0 1 0"/>
+                 </frame>
+               </body></worldbody></mujoco>"#,
+            r#"<mujoco><worldbody><body name="p">
+                 <geom name="g" euler="0 0 45" size="1" pos="0 0 1"/>
+                 <joint name="j" axis="0 1 0" pos="0 0 1"/>
+               </body></worldbody></mujoco>"#,
+        );
+    }
+
+    /// A rotating frame turns the directions too, not just the poses: a
+    /// joint's `axis` and a light's `dir` — including the ones MJCF left
+    /// implicit — and both ends of a geom's `fromto`.
+    #[test]
+    fn a_rotating_frame_turns_an_axis_a_dir_and_a_fromto() {
+        assert_folds_to(
+            r#"<mujoco><compiler angle="radian"/><worldbody><body name="p">
+                 <frame euler="0 0 1.5707963267948966">
+                   <joint name="j"/>
+                   <joint name="k" axis="1 0 0" pos="1 0 0"/>
+                   <light name="l"/>
+                   <geom name="g" fromto="0 0 0 1 0 0" size="0.1"/>
+                 </frame>
+               </body></worldbody></mujoco>"#,
+            r#"<mujoco><compiler angle="radian"/><worldbody><body name="p">
+                 <joint name="j" axis="0 0 1"/>
+                 <joint name="k" axis="0 1 0" pos="0 1 0"/>
+                 <light name="l" dir="0 0 -1"/>
+                 <geom name="g" fromto="0 0 0 0 1 0" size="0.1"
+                       quat="0.707106781187 0 0 0.707106781187"/>
+               </body></worldbody></mujoco>"#,
+        );
+    }
+
+    /// Nested frames compose outer-first: the outer transform reaches the
+    /// inner frame's children through the inner one.
+    #[test]
+    fn nested_frames_compose_outer_first() {
+        assert_folds_to(
+            r#"<mujoco><worldbody>
+                 <frame euler="0 0 90">
+                   <frame pos="1 0 0">
+                     <body name="b" pos="1 0 0"/>
+                   </frame>
+                 </frame>
+               </worldbody></mujoco>"#,
+            r#"<mujoco><worldbody>
+                 <body name="b" pos="0 2 0" quat="0.707106781187 0 0 0.707106781187"/>
+               </worldbody></mujoco>"#,
+        );
+    }
+
+    /// The frame's `childclass` — or its `class`, which MuJoCo reads the
+    /// same way — lands on every child that names none, a wrapped `<body>`
+    /// taking it as its `childclass` so its whole subtree inherits it. A
+    /// child's own wins, and an inner frame that names no class passes the
+    /// outer's through.
+    #[test]
+    fn a_frames_class_lands_on_the_children_that_name_none() {
+        let defaults = r#"<default>
+                            <default class="vis"><geom rgba="1 0 0 1"/></default>
+                            <default class="col"><geom rgba="0 1 0 1"/></default>
+                          </default>"#;
+        assert_folds_to(
+            &format!(
+                r#"<mujoco>{defaults}<worldbody>
+                     <frame class="vis">
+                       <geom name="a" size="1"/>
+                       <geom name="b" size="1" class="col"/>
+                       <body name="w"/>
+                       <body name="own" childclass="col"/>
+                       <frame pos="0 0 1"><site name="s"/></frame>
+                     </frame>
+                   </worldbody></mujoco>"#
+            ),
+            &format!(
+                r#"<mujoco>{defaults}<worldbody>
+                     <geom name="a" size="1" class="vis"/>
+                     <geom name="b" size="1" class="col"/>
+                     <body name="w" childclass="vis"/>
+                     <body name="own" childclass="col"/>
+                     <site name="s" pos="0 0 1" class="vis"/>
+                   </worldbody></mujoco>"#
+            ),
+        );
+    }
+
+    /// A pose a `<default>` would have given the child is composed onto
+    /// too — the frame acts on the pose the element really has, and half
+    /// of Menagerie's joints take their `axis` from a class. The class in
+    /// force is the child's own, else the frame's, else the enclosing
+    /// body's.
+    #[test]
+    fn a_pose_a_class_would_have_given_is_composed_too() {
+        let defaults = r#"<default><default class="hinge">
+                            <joint axis="0 1 0" pos="0 0 0.5"/>
+                          </default></default>"#;
+        assert_folds_to(
+            &format!(
+                r#"<mujoco>{defaults}<worldbody><body name="p" childclass="hinge">
+                     <frame euler="0 0 90"><joint name="inherited"/></frame>
+                     <frame euler="0 0 90" childclass="hinge"><joint name="framed"/></frame>
+                     <frame euler="0 0 90"><joint name="named" class="hinge"/></frame>
+                   </body></worldbody></mujoco>"#
+            ),
+            &format!(
+                r#"<mujoco>{defaults}<worldbody><body name="p" childclass="hinge">
+                     <joint name="inherited" axis="-1 0 0" pos="0 0 0.5"/>
+                     <joint name="framed" axis="-1 0 0" pos="0 0 0.5" class="hinge"/>
+                     <joint name="named" axis="-1 0 0" pos="0 0 0.5" class="hinge"/>
+                   </body></worldbody></mujoco>"#
+            ),
+        );
+    }
+
+    /// What a frame does not touch: an `<inertial>` is left exactly as
+    /// written — MuJoCo does not transform it either — and a `<freejoint>`
+    /// has no pose to compose.
+    #[test]
+    fn an_inertial_and_a_freejoint_under_a_frame_are_left_alone() {
+        assert_folds_to(
+            r#"<mujoco><worldbody><body name="p">
+                 <frame pos="0 0 1" euler="0 0 90">
+                   <inertial pos="1 0 0" mass="2" diaginertia="1 1 1"/>
+                   <freejoint name="f"/>
+                   <body name="c"/>
+                 </frame>
+               </body></worldbody></mujoco>"#,
+            r#"<mujoco><worldbody><body name="p">
+                 <inertial pos="1 0 0" mass="2" diaginertia="1 1 1"/>
+                 <freejoint name="f"/>
+                 <body name="c" pos="0 0 1" quat="0.707106781187 0 0 0.707106781187"/>
+               </body></worldbody></mujoco>"#,
+        );
+    }
+
+    /// A frame in an included file is folded like any other: the two
+    /// halves of the pass run in one order, includes first.
+    #[test]
+    fn a_frame_an_included_file_brought_is_folded_too() {
+        assert_flattens_to(
+            &[
+                (
+                    "scene.xml",
+                    r#"<mujoco><worldbody><include file="arm.xml"/></worldbody></mujoco>"#,
+                ),
+                (
+                    "arm.xml",
+                    r#"<mujocoinclude><frame pos="0 0 1">
+                         <body name="b" pos="1 0 0"/>
+                       </frame></mujocoinclude>"#,
+                ),
+            ],
+            r#"<mujoco><worldbody><body name="b" pos="1 0 1"/></worldbody></mujoco>"#,
+        );
+    }
+
+    /// The arithmetic a frame does is reported against the main file, not
+    /// swallowed: a rotation spelled twice on the frame, and a `pos` that
+    /// is not three numbers.
+    #[test]
+    fn a_frame_that_does_not_parse_is_the_main_files_error() {
+        for (model, says) in [
+            (
+                r#"<mujoco><worldbody><frame quat="1 0 0 0" euler="0 0 90">
+                     <body name="b"/></frame></worldbody></mujoco>"#,
+                "two spellings of one rotation",
+            ),
+            (
+                r#"<mujoco><worldbody><frame pos="0 0">
+                     <body name="b"/></frame></worldbody></mujoco>"#,
+                "expected 3 numbers",
+            ),
+        ] {
+            let err = composed(&[("scene.xml", model)]).unwrap_err();
+            let ImportError::Parse { path, message } = &err else {
+                panic!("{err} is not a parse error");
+            };
+            assert_eq!(path, Path::new(MAIN));
+            assert!(message.contains(says), "{message:?}");
+        }
     }
 
     #[test]

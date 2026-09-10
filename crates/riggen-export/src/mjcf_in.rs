@@ -302,12 +302,26 @@ const TENDON_ATTRS: &[&str] = &[
 /// pattern).
 const TENDON_SILENT: &[&str] = &["group", "rgba", "width"];
 
-/// Elements that re-shape the tree. Reading around them would silently
-/// lose bodies, so the file is refused (ADR-0015 §5, amended by ADR-0026:
-/// `<include>` is spliced by [`crate::mjcf_compose`] before this list is
-/// checked). `<frame>` is here for that second reason: it is a transform
-/// wrapper, and the bodies inside one are not children of any body.
-const REFUSED: &[&str] = &["replicate", "attach", "frame"];
+/// Elements that re-shape the tree, and what each of them means. Reading
+/// around one would silently lose bodies, so the file is refused
+/// (ADR-0015 §5, amended by ADR-0026 §4: `<include>` and `<frame>` are
+/// resolved by [`crate::mjcf_compose`] before this list is checked, and
+/// the two that are left say what they are, so the refusal leaves the
+/// user able to act — ADR-0022 §2).
+const REFUSED: &[(&str, &str)] = &[
+    (
+        "replicate",
+        "it copies the subtree inside it k times, composing a transform \
+         each time and renaming every actuator, tendon, equality and \
+         sensor that names something in the block",
+    ),
+    (
+        "attach",
+        "it grafts a second model in under a name prefix, which is two \
+         robots composed — one document or two is a question riggen has \
+         not answered yet",
+    ),
+];
 
 /// Reads `path` through `source` and builds the document; the files it
 /// `<include>`s come through the same `source` (ADR-0026), and so do the
@@ -386,9 +400,10 @@ pub fn from_mjcf(
 /// (ADR-0015 §5).
 fn refuse(node: &Node) -> Result<(), ImportError> {
     for c in &node.children {
-        if REFUSED.contains(&c.tag.as_str()) {
+        if let Some((_, meaning)) = REFUSED.iter().find(|(tag, _)| *tag == c.tag) {
             return Err(ImportError::UnsupportedElement {
                 element: format!("<{}>", c.tag),
+                meaning: (*meaning).to_owned(),
             });
         }
         // Removed from MJCF years ago, but old files carry it, and it means
@@ -396,6 +411,9 @@ fn refuse(node: &Node) -> Result<(), ImportError> {
         if c.tag == "compiler" && c.attr("coordinate") == Some("global") {
             return Err(ImportError::UnsupportedElement {
                 element: "<compiler coordinate=\"global\">".to_owned(),
+                meaning: "every pos in the file is measured in the world \
+                          frame rather than its parent body's"
+                    .to_owned(),
             });
         }
         refuse(c)?;
@@ -3563,22 +3581,32 @@ mod tests {
         );
         assert_eq!(load(&model("")).unwrap_err(), ImportError::NoRoot);
         assert_eq!(load("<mujoco/>").unwrap_err(), ImportError::NoRoot);
-        for (text, element) in [
+        // The two that stay refused (ADR-0026 §4) name themselves and say
+        // what they do; `<include>` and `<frame>` are gone from the list.
+        for (text, element, meaning) in [
             (
-                r#"<mujoco><worldbody><frame pos="0 0 1"><body name="a"/></frame></worldbody></mujoco>"#,
-                "<frame>",
+                r#"<mujoco><worldbody><replicate count="4"><body name="a"/></replicate></worldbody></mujoco>"#,
+                "<replicate>",
+                "copies the subtree",
+            ),
+            (
+                r#"<mujoco><worldbody><attach model="hand" prefix="h_"/></worldbody></mujoco>"#,
+                "<attach>",
+                "under a name prefix",
             ),
             (
                 r#"<mujoco><compiler coordinate="global"/></mujoco>"#,
                 "<compiler coordinate=\"global\">",
+                "measured in the world",
             ),
         ] {
-            assert_eq!(
-                load(text).unwrap_err(),
-                ImportError::UnsupportedElement {
-                    element: element.to_owned()
-                }
-            );
+            let err = load(text).unwrap_err();
+            let ImportError::UnsupportedElement { element: e, .. } = &err else {
+                panic!("{err} is not a refusal");
+            };
+            assert_eq!(e, element);
+            let said = err.to_string();
+            assert!(said.contains(meaning), "{said:?} does not say what it is");
         }
         assert!(matches!(
             load("<robot name=\"a\"/>").unwrap_err(),
@@ -3646,6 +3674,49 @@ mod tests {
                 from: root.join("robot.xml"),
             }
         );
+    }
+
+    /// A model wrapped in `<frame>`s imports as the document the same
+    /// model written flat does (ADR-0026 §3): a root body inside a frame
+    /// is still the root, the frame's pose is baked into the body it
+    /// wrapped, and what is *inside* that body — its joint's body-local
+    /// `axis` — is left alone.
+    #[test]
+    fn a_framed_model_imports_as_its_flat_twin() {
+        let (framed, framed_warnings) = load(
+            r#"<mujoco model="m"><compiler angle="radian"/><worldbody>
+                 <frame pos="0 0 1">
+                   <body name="base">
+                     <geom type="box" size="1 1 1" mass="1"/>
+                     <frame euler="0 0 1.5707963267948966">
+                       <body name="upper" pos="1 0 0">
+                         <joint name="j" axis="1 0 0" range="-1 1"/>
+                         <geom type="box" size="1 1 1" mass="1"/>
+                       </body>
+                     </frame>
+                   </body>
+                 </frame>
+               </worldbody></mujoco>"#,
+        )
+        .unwrap();
+        let (flat, flat_warnings) = load(
+            r#"<mujoco model="m"><compiler angle="radian"/><worldbody>
+                 <body name="base" pos="0 0 1">
+                   <geom type="box" size="1 1 1" mass="1"/>
+                   <body name="upper" pos="0 1 0" quat="0.707106781187 0 0 0.707106781187">
+                     <joint name="j" axis="1 0 0" range="-1 1"/>
+                     <geom type="box" size="1 1 1" mass="1"/>
+                   </body>
+                 </body>
+               </worldbody></mujoco>"#,
+        )
+        .unwrap();
+        assert_eq!(framed_warnings, flat_warnings);
+        assert_eq!(
+            serde_json::to_value(&framed).unwrap(),
+            serde_json::to_value(&flat).unwrap()
+        );
+        assert_eq!(framed.links.len(), 2);
     }
 
     /// The blocks a model is split across are all read, however many
