@@ -294,4 +294,7 @@ class Robot:
         path: PathLike, packages: dict[str, PathLike] | None = None
     ) -> tuple[Robot, list[str]]: ...
     @staticmethod
-    def load_mjcf(path: PathLike) -> tuple[Robot, list[str]]: ...
+    def load_mjcf(path: PathLike) -> tuple[Robot, list[str]]:
+        """The main file of the model: every ``<include>`` under it is
+        resolved before it is read, and a file that is missing raises
+        ``MjcfImportError`` naming it (ADR-0026)."""

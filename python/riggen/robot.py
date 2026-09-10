@@ -1682,10 +1682,14 @@ def load_urdf(path: PathLike, packages: dict[str, PathLike] | None = None) -> Ro
 
 def load_mjcf(path: PathLike) -> Robot:
     """Imports an MJCF; mesh files are resolved against the file and its
-    ``<compiler meshdir>``. What the MJCF held that the document does not
-    (tendons, sensors, a ``<general>`` actuator, …) is a
-    :class:`riggen.RiggenWarning`; a file whose *shape* the link tree
-    cannot hold raises :class:`riggen.MjcfImportError`."""
+    ``<compiler meshdir>``. A model spelled across several files opens
+    through its main file: every ``<include>`` is resolved before the
+    model is read, and so is every ``<frame>``, which means the document
+    holds one flat robot and exporting it writes one flat file (ADR-0026).
+    What the MJCF held that the document does not (tendons, sensors, a
+    ``<general>`` actuator, …) is a :class:`riggen.RiggenWarning`; a file
+    whose *shape* the link tree cannot hold — or one whose included file
+    is not beside it — raises :class:`riggen.MjcfImportError`."""
     inner, warned = _riggen.Robot.load_mjcf(path)
     _warn(warned)
     return Robot._wrap(inner)

@@ -104,6 +104,28 @@ pub(crate) fn compose(
     Ok(root)
 }
 
+/// Every file this MJCF text `<include>`s, at any depth *inside it*, as
+/// written. Nothing is opened and nothing is resolved: this answers the
+/// one question the app has before it opens anything, which is whether a
+/// second dropped `.xml` is a fragment of the first rather than a
+/// document of its own (ADR-0026 §5). A text that does not parse includes
+/// nothing — the reader reports it a moment later, in its own words.
+pub fn includes_in(text: &str) -> Vec<PathBuf> {
+    fn walk(node: &Node, out: &mut Vec<PathBuf>) {
+        for child in &node.children {
+            if child.tag == "include" {
+                out.extend(child.attr("file").map(PathBuf::from));
+            }
+            walk(child, out);
+        }
+    }
+    let mut out = Vec::new();
+    if let Ok(root) = crate::xml::parse(text) {
+        walk(&root, &mut out);
+    }
+    out
+}
+
 /// The attribute [`Includes::splice`] leaves on a `<mesh file>` that came
 /// out of an *included* file: the directory of the file that declared it,
 /// which [`rebase_included_meshes`] needs and then removes. Angle brackets

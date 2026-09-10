@@ -15,7 +15,7 @@
 //! browser, which has no filesystem, runs the same `riggen_core::load_from`
 //! and the same `urdf_in::load` as the desktop.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use riggen_core::{Command, Disk, FileSource, Geom, GeomId, Link, LinkId, MeshAsset, MeshId, Pose};
@@ -70,6 +70,35 @@ impl DroppedSet {
     pub fn path_of(name: &Path) -> PathBuf {
         Path::new(DROPPED_ROOT).join(name.file_name().unwrap_or(name.as_os_str()))
     }
+}
+
+/// The names, among `files`, of the `.xml`s another dropped `.xml`
+/// `<include>`s. Those are **fragments** of that model, not documents of
+/// their own (ADR-0026 §5): without this, dropping a `scene.xml` with its
+/// `robot.xml` opens both, and the second silently replaces the first.
+/// The set resolves by file name, so the comparison is by file name too.
+fn included_by_another(files: &[(PathBuf, Vec<u8>)]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for (path, bytes) in files {
+        if extension_of(path) != MJCF_EXTENSION {
+            continue;
+        }
+        let Ok(text) = std::str::from_utf8(bytes) else {
+            continue;
+        };
+        for included in riggen_export::mjcf_compose::includes_in(text) {
+            // A file that includes itself is MuJoCo's `DuplicateInclude`,
+            // and the user should see it rather than a drop that opens
+            // nothing.
+            match file_name(&included) {
+                Some(name) if Some(&name) != file_name(path).as_ref() => {
+                    out.insert(name);
+                }
+                _ => {}
+            }
+        }
+    }
+    out
 }
 
 fn file_name(path: &Path) -> Option<String> {
@@ -489,10 +518,12 @@ impl RiggenApp {
         if files.is_empty() {
             return;
         }
+        let fragments = included_by_another(&files);
         let documents: Vec<PathBuf> = files
             .iter()
             .map(|(path, _)| path.clone())
             .filter(|path| replaces_document(path))
+            .filter(|path| !fragments.contains(&file_name(path).unwrap_or_default()))
             .collect();
         let replaces = !documents.is_empty();
         let to_open: Vec<PathBuf> = if replaces {

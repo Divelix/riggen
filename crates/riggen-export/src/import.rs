@@ -10,7 +10,7 @@
 //! have to match on two types to say one sentence.
 
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use riggen_core::{JointId, Robot, ValidationError};
 
@@ -307,11 +307,14 @@ impl fmt::Display for ImportError {
             Self::UnsupportedElement { element, meaning } => {
                 write!(f, "{element} is not supported: {meaning}")
             }
+            // File names, not paths, and short enough to read in the
+            // status bar: on the web `from` is a synthetic `/dropped/…`
+            // (ADR-0017), and the two directories that were searched are
+            // detail beside the one thing to do about it.
             Self::IncludeNotFound { file, from } => write!(
                 f,
-                "{} includes {}, which is neither in the model's directory nor \
-                 beside the including file; the model needs that file with it",
-                from.display(),
+                "{} includes {}, which is not with it; open or drop both files together",
+                name_of(from),
                 file.display()
             ),
             Self::DuplicateInclude { file } => write!(
@@ -325,6 +328,13 @@ impl fmt::Display for ImportError {
 }
 
 impl std::error::Error for ImportError {}
+
+/// A path as a message names it: its file name. Every path an import
+/// error carries is either absolute or synthetic, and neither is what a
+/// status bar has room for.
+fn name_of(path: &Path) -> std::path::Display<'_> {
+    path.file_name().map_or(path, Path::new).display()
+}
 
 /// What `validate` refuses about a coupling, per follower. `validate` owns
 /// the rules (ADR-0013); this only phrases its verdict for the status bar.

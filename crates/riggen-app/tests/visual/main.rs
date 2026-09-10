@@ -6902,6 +6902,33 @@ fn unsaved_confirm() {
     });
 }
 
+/// A model dropped without the file it `<include>`s: nothing opens, and
+/// the status bar names the file to bring with it. On the web that is the
+/// common miss — a Menagerie `scene.xml` dragged in on its own — so the
+/// message has to be the instruction, not a stack of paths (ADR-0026 §2,
+/// ADR-0017).
+#[test]
+fn missing_include() {
+    scenario("missing_include", |harness| {
+        let name = std::path::PathBuf::from("menagerie_style.xml");
+        let bytes = std::fs::read(fixture("menagerie_style.xml")).unwrap();
+        harness.state_mut().load_dropped(vec![(name, bytes)]);
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        let status = state.status.as_deref().unwrap_or_default();
+        assert!(
+            status.contains("menagerie_style.xml includes menagerie_style_arm.xml"),
+            "{status}"
+        );
+        assert!(
+            status.contains("open or drop both files together"),
+            "{status}"
+        );
+        assert_ne!(state.document.name, "menagerie_style", "nothing opened");
+    });
+}
+
 /// File › Import URDF… (here through `open_path`): the hand-written arm
 /// URDF becomes the document, its dropped `<safety_controller>` reaches
 /// the status bar — its `<mimic>` is kept now (ADR-0013), so it is the
@@ -7689,6 +7716,43 @@ fn a_document_dropped_alone_reports_its_missing_meshes() {
         // The document is there; only its geometry is not.
         assert_eq!(harness.state().debug_state().document.links.len(), 5);
         assert_eq!(harness.state().debug_state().instances.len(), 0);
+    });
+}
+
+/// Two `.xml` in one gesture, the way a Menagerie `scene.xml` arrives with
+/// the robot it `<include>`s: the included one is a **fragment** of that
+/// model, not a second document, so the drop opens one model instead of
+/// opening two and letting the second replace the first (ADR-0026 §5).
+#[test]
+fn a_split_model_dropped_with_its_fragment_opens_once() {
+    with_app(|harness| {
+        let files: Vec<_> = [
+            "menagerie_style.xml",
+            "menagerie_style_arm.xml",
+            "arm/base.stl",
+            "arm/shoulder.stl",
+            "arm/thing.msh",
+        ]
+        .into_iter()
+        .map(|rel| {
+            (
+                std::path::PathBuf::from(rel),
+                std::fs::read(fixture(rel)).unwrap(),
+            )
+        })
+        .collect();
+        harness.state_mut().load_dropped(files);
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        let state = harness.state().debug_state();
+        let status = state.status.clone().unwrap_or_default();
+        assert!(
+            status.starts_with("imported menagerie_style.xml"),
+            "the fragment must not open as a document of its own: {status}"
+        );
+        assert_eq!(state.document.name, "menagerie_style");
+        assert_eq!(state.document.links.len(), 6);
     });
 }
 

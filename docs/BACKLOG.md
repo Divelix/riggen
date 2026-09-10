@@ -34,6 +34,32 @@ below with the reason, so the same idea is not re-brainstormed.
 - The properties panel edits an actuator's gains but never shows `Actuator::ranges` (ADR-0024): an imported `ctrlrange` / `forcerange` decides the export and is invisible in the GUI, and retyping the preset keeps it — a read-only ranges row, or clearing them on a kind change, would make the state visible
 - A Tendons list panel (ADR-0025 §4, plans/couplings OPEN 2): today a fixed tendon is edited through the SDK or the file, and the properties panel only shows read-only rows per joint — which already answers ADR-0023's own condition for a panel (an actuator that exists on no joint's screen). Build one when a user wants to *edit* a tendon in the GUI itself, not just see it
 
+### From composition (plans/composition, 2026-09-10)
+
+- **`<attach>` on MJCF import.** ADR-0026 §4 left it refused: it is a
+  recursive rename of every body, joint, geom, site, mesh, material,
+  actuator, tendon, sensor *and* default class name under a prefix, plus
+  re-rooting the submodel's anonymous `<default>` as a class the attached
+  subtree inherits — and, unlike `<include>` and `<frame>`, it is
+  genuinely **two robots composed**: one `Robot` or two, and whose names
+  win, is a document question. Its own ADR when a user asks for a gripper
+  on an arm. It buys 1 Menagerie file today, and the `<frame>` folding
+  makes it a follow-up rather than a rewrite (an `<attach>` is usually a
+  frame with a submodel in it)
+- **`<replicate>` on MJCF import.** Also refused (ADR-0026 §4): a subtree
+  copied k times with `Tᵏ` composed each time, index suffixes, and a
+  rename of every `<actuator>` / `<tendon>` / `<equality>` / `<sensor>`
+  entry that names something inside the block. It buys **zero** Menagerie
+  files today, which is why it is a line here and not a plan
+- **31 Menagerie files import and then fail to *export*** on `link
+  "base": no material and no density override` (ADR-0015 §7, measured by
+  the composition scan). Nothing about the import is wrong — the document
+  has no mass for a link whose geoms carry neither — but a user who opens
+  a Menagerie model and hits Export gets a refusal about a link they never
+  touched. A default density, an "unweighed link" mark, or a better
+  message: unowned, and the largest remaining gap between "imports" and
+  "round-trips"
+
 ### From the M2 exit gate (the by-hand arm build, 2026-08-29)
 
 - A ViewCube in the viewport corner with the persp/ortho toggle on it (robocad has one; M0 ships the axes triad and a text label)

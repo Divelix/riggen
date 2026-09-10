@@ -187,13 +187,20 @@ mechanical; **[2]** careful — a case to get right within a given design;
   refresh. A rotating frame would have moved every pose by ~1e-13 (the
   fold writes a `quat` at twelve decimals), which the unit tests cover
   better than a churned snapshot would.
-- [ ] **[2]** Step 6 — the app, the SDK and the docs. `load_dropped`
+- [x] **[2]** Step 6 — the app, the SDK and the docs. `load_dropped`
   treats a dropped `.xml` that another dropped `.xml` includes as a
   fragment and does not open it (OPEN 2); the missing-include message
   reaches the status bar saying which file to drop as well; a visual
   snapshot for that status line; `MjcfImportError`'s docstring and
   `_riggen.pyi`; a `python/tests/sdk` case for a two-file load and for
   the missing include; the docs in §Docs to update.
+  *Found (2026-09-10):* the `IncludeNotFound` message had to get shorter,
+  not longer — the first wording named both directories it searched and
+  ran off the right edge of the status bar (seen in the snapshot), so it
+  is now "X includes Y, which is not with it; open or drop both files
+  together", with file names rather than paths (on the web `from` is a
+  synthetic `/dropped/…`). `docs/ROADMAP.md`, `AGENTS.md` and `README.md`
+  are left to `/retire-plan`: they are status lines, not behaviour.
 
 ## Acceptance
 

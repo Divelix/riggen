@@ -109,9 +109,10 @@ class UrdfImportError(RiggenError):
 
 class MjcfImportError(RiggenError):
     """``load_mjcf`` could not turn the file into a document: it is not XML
-    or not a ``<mujoco>`` model, it composes other files, or its shape is
-    one the link tree cannot hold — several joints in one body, a joint on
-    the root body, a ball or free joint (ADR-0015)."""
+    or not a ``<mujoco>`` model, a file it ``<include>``s is not beside it
+    or is included twice, it uses ``<replicate>`` or ``<attach>``, or its
+    shape is one the link tree cannot hold — several joints in one body, a
+    joint on the root body, a ball or free joint (ADR-0015, ADR-0026)."""
 
 
 class InertialError(RiggenError):

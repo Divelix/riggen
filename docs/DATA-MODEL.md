@@ -856,6 +856,31 @@ description, so the import reads the subset the document has fields for,
 names everything else, and refuses the handful of shapes the document
 cannot represent at all — ADR-0015 fixes which is which.
 
+**Composition is resolved first**, before even the `<compiler>` is read
+(ADR-0026): `mjcf_compose::compose` rewrites the parsed tree into a
+composition-free one. Every `<include>` is spliced at its site — the file
+looked for in the **main** model's directory first and the including
+file's second, through the same `FileSource` the meshes come through, any
+root tag accepted, recursively — and every `<frame>` is folded into what
+it wraps, its pose composed onto each child (a `<joint axis>`, a `<light
+dir>` and a `<geom fromto>` rotated with it), its `childclass` pushed
+down, nested frames composing outer-first. It has to run first because an
+included `<compiler angle="radian"/>` changes how the main file's `euler`
+reads, whatever order the blocks are in.
+
+Nothing about composition reaches the document, exactly as `<default>`
+does not (§ below): the document holds resolved numbers, there is no
+record of which file a body came from, and **a re-export of a split model
+is one flat file** with the frames baked into their children. What that
+costs is what ADR-0015 §3 already said about `<default>`: diffing a
+re-export against its original is not a useful operation. A file the two
+directories do not hold is `IncludeNotFound`, naming it and the file that
+asked, because on the web a `scene.xml` dropped without its `robot.xml` is
+the common case; a file included twice is `DuplicateInclude`, MuJoCo's own
+hard error. In a drop gesture, an `.xml` that another dropped `.xml`
+`<include>`s is a **fragment**, not a second document, and is not opened
+(ADR-0026 §5).
+
 **Read before any body is**, because they change what every number after
 them means: `<compiler angle eulerseq meshdir assetdir autolimits>` into a
 `Compiler`, and the `<default>` class tree into a `Defaults` — flattened,
@@ -1005,13 +1030,14 @@ UnsupportedElement }` beside the URDF import's `UnsupportedJoint`,
 in one `<body>` (MuJoCo's ball or planar DoF against a tree whose joints
 are its edges), a joint on the root body (whose link has no parent joint),
 `type="ball"` and a `type="free"` anywhere but the root, and
-`<replicate>` / `<attach>` / `<frame>` / `<compiler
-coordinate="global">`. Each of those would change the robot if imported
-anyway, which is the line ADR-0015 §5 draws. `<include>` is not among
-them: a pre-pass splices every included file into the tree before the
-reader looks (ADR-0026), with `IncludeNotFound` for a file neither the
-model's directory nor the including file's holds and `DuplicateInclude`
-for a file included twice — MuJoCo's own hard error. The composite one was asked
+`<replicate>` / `<attach>` / `<compiler coordinate="global">`. Each of
+those would change the robot if imported anyway, which is the line
+ADR-0015 §5 draws, and each says what it is rather than only its tag —
+`<replicate>` a subtree copied k times with everything that names it
+renamed, `<attach>` a second model under a name prefix, which is two
+robots composed and a document question not yet answered (ADR-0026 §4).
+`<include>` and `<frame>` are no longer among them: the pre-pass above
+resolves both before the reader looks. The composite one was asked
 again in v0.4 and refused again with the corpus behind it (ADR-0022): its
 message says what the shape means and that splitting the body into nested
 bodies with one joint each is the same model, imported. A `<freejoint>` on the root
@@ -1019,7 +1045,9 @@ is a *warning*, not a refusal: it costs an `ExportOptions` field, not a
 document one.
 
 The imported document is untitled until saved.
-`assets/fixtures/menagerie_style.xml` is the corpus file — degrees, a
+`assets/fixtures/menagerie_style.xml` is the corpus file — two files
+since ADR-0026, the main one `<include>`ing `menagerie_style_arm.xml`
+with a `<frame>` in it — degrees, a
 `<default>` tree with a `childclass` and class names that are not ours, all
 five orientation spellings, a `<joint ref>` on the pan with the chain's
 first equality over it (ADR-0025 §3), a `fromto` capsule, a non-uniform mesh scale, a

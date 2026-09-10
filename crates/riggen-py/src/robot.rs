@@ -1021,9 +1021,12 @@ impl PyRobot {
     }
 
     /// Imports an MJCF (docs/DATA-MODEL.md §MJCF import, ADR-0015):
-    /// mesh files resolved against the file and its `<compiler meshdir>`.
-    /// Returns the document and the warnings — what the MJCF held that the
-    /// document does not. Raises `riggen.MjcfImportError`.
+    /// mesh files resolved against the file and its `<compiler meshdir>`,
+    /// and a model spelled across several files opened through its main
+    /// one — `<include>` and `<frame>` are resolved before it is read
+    /// (ADR-0026), so the document is one flat robot. Returns the document
+    /// and the warnings — what the MJCF held that the document does not.
+    /// Raises `riggen.MjcfImportError`.
     #[staticmethod]
     fn load_mjcf(py: Python<'_>, path: PathBuf) -> PyResult<(Self, Vec<String>)> {
         let (inner, warnings, inline_meshes) = riggen_export::mjcf_in::load(&path, &Disk)

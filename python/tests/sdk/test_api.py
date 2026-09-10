@@ -588,6 +588,32 @@ def test_load_mjcf_warns_and_builds(tmp_path: Path):
         riggen.load_mjcf(foreign)
 
 
+def test_load_mjcf_composes_a_split_model(tmp_path: Path):
+    """A model spelled across two files, with a `<frame>` in the second,
+    opens through its main file and arrives flat: no `<include>` and no
+    `<frame>` reach the document, so the frame's pose is the joint's
+    origin (ADR-0026). A main file dropped without the file it includes
+    raises, naming the file to bring."""
+    scene = tmp_path / "scene.xml"
+    scene.write_text(
+        '<mujoco model="split"><compiler angle="radian"/>'
+        '<include file="robot.xml"/></mujoco>'
+    )
+    with pytest.raises(riggen.MjcfImportError, match="robot.xml"):
+        riggen.load_mjcf(scene)
+
+    (tmp_path / "robot.xml").write_text(
+        '<mujocoinclude><worldbody><body name="base">'
+        '<frame pos="0 0 1"><body name="upper">'
+        '<joint name="j" axis="0 1 0" range="-1 1"/>'
+        "</body></frame></body></worldbody></mujocoinclude>"
+    )
+    robot = riggen.load_mjcf(scene)
+    assert robot.name == "split"
+    assert [l.name for l in robot.links] == ["base", "upper"]
+    assert robot.joint("j").origin.xyz == pytest.approx((0.0, 0.0, 1.0))
+
+
 def test_joint_qpos_ref_is_read_only_and_survives_a_retype(tmp_path: Path):
     """MJCF's `<joint ref>` arrives as `Joint.qpos_ref`: `qpos = q +
     qpos_ref`. Read-only — it is the source file's record of where its zero
