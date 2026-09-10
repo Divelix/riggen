@@ -362,6 +362,24 @@ Every line below is a backlog line this section now owns.
   snapped feature's (a circle's, a face normal), which needs a rule for
   *which* of the three axes aligns and a second overlay idiom — an ADR if
   the rule turns out to be contested.
+- **View's joint glyph loses its legacy pieces and gains an opaque band.**
+  `glyph_overlay()` (`app/glyphs.rs`) draws the axis segment, the pivot
+  dot, the origin triad and the actuator ring in View exactly as it does
+  in Edit; View is meant to show nothing but the scrubbable ring (the
+  band, or a prismatic joint's bars) and the current-`q` tick. Reported by
+  the human alongside a rendering bug: the band's three-layer alpha stack
+  (`RANGE_ALPHA`/`LIMIT_ALPHA`/`VALUE_ALPHA`, `layered()`) reads wrong at
+  a grazing camera angle, where the annulus sector's triangle strip
+  foreshortens and overlaps itself in screen space — alpha blending
+  double-covers the overlap, opaque colour would not. The fix is three
+  distinct opaque colours (full range / limits / value) instead of one
+  hue at three alphas, plus a replacement cue for an actuated joint now
+  that the ring marking it is gone, plus hit-testing for a prismatic
+  joint's bars in View (today it's picked by the axis line alone, which
+  is one of the pieces going). Edit keeps the full legacy glyph; only its
+  band/bar colours change along with View's, since `push_arc`/
+  `push_slide` are one code path for both modes. Absorbs two backlog
+  lines (from the glyph band, and from plans/joint-glyph-range-and-value).
 
 **Out:** any new format, importer or writer, and the import gap's last
 mile — the 31 Menagerie files that import and then refuse to *export*,
