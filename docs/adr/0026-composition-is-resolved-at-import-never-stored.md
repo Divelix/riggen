@@ -168,27 +168,28 @@ After a dropped set is installed, an `.xml` that another dropped `.xml`
 `robot.xml` together opens both, and the second silently replaces the
 first (the plan's decision 2).
 
-### 6. Two places riggen knowingly differs from MuJoCo
+### 6. Where riggen stands against the measured behaviour
 
-Both measured above, both recorded so they are priced in rather than
-rediscovered:
-
-- **A mesh found only beside the included file.** MuJoCo falls back from
-  main-directory-plus-`meshdir` to the including file's directory without
-  `meshdir`. The corpus has one model that relies on it — `ms_human_700`,
-  whose `assets/asset/*.xml` reference `../geometry/*.stl` — and all six
-  of its entry files are refused for composite joints (ADR-0022) before a
-  mesh is ever looked for. Whether the pass carries the fallback (it can:
-  after splicing it knows the merged `meshdir`, the including directory
-  and `FileSource::exists`, so it could rewrite a spliced `<mesh file>` to
-  the path that exists) is an open question on the plan; until it does, a
-  file that needs it gets `MeshNotFound` naming the main-directory path.
-- **A class name defined in two `<default>` blocks.** MuJoCo refuses the
-  file; `Defaults::absorb` merges the second into the first ("a class
-  opened twice adds to itself"). That leniency predates this ADR, is not
-  composition's to change, and opens a file MuJoCo would not — the
-  opposite of the idea's decision 3 in spirit. Noted here; not changed
-  here.
+- **A mesh found only beside the included file — carried.** MuJoCo falls
+  back from main-directory-plus-`meshdir` to the including file's
+  directory without `meshdir`, and so does the pass: after splicing it
+  knows the merged `meshdir`, the directory each spliced `<mesh>` came
+  out of and `FileSource::exists`, so it rewrites a `file` the first try
+  does not find to the second path when that one is there
+  (`mjcf_compose::rebase_included_meshes`; the plan's open question 5,
+  decided by the human at step 3). It buys no corpus file today — the one
+  model that relies on it, `ms_human_700`, whose `assets/asset/*.xml`
+  reference `../geometry/*.stl`, is refused for composite joints
+  (ADR-0022) in all six of its entry files before a mesh is looked for —
+  but a `MeshNotFound` naming a path MuJoCo never tried is a message
+  nobody can act on. Composition still never reaches the reader: what is
+  rewritten is the tree, not the document.
+- **A class name defined in two `<default>` blocks — still differs.**
+  MuJoCo refuses the file; `Defaults::absorb` merges the second into the
+  first ("a class opened twice adds to itself"). That leniency predates
+  this ADR, is not composition's to change, and opens a file MuJoCo would
+  not — the opposite of the idea's decision 3 in spirit. Noted here; not
+  changed here.
 
 ## Consequences
 

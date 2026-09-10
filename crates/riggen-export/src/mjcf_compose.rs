@@ -38,8 +38,9 @@
 //!   `<default>`s merge per attribute.
 //! - **A `<mesh file>` in an included file** resolves against main
 //!   directory + `meshdir` + `file`; failing that, the including file's
-//!   directory + `file` with **no** `meshdir` (ADR-0026 §6; the plan's
-//!   open question 5).
+//!   directory + `file` with **no** `meshdir`. The pass carries that
+//!   second try, because the reader has only the first
+//!   ([`rebase_included_meshes`], ADR-0026 §6).
 //!
 //! # `<frame>`
 //!
@@ -87,16 +88,28 @@ pub(crate) fn compose(
     path: &Path,
     source: &dyn FileSource,
 ) -> Result<Node, ImportError> {
+    let main_dir = path.parent().unwrap_or(Path::new(".")).to_owned();
     let mut includes = Includes {
-        main_dir: path.parent().unwrap_or(Path::new(".")).to_owned(),
+        main: path.to_owned(),
+        main_dir: main_dir.clone(),
         source,
         seen: BTreeSet::new(),
     };
-    includes.splice(root, path)
+    let mut root = includes.splice(root, path)?;
+    rebase_included_meshes(&mut root, &main_dir, source);
+    Ok(root)
 }
+
+/// The attribute [`Includes::splice`] leaves on a `<mesh file>` that came
+/// out of an *included* file: the directory of the file that declared it,
+/// which [`rebase_included_meshes`] needs and then removes. Angle brackets
+/// are not legal in an XML attribute name, so no file can carry it.
+const FROM: &str = "<from>";
 
 /// The `<include>` half of the pass.
 struct Includes<'a> {
+    /// The main file itself, so a `<mesh>` out of any other one is marked.
+    main: PathBuf,
     main_dir: PathBuf,
     source: &'a dyn FileSource,
     /// Every `<include file>` seen so far, keyed as written and normalised
@@ -117,7 +130,16 @@ impl Includes<'_> {
                 let included = self.open(&child, from)?;
                 node.children.extend(included.children);
             } else {
-                node.children.push(self.splice(child, from)?);
+                let mut child = self.splice(child, from)?;
+                // MuJoCo's second directory for this mesh, resolved once
+                // the whole tree — and so the merged `meshdir` — is known.
+                if child.tag == "mesh" && child.attrs.contains_key("file") && from != self.main {
+                    let dir = from.parent().unwrap_or(Path::new("."));
+                    child
+                        .attrs
+                        .insert(FROM.to_owned(), dir.display().to_string());
+                }
+                node.children.push(child);
             }
         }
         Ok(node)
@@ -177,6 +199,54 @@ fn normalized(path: &Path) -> PathBuf {
         }
     }
     out
+}
+
+/// MuJoCo's second try for a `<mesh file>` an *included* file declared:
+/// the main directory + `meshdir` + `file` is the first, and when nothing
+/// is there, the including file's own directory + `file`, with **no**
+/// `meshdir` (the module comment's "A `<mesh file>` in an included file";
+/// ADR-0026 §6). The reader has only the first, so the pass rewrites
+/// `file` to the second when that is the one that exists — composition
+/// still never reaches the reader. A `file` the first try finds, an
+/// absolute one, and one neither try finds are left exactly as written,
+/// the last so the reader's `MeshMissing` still names what the file said.
+fn rebase_included_meshes(root: &mut Node, main_dir: &Path, source: &dyn FileSource) {
+    // The merged `meshdir` of the *composed* tree, which is why this runs
+    // after splicing. A `<compiler>` the reader will refuse outright reads
+    // here as no `meshdir`; the reader reports it a moment later.
+    let meshdir = crate::mjcf_in::Compiler::read(root)
+        .map(|c| c.meshdir)
+        .unwrap_or_default();
+    rebase(root, &main_dir.join(meshdir), source);
+}
+
+/// [`rebase_included_meshes`] over one node and its subtree. `first_dir`
+/// is the main directory with `meshdir` already joined onto it.
+fn rebase(node: &mut Node, first_dir: &Path, source: &dyn FileSource) {
+    for child in &mut node.children {
+        rebase(child, first_dir, source);
+    }
+    let Some(from) = node.attrs.remove(FROM) else {
+        return;
+    };
+    let file = Path::new(node.attrs.get("file").map_or("", String::as_str)).to_owned();
+    if file.is_absolute() {
+        return;
+    }
+    let at = |dir: &Path| {
+        let path = normalized(&dir.join(&file));
+        riggen_core::absolute(&path).unwrap_or(path)
+    };
+    if source.exists(&at(first_dir)) {
+        return;
+    }
+    let fallback = at(Path::new(&from));
+    if source.exists(&fallback) {
+        // Absolute, because the reader joins a relative one onto the main
+        // directory and `meshdir` all over again.
+        node.attrs
+            .insert("file".to_owned(), fallback.display().to_string());
+    }
 }
 
 #[cfg(test)]
@@ -430,6 +500,61 @@ mod tests {
             .unwrap_err(),
             ImportError::Parse { path, .. } if path == Path::new("/dropped/a.xml")
         ));
+    }
+
+    /// OPEN 5, decided: a `<mesh file>` an included file declared is
+    /// looked for where MuJoCo looks — main directory + `meshdir` first,
+    /// then beside the file that declared it with no `meshdir` — and the
+    /// pass rewrites `file` to the second when only the second is there.
+    /// A mesh the first try finds, one neither finds, and one the *main*
+    /// file declared are left exactly as written; the marker attribute
+    /// never survives the pass.
+    #[test]
+    fn a_mesh_an_included_file_declared_falls_back_to_that_files_directory() {
+        let mut memory = set(&[
+            (
+                "scene.xml",
+                r#"<mujoco><compiler meshdir="parts"/>
+                     <asset><mesh name="main" file="here.stl"/></asset>
+                     <include file="sub/robot.xml"/></mujoco>"#,
+            ),
+            (
+                "sub/robot.xml",
+                r#"<mujoco><asset>
+                     <mesh name="beside" file="only_there.stl"/>
+                     <mesh name="found" file="here.stl"/>
+                     <mesh name="gone" file="nowhere.stl"/>
+                     <mesh name="inline" vertex="0 0 0"/>
+                   </asset></mujoco>"#,
+            ),
+        ]);
+        for at in [
+            "parts/here.stl",
+            "sub/only_there.stl",
+            "parts/only_there.stl.no",
+        ] {
+            memory.insert(Path::new("/dropped").join(at), b"mesh".to_vec());
+        }
+        let text = String::from_utf8(memory.0[Path::new(MAIN)].clone()).unwrap();
+        let root = compose(parse(&text).unwrap(), Path::new(MAIN), &memory).unwrap();
+        let file = |name: &str| {
+            root.kids("asset")
+                .flat_map(|a| a.kids("mesh"))
+                .find(|m| m.attr("name") == Some(name))
+                .map(|m| {
+                    assert!(m.attr(FROM).is_none(), "the marker is gone");
+                    m.attr("file").map(str::to_owned)
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            file("beside").as_deref(),
+            Some("/dropped/sub/only_there.stl")
+        );
+        assert_eq!(file("found").as_deref(), Some("here.stl"));
+        assert_eq!(file("gone").as_deref(), Some("nowhere.stl"));
+        assert_eq!(file("main").as_deref(), Some("here.stl"));
+        assert_eq!(file("inline"), None, "an inline mesh has no file to rebase");
     }
 
     #[test]

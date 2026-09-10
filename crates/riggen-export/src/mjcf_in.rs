@@ -446,8 +446,13 @@ struct Import<'a> {
 impl Import<'_> {
     fn run(&mut self, root: &Node) -> Result<(), ImportError> {
         self.read_assets(root)?;
-        let world = root.child("worldbody").ok_or(ImportError::NoRoot)?;
-        let bodies: Vec<&Node> = world.kids("body").collect();
+        // Every `<worldbody>`, not the first: splicing an `<include>`
+        // leaves as many of them as the files had, and their bodies are all
+        // root bodies (ADR-0026 §3).
+        let bodies: Vec<&Node> = root
+            .kids("worldbody")
+            .flat_map(|world| world.kids("body"))
+            .collect();
         match bodies[..] {
             [] => return Err(ImportError::NoRoot),
             [only] => self.robot.root = self.body(only, None, MAIN_CLASS)?,
@@ -3640,6 +3645,150 @@ mod tests {
                 file: PathBuf::from("upper.xml"),
                 from: root.join("robot.xml"),
             }
+        );
+    }
+
+    /// The blocks a model is split across are all read, however many
+    /// files they came out of: two `<worldbody>`s are one world, two
+    /// `<default>`s are one class tree, and an included `<compiler
+    /// angle="radian"/>` spliced *after* the `<worldbody>` still governs
+    /// the ranges in it (ADR-0026 §3, measured on MuJoCo 3.13.0). The
+    /// document and the warnings are the flat twin's, field for field.
+    #[test]
+    fn the_blocks_of_a_split_model_merge_into_one() {
+        use riggen_core::MemorySource;
+        let root = Path::new("/dropped");
+        let body = r#"<body name="base">
+                        <geom type="box" size="1 1 1" mass="1"/>
+                        <body name="upper" pos="0 0 1">
+                          <joint name="j" axis="0 1 0" range="-1 1.5"/>
+                          <geom type="mesh" mesh="a" mass="2"/>
+                        </body>
+                      </body>"#;
+        let mut memory = MemorySource::default();
+        memory.insert(root.join("a.stl"), b"not really an stl".to_vec());
+        for (name, text) in [
+            (
+                "scene.xml",
+                r#"<mujoco model="m">
+                     <include file="default.xml"/>
+                     <include file="asset.xml"/>
+                     <worldbody><light/></worldbody>
+                     <include file="body.xml"/>
+                     <include file="actuator.xml"/>
+                   </mujoco>"#
+                    .to_owned(),
+            ),
+            (
+                "default.xml",
+                r#"<mujocoinclude><default><geom type="mesh" contype="1"/></default></mujocoinclude>"#
+                    .to_owned(),
+            ),
+            (
+                "asset.xml",
+                r#"<mujoco>
+                     <default><default class="visual"><geom contype="0"/></default></default>
+                     <asset><mesh name="a" file="a.stl"/></asset>
+                   </mujoco>"#
+                    .to_owned(),
+            ),
+            (
+                "body.xml",
+                format!(r#"<mujocoinclude><worldbody>{body}</worldbody></mujocoinclude>"#),
+            ),
+            (
+                "actuator.xml",
+                r#"<mujoco><compiler angle="radian"/>
+                     <actuator><position name="p" joint="j" kp="10"/></actuator>
+                   </mujoco>"#
+                    .to_owned(),
+            ),
+            (
+                "flat.xml",
+                format!(
+                    r#"<mujoco model="m">
+                         <compiler angle="radian"/>
+                         <default>
+                           <geom type="mesh" contype="1"/>
+                           <default class="visual"><geom contype="0"/></default>
+                         </default>
+                         <asset><mesh name="a" file="a.stl"/></asset>
+                         <worldbody><light/>{body}</worldbody>
+                         <actuator><position name="p" joint="j" kp="10"/></actuator>
+                       </mujoco>"#
+                ),
+            ),
+        ] {
+            memory.insert(root.join(name), text.into_bytes());
+        }
+        let of = |name: &str| super::load(&root.join(name), &memory).unwrap();
+        let (split, split_warnings, _) = of("scene.xml");
+        let (flat, flat_warnings, _) = of("flat.xml");
+        assert_eq!(split_warnings, flat_warnings);
+        assert_eq!(
+            serde_json::to_value(&split).unwrap(),
+            serde_json::to_value(&flat).unwrap()
+        );
+        // Radians, not the 0.026 rad a degree reading would have made of
+        // a range written after the file that says so.
+        assert_eq!(
+            split.joints.values().next().unwrap().limits.unwrap().upper,
+            1.5
+        );
+        assert_eq!(split.actuators.len(), 1);
+
+        // A root body in each of two `<worldbody>`s is two root bodies.
+        memory.insert(
+            root.join("body.xml"),
+            format!(
+                r#"<mujocoinclude><worldbody>{body}</worldbody>
+                     <worldbody><body name="other"/></worldbody></mujocoinclude>"#
+            )
+            .into_bytes(),
+        );
+        assert_eq!(
+            super::load(&root.join("scene.xml"), &memory).unwrap_err(),
+            ImportError::MultipleRoots(vec!["base".to_owned(), "other".to_owned()])
+        );
+    }
+
+    /// OPEN 5, decided: the mesh an included file names is looked for
+    /// where MuJoCo looks for it — main directory + `meshdir`, then
+    /// beside the file that declared it with no `meshdir` (ADR-0026 §6).
+    /// The pass rewrites the path, so the reader registers the asset it
+    /// would otherwise have reported missing.
+    #[test]
+    fn a_mesh_named_by_an_included_file_is_found_beside_that_file() {
+        use riggen_core::MemorySource;
+        let root = Path::new("/dropped");
+        let mut memory = MemorySource::default();
+        memory.insert(root.join("sub/a.stl"), b"not really an stl".to_vec());
+        for (name, text) in [
+            (
+                "scene.xml",
+                r#"<mujoco model="m"><compiler angle="radian" meshdir="parts"/>
+                     <default><default class="collision"/></default>
+                     <include file="sub/arm.xml"/>
+                     <worldbody><body name="base">
+                       <geom class="collision" type="mesh" mesh="a"/>
+                     </body></worldbody></mujoco>"#,
+            ),
+            (
+                "sub/arm.xml",
+                r#"<mujocoinclude><asset><mesh name="a" file="a.stl"/></asset></mujocoinclude>"#,
+            ),
+        ] {
+            memory.insert(root.join(name), text.as_bytes().to_vec());
+        }
+        let (robot, warnings, _) = super::load(&root.join("scene.xml"), &memory).unwrap();
+        let asset = robot.assets.values().next().unwrap();
+        assert_eq!(asset.path, root.join("sub/a.stl"));
+        assert_ne!(asset.content_hash, 0, "the file was read");
+        assert!(
+            !warnings
+                .iter()
+                .any(|w| matches!(w, ImportWarning::MeshNotFound { .. })),
+            "{warnings:?}"
         );
     }
 

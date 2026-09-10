@@ -124,7 +124,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   loses `"include"`. Unit tests over `MemorySource`: a two-file model, a
   three-deep chain, an include inside a `<body>`, an include of a
   `<mujocoinclude>` fragment, the duplicate, the cycle, the missing file.
-- [ ] **[2]** Step 3 — the merge, so a split model actually opens.
+- [x] **[2]** Step 3 — the merge, so a split model actually opens.
   `run()` over every `<worldbody>`, still `NoRoot` / `MultipleRoots` by
   the total count of root `<body>`s (`Compiler::read` and
   `Defaults::read` already merge — step 1's finding — so a test pins that
@@ -133,6 +133,13 @@ mechanical; **[2]** careful — a case to get right within a given design;
   same model written flat, warnings included; an included `<compiler
   angle="radian"/>` placed after the `<worldbody>` still governs it. Plus
   OPEN 5's answer, if it is yes.
+  *Found (2026-09-10):* the fallback needs to know, per `<mesh>`, which
+  file declared it, and that survives splicing only if it is written
+  down — `splice` marks a spliced `<mesh file>` with a `<from>` attribute
+  (no file can carry one: angle brackets are not legal in an XML
+  attribute name) that `rebase_included_meshes` consumes and removes once
+  the merged `meshdir` is known. ADR-0026 §6 rewritten: one knowing
+  difference from MuJoCo left, not two.
 - [ ] **[2]** Step 4 — `<frame>` folding, and the two that stay refused.
   Pose composition onto every child (`<body>`, `<geom>`, `<site>`,
   `<joint>`, `<camera>`, `<light>`, nested `<frame>`) in whichever of the
@@ -229,13 +236,16 @@ message.
   `ImportError::IncludeNotFound { file, from }`, not `Io`. On the web a
   `scene.xml` dropped without its `robot.xml` is the common case, and the
   message has to say what else to drop (ADR-0017).
-- `⚠ OPEN 5:` (human, names **step 3**) a `<mesh file>` declared in an
-  included file — MuJoCo looks in the main directory + `meshdir` first and
-  then in the *including* file's directory with no `meshdir` (ADR-0026
-  §6, measured). riggen has only the first. **Carry the fallback in the
-  pass?** It can: after splicing, `compose` knows the merged `meshdir`,
-  each spliced `<mesh>`'s including directory and `FileSource::exists`,
-  so it could rewrite a `file` whose main-directory path is missing to the
+- ~~`⚠ OPEN 5:`~~ a `<mesh file>` declared in an included file —
+  **decided (human, 2026-09-10, at step 3): the recommendation.** The
+  pass carries the fallback (`rebase_included_meshes`); ADR-0026 §6
+  records it as landed rather than as a knowing difference. MuJoCo looks
+  in the main directory + `meshdir` first and then in the *including*
+  file's directory with no `meshdir` (ADR-0026 §6, measured); riggen had
+  only the first. **Carry the fallback in the pass?** It can: after
+  splicing, `compose` knows the merged `meshdir`, each spliced
+  `<mesh>`'s including directory and `FileSource::exists`, so it could
+  rewrite a `file` whose main-directory path is missing to the
   including-directory path that exists — ~20 lines, no reader change, and
   composition still never reaches the reader. It buys zero corpus files
   today: the one model that relies on it (`ms_human_700`, six entry files,
