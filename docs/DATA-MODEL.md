@@ -856,8 +856,8 @@ description, so the import reads the subset the document has fields for,
 names everything else, and refuses the handful of shapes the document
 cannot represent at all — ADR-0015 fixes which is which.
 
-**Composition is resolved first**, before even the `<compiler>` is read
-(ADR-0026): `mjcf_compose::compose` rewrites the parsed tree into a
+**Composition is resolved first** (ADR-0026): before the reader looks at
+anything, `mjcf_compose::compose` rewrites the parsed tree into a
 composition-free one. Every `<include>` is spliced at its site — the file
 looked for in the **main** model's directory first and the including
 file's second, through the same `FileSource` the meshes come through, any
@@ -866,7 +866,12 @@ it wraps, its pose composed onto each child (a `<joint axis>`, a `<light
 dir>` and a `<geom fromto>` rotated with it), its `childclass` pushed
 down, nested frames composing outer-first. It has to run first because an
 included `<compiler angle="radian"/>` changes how the main file's `euler`
-reads, whatever order the blocks are in.
+reads, whatever order the blocks are in — so the pass reads the *composed*
+tree's `<compiler>` itself for the `meshdir` and the angle convention a
+frame's own rotation is spelled in, and its `<default>` tree for a pose or
+an `axis` a class would have given a frame's child, which the frame has to
+compose onto rather than replace. A tree with no `<frame>` in it pays for
+neither.
 
 Nothing about composition reaches the document, exactly as `<default>`
 does not (§ below): the document holds resolved numbers, there is no
@@ -891,7 +896,8 @@ drops the class's, whichever of the five spellings each used. Neither
 survives the read: the document holds resolved numbers, exactly as
 `resolve` hands the writers resolved numbers (ADR-0004 §1).
 
-**The tree.** `<worldbody>`'s single `<body>` is the root link and the
+**The tree.** The single root `<body>` — of every `<worldbody>` in the
+composed tree, since splicing can leave several — is the root link and the
 nesting is the tree. One `<joint>` becomes the edge above its body —
 `hinge` with a range is `Revolute` and without it `Continuous`, `slide` is
 `Prismatic`, no element at all is `Fixed` with an invented
@@ -1025,7 +1031,8 @@ not warned about, because one line each would bury the ones that matter.
 `Prismatic`, so an unranged `slide` gets ±1 m and is told so.
 
 **The shapes it refuses** are `ImportError::{ CompositeJoint, JointOnRoot,
-UnsupportedElement }` beside the URDF import's `UnsupportedJoint`,
+UnsupportedElement, IncludeNotFound, DuplicateInclude }` beside the URDF
+import's `UnsupportedJoint`,
 `MultipleRoots`, `NoRoot`, `Io`, `Parse` and `Invalid`: several `<joint>`s
 in one `<body>` (MuJoCo's ball or planar DoF against a tree whose joints
 are its edges), a joint on the root body (whose link has no parent joint),

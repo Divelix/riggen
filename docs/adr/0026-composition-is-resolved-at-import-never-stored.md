@@ -237,3 +237,35 @@ first (the plan's decision 2).
   error; a file MuJoCo refuses should not open in riggen.
 - **`Io` for a missing include.** Loses `from` and the "what else to
   drop" sentence the web case needs.
+
+## Measured after the fact (2026-09-10, plans/composition retired)
+
+The scan re-run over all 261 Menagerie `.xml`, at the commit before the
+plan (`3f3f754`) and at the commit that finished it, with the same
+buckets both times. The estimates above were made from a scan that could
+only see each file's *first* refusal, so the 113 resolved differently
+than they were guessed to:
+
+| Bucket | Before | After |
+|---|---|---|
+| imported **and** exported | 59 | 119 |
+| imported, refused by the export gate (§4's side finding) | 34 | 53 |
+| refused: `<include>` | **113** | **0** |
+| refused: `<frame>` | **1** | **0** |
+| refused: no root link | 40 | 43 |
+| refused: multiple roots | 2 | 21 |
+| refused: composite joint (ADR-0022) | 7 | 15 |
+| refused: invalid identifier | 3 | 7 |
+| refused: ball joint | 1 | 2 |
+| refused: `<attach>` | 1 | 1 |
+| **importing** | **93** | **172** |
+
+**No file that imported before stopped importing**, and none changed its
+outcome for the worse; 79 that did not import now do. The refusal buckets
+that grew, grew only by files that used to stop at `<include>` and now
+reach the refusal underneath it — 35 of the 113, where the idea guessed
+~15. And `apptronik_apollo`, the one `<frame>` model, still does not
+import: its `<worldbody>` holds `base_link` and a bare `world_link`, so
+it is `MultipleRoots`, an ADR-0015 refusal the earlier scan never reached
+because `<frame>` refused first. "the `<frame>` model with them" in
+Consequences was wrong; the rest of the numbers hold.

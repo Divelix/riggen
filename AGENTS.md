@@ -20,19 +20,19 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 ## Current state
 
 **v0.4 — the round trip keeps what it read, and the window has two modes
-— is open (2026-09-04).** The window half is done: **View** — joint tree
-with scrubbers, joints the only pick, wheel drives a hovered joint, a
-glyph for range and value, zen on `Z` — with Tab to **Edit** (ADR-0021).
-A `<body>` with several `<joint>`s stays refused (**ADR-0022**). The file
-half: `Robot::actuators` (ADR-0023), `.msh` / inline mesh geometry, the
-escape hatch (ADR-0024) — `<general>` as a fourth `ActuatorSpec`, ranges
-on the actuator at schema 5 — and couplings (**ADR-0025**, retired
-2026-09-09) — mimic chains resolved by one topological pass, `<joint ref>`
-as `Joint::qpos_ref`, `<tendon><fixed>` as `Robot::tendons` with its own
-`ActuatorTarget` variant, schema 6; the corpus's `<equality>` and
-`<tendon>` blocks now compared with the original's too, `grip` off the
-drop list. **Next:** composition (`<include>` / `<attach>` / `<frame>`).
-**Before it:** v0.3 (`v0.3.0`) paid down the hand-feel debt (ADR-0018/19/20);
+— has both halves landed (2026-09-10) and is not closed.** The window:
+**View** — joint tree with scrubbers, joints the only pick, wheel drives a
+hovered joint, a glyph for range and value, zen on `Z` — with Tab to
+**Edit** (ADR-0021). A `<body>` with several `<joint>`s stays refused
+(**ADR-0022**). The file: `Robot::actuators` (ADR-0023), `.msh` / inline
+mesh geometry, the escape hatch (ADR-0024), couplings (ADR-0025) — mimic
+chains, `<joint ref>` as `Joint::qpos_ref`, `<tendon><fixed>` as
+`Robot::tendons`, schema 6 — and composition (**ADR-0026**, retired
+2026-09-10): `mjcf_compose` splices every `<include>` and folds every
+`<frame>` away before the reader looks, never storing either, so
+Menagerie's importing files go 93 → 172 of 261; `<replicate>` and
+`<attach>` stay refused, saying what they are. **Next:** `/close-cycle`
+for v0.4. **Before it:** v0.3 (`v0.3.0`) paid down the hand-feel debt (ADR-0018/19/20);
 v0.2 (`v0.2.1`) made "sim-ready" a feature — SDK wheel, V-HACD, frames /
 mimics / actuators, MJCF import, SDF export, the web demo (ADR-0009 to
 0017); M4 the wheel; M3 writers, URDF import, inertials, collision; M2
@@ -70,5 +70,6 @@ the mouse-only arm; M1 the document and `.riggen`; M0 the viewport.
   run the built binary over every `.xml` and bucket the outcomes, which is
   how the composition idea got its numbers — but it is never a CI
   dependency and never a committed fixture: what a scan finds gets
-  concentrated into `assets/fixtures/menagerie_style.xml` by hand, which is
-  the corpus the `mujoco` job actually runs.
+  concentrated by hand into `assets/fixtures/menagerie_style.xml` and the
+  `menagerie_style_arm.xml` it includes, which is the corpus the `mujoco`
+  job actually runs.

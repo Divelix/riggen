@@ -100,7 +100,9 @@ riggen/
 │   ├── riggen-core/        # ids, pose, robot, validate, fk, command, history, file, inertial
 │   ├── riggen-export/      # resolve, mesh_store, mjcf, urdf, sdf, export, fk_samples, xml
 │   │                       # (both halves: the writer and a quick-xml DOM), import (the
-│   │                       # warning and error vocabulary both imports speak), urdf_in, mjcf_in
+│   │                       # warning and error vocabulary both imports speak), urdf_in, mjcf_in,
+│   │                       # mjcf_compose (<include> and <frame> resolved before the reader
+│   │                       # looks, ADR-0026)
 │   ├── riggen-viewport/    # camera/, scene, pick_id, gpu_mesh, overlay, viewport/, shaders/
 │   ├── riggen-app/         # bin "riggen"; the cdylib the web demo loads; tests/visual,
 │       │                   # tests/cli.rs (the built binary from a shell)
@@ -1231,7 +1233,9 @@ then simply stops repainting, which reads as a hang.
 **No filesystem.** Files arrive as the bytes of one drop gesture, read
 asynchronously into an inbox the frame loop drains, and are resolved by
 **file name** against that gesture's own set (`DroppedSet`, ADR-0017 §3).
-A gesture carrying a document replaces the set; meshes alone join it. Out
+A gesture carrying a document replaces the set; meshes alone join it; an
+`.xml` that another dropped `.xml` `<include>`s is a fragment of that
+model and is not opened as a document of its own (ADR-0026 §5). Out
 is a download: the `.riggen` text, the export directory as one stored zip,
 the debug state's JSON. There is no dialog and no path, so a document
 opened in a browser is untitled and Save behaves as Save As.

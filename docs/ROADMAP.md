@@ -323,10 +323,25 @@ drops, and each is a backlog line this section now owns.
   ordinary mesh asset — no more `GeomDropped` for either; a file-less inline
   mesh is materialized as a `.stl` beside the source MJCF (`docs/DATA-MODEL.md`
   §Geometry).
-- **Composition.** `<include>`, `<attach>`, `<replicate>` and MuJoCo 3's
-  `<frame>` wrapper — every one an `ImportError::UnsupportedElement`
-  (ADR-0015 §5) — behind one resolver, with `<frame>`'s transform folded
-  into the bodies inside it.
+- **Composition.** *Landed (plans/composition, ADR-0026).* Two of the
+  four, not all four. `mjcf_compose` rewrites the parsed tree into a
+  composition-free one before anything reads it: every `<include>` spliced
+  at its site — main directory first, the including file's second, through
+  the same `FileSource` the meshes come through, any root tag, recursively,
+  with `IncludeNotFound` naming what else to bring and `DuplicateInclude`
+  reproducing MuJoCo's hard error — and every `<frame>` folded into what it
+  wraps, pose composed onto each child, `childclass` pushed down, a joint
+  `axis` and a geom `fromto` rotated, nested frames composing outer-first.
+  Composition never reaches the document, exactly as `<default>` has not
+  since ADR-0015 §3, and the stated cost is that a re-export is one flat
+  file. `<replicate>` and `<attach>` stay refused, now with messages that
+  say what each *is* — a subtree copied k times; a second model under a
+  name prefix, which is two robots composed and a document question of its
+  own (both `docs/BACKLOG.md` lines). Measured over Menagerie's 261 files:
+  `<include>` refusals **113 → 0**, `<frame>` **1 → 0**, files that import
+  **93 → 172**, and no file that imported before stopped. The corpus is
+  two files with a `<frame>` in one, so the `mujoco` job's round trip runs
+  on a composed model.
 
 A `<body>` with several `<joint>`s stays `ImportError::CompositeJoint`,
 asked again and answered no in **ADR-0022**: the synthesis opens five

@@ -100,9 +100,11 @@ mount — which Move and Rotate land on a picked feature the same way.
   `.sdf`, and the forward kinematics of both agree with riggen's (those
   are CI jobs, not hopes).
 - **Imports**: an existing URDF or MJCF — `package://` paths resolved
-  beside the file, MuJoCo's `<default>` classes and degrees understood —
-  to fix and convert it. Whatever the file held that the document cannot
-  is named, never dropped in silence.
+  beside the file, MuJoCo's `<default>` classes and degrees understood, a
+  model spelled across several files opened through its main one
+  (`<include>` and MuJoCo 3's `<frame>` are resolved on the way in) — to
+  fix and convert it. Whatever the file held that the document cannot is
+  named, never dropped in silence.
 - **Stays out of the way**: a native window through wgpu, a document that
   is plain JSON (`.riggen`), undo for everything, and a headless CLI.
 
