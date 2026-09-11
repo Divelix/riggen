@@ -75,7 +75,8 @@
         -0.013858,
         0.0
       ]
-    ]
+    ],
+    "pivot_visible": false
   },
   "document": {
     "file": "pendulum.riggen",

@@ -5142,6 +5142,74 @@ fn a_left_drag_turns_the_sample_arm() {
     });
 }
 
+/// The turntable's pivot, drawn while the camera is being turned and gone
+/// the moment it is not (ADR-0028 §4).
+///
+/// The picture is taken **mid-drag**, with the button still down, because
+/// that is the only state the cue exists in — a scenario that released
+/// first would golden an empty viewport and prove nothing. The cue has no
+/// fade, so the release half is an assertion on `pivot_visible` rather than
+/// a race against a clock.
+#[test]
+fn orbit_shows_the_pivot() {
+    scenario("orbit_shows_the_pivot", |harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("arm/arm.riggen")).expect("open the sample arm");
+        app.fit_view_now();
+        settle(harness);
+
+        // Empty space left of the arm and below the toolbar, so the drag is
+        // the camera's and nothing claims it.
+        let r = harness.state().debug_state().viewport_rect.unwrap();
+        let from = egui::pos2(r[0] as f32 + 80.0, r[1] as f32 + 200.0);
+        let button = egui::PointerButton::Primary;
+        let press = move |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let to = from + egui::vec2(70.0, 35.0);
+
+        let walk = |harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>| {
+            harness.hover_at(from);
+            pump_rendered(harness, 4);
+            harness.event(press(from, true));
+            pump_rendered(harness, 2);
+            for i in 1..=4 {
+                let t = i as f32 / 4.0;
+                harness.event(egui::Event::PointerMoved(from + (to - from) * t));
+                pump_rendered(harness, 2);
+            }
+        };
+
+        assert!(
+            !harness.state().debug_state().camera.pivot_visible,
+            "a camera at rest draws no pivot"
+        );
+
+        // One whole gesture first, to pin the half the final picture cannot
+        // show: the cue goes away when the drag does.
+        walk(harness);
+        assert!(
+            harness.state().debug_state().camera.pivot_visible,
+            "the pivot is drawn while the orbit is live"
+        );
+        harness.event(press(to, false));
+        pump_rendered(harness, 4);
+        assert!(
+            !harness.state().debug_state().camera.pivot_visible,
+            "and is gone the frame the drag ends — no fade to wait out"
+        );
+        harness.event(egui::Event::PointerGone);
+        pump_rendered(harness, 4);
+
+        // Then back into one, and leave it there for the capture.
+        walk(harness);
+        assert!(harness.state().debug_state().camera.pivot_visible);
+    });
+}
+
 /// Flying into the sample arm: the pivot walks along the view and the
 /// camera comes with it (ADR-0028 §2).
 ///

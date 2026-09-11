@@ -37,6 +37,12 @@ pub struct CameraDebug {
     pub view: [[f64; 4]; 4],
     /// `None` until there is an aspect to build the projection from.
     pub proj: Option<[[f64; 4]; 4]>,
+    /// Whether the pivot cross is drawn this frame — i.e. whether a camera
+    /// gesture (an orbit, a pan, a fly key, a view animation) is live
+    /// (ADR-0028 §4). Here so the cue is asserted by value: it has no fade,
+    /// so "gone the frame the gesture ended" is a fact a scenario can check
+    /// without racing a clock.
+    pub pivot_visible: bool,
 }
 
 impl CameraDebug {
@@ -68,6 +74,7 @@ impl CameraDebug {
             aspect: aspect.map(round),
             view: matrix(camera.view_matrix()),
             proj: aspect.map(|a| matrix(camera.proj_matrix(a as f32))),
+            pivot_visible: app.viewport.pivot_visible(),
         }
     }
 }

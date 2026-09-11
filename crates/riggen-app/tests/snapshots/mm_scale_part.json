@@ -75,7 +75,8 @@
         -9e-6,
         0.0
       ]
-    ]
+    ],
+    "pivot_visible": false
   },
   "document": {
     "file": null,

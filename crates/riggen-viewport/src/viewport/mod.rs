@@ -44,6 +44,17 @@ use render_pass::{DepthPassData, PickPassData, ViewportCallback};
 /// each power of two is not a cost worth tuning.
 const INITIAL_INSTANCE_CAPACITY: usize = 16;
 
+/// Half-length of the pivot cue's arms as a fraction of `distance`
+/// (ADR-0028 §4) — measured against `distance` so the cross is the same
+/// size on screen whatever the zoom, like every other camera measure here.
+const PIVOT_ARM: f32 = 0.022;
+const PIVOT_WIDTH: f32 = 1.5;
+/// Near-white on the dark ground, near-black on the light one: the cue is
+/// cursor-class, so it takes the theme's own contrast rather than a colour
+/// of its own that would read as belonging to the document.
+const PIVOT_COLOR_DARK: egui::Color32 = egui::Color32::from_rgb(230, 232, 236);
+const PIVOT_COLOR_LIGHT: egui::Color32 = egui::Color32::from_rgb(40, 42, 46);
+
 /// This frame's vertical wheel input in points, taken straight from the raw
 /// events instead of `egui::InputState::smooth_scroll_delta`.
 ///
@@ -175,6 +186,11 @@ pub struct Viewport {
     /// The rect allocated by the most recent [`Viewport::ui`] call, in egui
     /// logical points.
     last_rect: Option<egui::Rect>,
+    /// Whether a camera *gesture* is in flight this frame — an orbit, a
+    /// pan, a fly key held, or a view animation. The pivot cue is drawn
+    /// exactly while it is (ADR-0028 §4). Recomputed every frame from the
+    /// input, so it cannot be left stuck on by a release nobody saw.
+    camera_gesture: bool,
 }
 
 impl Viewport {
@@ -340,6 +356,7 @@ impl Viewport {
             last_seen_render: 0,
             last_pick: None,
             last_rect: None,
+            camera_gesture: false,
         }
     }
 
@@ -569,6 +586,14 @@ impl Viewport {
     /// `wheel_claimed`).
     pub fn set_wheel_claimed(&mut self, claimed: bool) {
         self.wheel_claimed = claimed;
+    }
+
+    /// Whether the pivot cue is being drawn this frame — i.e. whether a
+    /// camera gesture is live (ADR-0028 §4). The app's `debug_state`
+    /// reports it, so a scenario asserts the cue by value and not only in
+    /// pixels.
+    pub fn pivot_visible(&self) -> bool {
+        self.camera_gesture
     }
 
     /// The instances the picks look through this frame (see
@@ -880,6 +905,7 @@ impl Viewport {
         let orbiting = response.dragged_by(egui::PointerButton::Middle)
             || (!self.primary_drag_claimed && response.dragged_by(egui::PointerButton::Primary));
         let panning = response.dragged_by(egui::PointerButton::Secondary);
+        self.camera_gesture |= orbiting || panning;
         if orbiting || panning {
             let delta = response.drag_delta();
             if orbiting && !ui.input(|i| i.modifiers.shift) {
@@ -948,6 +974,7 @@ impl Viewport {
             });
             if dir != Vec3::ZERO {
                 self.camera.fly(dir, dt, boost);
+                self.camera_gesture = true;
                 changed = true;
             }
         }
@@ -1065,6 +1092,40 @@ impl Viewport {
         rungs
     }
 
+    /// The turntable's pivot, drawn while a camera gesture is live
+    /// (ADR-0028 §4).
+    ///
+    /// A cross at `target`, in the camera's own `right`/`up` — so it reads
+    /// as a cross from every angle, where world axes would foreshorten one
+    /// arm to nothing at a grazing camera — sized as a fraction of
+    /// `distance`, so it is the same size on screen at any zoom. Drawn
+    /// unconditionally on top ([`Occlusion::Always`], the default): it is
+    /// cursor-class feedback, and a cue that hid inside the part you were
+    /// orbiting around would be missing exactly when it is wanted
+    /// (ADR-0020).
+    ///
+    /// **No fade.** ADR-0021's amendment refused a timed cue because a
+    /// golden would then carry a clock; this one is binary, so a scenario
+    /// asserts its absence after the release instead of racing it.
+    fn pivot_overlay(&self, dark_mode: bool) -> Option<Overlay> {
+        if !self.camera_gesture {
+            return None;
+        }
+        let (_, right, up) = self.camera.basis();
+        let arm = (self.camera.distance * PIVOT_ARM) as f64;
+        let center = self.camera.target.as_dvec3();
+        let (right, up) = (right.as_dvec3() * arm, up.as_dvec3() * arm);
+        let color = if dark_mode {
+            PIVOT_COLOR_DARK
+        } else {
+            PIVOT_COLOR_LIGHT
+        };
+        let mut overlay = Overlay::default();
+        overlay.segment(center - right, center + right, color, PIVOT_WIDTH);
+        overlay.segment(center - up, center + up, color, PIVOT_WIDTH);
+        Some(overlay)
+    }
+
     /// Projects and strokes every overlay item. Items whose points are all
     /// off screen (behind the camera, outside the depth range) are dropped;
     /// a polyline is split so a partly visible one still draws its visible
@@ -1077,8 +1138,8 @@ impl Viewport {
     /// instead ([`overlay::split_strip`]), one `egui::Mesh` per run. A
     /// [`OverlayItem::Label`] never dims whatever it asks for: text that
     /// fades behind a part is unreadable rather than informative.
-    fn paint_overlay(&self, ui: &egui::Ui, rect: egui::Rect) {
-        if self.overlay.is_empty() {
+    fn paint_overlay(&self, overlay: &Overlay, ui: &egui::Ui, rect: egui::Rect) {
+        if overlay.is_empty() {
             return;
         }
         let painter = ui.painter().with_clip_rect(rect);
@@ -1096,7 +1157,7 @@ impl Viewport {
             }
         };
 
-        for entry in &self.overlay.items {
+        for entry in &overlay.items {
             let depth = depth_for(entry.occlusion);
             match &entry.item {
                 OverlayItem::Segment {
@@ -1173,7 +1234,12 @@ impl Viewport {
     /// enqueues the paint callback. Call once per frame inside the central
     /// panel.
     pub fn ui(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        if self.camera.step_animation(Instant::now()) {
+        // A view transition is a camera gesture for the cue's purposes
+        // (ADR-0028 §4): the pivot is moving and the user has to see what
+        // it is moving to. Seeded here and OR-ed into by `handle_input`,
+        // so the flag is rebuilt from scratch every frame.
+        self.camera_gesture = self.camera.step_animation(Instant::now());
+        if self.camera_gesture {
             ui.ctx().request_repaint();
         }
 
@@ -1441,7 +1507,13 @@ impl Viewport {
         ui.painter()
             .add(egui_wgpu::Callback::new_paint_callback(rect, callback));
 
-        self.paint_overlay(ui, rect);
+        self.paint_overlay(&self.overlay, ui, rect);
+        // After the app's, so `set_overlay` cannot clobber the cue: the
+        // pivot is the viewport's own feedback and no document knows about
+        // it (ADR-0028 §4).
+        if let Some(pivot) = self.pivot_overlay(ui.visuals().dark_mode) {
+            self.paint_overlay(&pivot, ui, rect);
+        }
 
         // The projection label is render state a snapshot should show, so
         // it stays in the viewport corner; the wall-clock frame-time

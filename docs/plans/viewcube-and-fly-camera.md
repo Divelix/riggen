@@ -96,7 +96,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       if flying with the pivot locked to the eye reads as pushing the scene
       rather than walking into it, that is the one thing that reopens
       ADR-0028 §1.
-- [ ] **[2]** Step 3 — **The orbit pivot is drawn.** The viewport's own
+- [x] **[2]** Step 3 — **The orbit pivot is drawn.** The viewport's own
       overlay, live exactly while a camera gesture is, sized from `distance`,
       no fade. `CameraDebug::pivot_visible`. Scenario
       `orbit_shows_the_pivot` snapshots mid-drag and asserts the cue is gone

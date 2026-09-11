@@ -1,9 +1,9 @@
 {
   "camera": {
     "eye": [
-      0.283114,
-      -0.283114,
-      0.35673
+      -0.095329,
+      -0.135067,
+      0.563228
     ],
     "target": [
       0.0,
@@ -11,48 +11,48 @@
       0.137999
     ],
     "up": [
-      -0.339005,
-      0.339005,
-      0.877583
+      0.537444,
+      0.761479,
+      0.362358
     ],
     "distance": 0.456235,
-    "yaw_deg": -45.0,
-    "pitch_deg": 28.64789,
+    "yaw_deg": -125.214073,
+    "pitch_deg": 68.754929,
     "fov_y_deg": 45.0,
     "near": 0.001455,
     "far": 145.494766,
     "projection": "Perspective",
     "animating": false,
-    "aspect": 1.405152,
+    "aspect": 0.955504,
     "view": [
       [
-        0.707107,
-        -0.339005,
-        0.620545,
+        0.817003,
+        0.537445,
+        -0.208948,
         0.0
       ],
       [
-        0.707107,
-        0.339005,
-        -0.620545,
-        0.0
-      ],
-      [
-        0.0,
-        0.877583,
-        0.479426,
+        -0.576633,
+        0.761479,
+        -0.296048,
         0.0
       ],
       [
         0.0,
-        -0.121106,
-        -0.522396,
+        0.362358,
+        0.932039,
+        0.0
+      ],
+      [
+        0.0,
+        -0.050005,
+        -0.584856,
         1.0
       ]
     ],
     "proj": [
       [
-        1.718115,
+        2.52664,
         0.0,
         0.0,
         0.0
@@ -76,12 +76,12 @@
         0.0
       ]
     ],
-    "pivot_visible": false
+    "pivot_visible": true
   },
   "document": {
     "file": "arm.riggen",
     "name": "arm",
-    "dirty": true,
+    "dirty": false,
     "import_scale": 1.0,
     "links": [
       {
@@ -135,7 +135,7 @@
         "kind": "Revolute",
         "parent": "l3",
         "child": "l7",
-        "q": 0.523599
+        "q": 0.0
       },
       {
         "id": "j12",
@@ -143,7 +143,7 @@
         "kind": "Revolute",
         "parent": "l7",
         "child": "l11",
-        "q": 0.261799
+        "q": 0.0
       },
       {
         "id": "j16",
@@ -151,7 +151,7 @@
         "kind": "Revolute",
         "parent": "l11",
         "child": "l15",
-        "q": -0.0309
+        "q": 0.1
       }
     ],
     "frames": [
@@ -191,12 +191,12 @@
     "selection": null
   },
   "ui": {
-    "mode": "View",
+    "mode": "Edit",
     "tool": "Select",
     "renaming": null,
     "windows": [],
     "modal": null,
-    "title": "arm.riggen* — riggen",
+    "title": "arm.riggen — riggen",
     "overlays": [
       "collision"
     ]
@@ -281,9 +281,9 @@
         ]
       ],
       "position": [
-        -0.021294,
-        -0.012294,
-        0.003237
+        0.0,
+        0.0,
+        0.0
       ],
       "color": [
         0.9,
@@ -311,9 +311,9 @@
         ]
       ],
       "position": [
-        -0.045215,
-        -0.106934,
-        0.080772
+        -0.103028,
+        -0.07,
+        0.069659
       ],
       "color": [
         0.9,
@@ -326,13 +326,6 @@
   "selection": {
     "hovered": null,
     "selected": null
-  },
-  "input": {
-    "pick_suppressed": true,
-    "select_suppressed": false,
-    "camera_blocked": false,
-    "primary_drag_claimed": false,
-    "wheel_claimed": false
   },
   "gizmo": null,
   "glyphs": [
@@ -351,20 +344,23 @@
         1.0
       ],
       "size": 0.042276,
-      "q": 0.523599,
-      "value_sweep": 0.523599,
+      "q": 0.0,
+      "value_sweep": 0.0,
       "band": [
         0.017756,
         0.025366
       ],
       "drawn": [
-        "bore",
+        "axis",
+        "pivot",
+        "triad",
+        "actuator",
         "band",
         "tick"
       ],
       "screen": [
-        840.0,
-        626.179993
+        652.0,
+        516.852905
       ],
       "active": false,
       "hovered": false,
@@ -383,28 +379,34 @@
         0.095
       ],
       "axis": [
-        -0.5,
-        0.866025,
+        0.0,
+        1.0,
         0.0
       ],
       "size": 0.065123,
-      "q": 0.261799,
-      "value_sweep": 0.261799,
+      "q": 0.0,
+      "value_sweep": 0.0,
       "band": [
         0.027352,
         0.039074
       ],
       "drawn": [
+        "axis",
+        "pivot",
+        "triad",
+        "actuator",
         "band",
         "tick"
       ],
       "screen": [
-        840.0,
-        531.577026
+        652.0,
+        482.362701
       ],
       "active": false,
       "hovered": false,
-      "mimic": "j8",
+      "actuators": [
+        "velocity"
+      ],
       "pivot_hidden": true
     },
     {
@@ -412,32 +414,35 @@
       "name": "fore_joint",
       "kind": "Revolute",
       "origin": [
-        0.022414,
-        0.012941,
-        0.191593
+        0.0,
+        0.0,
+        0.195
       ],
       "axis": [
-        -0.5,
-        0.866025,
+        0.0,
+        1.0,
         0.0
       ],
       "size": 0.050488,
-      "q": -0.0309,
-      "value_sweep": -0.0309,
+      "q": 0.1,
+      "value_sweep": 0.1,
       "band": [
         0.021205,
         0.030293
       ],
       "drawn": [
+        "axis",
+        "pivot",
+        "triad",
         "band",
         "tick"
       ],
       "screen": [
-        900.687561,
-        343.62381
+        652.0,
+        397.179565
       ],
-      "active": true,
-      "hovered": true,
+      "active": false,
+      "hovered": false,
       "mimic": "j12",
       "pivot_hidden": true
     }
@@ -447,14 +452,14 @@
       "frame": "f17",
       "name": "tcp",
       "origin": [
-        0.03827,
-        0.022095,
-        0.269469
+        0.007987,
+        0.0,
+        0.2746
       ],
       "size": 0.027768,
       "screen": [
-        954.837585,
-        154.345917
+        672.347351,
+        282.263336
       ],
       "active": false,
       "hovered": false
@@ -469,8 +474,8 @@
       ],
       "size": 0.028579,
       "screen": [
-        884.03656,
-        695.189148
+        695.778931,
+        500.809631
       ],
       "active": false,
       "hovered": false
@@ -479,9 +484,9 @@
   "snap": null,
   "status": null,
   "viewport_rect": [
-    240.0,
+    244.0,
     23.0,
-    1440.0,
+    1060.0,
     877.0
   ]
 }
