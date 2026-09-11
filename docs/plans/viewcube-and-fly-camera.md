@@ -43,10 +43,12 @@ frame the gesture ends.
   feedback no document knows about; the cue has no fade, so no golden carries
   a clock (ADR-0003, and ADR-0021's refusal of a timed cue).
 - `riggen-viewport/src/camera/orbit.rs`: `OrbitCamera::fly(dir, dt, boost)`.
-  `dir` is (forward, right, up) in camera terms with **up = world Z** — up is
-  up in a Z-up document, so rising does not depend on pitch. Moves `target`
-  only; `yaw`, `pitch`, `distance` untouched; cancels an animation like every
-  other gesture. Speed = `FLY_SPEED * distance * boost`.
+  `dir` is (forward, right, up) and **all three are the camera's own basis**
+  (`OrbitCamera::basis`, so the pole heuristic applies at top and bottom
+  views): `E` / `Q` rise and fall along the view's up, not along world Z, and
+  a pitched camera flies in the direction it is looking in all six. Moves
+  `target` only; `yaw`, `pitch`, `distance` untouched; cancels an animation
+  like every other gesture. Speed = `FLY_SPEED * distance * boost`.
 - `riggen-viewport/src/viewport/mod.rs`: `handle_input` reads the six keys
   with `key_down` (held, not pressed) while the pointer is over the viewport
   and `!ctx.wants_keyboard_input()` — an inline rename must not fly the
@@ -85,8 +87,9 @@ mechanical; **[2]** careful — a case to get right within a given design;
 - [ ] **[2]** Step 2 — **The fly keys.** `OrbitCamera::fly` plus the gating
       in `handle_input`; `Shift` fast, `Ctrl` slow. Tests in
       `camera/tests.rs`: forward moves `target` along the view direction by
-      `speed·dt` and leaves yaw/pitch/distance alone; `E`/`Q` move along
-      world Z at any pitch; boost multiplies. Harness gains `hold_key` /
+      `speed·dt` and leaves yaw/pitch/distance alone; `E`/`Q` move along the
+      camera's up, which at a pitched camera is not world Z; at a pole the
+      basis's up hint is the one `basis()` already picks; boost multiplies. Harness gains `hold_key` /
       `release_key`; scenario `fly_into_the_assembly` flies into the sample
       arm and snapshots it. **Checkpoint for the human:** a by-hand run —
       if flying with the pivot locked to the eye reads as pushing the scene
@@ -141,9 +144,13 @@ and orbited locally, and the numpad is never touched.
 
 ## Open questions
 
-- `⚠ OPEN:` `E` / `Q` along **world Z** (planned) or along the camera's own
-  up? World Z is predictable in a Z-up document; camera-up is what a
-  free-flight camera does. *Human, by step 2.*
-- `⚠ OPEN:` the cube's button being the only projection readout means **zen
-  has none** (chrome is cleared there). Planned: accept it — zen is the robot
-  and nothing else. *Human, by step 5.*
+None left; both were answered 2026-09-11, before step 1, and ADR-0028
+records them:
+
+- **`E` / `Q` follow the camera's own up**, not world Z (human). All six keys
+  are then one rule — you fly where you are looking — and nothing has to
+  special-case a pitched camera.
+- **Zen has no projection readout** (agent). ADR-0021's zen rule is that
+  nothing is drawn there, and a label that survived would be the one piece of
+  chrome that did; `P` and `Num5` still toggle in zen, `debug_state().camera`
+  still names the projection, so no golden loses the fact.
