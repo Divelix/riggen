@@ -78,12 +78,13 @@ Complexity: **[1]** routine — the design says what to write, the tests are
 mechanical; **[2]** careful — a case to get right within a given design;
 **[3]** unproven — behaviour that has to be established here.
 
-- [ ] **[1]** Step 1 — **ADR-0028**, "navigation is one turntable: the cube
+- [x] **[1]** Step 1 — **ADR-0028**, "navigation is one turntable: the cube
       aims it, the keys move its pivot". The decision, the three rejected
       options (a second camera kind, a free camera, a six-ball gizmo), the
       layer split (cube app-side, pivot viewport-side), the no-fade rule, and
       the note that ADR-0018 is untouched. Row in `docs/adr/README.md`.
-      Same commit deletes `docs/ideas/viewcube-and-fly-camera.md`.
+      Same commit deletes `docs/ideas/viewcube-and-fly-camera.md` — already
+      gone, absorbed by the plan's own commit (db92fab).
 - [ ] **[2]** Step 2 — **The fly keys.** `OrbitCamera::fly` plus the gating
       in `handle_input`; `Shift` fast, `Ctrl` slow. Tests in
       `camera/tests.rs`: forward moves `target` along the view direction by
