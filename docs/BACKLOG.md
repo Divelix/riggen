@@ -124,6 +124,24 @@ The by-hand half was done headlessly: the manylinux wheel installed into
   ramp of its own, or a hot colour that is amber rather than cream, if it
   starts costing readings
 
+### From the camera (plans/viewcube-and-fly-camera, 2026-09-11)
+
+- The turntable's pivot can now be flown anywhere, including out of the
+  scene entirely, and only `Home` and a zoom-to-fit re-centre it. Accepted
+  (ADR-0028 §Consequences) — the drawn cue is what makes the state legible
+  rather than mysterious. A soft tether, or a `Home` hint in the status bar
+  when the scene is off screen, if anyone actually gets lost
+- `FLY_SPEED` is `0.8 · distance` per second, so flying while zoomed far
+  out crosses the scene in a couple of seconds — the same behaviour the
+  wheel has. It is the constant to reach for if the by-hand run says
+  flying reads as pushing the scene rather than walking into it, which is
+  the one outcome that reopens ADR-0028 §1
+- The visual suite still segfaults inside lavapipe once in a while under
+  `cargo test --workspace` — three times running during this plan, never
+  on five direct runs of the same command. The per-binary `gpu_lock`
+  reduced it but has not removed it; the remaining suspect is load from
+  the *other* test binaries running beside it
+
 ### From the human's GUI notes (the View / Edit split, 2026-09-05)
 
 The notes themselves — two modes with Tab between them, the joint tree with

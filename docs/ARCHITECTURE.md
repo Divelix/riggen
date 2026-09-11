@@ -10,14 +10,16 @@ matter live.
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │  riggen-app       eframe shell, panels, gizmos, drag-drop,     │  binary
-│                   selection, snapping, export dialog, the CLI  │  (the wheel's
-│                   (--export, --example, --version), snapshots, │   scripts/)
-│                   and the wasm cdylib the web demo loads       │  + cdylib
+│                   selection, snapping, export dialog, the      │  (the wheel's
+│                   ViewCube, the CLI (--export, --example,      │   scripts/)
+│                   --version), snapshots, and the wasm cdylib   │  + cdylib
+│                   the web demo loads                           │
 ├────────────────────────────────────────────────────────────────┤
 │  riggen-viewport  wgpu renderer via egui_wgpu callbacks:       │
-│                   instances, camera, ID-buffer picking,        │
-│                   project / cursor_ray, Overlay (world-space   │
-│                   segment, polyline, arc, point, label)        │
+│                   instances, camera (orbit + fly + the pivot   │
+│                   cue), ID-buffer picking, project /           │
+│                   cursor_ray, Overlay (world-space segment,    │
+│                   polyline, arc, strip, point, label)          │
 ├──────────────────────────────┬─────────────────────────────────┤
 │  riggen-export               │  riggen-py                      │  cdylib
 │  resolve → ResolvedRobot,    │  PyO3 abi3 extension module     │  (the wheel's
@@ -49,7 +51,10 @@ runs behind geometry stroked at a third of the strength — dimmed, not
 dropped, because a joint inside a part still has to be visible and
 aimable — while cursor feedback (snap markers, the align pick, readout
 labels) stays unconditionally on top, where "where is the pointer" is the
-only question it answers. A stroke is split at its depth crossings; a
+only question it answers. The camera's **pivot cue** is of that second
+class and is the one overlay item the *viewport itself* pushes, into an
+overlay of its own painted after the app's, because no document knows the
+camera has a pivot (§Frame loop, ADR-0028 §4). A stroke is split at its depth crossings; a
 fill (`OverlayItem::Strip`, a quad strip of inner/outer rungs that
 `Overlay::sector` tessellates an annulus sector into) is dimmed **quad by
 quad** — each rung's midpoint is classified, a quad is dimmed when both its
@@ -117,7 +122,8 @@ riggen/
 │       ├── src/app/        # document, file_io, file_menu, export_dialog, debug_menu,
 │       │                   # shortcuts, status_bar, tool, gizmo, glyphs, snap, align,
 │       │                   # mode (View | Edit and zen, ADR-0021), overlays (the
-│       │                   # visibility row), panels/{tree, joint_tree, properties,
+│       │                   # visibility row), viewcube/{facets, projection, widget}
+│       │                   # (ADR-0028), panels/{tree, joint_tree, properties,
 │       │                   # materials}
 │       └── src/debug/      # debug_state(): what the app thinks it drew, as JSON (ADR-0003)
 │   ├── riggen-py/          # cdylib `_riggen`, the PyO3 abi3 extension module `riggen._riggen`
@@ -215,7 +221,8 @@ pub struct RiggenApp {
     hovered_joint, glyph_hover, snap_candidate,        // resolved every frame from the pointer
     hovered_frame, frame_glyph_hover,                  // the same pair for a frame's triad glyph
     snap_cache, align_source, chrome_rects,            // the memoised fit, the align gesture's first pick,
-                                                        // and the two corner-chrome rects
+    viewcube_rect,                                      // and the three corner-chrome rects; the cube's own is
+                                                        // kept apart so a test can click a facet (ADR-0028 §3)
     import_scale: f64, pending: Option<PendingAction>,  // File › Import units; New/Open/Quit awaiting the dirty answer
     export_dialog: ExportDialog,                        // File › Export…: options, directory, the resolve errors
     mode, zen, stashed_q, tree, joint_tree, props, materials_window, // View / Edit, zen, the stashed pose; transient panel state
@@ -269,9 +276,9 @@ uses of Escape still see it). Each has a key — **`V` Select, `G` Move,
 `R` Rotate, `J` Place joint, `B` Align** (`Tool::shortcut`) — consumed in
 `handle_shortcuts` before the panels and, like every bare key there,
 yielding to a focused `TextEdit`. Blender's `G` and `R`, with `V` and `B`
-standing in for the initials of the other two: `W A S D E Q` are reserved
-for a fly camera and the digits are the viewport's (`Num1/3/5/7/0`, `P`,
-`Home`). The binding lives in each toolbar button's tooltip rather than on
+standing in for the initials of the other two: `W A S D E Q` **are** the
+fly camera (§Frame loop) and the digits are the viewport's
+(`Num1/3/5/7/0`, `P`, `Home`). The binding lives in each toolbar button's tooltip rather than on
 its face — a shortcut nobody can find is folklore, and five keys printed on
 a toolbar is a toolbar nobody can read. In View the five keys are consumed
 all the same and do nothing but put `VIEW_TOOL_HINT` in the status bar —
@@ -382,15 +389,42 @@ below.
   Rotate / Place joint / Align — each in a popup frame floating over the
   viewport's top-left corner. Drawn *after* the viewport in the same layer,
   which is what gives them the pointer: egui's hit test prefers the widget
-  registered last. Their joint rect, and the **visibility row**'s at the
-  top-right, are remembered as `chrome_rects`: the camera holds still and
-  the picks are off under either, and no glyph is hovered through them
-  (`over_chrome`). In **zen** neither is drawn and the list is *cleared*
-  rather than left holding the previous frame's rects: nothing is there,
-  so nothing may go on blocking (ADR-0021, amended).
+  registered last. Their joint rect, the **visibility row**'s at the
+  top-right and the **ViewCube**'s at the bottom-right are remembered as
+  `chrome_rects` — three of them: the camera holds still and the picks are
+  off under any, and no glyph is hovered through them (`over_chrome`). In
+  **zen** none is drawn and the list is *cleared* rather than left holding
+  the previous frame's rects: nothing is there, so nothing may go on
+  blocking (ADR-0021, amended).
+- **The ViewCube** (bottom-right, `app/viewcube/`, ADR-0028 §3): a
+  chamfered cube showing the camera's own orientation — the face towards
+  you on the cube is the face towards you in the viewport. Click a facet
+  and the camera animates to that view (`animate_to_orientation`); drag
+  the cube and it orbits at the viewport's own radians-per-point; the
+  house icon in its top-left corner re-frames the scene
+  (`animate_frame_scene`); the button under it reads `Perspective` or
+  `Orthographic` and switches between them. That button **is** the
+  projection readout — the viewport used to paint `persp` / `ortho` in
+  this corner and no longer does, so the thing that says which projection
+  is live is the thing that changes it, and zen has no readout at all
+  (ADR-0028 §5; `P`, `Num5` and `debug_state().camera.projection` still
+  answer). Its 26 facets are the 26 `ViewOrientation` variants —
+  6 face squares, 12 edge quads, 8 corner triangles — projected through
+  the scene camera's basis in a fixed orthographic projection of its own,
+  so the cube is the same size in the corner whatever the scene is doing;
+  depth-sorted back to front, backfacing facets culled, and hit-tested as
+  convex polygons in screen space, front-most first. Face labels are
+  meshed into the face's *own plane*, so they foreshorten with it. It is
+  app-side and painter-drawn: it writes the camera but does not own it,
+  picking a facet needs a screen-space hit test regardless, and a third
+  wgpu pass is one more thing a later MSAA change would have to be
+  taught. The bottom-left **axes triad** stays where it is, in the
+  viewport's own pass — it names the axes, the cube names the faces.
+  `viewcube_facet_center` projects one facet for a test that wants to
+  click it, and answers `None` in zen.
 - **Zen** (`Z`, `mode.rs`): every panel — the menu bar, the status bar,
-  the left panel, the properties panel — and both pieces of corner chrome
-  hidden, so the viewport fills the window with the robot alone; `Z`
+  the left panel, the properties panel — and all three pieces of corner
+  chrome hidden, so the viewport fills the window with the robot alone; `Z`
   again brings all of them back, and the floating Materials window with
   them, its `open` flag untouched. Zen is **orthogonal to the mode**: it
   is the same key and the same state in View and Edit, `Tab` still
@@ -623,6 +657,7 @@ input ──► shortcuts ──► menu bar, status bar, tree, properties   (no
              viewport.set_overlay(glyphs + frame triads + align pick + snap marker)
              viewport pointer policy: five switches + set_pick_excluded
              viewport.ui ──► gizmo ──► corner chrome   (registration order = pointer precedence;
+                                                       mode control + toolbar, visibility row, ViewCube;
                                                        in zen no chrome, and `chrome_rects` cleared)
              a click ──► select a joint or frame / place a joint or frame / align
        ──► Commands ──► History ──► Robot
@@ -674,9 +709,46 @@ neither clipped nor lost and a room-sized scene still fits. Wheel input is
 read from the raw events, not egui's smoothed delta (the smoothing reads as
 the camera coasting), and zooms toward the cursor — unless a rotate ring has
 claimed it (`set_wheel_claimed`, below). Numpad 1/3/7/0 (+ctrl)
-snap views, Num5 or `P` toggles projection, Home animates a fit; the
-`persp`/`ortho` label sits in the viewport corner, the wall-clock frame time
-in the status bar (hidden by `set_frame_hud_visible(false)` in tests).
+snap views, Num5 or `P` toggles projection, Home animates a fit. The
+projection readout is the ViewCube's own button (§Panels and menus); the
+wall-clock frame time is in the status bar (hidden by
+`set_frame_hud_visible(false)` in tests).
+
+There is **one** camera and it is that turntable (ADR-0028 §1): no second
+kind, no first-person mode, no roll. What "fly" means here is that
+`W A S D E Q` walk its **pivot**: `OrbitCamera::fly` adds to `target`
+along the camera's own `basis()` — `W`/`S` forward, `A`/`D` right, `E`/`Q`
+the *view's* up rather than world Z, so all six are one rule and the pole
+heuristic covers the top and bottom views without a case of its own. `yaw`,
+`pitch` and `distance` are untouched, so the eye follows rigidly and
+arrives inside the assembly with the pivot, after which the same left-drag
+orbits locally — which is how a joint buried in a shell is put in front of
+the camera at all. The step is `FLY_SPEED · distance · boost · dt`, so a
+key crosses the same fraction of the view at any scale; `dir` is
+normalized, so a diagonal is not √2 faster; Shift is `FLY_FAST`, Ctrl
+`FLY_SLOW`. Nothing downstream of the camera changed: `view_proj`,
+`cursor_ray`, `frame_bounds`, the standard views and the animations all
+still speak yaw/pitch/distance/target.
+
+The keys are read as **held** (`key_down`, not `key_pressed`) while the
+pointer is over the viewport — like every other viewport shortcut — and
+while `!egui_wants_keyboard_input()`, because `W A S D` are letters and an
+inline rename has to type them. `dt` is `stable_dt` clamped to 0.1 s, so a
+stalled frame cannot teleport the pivot; under kittest `RawInput::time` is
+unset, so it is exactly the harness's step and a held key is
+deterministic.
+
+While a camera **gesture** is live — an orbit, a pan, a fly key, or a view
+animation — the viewport draws the pivot it is turning around: a cross at
+`target` in the camera's own right/up (world axes would foreshorten an arm
+to nothing at a grazing camera), sized as a fraction of `distance`. It
+goes into an overlay of the viewport's **own**, painted after the app's so
+`set_overlay` cannot clobber it — the cue is camera feedback no document
+knows about — at `Occlusion::Always`, the cursor-feedback class (ADR-0020):
+a cue that hid inside the part being orbited around would be missing
+exactly when it is wanted. There is **no fade**: a fade is a clock, and a
+golden cannot carry one (ADR-0003, ADR-0021's refusal of a timed cue), so
+the cue is binary and `debug_state().camera.pivot_visible` reports it.
 
 The camera's drags are **left = orbit, shift+left = pan, right = pan,
 middle = orbit, shift+middle = pan** (ADR-0018) — the mapping MuJoCo's
@@ -1565,7 +1637,14 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   `a_wheel_burst_is_one_history_entry`, `the_wheel_still_zooms_beside_a_ring`,
   `a_snapped_drag_commits_where_the_marker_was`,
   `a_drag_looks_through_the_part_it_is_moving`, `a_rotate_drag_does_not_snap`,
-  `tool_shortcuts_switch_tools` and `tool_shortcuts_yield_to_a_text_field`. `debug_state().timing`
+  `tool_shortcuts_switch_tools` and `tool_shortcuts_yield_to_a_text_field`;
+  and v0.5's camera set behind ADR-0028 — `viewcube_corner` (the cube
+  showing the three faces the camera can see), `viewcube_click_snaps_to_top`
+  (a facet clicked, the flight landed, the target and distance untouched),
+  `fly_into_the_assembly` (`W` held into the sample arm),
+  `orbit_shows_the_pivot` (captured mid-drag, and asserting the cue is gone
+  once the button is up) and the golden-less
+  `the_fly_keys_yield_to_a_text_field`. `debug_state().timing`
   (`first_frame_ms`, `frame_dt`) is present only while the frame HUD is
   on, which the harness turns off, so no golden holds a wall-clock number.
   The harness sets the import scale to `1.0` (the fixtures are unit cubes
@@ -1612,6 +1691,17 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
     holds shift down across every frame of a pan. `to` must be further from
     `from` than `max_click_dist`, or the gesture is a click and not a drag
     (ADR-0018).
+  - `hold_key(harness, key, frames)` and `release_key(harness, key)` drive
+    the **fly** keys, which are read as held rather than pressed
+    (§Frame loop): egui keeps `keys_down` between passes and only an
+    explicit event changes it, so a hold is one event and then frames.
+    Every hold must be released, or the next scenario inherits a key that
+    is still down. The pointer has to be over the viewport first — the fly
+    keys are viewport shortcuts.
+  - `RiggenApp::viewcube_facet_center(orientation)` is the ViewCube's
+    `project_world`: it answers where one facet landed on screen, so a
+    scenario clicks `TOP` rather than guessing at a pixel, and `None` in
+    zen, where the cube is not drawn.
   - **The harness's `step_dt` is a quarter of a second**, and egui's clock
     advances by it (kittest never sets `RawInput::time`). So a press held for
     more than about three frames is past `max_click_duration` and egui calls

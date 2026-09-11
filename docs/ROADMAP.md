@@ -266,18 +266,30 @@ this is the same debt in the camera and the pass under it, and the
 viewport is what the demo puts in front of people who have read no docs.
 Every line below is a backlog line this section now owns.
 
-- **A ViewCube in the corner.** RoboCAD has one; M0 ships the axes triad
-  and a text `persp` / `ortho` label. Clicking a face snaps the view the
-  way `Num1/3/7` already do, and the projection toggle lives on the cube
-  rather than beside it. It is corner chrome like the mode control and the
-  visibility row (`chrome_rects`, 01 §Panels and menus), so the camera
-  holds still and the picks are off under it.
-- **A fly camera on `W A S D E Q`.** The keys are already reserved off the
-  tool shortcuts (`tool.rs`); M0 ships the turntable orbit alone, and a
-  joint buried inside an assembly is something you can orbit round but not
-  get to. rerun's viewer is the reference, including **drawing the orbit
-  pivot while the camera moves** — which the turntable wants too, and which
-  is the half of this line that is not a new camera at all.
+- **A ViewCube in the corner.** *Landed (plans/viewcube-and-fly-camera,
+  ADR-0028).* RoboCAD's, ported into `riggen-app` as an egui painter
+  widget over the 26 `ViewOrientation` variants `orientation.rs` had held
+  unused since M0. Bottom-right, its rect the third in `chrome_rects`
+  beside the mode control's and the visibility row's, and gone in zen for
+  the same reason they are. A facet click animates to that view, a drag on
+  the cube orbits, the house icon re-frames, and the projection button
+  **is** the readout — the viewport's `persp` / `ortho` text is removed
+  rather than duplicated, so zen has no readout at all (`P`, `Num5` and
+  `debug_state().camera` still answer). The bottom-left axes triad stays:
+  it names the axes, the cube names the faces.
+- **A fly camera on `W A S D E Q`.** *Landed (plans/viewcube-and-fly-camera,
+  ADR-0028).* Not a second camera: there is one turntable and the keys walk
+  its **pivot**. `OrbitCamera::fly` adds to `target` along the camera's own
+  basis in all six directions — `E` / `Q` follow the view's up, not world
+  Z, so all six are one rule and the pole heuristic needs no case of its
+  own — at `FLY_SPEED · distance · boost · dt`, leaving yaw, pitch and
+  distance alone. The eye follows rigidly, so the pivot arrives inside the
+  assembly with you and the same left-drag then orbits *locally*, which is
+  the gesture that was missing. Nothing downstream of the camera learned a
+  new question. The other half landed with it: the **orbit pivot is drawn**
+  while a camera gesture is live — a cross at `target` in the viewport's
+  own overlay, `Occlusion::Always`, and **no fade**, because a fade is a
+  clock in a golden (ADR-0003).
 - **A ground grid at z = 0.** RoboCAD never had one either; M0 ships the
   gradient background alone, so a part at the origin and a part a metre up
   read the same. Z-up and meters are the document's (02 §Conventions), so
@@ -294,23 +306,17 @@ Every line below is a backlog line this section now owns.
   *which* of the three axes aligns and a second overlay idiom — an ADR if
   the rule turns out to be contested.
 - **View's joint glyph loses its legacy pieces and gains an opaque band.**
-  `glyph_overlay()` (`app/glyphs.rs`) draws the axis segment, the pivot
-  dot, the origin triad and the actuator ring in View exactly as it does
-  in Edit; View is meant to show nothing but the scrubbable ring (the
-  band, or a prismatic joint's bars) and the current-`q` tick. Reported by
-  the human alongside a rendering bug: the band's three-layer alpha stack
-  (`RANGE_ALPHA`/`LIMIT_ALPHA`/`VALUE_ALPHA`, `layered()`) reads wrong at
-  a grazing camera angle, where the annulus sector's triangle strip
-  foreshortens and overlaps itself in screen space — alpha blending
-  double-covers the overlap, opaque colour would not. The fix is three
-  distinct opaque colours (full range / limits / value) instead of one
-  hue at three alphas, plus a replacement cue for an actuated joint now
-  that the ring marking it is gone, plus hit-testing for a prismatic
-  joint's bars in View (today it's picked by the axis line alone, which
-  is one of the pieces going). Edit keeps the full legacy glyph; only its
-  band/bar colours change along with View's, since `push_arc`/
-  `push_slide` are one code path for both modes. Absorbs two backlog
-  lines (from the glyph band, and from plans/joint-glyph-range-and-value).
+  *Landed (plans/joint-glyph, ADR-0027).* In View a glyph is the band or
+  the bars, the tick at `q`, and a filled bore for a driven joint —
+  nothing else; the axis segment, the pivot dot, the origin triad and the
+  actuator ring answer *where a joint frame is*, which is Edit's question,
+  and Edit still draws all four. The band's three shades are **opaque**
+  (`shade` scales the RGB at full alpha) rather than one hue at three
+  alphas, so the grazing-angle seam a foreshortened sector drew over
+  itself is gone by construction. What View draws is what View answers: a
+  slide is picked by its bars, and a hinge by its band, where the axis
+  line used to take the pick. Absorbed two backlog lines (from the glyph
+  band, and from plans/joint-glyph-range-and-value).
 
 **Out:** any new format, importer or writer, and the import gap's last
 mile — the 31 Menagerie files that import and then refuse to *export*,

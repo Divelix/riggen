@@ -21,27 +21,25 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 **v0.4 — the round trip keeps what it read, and the window has two modes
 — is closed (2026-09-10); the human tags `v0.4.0`.** An MJCF import is
-lossless now: actuators as a model-level table (ADR-0023), the `<general>`
-escape hatch (ADR-0024), couplings (ADR-0025) — mimic chains, `<joint ref>`
-as `Joint::qpos_ref`, `<tendon><fixed>` as `Robot::tendons` — `.msh` and
-inline mesh geometry, and composition (ADR-0026): `mjcf_compose` splices
-every `<include>` and folds every `<frame>` away before the reader looks,
-never storing either, so Menagerie's importing files go 93 → 172 of 261.
-Schema 6. Composite joints, `<replicate>` and `<attach>` stay refused
-(ADR-0022, ADR-0026 §4). The window is two modes (ADR-0021): **View** —
-joint tree with scrubbers, joints the only pick, the wheel driving a
-hovered joint, a glyph for range and value — Tab to **Edit** at the zero
-configuration, zen on `Z`, a visibility row top-right. **Next:** v0.5, the
-viewport and the camera — ViewCube, fly camera, ground grid, MSAA,
-rotate-drag snapping; its glyph line is in (ADR-0027): View draws the band
-or the bars, the tick and a filled bore for a driven joint, and answers
-from exactly that, over three opaque shades a grazing camera cannot seam.
-**Before:** v0.3 (`v0.3.0`) the hand-feel debt
-(ADR-0018/19/20); v0.2 (`v0.2.1`) "sim-ready" as a feature — SDK wheel,
-V-HACD, frames / mimics / actuators, MJCF import, SDF export, the web demo
-(ADR-0009 to 0017); M4 the wheel; M3 writers, URDF import, inertials,
-collision; M2 the mouse-only arm; M1 the document and `.riggen`; M0 the
-viewport.
+lossless: actuators as a model-level table, the `<general>` escape hatch,
+couplings, `.msh` and inline meshes, and composition spliced and folded
+away at import, never stored — Menagerie's importing files 93 → 172 of 261
+(ADR-0023 to 0026). Schema 6; composite joints, `<replicate>` and
+`<attach>` stay refused (ADR-0022). The window is two modes (ADR-0021):
+**View** poses through the joint tree and the glyphs alone, Tab to
+**Edit** at the zero configuration, zen on `Z`.
+**Next:** v0.5, the viewport and the camera — three of six lines in. The
+glyph (ADR-0027): in View the band or the bars, the tick and a filled
+bore, opaque, answering from exactly what it draws. The camera
+(ADR-0028): one turntable still, the ViewCube bottom-right aiming it and
+owning the projection readout, `W A S D E Q` walking its pivot so a buried
+joint can be flown to and orbited locally, the pivot drawn unfaded while a
+gesture is live. **Left:** ground grid, MSAA, rotate-drag snapping.
+**Before:** v0.3 (`v0.3.0`) the hand-feel debt (ADR-0018/19/20); v0.2
+(`v0.2.1`) sim-ready — SDK wheel, V-HACD, frames / mimics / actuators,
+MJCF import, SDF export, the web demo (ADR-0009 to 0017); M4 the wheel;
+M3 writers, URDF import, inertials, collision; M2 the mouse-only arm;
+M1 the document and `.riggen`; M0 the viewport.
 
 ## Rules that are not derivable from the code
 
