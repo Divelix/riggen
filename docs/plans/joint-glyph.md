@@ -86,7 +86,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       and the narrowing of ADR-0021 §1. Commit `docs(adr): …`.
       Landed as `docs/adr/0027-views-glyph-is-what-view-draws-and-the-band-is-opaque.md`;
       the human took all three recommendations.
-- [ ] **[2]** Step 2 — **The band goes opaque, in both modes.** `shade()`
+- [x] **[2]** Step 2 — **The band goes opaque, in both modes.** `shade()`
       replaces `layered()`; `push_arc` draws its three sectors and
       `push_slide` its bars in the three opaque shades; the slide gains the
       range bar step 1 decided on. New scenario **`glyph_band_grazing`** —
@@ -99,6 +99,9 @@ mechanical; **[2]** careful — a case to get right within a given design;
       `gizmo_rotate_joint` — whether an opaque band under the rotate
       gizmo's rings now competes with them. `snapshots:` is part of this
       commit, with the reason, per `.agents/rules/git.md`.
+      Landed: 59 goldens refreshed and 2 added; the scenario needed a
+      camera the harness could not set, so `RiggenApp::look_from(yaw,
+      pitch, distance_scale)` joins `fit_view_now` in `debug/mod.rs`.
 - [ ] **[2]** Step 3 — **View draws the band and the tick and nothing
       else.** `glyph_overlay()` branches on the mode: no axis segment, no
       pivot dot, no origin triad, no actuator ring in View; Edit unchanged.
@@ -185,16 +188,22 @@ mechanical; **[2]** careful — a case to get right within a given design;
   accept — a weld has nothing to pose, View's joint tree does not list it,
   and it can only be selected in View by carrying the selection over from
   Edit (ADR-0021 §3). *Answered as recommended.*
-- `⚠ OPEN:` **The band under the rotate gizmo's rings, now opaque.** The
+- **ANSWERED (human, step 2, from the image): it stays as it is.** The
+  rings draw over the band and still read as the handles; a fill and a
+  stroke are different things, and the band is not grabbable in Edit.
+  **The band under the rotate gizmo's rings, now opaque.** The
   backlog line from plans/joint-glyph-range-and-value left this to be
   revisited if the fill and the stroked handles ever read as competing
   handles; an opaque fill is exactly the change that could make them.
   Either it stays as it is, or the band drops to a stroke while a rotate
-  gizmo is on that joint. *Human, from the `gizmo_rotate_joint` golden, by
-  step 2.*
-- `⚠ OPEN:` **The three shade factors themselves.** The alphas 0.2 / 0.5 /
+  gizmo is on that joint. *Answered: it stays.*
+- **ANSWERED (human, step 2, from the images): 0.34 / 0.62 / 1.0.** The
+  agent showed three ramps face-on, with the joint selected and not; the
+  middle one was chosen. Noted from the same images: the *hot* colour is
+  near-white, so its shades read khaki rather than amber — a consequence
+  of one `axis_color()` feeding the ramp, not a bug, and left alone.
+  **The three shade factors themselves.** The alphas 0.2 / 0.5 /
   0.9 were settled by eye on the goldens; their opaque replacements have
   to be too, and the range sector is the one to watch — at 0.2 alpha it
   was barely there, and opaque it is a full amber annulus over the scene
-  at all times. *Agent proposes, human confirms from the images, by step
-  2.*
+  at all times. *Answered: 0.34 / 0.62 / 1.0.*

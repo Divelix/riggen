@@ -784,6 +784,23 @@ impl RiggenApp {
         self.viewport.frame_scene();
     }
 
+    /// Puts the orbit camera at `yaw` / `pitch` degrees and scales the
+    /// distance a fit left it at, keeping the target and **without**
+    /// animating — the same reason [`Self::fit_view_now`] exists rather
+    /// than `Home`.
+    ///
+    /// What a scenario that needs a particular angle on a glyph uses: a
+    /// grazing view is where an annulus foreshortens onto itself
+    /// (ADR-0027 §2), and an orbit drag would land on it only
+    /// approximately.
+    pub fn look_from(&mut self, yaw_deg: f32, pitch_deg: f32, distance_scale: f32) {
+        let camera = &mut self.viewport.camera;
+        camera.yaw = yaw_deg.to_radians();
+        camera.pitch = pitch_deg.to_radians();
+        camera.distance *= distance_scale;
+        camera.animation = None;
+    }
+
     /// Centre of the viewport rect, which after [`Self::fit_view_now`] is
     /// over the geometry — where a scenario aims a hover or a click. `None`
     /// before the first frame has laid it out.

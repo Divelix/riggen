@@ -7,11 +7,14 @@
 //! in the picture: an **axis segment** through the pivot, an **origin triad**
 //! in the axes triad's colours, and a **band** (revolute) or the same band
 //! unrolled into **bars** (prismatic) with a tick at the current `q`. The
-//! band is an annulus in the joint's plane drawn as three translucent
-//! sectors — the full circle faint, the limits over it, the run from zero
-//! to `q` on top — so which end of a hinge is the lower limit, how much of
-//! the range is used and whether it is near a stop read without finding
-//! the arc's start.
+//! band is an annulus in the joint's plane drawn as three **opaque**
+//! sectors, three shades of the one colour — the full circle darkest, the
+//! limits over it, the run from zero to `q` on top — so which end of a
+//! hinge is the lower limit, how much of the range is used and whether it
+//! is near a stop read without finding the arc's start. Opaque because a
+//! translucent sector foreshortened onto itself double-covers and shows a
+//! seam the joint does not have (ADR-0027 §2); a slide's bars are the same
+//! three shades, its range bar the axis segment's own extent.
 //!
 //! Drawn for every movable joint plus the selected one, whatever its kind
 //! (plans/m2-placement-ux OPEN 4): an unselected `Fixed` joint has nothing
@@ -83,24 +86,28 @@ const _: () = assert!(ACTUATOR_RING_RADIUS < BAND_INNER && BAND_INNER < ARC_RADI
 /// How far past the band the current-`q` tick sticks out.
 const TICK_OVERSHOOT: f64 = 1.25;
 
-/// The band's three opacities as they **result** on screen, not as
-/// layers: the full circle, the limits over it, the run from the zero
-/// position to `q` on top of that. The layers are drawn stacked in the
-/// one colour, each at the alpha that lands on the number below
-/// (`layered`), so the constants are what the eye gets. Settled by eye on
-/// the goldens (plans/joint-glyph-range-and-value OPEN).
-const RANGE_ALPHA: f32 = 0.2;
-const LIMIT_ALPHA: f32 = 0.5;
-const VALUE_ALPHA: f32 = 0.9;
+/// The band's three shades, as fractions of the glyph's own colour: the
+/// full circle (a slide's whole travel), the limits over it, the run from
+/// the zero position to `q` on top of that — which is the colour itself.
+/// Each sector is **opaque** (ADR-0027 §2): a translucent one drawn over
+/// itself double-covers, and at a grazing camera angle a foreshortened
+/// annulus sector does exactly that, showing a lighter seam where nothing
+/// about the joint changed. An opaque sector over itself is itself.
+/// Settled by eye on the goldens, as their alphas were.
+const RANGE_SHADE: f32 = 0.34;
+const LIMIT_SHADE: f32 = 0.62;
+const VALUE_SHADE: f32 = 1.0;
+const _: () = assert!(RANGE_SHADE < LIMIT_SHADE && LIMIT_SHADE < VALUE_SHADE);
 
-/// The alpha a layer of the same colour is drawn at over a fill already
-/// at `base` so the stack reads as `target`: `base + a·(1 − base) =
-/// target`. Exact for the one-colour stack; a value sector that runs
-/// outside the limits (a zero position off the range) lands a shade
-/// lighter over the faint circle than over the limits, which is the truth
-/// of it.
-fn layered(base: f32, target: f32) -> f32 {
-    ((target - base) / (1.0 - base)).clamp(0.0, 1.0)
+/// `color` scaled towards black by `factor`, at full alpha: the band's
+/// ramp is three shades of one colour rather than one colour at three
+/// alphas. Scaling the **RGB** and not the alpha is what makes the stack
+/// order-independent, and it shades whatever colour it is handed, so a
+/// mimic follower's muted amber (ADR-0013) and a hot glyph's bright one
+/// keep their ramp without a constant each.
+fn shade(color: egui::Color32, factor: f32) -> egui::Color32 {
+    let scaled = |c: u8| (f32::from(c) * factor).round().clamp(0.0, 255.0) as u8;
+    egui::Color32::from_rgb(scaled(color.r()), scaled(color.g()), scaled(color.b()))
 }
 
 /// One joint's glyph, already placed in the world: what the overlay draws
@@ -613,12 +620,13 @@ impl RiggenApp {
     }
 
     /// The band of a revolute joint: three filled sectors of the annulus
-    /// between [`BAND_INNER`] and [`ARC_RADIUS`], stacked in the glyph's
-    /// colour — the full circle at [`RANGE_ALPHA`], the limits over it
-    /// reading [`LIMIT_ALPHA`], the run from the zero position to `q` on
-    /// top reading [`VALUE_ALPHA`] — with the white spoke at `q` kept, so
-    /// a joint at zero still points. A `Continuous` joint has no limits:
-    /// its full circle *is* the limit band.
+    /// between [`BAND_INNER`] and [`ARC_RADIUS`], each an opaque shade of
+    /// the glyph's colour (ADR-0027 §2) — the full circle at
+    /// [`RANGE_SHADE`], the limits over it at [`LIMIT_SHADE`], the run
+    /// from the zero position to `q` on top at [`VALUE_SHADE`] — with the
+    /// white spoke at `q` kept, so a joint at zero still points. A
+    /// `Continuous` joint has no limits: its full circle *is* the limit
+    /// band.
     ///
     /// The colour carries the mimic muting and the hot brightening as the
     /// stroke did; the width has no fill to change, so a hot band is the
@@ -634,7 +642,7 @@ impl RiggenApp {
             return;
         };
         let reference = glyph.reference();
-        let mut sector = |start: DVec3, sweep: f64, alpha: f32| {
+        let mut sector = |start: DVec3, sweep: f64, factor: f32| {
             overlay.sector(
                 glyph.pivot.t,
                 glyph.axis,
@@ -642,26 +650,18 @@ impl RiggenApp {
                 inner,
                 outer,
                 sweep,
-                color.gamma_multiply(alpha),
+                shade(color, factor),
             );
         };
-        let limits_over = match glyph.limits {
+        match glyph.limits {
             Some((lower, upper)) => {
-                sector(reference, std::f64::consts::TAU, RANGE_ALPHA);
+                sector(reference, std::f64::consts::TAU, RANGE_SHADE);
                 let start = DQuat::from_axis_angle(glyph.axis, lower) * reference;
-                sector(start, upper - lower, layered(RANGE_ALPHA, LIMIT_ALPHA));
-                LIMIT_ALPHA
+                sector(start, upper - lower, LIMIT_SHADE);
             }
-            None => {
-                sector(reference, std::f64::consts::TAU, LIMIT_ALPHA);
-                LIMIT_ALPHA
-            }
-        };
-        sector(
-            reference,
-            glyph.value_sweep(),
-            layered(limits_over, VALUE_ALPHA),
-        );
+            None => sector(reference, std::f64::consts::TAU, LIMIT_SHADE),
+        }
+        sector(reference, glyph.value_sweep(), VALUE_SHADE);
         // The tick: a spoke from the pivot through the band at the current
         // angle, so "where is this joint now" is one glance even at zero,
         // where the value sector has no width.
@@ -677,12 +677,18 @@ impl RiggenApp {
     /// The travel of a prismatic joint: the band unrolled into **bars**
     /// beside the axis, between the same [`BAND_INNER`] and [`ARC_RADIUS`]
     /// offsets the revolute band spans, so a slide and a hinge are read
-    /// the same way. The limits are one bar reading [`LIMIT_ALPHA`], the
-    /// run from zero to `q` a second on top of it reading [`VALUE_ALPHA`],
-    /// the end stops and the white tick at `q` kept as they were.
+    /// the same way. Three bars in the three opaque shades, as the hinge
+    /// has three sectors: the axis segment's own extent at
+    /// [`RANGE_SHADE`], the limits over it at [`LIMIT_SHADE`], the run
+    /// from zero to `q` on top at [`VALUE_SHADE`], with the end stops and
+    /// the white tick at `q` kept as they were.
     ///
-    /// No faint full-range bar under the two: a circle has a whole turn to
-    /// be faint over, a slide has no travel beyond its own limits to draw.
+    /// The range bar is the hinge's full circle for a slide (ADR-0027 §4).
+    /// A slide has no travel beyond its own limits to be faint over, so it
+    /// borrows the length the glyph already claims on screen — and without
+    /// it an **unlimited** slide, whose limit and value bars are
+    /// zero-length, would draw a tick and nothing else in View, with
+    /// nothing to aim at.
     fn push_slide(
         &self,
         overlay: &mut Overlay,
@@ -701,13 +707,12 @@ impl RiggenApp {
             let at = glyph.pivot.t + glyph.axis * t;
             (at + inner, at + outer)
         };
-        overlay.strip(
-            vec![rung(lower), rung(upper)],
-            color.gamma_multiply(LIMIT_ALPHA),
-        );
+        let half = glyph.size * AXIS_HALF_LENGTH;
+        overlay.strip(vec![rung(-half), rung(half)], shade(color, RANGE_SHADE));
+        overlay.strip(vec![rung(lower), rung(upper)], shade(color, LIMIT_SHADE));
         overlay.strip(
             vec![rung(0.0), rung(glyph.value_sweep())],
-            color.gamma_multiply(layered(LIMIT_ALPHA, VALUE_ALPHA)),
+            shade(color, VALUE_SHADE),
         );
         for end in [lower, upper] {
             let (from, to) = rung(end);
@@ -765,15 +770,20 @@ mod tests {
     use riggen_core::Id;
 
     #[test]
-    fn a_layer_lands_the_stack_on_the_resulting_alpha() {
-        let over = |base: f32, layer: f32| base + layer * (1.0 - base);
-        let limit = layered(RANGE_ALPHA, LIMIT_ALPHA);
-        assert!((over(RANGE_ALPHA, limit) - LIMIT_ALPHA).abs() < 1e-6);
-        let value = layered(LIMIT_ALPHA, VALUE_ALPHA);
-        assert!((over(LIMIT_ALPHA, value) - VALUE_ALPHA).abs() < 1e-6);
-        // Never asked to go darker than what is already there.
-        assert_eq!(layered(0.9, 0.5), 0.0);
-        assert_eq!(layered(0.0, 1.0), 1.0);
+    fn the_ramp_is_three_opaque_shades_of_whatever_colour_it_is_handed() {
+        // Every shade is opaque: the stack cannot double-cover itself
+        // however the camera foreshortens it (ADR-0027 §2).
+        for factor in [RANGE_SHADE, LIMIT_SHADE, VALUE_SHADE] {
+            assert_eq!(shade(AXIS_COLOR, factor).a(), 255);
+        }
+        // Ordered (the `const` assert beside them) and monotone on the
+        // colour: darkest is the range, the value is the colour itself.
+        assert_eq!(shade(AXIS_COLOR, VALUE_SHADE), AXIS_COLOR);
+        assert!(shade(AXIS_COLOR, RANGE_SHADE).r() < shade(AXIS_COLOR, LIMIT_SHADE).r());
+        // It shades whatever colour it is handed, so a follower's muted
+        // amber (ADR-0013) keeps the ramp without a constant of its own.
+        assert!(shade(AXIS_COLOR_MIMIC, LIMIT_SHADE).r() < shade(AXIS_COLOR, LIMIT_SHADE).r());
+        assert_eq!(shade(AXIS_COLOR, 0.0), egui::Color32::BLACK);
     }
 
     #[test]

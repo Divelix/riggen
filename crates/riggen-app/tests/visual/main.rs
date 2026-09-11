@@ -5465,6 +5465,55 @@ fn glyph_prismatic() {
     });
 }
 
+/// The band at a **grazing** camera angle: the view brought to within a
+/// few degrees of the joint's own plane, which is where the old
+/// translucent stack double-covered itself and showed a seam the joint
+/// does not have (ADR-0027 §2, the human's report).
+///
+/// Foreshortened this far, the annulus's near half is drawn over its far
+/// half in screen space and the value sector over both. Opaque, every one
+/// of those overlaps is the same colour as what it covers, so the band
+/// reads as three flat shades whatever the camera does; translucent, each
+/// overlap was a lighter seam.
+#[test]
+fn glyph_band_grazing() {
+    scenario("glyph_band_grazing", |harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.set_joint_value(hinge, 55f64.to_radians());
+        app.select(Selection::Joint(hinge));
+        app.fit_view_now();
+        // The hinge turns about world Y, so its band lies in XZ. A yaw
+        // near zero puts the eye in that plane; the small pitch keeps the
+        // band from collapsing to an exact line, which would be a
+        // degenerate case rather than a grazing one.
+        app.look_from(6.0, 12.0, 0.45);
+        settle(harness);
+        pump_rendered(harness, 8);
+
+        let state = harness.state().debug_state();
+        let glyph = &state.glyphs[0];
+        assert_eq!(glyph.name, "hinge");
+        assert!(glyph.band.is_some(), "a hinge has a band to foreshorten");
+        // The setup is the point of this golden, so it is asserted rather
+        // than trusted: the view direction lies within ten degrees of the
+        // band's plane, i.e. nearly perpendicular to the joint's axis.
+        let axis = DVec3::from_array(glyph.axis);
+        let view = (DVec3::from_array(state.camera.target) - DVec3::from_array(state.camera.eye))
+            .normalize();
+        let off_plane = view.dot(axis).abs().asin().to_degrees();
+        assert!(
+            off_plane < 10.0,
+            "the camera should be grazing the band's plane, it is {off_plane} degrees off it"
+        );
+        assert!(
+            off_plane > 1.0,
+            "and not exactly edge-on, which draws a line"
+        );
+    });
+}
+
 /// Which joints get a glyph (plans/m2-placement-ux OPEN 4) and how big it
 /// is: every movable one plus the selected one, sized from the child link's
 /// own bounds.
