@@ -116,6 +116,10 @@ pub struct RiggenApp {
     /// visibility row at the right (`overlays.rs`). A glyph behind either
     /// is not "hovered" through it and the camera holds still under it.
     chrome_rects: Vec<egui::Rect>,
+    /// Where the ViewCube was drawn last frame, or `None` in zen, where it
+    /// is not drawn at all (ADR-0028 §3). Only `viewcube_facet_center`
+    /// reads it — a test that wants to click a facet.
+    viewcube_rect: Option<egui::Rect>,
     /// What the cursor is really pointing at, for the placement tools
     /// (`snap.rs`). Rebuilt every frame from the hovered pick.
     snap_candidate: Option<SnapCandidate>,
@@ -242,6 +246,7 @@ impl RiggenApp {
             hovered_frame: None,
             frame_glyph_hover: None,
             chrome_rects: Vec::new(),
+            viewcube_rect: None,
             snap_candidate: None,
             snap_cache: SnapCache::default(),
             align_source: None,
@@ -583,8 +588,12 @@ impl eframe::App for RiggenApp {
                 if self.zen {
                     // Nothing is drawn there, so nothing may go on
                     // blocking the camera or suppressing picks under a
-                    // rect from the frame before (ADR-0021, amended).
+                    // rect from the frame before (ADR-0021, amended) — and
+                    // no cube, so no projection readout either (ADR-0028
+                    // §5): `P` still toggles and `debug_state().camera`
+                    // still names it.
                     self.chrome_rects.clear();
+                    self.viewcube_rect = None;
                 } else {
                     self.viewport_chrome(ui, rect);
                 }

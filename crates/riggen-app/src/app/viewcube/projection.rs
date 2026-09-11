@@ -20,7 +20,6 @@ pub struct ProjectedFacet {
     pub normal_3d: Vec3,
     pub center_2d: egui::Pos2,
     pub depth: f32,
-    pub view_dot: f32,
 }
 
 /// The camera basis the cube is projected through: `(right, up, eye_dir)`,
@@ -87,7 +86,6 @@ pub fn project_viewcube(rect: egui::Rect, yaw: f32, pitch: f32) -> Vec<Projected
             normal_3d: facet.normal,
             center_2d,
             depth,
-            view_dot,
         });
     }
 

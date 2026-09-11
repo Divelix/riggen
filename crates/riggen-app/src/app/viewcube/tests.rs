@@ -1,19 +1,21 @@
 //! RoboCAD's ViewCube tests, ported with the math they cover (ADR-0028 §3).
 //!
-//! These are the step's evidence in place of a golden: nothing is painted
-//! yet, so the facets, the cull, the sort and the hit test have to be
-//! asserted as numbers. The widget's own tests arrive with the widget.
+//! The math half stands in for a golden: the facets, the cull, the sort
+//! and the hit test are asserted as numbers, where the picture can only
+//! show that something is wrong. The widget half drives a real
+//! `egui::Context` through the three frames a click takes.
 
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 
 use riggen_core::glam::Vec3;
-use riggen_viewport::ViewOrientation;
+use riggen_viewport::{Projection, ViewOrientation};
 
 use super::facets::chamfered_cube_facets;
 use super::projection::{
     camera_basis, face_local_axes_3d, hit_test_viewcube, point_in_polygon_2d,
     project_face_text_mesh, project_viewcube,
 };
+use super::widget::{ViewCubeAction, viewcube};
 
 #[test]
 fn chamfered_cube_facet_counts_and_shapes() {
@@ -392,4 +394,147 @@ fn project_face_text_mesh_generates_valid_mesh() {
         }
     });
     output.textures_delta.clear();
+}
+
+#[test]
+fn the_widget_runs_in_an_egui_context_and_a_quiet_frame_asks_for_nothing() {
+    let ctx = egui::Context::default();
+    let mut output = ctx.run_ui(Default::default(), |ui| {
+        let rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(192.0, 192.0));
+
+        // Front view, perspective
+        let action_normal = viewcube(ui, rect, FRAC_PI_2, 0.0, Projection::Perspective).action;
+        assert_eq!(
+            action_normal, None,
+            "a frame nobody clicked asks for nothing"
+        );
+
+        // Isometric view, Orthographic
+        let (iso_yaw, iso_pitch) = ViewOrientation::FrontTopRight.yaw_pitch();
+        let action_iso = viewcube(ui, rect, iso_yaw, iso_pitch, Projection::Orthographic).action;
+        assert_eq!(action_iso, None);
+    });
+    output.textures_delta.clear();
+}
+
+#[test]
+fn an_orbit_action_carries_its_two_deltas() {
+    let action = ViewCubeAction::Orbit {
+        delta_yaw: 0.05,
+        delta_pitch: -0.02,
+    };
+    if let ViewCubeAction::Orbit {
+        delta_yaw,
+        delta_pitch,
+    } = action
+    {
+        assert_eq!(delta_yaw, 0.05);
+        assert_eq!(delta_pitch, -0.02);
+    } else {
+        panic!("Expected ViewCubeAction::Orbit");
+    }
+}
+
+#[test]
+fn the_four_actions_are_distinct() {
+    let action = ViewCubeAction::Home;
+    assert_eq!(action, ViewCubeAction::Home);
+    assert_ne!(action, ViewCubeAction::Select(ViewOrientation::Front));
+    assert_ne!(action, ViewCubeAction::ToggleProjection);
+}
+
+#[test]
+fn toggle_projection_is_not_home() {
+    let action = ViewCubeAction::ToggleProjection;
+    assert_eq!(action, ViewCubeAction::ToggleProjection);
+    assert_ne!(action, ViewCubeAction::Home);
+}
+
+#[test]
+fn clicking_the_home_icon_asks_for_home() {
+    let ctx = egui::Context::default();
+    let rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(128.0, 128.0));
+    let home_pos = egui::pos2(rect.min.x + 8.0, rect.min.y + 8.0);
+
+    // Frame 0: Setup and position pointer
+    let mut input0 = egui::RawInput::default();
+    input0.events.push(egui::Event::PointerMoved(home_pos));
+    let mut out0 = ctx.run_ui(input0, |ui| {
+        let _ = viewcube(ui, rect, FRAC_PI_2, 0.0, Projection::Perspective).action;
+    });
+    out0.textures_delta.clear();
+
+    // Frame 1: Pointer press
+    let mut input1 = egui::RawInput::default();
+    input1.events.push(egui::Event::PointerButton {
+        pos: home_pos,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::default(),
+    });
+    let mut out1 = ctx.run_ui(input1, |ui| {
+        let _ = viewcube(ui, rect, FRAC_PI_2, 0.0, Projection::Perspective).action;
+    });
+    out1.textures_delta.clear();
+
+    // Frame 2: Pointer release
+    let mut input2 = egui::RawInput::default();
+    input2.events.push(egui::Event::PointerButton {
+        pos: home_pos,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::default(),
+    });
+    let mut action_captured = None;
+    let mut out2 = ctx.run_ui(input2, |ui| {
+        action_captured = viewcube(ui, rect, FRAC_PI_2, 0.0, Projection::Perspective).action;
+    });
+    out2.textures_delta.clear();
+
+    assert_eq!(action_captured, Some(ViewCubeAction::Home));
+}
+
+#[test]
+fn clicking_the_projection_button_asks_for_the_toggle() {
+    let ctx = egui::Context::default();
+    let rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(128.0, 128.0));
+    // Centred under the cube (`projection_button_rect`).
+    let btn_pos = egui::pos2(rect.center().x, rect.max.y + 14.0);
+
+    // Frame 0: Setup and position pointer over the projection button
+    let mut input0 = egui::RawInput::default();
+    input0.events.push(egui::Event::PointerMoved(btn_pos));
+    let mut out0 = ctx.run_ui(input0, |ui| {
+        let _ = viewcube(ui, rect, FRAC_PI_2, 0.0, Projection::Perspective).action;
+    });
+    out0.textures_delta.clear();
+
+    // Frame 1: Pointer press
+    let mut input1 = egui::RawInput::default();
+    input1.events.push(egui::Event::PointerButton {
+        pos: btn_pos,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::default(),
+    });
+    let mut out1 = ctx.run_ui(input1, |ui| {
+        let _ = viewcube(ui, rect, FRAC_PI_2, 0.0, Projection::Perspective).action;
+    });
+    out1.textures_delta.clear();
+
+    // Frame 2: Pointer release
+    let mut input2 = egui::RawInput::default();
+    input2.events.push(egui::Event::PointerButton {
+        pos: btn_pos,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::default(),
+    });
+    let mut action_captured = None;
+    let mut out2 = ctx.run_ui(input2, |ui| {
+        action_captured = viewcube(ui, rect, FRAC_PI_2, 0.0, Projection::Perspective).action;
+    });
+    out2.textures_delta.clear();
+
+    assert_eq!(action_captured, Some(ViewCubeAction::ToggleProjection));
 }

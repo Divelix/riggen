@@ -1,5 +1,5 @@
-//! The ViewCube: the chamfered cube's geometry, its projection, and (step 5)
-//! the widget that paints it in the viewport's bottom-right corner.
+//! The ViewCube: the chamfered cube's geometry, its projection, and the
+//! widget that paints it in the viewport's bottom-right corner.
 //!
 //! App-side on purpose (ADR-0028 §3). The cube is interactive chrome that
 //! *writes* the camera — it registers a rect in `chrome_rects` like every
@@ -14,18 +14,12 @@
 //! variants — plus RoboCAD's `is_sketch_mode` parameter dropped, riggen
 //! having no sketch mode to dim for.
 
-#[allow(
-    dead_code,
-    reason = "the widget that calls all of this lands in step 5; until then \
-              the ported tests are its only caller"
-)]
 pub mod facets;
-#[allow(
-    dead_code,
-    reason = "the widget that calls all of this lands in step 5; until then \
-              the ported tests are its only caller"
-)]
 pub mod projection;
+pub mod widget;
 
 #[cfg(test)]
 mod tests;
+
+pub use projection::project_viewcube;
+pub use widget::{ViewCubeAction, projection_button_rect, viewcube};

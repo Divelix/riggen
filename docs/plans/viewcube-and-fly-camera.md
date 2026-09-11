@@ -106,7 +106,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       backface-cull, hit-test, face text). No UI yet, so no golden: the
       ported unit tests are the step's evidence, and `cargo test -p
       riggen-app` runs them.
-- [ ] **[2]** Step 5 — **The cube in the corner.** `widget.rs` ported and
+- [x] **[2]** Step 5 — **The cube in the corner.** `widget.rs` ported and
       wired: `Select` → `animate_to_orientation`, `Orbit` → `camera.orbit`,
       `Home` → `animate_frame_scene`, `ToggleProjection` →
       `toggle_projection`; bottom-right, its rect in `chrome_rects`; the

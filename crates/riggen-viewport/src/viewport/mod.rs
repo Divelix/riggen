@@ -1515,25 +1515,11 @@ impl Viewport {
             self.paint_overlay(&pivot, ui, rect);
         }
 
-        // The projection label is render state a snapshot should show, so
-        // it stays in the viewport corner; the wall-clock frame-time
-        // readout lives in the app's status bar instead.
-        let hud_color = if ui.visuals().dark_mode {
-            egui::Color32::from_white_alpha(200)
-        } else {
-            egui::Color32::from_black_alpha(200)
-        };
-        let projection_label = match self.camera.projection {
-            Projection::Perspective => "persp",
-            Projection::Orthographic => "ortho",
-        };
-        ui.painter().text(
-            rect.right_bottom() + egui::vec2(-8.0, -8.0),
-            egui::Align2::RIGHT_BOTTOM,
-            projection_label,
-            egui::FontId::monospace(12.0),
-            hud_color,
-        );
+        // The projection readout used to be painted here, in this corner.
+        // It is the ViewCube's own button now (ADR-0028 §3): the thing that
+        // says which projection is live is the thing that switches it, and
+        // a second label beside it would be a duplicate that zen would then
+        // have to decide about.
 
         response
     }

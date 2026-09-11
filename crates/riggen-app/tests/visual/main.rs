@@ -25,6 +25,7 @@ use harness::{
 use riggen_app::{Mode, RingAxis, Selection, Tool, VIEW_TOOL_HINT};
 use riggen_core::glam::DVec3;
 use riggen_core::{Command, Link, LinkId, Pose};
+use riggen_viewport::ViewOrientation;
 
 fn fixture(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1646,6 +1647,21 @@ fn zen_view() {
                 "`{label}` is chrome and zen takes it"
             );
         }
+        // The ViewCube is the third piece of corner chrome and goes with
+        // the other two — which is why zen has no projection readout at
+        // all, the cube's button being the only one there is (ADR-0028 §5).
+        assert!(
+            harness
+                .state()
+                .viewcube_facet_center(ViewOrientation::Top)
+                .is_none(),
+            "the cube is chrome and zen takes it"
+        );
+        assert_eq!(
+            harness.state().debug_state().camera.projection,
+            "Perspective",
+            "but the projection is still a fact the window knows"
+        );
         // The glyphs are the viewport's own and stay: zen hid panels, not
         // the robot.
         assert_eq!(harness.state().joint_glyphs().len(), 3);
@@ -5138,6 +5154,94 @@ fn a_left_drag_turns_the_sample_arm() {
             harness.state().debug_state().document.selection,
             None,
             "and a drag is not a click, so nothing was selected"
+        );
+    });
+}
+
+/// The cube in the corner (ADR-0028 §3): the sample arm at its home view,
+/// with the bottom-right showing the three faces the camera can see, the
+/// home icon, and the projection button that replaced the viewport's
+/// `persp` / `ortho` text.
+#[test]
+fn viewcube_corner() {
+    scenario("viewcube_corner", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+
+        // The three faces this camera looks at, and a corner between them.
+        for orientation in [
+            ViewOrientation::Top,
+            ViewOrientation::Back,
+            ViewOrientation::Right,
+            ViewOrientation::BackTopRight,
+        ] {
+            assert!(
+                harness.state().viewcube_facet_center(orientation).is_some(),
+                "{orientation:?} faces the camera at the home view"
+            );
+        }
+        assert!(
+            harness
+                .state()
+                .viewcube_facet_center(ViewOrientation::Front)
+                .is_none(),
+            "and the face turned away from it is culled"
+        );
+    });
+}
+
+/// Clicking a facet flies to that view, and nothing else moves (ADR-0028
+/// §3): the cube aims the one turntable through `animate_to_orientation`,
+/// so the target and the distance are exactly what they were.
+///
+/// The picture is taken once the animation has landed — a golden mid-flight
+/// reads the wall clock (`CameraDebug::animating`).
+#[test]
+fn viewcube_click_snaps_to_top() {
+    scenario("viewcube_click_snaps_to_top", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        let before = harness.state().debug_state().camera;
+
+        let top = harness
+            .state()
+            .viewcube_facet_center(ViewOrientation::Top)
+            .expect("the top face is visible at the home view");
+        click_at(harness, top);
+
+        // The flight takes about as long as any other view transition.
+        for _ in 0..40 {
+            if !harness.state().debug_state().camera.animating {
+                break;
+            }
+            pump_rendered(harness, 4);
+        }
+        settle(harness);
+
+        let after = harness.state().debug_state().camera;
+        assert!(!after.animating, "the flight landed before the capture");
+        assert!(
+            (after.pitch_deg - 90.0).abs() < 0.5,
+            "clicking TOP looks straight down: {} deg",
+            after.pitch_deg
+        );
+        assert_eq!(
+            (after.target, after.distance),
+            (before.target, before.distance),
+            "the cube aims the camera; it does not move or zoom it"
+        );
+        assert_eq!(
+            harness.state().debug_state().document.selection,
+            None,
+            "and a click on the chrome is not a click on the scene"
         );
     });
 }

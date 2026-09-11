@@ -10,9 +10,11 @@
 //! not one switch of the table (ADR-0021, amended).
 
 use riggen_core::{JointKind, Limits};
+use riggen_viewport::ViewOrientation;
 
 use super::gizmo::{WHEEL_STEP, WHEEL_STEP_FINE, wheel_notches};
 use super::panels::STEP_M;
+use super::viewcube;
 use super::{RiggenApp, Selection, Tool};
 
 /// What the status bar says when a tool key is pressed in View: the tools
@@ -127,13 +129,16 @@ impl RiggenApp {
 impl RiggenApp {
     /// The corner chrome: the `View | Edit` control in the viewport's
     /// top-left in both modes with `Tab` in its tooltip, the toolbar to its
-    /// right in Edit, and the **visibility row** at the top-right
-    /// (`overlays.rs`). Drawn after the viewport in the same layer so
-    /// egui's hit test gives it the pointer (`tool.rs`). Records both rects
-    /// in `chrome_rects`: camera blocked and picks suppressed under either,
-    /// no glyph hovered through them. Not called at all in zen, where
-    /// `chrome_rects` is cleared instead: nothing is drawn there, so
-    /// nothing may go on blocking (ADR-0021, amended).
+    /// right in Edit, the **visibility row** at the top-right
+    /// (`overlays.rs`), and the **ViewCube** at the bottom-right
+    /// (`viewcube/`, ADR-0028 §3). Drawn after the viewport in the same
+    /// layer so egui's hit test gives it the pointer (`tool.rs`). Records
+    /// all three rects in `chrome_rects`: camera blocked and picks
+    /// suppressed under any of them, no glyph hovered through them. Not
+    /// called at all in zen, where `chrome_rects` is cleared instead:
+    /// nothing is drawn there, so nothing may go on blocking (ADR-0021,
+    /// amended) — and the cube being one of the three is why zen has no
+    /// projection readout at all (ADR-0028 §5).
     pub(crate) fn viewport_chrome(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
         const MARGIN: f32 = 8.0;
         let corner = egui::Rect::from_min_max(rect.min + egui::Vec2::splat(MARGIN), rect.max);
@@ -162,13 +167,79 @@ impl RiggenApp {
                 }
             },
         );
-        self.chrome_rects = vec![response.response.rect, self.overlay_row(ui, rect)];
+        self.chrome_rects = vec![
+            response.response.rect,
+            self.overlay_row(ui, rect),
+            self.view_cube(ui, rect),
+        ];
         if let Some(mode) = chosen_mode {
             self.set_mode(mode);
         }
         if let Some(tool) = chosen_tool {
             self.set_tool(tool);
         }
+    }
+
+    /// The ViewCube in the bottom-right corner, and the camera call its
+    /// action makes (ADR-0028 §3). Returns the rect it occupies — the cube
+    /// plus its projection button — for `chrome_rects`.
+    ///
+    /// Bottom-right because top-right is the visibility row's and the only
+    /// thing this corner held was the `persp` / `ortho` text the cube's own
+    /// button now *is*. The block is laid out upwards from the bottom
+    /// margin so the button, which hangs below the cube, stays inside the
+    /// viewport.
+    fn view_cube(&mut self, ui: &mut egui::Ui, rect: egui::Rect) -> egui::Rect {
+        const MARGIN: f32 = 8.0;
+        const SIZE: f32 = 92.0;
+        let probe = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::splat(SIZE));
+        let block_height = SIZE + (viewcube::projection_button_rect(probe).max.y - probe.max.y);
+        let cube_rect = egui::Rect::from_min_size(
+            egui::pos2(
+                rect.max.x - MARGIN - SIZE,
+                rect.max.y - MARGIN - block_height,
+            ),
+            egui::Vec2::splat(SIZE),
+        );
+        self.viewcube_rect = Some(cube_rect);
+
+        let camera = &self.viewport.camera;
+        let out = viewcube::viewcube(ui, cube_rect, camera.yaw, camera.pitch, camera.projection);
+        match out.action {
+            Some(viewcube::ViewCubeAction::Select(orientation)) => {
+                self.viewport.camera.animate_to_orientation(orientation);
+            }
+            Some(viewcube::ViewCubeAction::Orbit {
+                delta_yaw,
+                delta_pitch,
+            }) => {
+                self.viewport.camera.orbit(delta_yaw, delta_pitch);
+            }
+            Some(viewcube::ViewCubeAction::Home) => {
+                self.viewport.animate_frame_scene();
+            }
+            Some(viewcube::ViewCubeAction::ToggleProjection) => {
+                self.viewport.camera.toggle_projection();
+            }
+            None => {}
+        }
+        if out.action.is_some() {
+            ui.ctx().request_repaint();
+        }
+        out.rect
+    }
+
+    /// Where a ViewCube facet is on screen, for a test that wants to click
+    /// one — the analogue of `project_world` for the cube. `None` in zen,
+    /// where the cube is not drawn, and for a facet the current view has
+    /// culled.
+    pub fn viewcube_facet_center(&self, orientation: ViewOrientation) -> Option<egui::Pos2> {
+        let rect = self.viewcube_rect?;
+        let camera = &self.viewport.camera;
+        viewcube::project_viewcube(rect, camera.yaw, camera.pitch)
+            .into_iter()
+            .find(|facet| facet.orientation == orientation)
+            .map(|facet| facet.center_2d)
     }
 
     /// In View, the wheel over a hovered glyph poses that joint — a notch
