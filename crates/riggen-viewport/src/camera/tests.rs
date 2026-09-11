@@ -518,3 +518,182 @@ fn fit_sets_the_depth_range_from_the_radius() {
     );
     assert!((cam.distance - 10.0 / (cam.fov_y * 0.5).sin() * 1.2).abs() < 1e-3);
 }
+
+// ---------------------------------------------------------------------------
+// The fly keys (ADR-0028 §2)
+// ---------------------------------------------------------------------------
+
+/// A camera whose basis is unambiguous: pitched, yawed off an axis, and a
+/// long way from the origin, so "moved along forward" cannot be confused
+/// with "moved along X".
+fn flyable() -> OrbitCamera {
+    OrbitCamera {
+        target: Vec3::new(0.3, -0.7, 0.2),
+        distance: 2.5,
+        yaw: 0.9,
+        pitch: 0.6,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn flying_forward_moves_the_target_along_the_view_and_nothing_else() {
+    let mut cam = flyable();
+    let (forward, ..) = cam.basis();
+    let before = cam.target;
+    let (yaw, pitch, distance) = (cam.yaw, cam.pitch, cam.distance);
+
+    let dt = 0.25;
+    cam.fly(Vec3::X, dt, 1.0);
+
+    let moved = cam.target - before;
+    let expected = OrbitCamera::FLY_SPEED * distance * dt;
+    assert!(
+        (moved.length() - expected).abs() < 1e-5,
+        "flew {} where speed·dt is {expected}",
+        moved.length()
+    );
+    assert!(
+        (moved.normalize() - forward).length() < 1e-5,
+        "flew along {:?}, not along the view direction {forward:?}",
+        moved.normalize()
+    );
+    assert_eq!(
+        (cam.yaw, cam.pitch, cam.distance),
+        (yaw, pitch, distance),
+        "flying aims nothing: the eye follows the pivot rigidly"
+    );
+}
+
+#[test]
+fn the_six_directions_are_the_cameras_own_basis() {
+    let base = flyable();
+    let (forward, right, up) = base.basis();
+    for (dir, axis, what) in [
+        (Vec3::X, forward, "W"),
+        (Vec3::NEG_X, -forward, "S"),
+        (Vec3::Y, right, "D"),
+        (Vec3::NEG_Y, -right, "A"),
+        (Vec3::Z, up, "E"),
+        (Vec3::NEG_Z, -up, "Q"),
+    ] {
+        let mut cam = base.clone();
+        cam.fly(dir, 0.25, 1.0);
+        let moved = (cam.target - base.target).normalize();
+        assert!(
+            (moved - axis).length() < 1e-5,
+            "{what} flew along {moved:?}, not {axis:?}"
+        );
+    }
+}
+
+#[test]
+fn rising_follows_the_view_not_world_z() {
+    // The human's answer to the plan's open question: all six keys are one
+    // rule. At a pitched camera the view's up is *not* world Z, and `E` has
+    // to leave the XY plane by less than it climbs.
+    let mut cam = flyable();
+    let (_, _, up) = cam.basis();
+    assert!(
+        up.z < 0.9,
+        "the fixture's camera must actually be pitched, got up {up:?}"
+    );
+    let before = cam.target;
+    cam.fly(Vec3::Z, 0.25, 1.0);
+    let moved = cam.target - before;
+    assert!(
+        (moved.normalize() - up).length() < 1e-5,
+        "E rose along {:?} rather than the view's up {up:?}",
+        moved.normalize()
+    );
+    assert!(
+        moved.z < moved.length() - 1e-4,
+        "and so it is not world Z: {moved:?}"
+    );
+}
+
+#[test]
+fn at_a_pole_rising_uses_the_bases_own_up_hint() {
+    // Looking straight down, `basis()` stands Y in for Z so `right` is not
+    // degenerate. The fly keys inherit that instead of needing a case of
+    // their own: the only thing asserted here is that the move is finite,
+    // in plane, and the same vector `basis()` reports.
+    let mut cam = OrbitCamera::default();
+    cam.set_standard_view(StandardView::Top);
+    let (_, _, up) = cam.basis();
+    let before = cam.target;
+    cam.fly(Vec3::Z, 0.25, 1.0);
+    let moved = cam.target - before;
+    assert!(
+        moved.is_finite() && moved.length() > 0.0,
+        "a pole must not degenerate the fly direction: {moved:?}"
+    );
+    assert!(
+        (moved.normalize() - up).length() < 1e-5,
+        "flew along {:?} rather than the basis's up {up:?}",
+        moved.normalize()
+    );
+}
+
+#[test]
+fn boost_and_distance_scale_the_step() {
+    let step = |distance: f32, boost: f32| {
+        let mut cam = flyable();
+        cam.distance = distance;
+        let before = cam.target;
+        cam.fly(Vec3::X, 0.25, boost);
+        (cam.target - before).length()
+    };
+    let plain = step(2.5, 1.0);
+    assert!(
+        (step(2.5, OrbitCamera::FLY_FAST) - plain * OrbitCamera::FLY_FAST).abs() < 1e-4,
+        "shift is {}x",
+        OrbitCamera::FLY_FAST
+    );
+    assert!(
+        (step(2.5, OrbitCamera::FLY_SLOW) - plain * OrbitCamera::FLY_SLOW).abs() < 1e-4,
+        "ctrl is {}x",
+        OrbitCamera::FLY_SLOW
+    );
+    assert!(
+        (step(5.0, 1.0) - plain * 2.0).abs() < 1e-4,
+        "twice as far out is twice the step, so the key crosses the same \
+         fraction of the view at any scale"
+    );
+}
+
+#[test]
+fn two_keys_at_once_are_not_faster_than_one() {
+    let mut one = flyable();
+    let mut two = flyable();
+    one.fly(Vec3::X, 0.25, 1.0);
+    two.fly(Vec3::new(1.0, 1.0, 0.0), 0.25, 1.0);
+    let (a, b) = (
+        (one.target - flyable().target).length(),
+        (two.target - flyable().target).length(),
+    );
+    assert!((a - b).abs() < 1e-5, "diagonal {b} against straight {a}");
+}
+
+#[test]
+fn a_still_key_and_a_zero_frame_move_nothing() {
+    let mut cam = flyable();
+    let before = cam.target;
+    cam.fly(Vec3::ZERO, 0.25, 1.0);
+    cam.fly(Vec3::X, 0.0, 1.0);
+    assert_eq!(cam.target, before);
+}
+
+#[test]
+fn flying_cancels_an_animation_like_every_other_gesture() {
+    let mut cam = flyable();
+    cam.animate_to(1.0, 1.0);
+    assert!(cam.is_animating());
+    cam.fly(Vec3::X, 0.25, 1.0);
+    assert!(!cam.is_animating());
+
+    // But a key nobody is holding is not a gesture, so it does not.
+    cam.animate_to(1.0, 1.0);
+    cam.fly(Vec3::ZERO, 0.25, 1.0);
+    assert!(cam.is_animating());
+}

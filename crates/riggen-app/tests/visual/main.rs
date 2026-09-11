@@ -17,8 +17,9 @@ mod harness;
 
 use egui_kittest::kittest::{NodeT, Queryable};
 use harness::{
-    camera_drag, click_at, click_widget, middle_drag, open_for_editing, press_move_release,
-    pump_rendered, scenario, scroll_at, scroll_at_with, settle, synthetic_drag, with_app,
+    camera_drag, click_at, click_widget, hold_key, middle_drag, open_for_editing,
+    press_move_release, pump_rendered, release_key, scenario, scroll_at, scroll_at_with, settle,
+    synthetic_drag, with_app,
 };
 
 use riggen_app::{Mode, RingAxis, Selection, Tool, VIEW_TOOL_HINT};
@@ -5137,6 +5138,115 @@ fn a_left_drag_turns_the_sample_arm() {
             harness.state().debug_state().document.selection,
             None,
             "and a drag is not a click, so nothing was selected"
+        );
+    });
+}
+
+/// Flying into the sample arm: the pivot walks along the view and the
+/// camera comes with it (ADR-0028 §2).
+///
+/// In **View**, which is where this gesture is for — a joint inside a shell
+/// has to be put in front of the camera before the wheel and the band can
+/// reach it (ADR-0021 §1, ADR-0027) — and holding `W` rather than pressing
+/// it, because the keys are read as held.
+#[test]
+fn fly_into_the_assembly() {
+    scenario("fly_into_the_assembly", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        assert_eq!(harness.state().debug_state().ui.mode, "View");
+
+        let before = harness.state().debug_state().camera;
+        let forward = (DVec3::from(before.target) - DVec3::from(before.eye)).normalize();
+
+        // The fly keys are viewport shortcuts: the pointer has to be over
+        // it, and the middle of the viewport is clear of every corner.
+        let r = harness.state().debug_state().viewport_rect.unwrap();
+        let center = egui::pos2(((r[0] + r[2]) / 2.0) as f32, ((r[1] + r[3]) / 2.0) as f32);
+        harness.hover_at(center);
+        pump_rendered(harness, 4);
+
+        hold_key(harness, egui::Key::W, 6);
+        release_key(harness, egui::Key::W);
+
+        let after = harness.state().debug_state().camera;
+        let moved = DVec3::from(after.target) - DVec3::from(before.target);
+        assert!(
+            moved.length() > 1e-3,
+            "holding W flew the pivot: {:?} -> {:?}",
+            before.target,
+            after.target
+        );
+        assert!(
+            (moved.normalize() - forward).length() < 1e-3,
+            "and it flew along the view, not along an axis: {:?}",
+            moved.normalize()
+        );
+        assert_eq!(
+            (after.yaw_deg, after.pitch_deg, after.distance),
+            (before.yaw_deg, before.pitch_deg, before.distance),
+            "the eye follows rigidly: flying aims nothing and zooms nothing"
+        );
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            0,
+            "walking the camera is not an edit"
+        );
+
+        // Released, the camera is at rest: another frame moves nothing.
+        let resting = harness.state().debug_state().camera.target;
+        pump_rendered(harness, 4);
+        assert_eq!(
+            harness.state().debug_state().camera.target,
+            resting,
+            "a released key stops the walk"
+        );
+    });
+}
+
+/// The other half of the gating: `W A S D` are letters, and an inline
+/// rename must type them instead of flying the camera (ADR-0028 §2).
+#[test]
+fn the_fly_keys_yield_to_a_text_field() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .map(|(id, _)| id)
+            .unwrap();
+        app.select(Selection::Link(arm));
+        app.fit_view_now();
+        settle(harness);
+
+        // The pointer parked over the viewport, which is the only place the
+        // keys are live at all — so the field is the only thing stopping
+        // them.
+        let r = harness.state().debug_state().viewport_rect.unwrap();
+        let center = egui::pos2(((r[0] + r[2]) / 2.0) as f32, ((r[1] + r[3]) / 2.0) as f32);
+        harness.hover_at(center);
+        pump_rendered(harness, 4);
+
+        harness.get_by_label("name").click();
+        harness.step();
+        harness.step();
+
+        let before = harness.state().debug_state().camera.target;
+        for key in [egui::Key::W, egui::Key::A, egui::Key::S, egui::Key::D] {
+            hold_key(harness, key, 3);
+            release_key(harness, key);
+        }
+        assert_eq!(
+            harness.state().debug_state().camera.target,
+            before,
+            "a focused field swallows the fly keys"
         );
     });
 }

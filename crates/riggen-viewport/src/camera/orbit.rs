@@ -42,6 +42,15 @@ impl OrbitCamera {
     pub const DEFAULT_YAW: f32 = -std::f32::consts::FRAC_PI_4;
     pub const DEFAULT_PITCH: f32 = 0.5;
 
+    /// Fly speed as a fraction of `distance` per second (ADR-0028 §2): a
+    /// held key crosses the framed scene in a second and a half, which is
+    /// the same order as the wheel's zoom and is why it is measured against
+    /// `distance` rather than in meters.
+    pub const FLY_SPEED: f32 = 0.8;
+    /// `Shift` and `Ctrl` multipliers on [`Self::FLY_SPEED`].
+    pub const FLY_FAST: f32 = 4.0;
+    pub const FLY_SLOW: f32 = 0.25;
+
     pub fn eye(&self) -> Vec3 {
         let (sy, cy) = self.yaw.sin_cos();
         let (sp, cp) = self.pitch.sin_cos();
@@ -290,6 +299,33 @@ impl OrbitCamera {
         self.cancel_animation();
         self.yaw += delta_yaw;
         self.pitch = (self.pitch + delta_pitch).clamp(-MAX_PITCH, MAX_PITCH);
+    }
+
+    /// Flies the turntable's **pivot** through the scene (ADR-0028 §2).
+    ///
+    /// `dir` weights the camera's own basis — `x` forward, `y` right, `z`
+    /// up — so `W A S D E Q` are one rule, *you fly where you are looking*,
+    /// and `E` / `Q` rise along the **view's** up rather than world Z. It
+    /// is [`Self::basis`], so the pole heuristic that stands Y in for Z at
+    /// the exact top and bottom views covers this too instead of needing a
+    /// case of its own.
+    ///
+    /// Only `target` moves: `yaw`, `pitch` and `distance` are untouched, so
+    /// the eye follows rigidly and arrives inside the assembly with the
+    /// pivot — after which the same left-drag orbits *locally*, which is
+    /// the gesture this exists for. `dir` is normalized, so flying two keys
+    /// at once is not √2 faster than one, and the speed is a fraction of
+    /// `distance` so the same key crosses the same fraction of the view
+    /// whatever the scale of the robot.
+    pub fn fly(&mut self, dir: Vec3, dt: f32, boost: f32) {
+        let dir = dir.normalize_or_zero();
+        if dir == Vec3::ZERO || dt <= 0.0 {
+            return;
+        }
+        self.cancel_animation();
+        let (forward, right, up) = self.basis();
+        let step = forward * dir.x + right * dir.y + up * dir.z;
+        self.target += step * (Self::FLY_SPEED * self.distance * boost * dt);
     }
 
     /// `delta_x`/`delta_y` in screen pixels.

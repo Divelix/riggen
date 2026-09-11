@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use web_time::Instant;
 
 use egui_wgpu::wgpu;
-use riggen_mesh::glam::{DMat4, DVec3, Mat4};
+use riggen_mesh::glam::{DMat4, DVec3, Mat4, Vec3};
 use riggen_mesh::{Aabb, Ray, TriMesh};
 
 use crate::PickHit;
@@ -912,6 +912,44 @@ impl Viewport {
             );
             self.camera.zoom_to_cursor(scroll, ndc, aspect);
             changed = true;
+        }
+
+        // The fly keys (ADR-0028 §2). Read as **held**, not pressed: the
+        // pivot walks for as long as the key is down, and `changed` below
+        // is what keeps the frames coming while it is.
+        //
+        // Gated on the pointer being over the viewport, like every other
+        // viewport shortcut, and on egui not wanting the keyboard —
+        // `W A S D` are letters, and an inline link rename must type them
+        // instead of flying the camera.
+        if response.contains_pointer() && !ui.ctx().egui_wants_keyboard_input() {
+            let (dir, boost, dt) = ui.input(|i| {
+                let axis = |positive: egui::Key, negative: egui::Key| {
+                    f32::from(i.key_down(positive)) - f32::from(i.key_down(negative))
+                };
+                let dir = Vec3::new(
+                    axis(egui::Key::W, egui::Key::S),
+                    axis(egui::Key::D, egui::Key::A),
+                    axis(egui::Key::E, egui::Key::Q),
+                );
+                let boost = if i.modifiers.shift {
+                    OrbitCamera::FLY_FAST
+                } else if i.modifiers.ctrl {
+                    OrbitCamera::FLY_SLOW
+                } else {
+                    1.0
+                };
+                // Clamped, so a stalled frame — a decomposition landing, a
+                // window resize — cannot teleport the pivot across the
+                // scene. Under kittest `RawInput::time` is unset, so
+                // `stable_dt` is exactly the harness's step and a scenario
+                // that holds a key for n frames is deterministic.
+                (dir, boost, i.stable_dt.min(0.1))
+            });
+            if dir != Vec3::ZERO {
+                self.camera.fly(dir, dt, boost);
+                changed = true;
+            }
         }
 
         // Standard views, persp/ortho toggle and zoom-to-fit are viewport

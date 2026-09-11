@@ -290,6 +290,42 @@ pub fn press_move_release(harness: &mut Harness<'_, RiggenApp>, from: egui::Pos2
     pump_rendered(harness, 4);
 }
 
+/// Presses `key` and leaves it down, then pumps `frames` frames with it held.
+///
+/// The viewport's fly keys read `key_down`, not `key_pressed` (ADR-0028
+/// §2): the pivot walks for as long as the key is held, so a scenario has
+/// to *hold* one across several frames rather than queue a keystroke.
+/// egui's `InputState` keeps `keys_down` between passes and only an
+/// explicit event changes it, which is what makes that possible — and why
+/// every hold must be matched by a [`release_key`], or the next scenario
+/// inherits a key that is still down.
+///
+/// The pointer must already be over the viewport: the fly keys are
+/// viewport shortcuts, live only while it is (`handle_input`).
+#[allow(dead_code, reason = "used from the fly-camera scenarios on")]
+pub fn hold_key(harness: &mut Harness<'_, RiggenApp>, key: egui::Key, frames: usize) {
+    key_event(harness, key, true);
+    pump_rendered(harness, frames);
+}
+
+/// Releases `key` and pumps a few frames, so the camera comes to rest
+/// before anything is asserted or captured.
+#[allow(dead_code, reason = "used from the fly-camera scenarios on")]
+pub fn release_key(harness: &mut Harness<'_, RiggenApp>, key: egui::Key) {
+    key_event(harness, key, false);
+    pump_rendered(harness, 4);
+}
+
+fn key_event(harness: &mut Harness<'_, RiggenApp>, key: egui::Key, pressed: bool) {
+    harness.event(egui::Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+}
+
 /// Hovers at `pos` and turns the wheel `lines` notches there.
 ///
 /// The viewport reads the wheel off `InputState::raw.events`

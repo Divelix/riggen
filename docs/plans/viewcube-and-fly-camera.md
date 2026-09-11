@@ -85,7 +85,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       the note that ADR-0018 is untouched. Row in `docs/adr/README.md`.
       Same commit deletes `docs/ideas/viewcube-and-fly-camera.md` — already
       gone, absorbed by the plan's own commit (db92fab).
-- [ ] **[2]** Step 2 — **The fly keys.** `OrbitCamera::fly` plus the gating
+- [x] **[2]** Step 2 — **The fly keys.** `OrbitCamera::fly` plus the gating
       in `handle_input`; `Shift` fast, `Ctrl` slow. Tests in
       `camera/tests.rs`: forward moves `target` along the view direction by
       `speed·dt` and leaves yaw/pitch/distance alone; `E`/`Q` move along the
