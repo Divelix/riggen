@@ -162,10 +162,10 @@ impl JointGlyph {
     }
 
     /// A unit direction perpendicular to the axis, in world coordinates:
-    /// where a limit arc begins measuring from. Derived from the pivot's
-    /// own frame so it turns with the joint instead of flipping when the
-    /// camera moves.
-    pub(crate) fn reference(&self) -> DVec3 {
+    /// where a limit arc begins measuring from, and which way a slide's
+    /// bars are offset. Derived from the pivot's own frame so it turns
+    /// with the joint instead of flipping when the camera moves.
+    pub fn reference(&self) -> DVec3 {
         let local = DVec3::new(0.0, 0.0, 1.0);
         let axis_local = self.pivot.r.inverse() * self.axis;
         let reference = if axis_local.cross(local).length_squared() < 1e-12 {
@@ -190,15 +190,17 @@ impl JointGlyph {
     }
 
     /// The extent of a **slide's** bars along its axis, in metres from
-    /// the pivot: the range bar's span, `±AXIS_HALF_LENGTH · size`
-    /// (ADR-0027 §4). The analogue of [`Self::band`] for a prismatic
-    /// joint — what it draws, and in View what it answers from. `None`
-    /// for a joint that has no bars.
+    /// the pivot: the range bar's `±AXIS_HALF_LENGTH · size` (ADR-0027
+    /// §4), widened to any limit or value that reaches past it, so this
+    /// is the whole of what the bars cover. The analogue of
+    /// [`Self::band`] for a prismatic joint — what it draws, and in View
+    /// what it answers from. `None` for a joint that has no bars.
     pub fn bar(&self) -> Option<(f64, f64)> {
         match self.kind {
             JointKind::Prismatic => {
                 let half = self.size * AXIS_HALF_LENGTH;
-                Some((-half, half))
+                let (lower, upper) = self.limits.unwrap_or((0.0, 0.0));
+                Some((lower.min(self.q).min(-half), upper.max(self.q).max(half)))
             }
             JointKind::Revolute | JointKind::Continuous | JointKind::Fixed => None,
         }
@@ -238,6 +240,29 @@ impl JointGlyph {
     /// the hover target: the pointer inside the circle, or within
     /// [`GLYPH_HOVER_RADIUS`] of it, is on the joint (`glyph_at`,
     /// ADR-0021 §6). Empty for a joint without a band.
+    /// The bars' outline as world points — the rectangle the strips
+    /// cover, from [`Self::bar`]'s extent along the axis and between
+    /// [`BAND_INNER`] and [`ARC_RADIUS`] off it, in corner order. In View
+    /// this is the hover target, as the band's centreline is a hinge's:
+    /// a slide draws no axis segment there, and a quad is a better thing
+    /// to aim at than the line it used to be picked by (ADR-0027 §6).
+    /// Empty for a joint without bars.
+    pub fn bar_points(&self) -> Vec<DVec3> {
+        let Some((from, to)) = self.bar() else {
+            return Vec::new();
+        };
+        let reference = self.reference();
+        let inner = reference * self.size * BAND_INNER;
+        let outer = reference * self.size * ARC_RADIUS;
+        let at = |t: f64| self.pivot.t + self.axis * t;
+        vec![
+            at(from) + inner,
+            at(to) + inner,
+            at(to) + outer,
+            at(from) + outer,
+        ]
+    }
+
     pub fn band_points(&self) -> Vec<DVec3> {
         let Some((inner, outer)) = self.band() else {
             return Vec::new();
@@ -673,19 +698,23 @@ impl RiggenApp {
     /// In **Edit** the target is the axis segment within
     /// [`GLYPH_HOVER_RADIUS`] screen points, and nothing more: the mesh
     /// under the cursor is what Edit's tools aim at, and a target that
-    /// swallowed the part behind it would take the hover pick away. In
-    /// **View** the mesh answers nothing (ADR-0021 §1), so the target grows
-    /// to the **band and its interior** — the pointer inside the band's
-    /// projected centreline, or within the same radius of it — because a
-    /// joint is what the user came to pose and a thin line is a poor thing
-    /// to aim a wheel at. A prismatic joint, having no band, keeps the
-    /// axis in both.
+    /// swallowed the part behind it would take the hover pick away.
+    ///
+    /// In **View** the target is **exactly what View draws** (ADR-0027
+    /// §6): the band and its interior for a hinge, the bars for a slide —
+    /// the pointer inside the projected outline, or within the same
+    /// radius of it — and nothing at all for a weld, which draws nothing
+    /// there. The axis segment is Edit's alone, because View does not
+    /// draw it: a hidden thing answers nothing (ADR-0021, amended), and
+    /// so does a thing that was never drawn. It is also the better
+    /// target — a joint is what the user came to pose, and a disc or a
+    /// quad beats a thin line for aiming a wheel at.
     ///
     /// Screen space, not a ray cast: the glyph is drawn at a fixed pixel
     /// width and what the user is aiming at is what they can see, not a
     /// solid around it that shrinks with distance. The score is the
-    /// distance to the axis or to the centreline, so where one band's disc
-    /// contains a smaller glyph the nearer ring wins.
+    /// distance to the outline, so where one band's disc contains a
+    /// smaller glyph the nearer ring wins.
     pub fn glyph_at(&self, glyphs: &[JointGlyph], pos: egui::Pos2) -> Option<JointId> {
         glyphs
             .iter()
@@ -698,27 +727,24 @@ impl RiggenApp {
     /// not on it — see [`Self::glyph_at`] for what the target is in each
     /// mode.
     fn glyph_distance(&self, glyph: &JointGlyph, pos: egui::Pos2) -> Option<f32> {
-        let (from, to) = glyph.axis_ends();
-        let axis = match (self.project_world(from), self.project_world(to)) {
-            (Some(a), Some(b)) => Some(distance_to_segment(pos, a, b)),
-            _ => None,
-        }
-        .filter(|d| *d <= GLYPH_HOVER_RADIUS);
         if self.mode != Mode::View {
-            return axis;
+            let (from, to) = glyph.axis_ends();
+            return match (self.project_world(from), self.project_world(to)) {
+                (Some(a), Some(b)) => Some(distance_to_segment(pos, a, b)),
+                _ => None,
+            }
+            .filter(|d| *d <= GLYPH_HOVER_RADIUS);
         }
-        let ring: Vec<egui::Pos2> = glyph
-            .band_points()
-            .into_iter()
-            .filter_map(|p| self.project_world(p))
-            .collect();
-        let band = (ring.len() >= 3)
-            .then(|| distance_to_polygon(pos, &ring))
-            .filter(|d| *d <= GLYPH_HOVER_RADIUS || point_in_polygon(pos, &ring));
-        match (axis, band) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
+        let outline: Vec<egui::Pos2> = match glyph.kind {
+            JointKind::Prismatic => glyph.bar_points(),
+            _ => glyph.band_points(),
         }
+        .into_iter()
+        .filter_map(|p| self.project_world(p))
+        .collect();
+        (outline.len() >= 3)
+            .then(|| distance_to_polygon(pos, &outline))
+            .filter(|d| *d <= GLYPH_HOVER_RADIUS || point_in_polygon(pos, &outline))
     }
 
     /// The band of a revolute joint: three filled sectors of the annulus
@@ -897,11 +923,69 @@ mod tests {
         };
         assert_eq!(slide.band(), None);
         assert!(slide.band_points().is_empty());
+        assert!(glyph.bar().is_none() && glyph.bar_points().is_empty());
         let weld = JointGlyph {
             kind: JointKind::Fixed,
             ..glyph.clone()
         };
         assert_eq!(weld.value_sweep(), 0.0);
+    }
+
+    /// The bars' outline is View's target for a slide, as the band's
+    /// centreline is a hinge's (ADR-0027 §6).
+    #[test]
+    fn the_bars_span_the_axis_segment_and_the_limits_beyond_it() {
+        let slide = JointGlyph {
+            joint: JointId::from_raw(1),
+            pivot: Pose::IDENTITY,
+            axis: DVec3::Z,
+            size: 2.0,
+            kind: JointKind::Prismatic,
+            q: 0.3,
+            limits: Some((-1.0, 1.0)),
+            mimic: None,
+            actuators: Vec::new(),
+        };
+        // Limits well inside the axis segment: the range bar is the
+        // extent, and it is what an *unlimited* slide has instead of
+        // nothing at all (ADR-0027 §4).
+        let half = 2.0 * AXIS_HALF_LENGTH;
+        assert_eq!(slide.bar(), Some((-half, half)));
+        let unlimited = JointGlyph {
+            limits: None,
+            q: 0.0,
+            ..slide.clone()
+        };
+        assert_eq!(unlimited.bar(), slide.bar());
+        // A limit past it widens the extent: the outline covers every bar
+        // that is drawn, or a pointer on one would answer nothing.
+        let long = JointGlyph {
+            limits: Some((-5.0, 1.0)),
+            ..slide.clone()
+        };
+        assert_eq!(long.bar(), Some((-5.0, half)));
+
+        // Four corners, in order, at the band's own two offsets either
+        // side of the axis.
+        let points = slide.bar_points();
+        assert_eq!(points.len(), 4);
+        let reference = slide.reference();
+        let inner = reference * 2.0 * BAND_INNER;
+        let outer = reference * 2.0 * ARC_RADIUS;
+        for (point, expected) in points.iter().zip([
+            DVec3::Z * -half + inner,
+            DVec3::Z * half + inner,
+            DVec3::Z * half + outer,
+            DVec3::Z * -half + outer,
+        ]) {
+            assert!((*point - expected).length() < 1e-12, "{point}");
+        }
+        // A weld has no bars, as it has no band.
+        let weld = JointGlyph {
+            kind: JointKind::Fixed,
+            ..slide
+        };
+        assert!(weld.bar().is_none() && weld.bar_points().is_empty());
     }
 
     #[test]

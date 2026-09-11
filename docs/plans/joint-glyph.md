@@ -115,7 +115,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       disagree; the tick moved out of `push_arc` / `push_slide` into
       `JointGlyph::tick_ends()` to become a piece of its own. The cue is
       `"bore"` in `drawn`, the ring stays `"actuator"`.
-- [ ] **[2]** Step 4 — **View's hover target is what View draws.**
+- [x] **[2]** Step 4 — **View's hover target is what View draws.**
       `glyph_distance()` in View drops the axis branch and gains the bars:
       `JointGlyph::bar_points()` and the same polygon-distance-or-interior
       test the band gets. `the_band_is_the_hover_target_in_view_and_not_in_edit`
@@ -127,6 +127,16 @@ mechanical; **[2]** careful — a case to get right within a given design;
       off its axis, has the glyph hot and the joint named in the status
       bar. Unit tests for `bar_points()` beside the existing
       `the_band_sits_between_the_actuator_ring_and_the_old_arc`.
+      Landed, with three findings. **Two** View call sites aimed at
+      `glyph_axis_point`, not four (the overlay-row ones aim at a mesh).
+      `the_band_is_the_hover_target_in_view_and_not_in_edit` needed a
+      camera of its own: at the fitted 3/4 view a point on the axis
+      projects *inside* the band's disc, so it stays a hover in View by
+      the band — the probe that tells the modes apart is one past the
+      band's screen extent, which the side-on camera gives. And
+      `JointGlyph::bar()` widened from the range bar to the whole extent
+      the bars cover — a limit past `±AXIS_HALF_LENGTH · size` is drawn,
+      so it has to answer too.
 
 ## Acceptance
 

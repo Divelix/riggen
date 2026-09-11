@@ -1768,8 +1768,10 @@ fn zen_poses_and_switches_modes_as_before() {
         let depth = harness.state().history().undo_depth();
 
         // The viewport fills the window now, so the glyph is somewhere
-        // else on screen; the rule about what it does is unchanged.
-        let at = glyph_axis_point(harness, 0.8);
+        // else on screen; the rule about what it does is unchanged. The
+        // band is what View draws and so what it answers from
+        // (ADR-0027 §6).
+        let at = glyph_band_point(harness, 0.3);
         scroll_at(harness, at, 1.0);
         let state = harness.state().debug_state();
         assert!(
@@ -1785,7 +1787,11 @@ fn zen_poses_and_switches_modes_as_before() {
         );
 
         harness.key_press(egui::Key::Tab);
-        settle(harness);
+        // Rendered frames, not `settle`: the pointer is left on the band,
+        // which Edit does not answer from (ADR-0027 §6), so the mesh
+        // behind it takes a hover pick — and a pick is GPU work that a
+        // logic-only pass never resolves.
+        pump_rendered(harness, 6);
         let state = harness.state().debug_state();
         assert_eq!(state.ui.mode, "Edit", "Tab still switches from inside zen");
         assert!(state.ui.zen, "and leaves zen alone");
@@ -5719,22 +5725,51 @@ fn view_draws_the_band_and_the_tick_and_nothing_else() {
     });
 }
 
+/// A point on a slide's **bars**, off its axis: `t` of the glyph's size
+/// along the glyph's own reference direction — which is where
+/// `push_slide` offsets the bars — at travel `along` metres from the
+/// pivot. `t` between `BAND_INNER` and `ARC_RADIUS` is on a bar; the axis
+/// itself is `t = 0`.
+fn glyph_bar_point(
+    harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+    t: f64,
+    along: f64,
+) -> egui::Pos2 {
+    let glyph = harness.state().joint_glyphs().swap_remove(0);
+    let across = glyph.reference();
+    harness
+        .state()
+        .project_world(glyph.pivot.t + glyph.axis * along + across * glyph.size * t)
+        .expect("the glyph is on screen")
+}
+
 /// In View the hover target is the band and its interior; in Edit it is the
 /// axis segment alone (plans/view-edit-modes step 7, ADR-0021 §6). The
 /// same screen point — in the band's bore, well off the axis — is on the
 /// joint in one mode and on nothing in the other, and a point past the
 /// band's outer edge is on nothing in either.
+///
+/// The axis runs the other way too, now that View's target is exactly
+/// what View draws (ADR-0027 §6): a point on the axis segment is a hover
+/// in Edit and nothing in View, where no axis is drawn.
 #[test]
 fn the_band_is_the_hover_target_in_view_and_not_in_edit() {
     with_app(|harness| {
         let app = harness.state_mut();
         open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
         app.fit_view_now();
+        // Across the hinge's axis rather than down it: the axis segment
+        // is at its full length on screen and the band is nearly edge on,
+        // so "on the axis" and "on the band" are points far apart.
+        app.look_from(0.0, 15.0, 1.0);
         settle(harness);
 
         let in_bore = glyph_band_point(harness, 0.3);
         let axis = glyph_axis_point(harness, 0.8);
         let past_band = glyph_band_point(harness, 1.0);
+        // Out along the axis, past where the band reaches on screen: a
+        // point that is the axis segment and nothing else.
+        let far_axis = glyph_axis_point(harness, 1.1);
         assert!(
             (in_bore - axis).length() > riggen_app::GLYPH_HOVER_RADIUS * 2.0,
             "the probe is well off the axis"
@@ -5745,6 +5780,12 @@ fn the_band_is_the_hover_target_in_view_and_not_in_edit() {
         assert!(
             !harness.state().debug_state().glyphs[0].hovered,
             "Edit: the axis alone"
+        );
+        harness.hover_at(far_axis);
+        harness.step();
+        assert!(
+            harness.state().debug_state().glyphs[0].hovered,
+            "Edit: and all of the axis"
         );
 
         harness.state_mut().set_mode(Mode::View);
@@ -5764,8 +5805,75 @@ fn the_band_is_the_hover_target_in_view_and_not_in_edit() {
         harness.step();
         assert!(
             harness.state().debug_state().glyphs[0].hovered,
-            "View: the axis still counts"
+            "View: this one is inside the band's disc, which is the target"
         );
+        harness.hover_at(far_axis);
+        harness.step();
+        assert!(
+            !harness.state().debug_state().glyphs[0].hovered,
+            "View: the axis is Edit's alone — View does not draw it, so it \
+             does not answer from it either (ADR-0027 §6)"
+        );
+    });
+}
+
+/// A **prismatic** joint in View is picked by its bars (ADR-0027 §6). It
+/// has no band, so until now it was picked by its axis line alone — and
+/// View does not draw that line any more, which would have left a slide
+/// with nothing to aim at. The pointer on a bar, well off the axis, has
+/// the glyph hot and the joint named in the status bar; the axis itself
+/// answers nothing here.
+#[test]
+fn view_glyph_hover_bar() {
+    scenario("view_glyph_hover_bar", |harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        let mut joint = app.robot().joints[&hinge].clone();
+        joint.kind = riggen_core::JointKind::Prismatic;
+        joint.axis = DVec3::Z;
+        joint.limits = Some(riggen_core::Limits {
+            lower: -0.5,
+            upper: 0.5,
+            effort: 10.0,
+            velocity: 3.0,
+        });
+        app.apply(Command::SetJoint(hinge, joint)).unwrap();
+        app.fit_view_now();
+        app.set_mode(Mode::View);
+        // After the switch: Edit is the zero configuration and restores
+        // the stash on the way out (ADR-0021 §2), so a value set before
+        // it would be the zero this mode came back to.
+        app.set_joint_value(hinge, 0.25);
+        settle(harness);
+        assert_eq!(
+            harness.state().debug_state().glyphs[0].drawn,
+            ["bars", "tick"]
+        );
+
+        // Halfway between the bars' two offsets, a third of the way up
+        // the travel: on the drawn quad and nowhere near the axis.
+        let on_bar = glyph_bar_point(harness, 0.5, 0.3);
+        let on_axis = glyph_bar_point(harness, 0.0, 0.3);
+        assert!(
+            (on_bar - on_axis).length() > riggen_app::GLYPH_HOVER_RADIUS * 2.0,
+            "the probe is well off the axis"
+        );
+
+        harness.hover_at(on_axis);
+        pump_rendered(harness, 6);
+        assert!(
+            !harness.state().debug_state().glyphs[0].hovered,
+            "the axis is Edit's alone"
+        );
+
+        harness.hover_at(on_bar);
+        pump_rendered(harness, 6);
+        settle(harness);
+        let state = harness.state().debug_state();
+        assert!(state.glyphs[0].hovered && state.glyphs[0].active);
+        assert_eq!(state.selection.hovered, None, "no mesh hover in View");
+        assert_eq!(harness.state().hovered_joint(), Some(hinge));
     });
 }
 
@@ -8190,7 +8298,9 @@ fn view_wheel_on_glyph() {
         let depth = harness.state().history().undo_depth();
         let distance = harness.state().debug_state().camera.distance;
 
-        let at = glyph_axis_point(harness, 0.8);
+        // In the band's disc: View's target is what View draws
+        // (ADR-0027 §6).
+        let at = glyph_band_point(harness, 0.3);
         scroll_at(harness, at, 1.0);
         let state = harness.state().debug_state();
         assert!(state.glyphs[0].hovered, "the glyph is hot");
