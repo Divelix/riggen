@@ -341,6 +341,18 @@ pub struct GlyphDebug {
     /// continuous joint. Omitted for a joint without a band.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub band: Option<(f64, f64)>,
+    /// A slide's bars along its axis, in metres from the pivot: the range
+    /// bar's extent (ADR-0027 §4). The band's counterpart, and omitted
+    /// for a joint that has no bars.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bar: Option<(f64, f64)>,
+    /// The pieces this glyph contributed this frame, in draw order:
+    /// `"axis"`, `"pivot"`, `"triad"`, `"actuator"`, `"bore"`, `"band"`,
+    /// `"bars"`, `"tick"`. Edit draws all of them; View draws the band or
+    /// the bars, the tick, and a filled bore for an actuated joint
+    /// (ADR-0027 §1) — so the *composition* is asserted here as JSON and
+    /// not only as pixels (ADR-0003).
+    pub drawn: Vec<&'static str>,
     /// Where the pivot lands in the viewport, in egui points.
     pub screen: Option<[f64; 2]>,
     /// Drawn brighter and thicker: the hovered joint, else the selected one.
@@ -598,6 +610,8 @@ impl RiggenApp {
                         band: glyph
                             .band()
                             .map(|(inner, outer)| (round(inner), round(outer))),
+                        bar: glyph.bar().map(|(from, to)| (round(from), round(to))),
+                        drawn: self.glyph_pieces(&glyph),
                         screen: self
                             .project_world(glyph.pivot.t)
                             .map(|p| [round32(p.x), round32(p.y)]),

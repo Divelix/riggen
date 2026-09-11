@@ -5648,6 +5648,77 @@ fn glyph_band_point(
         .expect("the glyph is on screen")
 }
 
+/// What each mode draws of a glyph (ADR-0027 §1), asserted as the
+/// composition rather than as pixels: **Edit** draws all of it, **View**
+/// draws only what the user operates — the band or the bars, the tick,
+/// and a filled bore for an actuated joint — and a `Fixed` joint in View
+/// draws nothing at all (§5).
+#[test]
+fn view_draws_the_band_and_the_tick_and_nothing_else() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.fit_view_now();
+        settle(harness);
+        let drawn = |harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>| {
+            harness.state().debug_state().glyphs[0].drawn.clone()
+        };
+
+        // Edit keeps the legacy glyph: the axis, the pivot dot and the
+        // triad are what place a joint frame, which is Edit's question.
+        assert_eq!(drawn(harness), ["axis", "pivot", "triad", "band", "tick"]);
+
+        harness.state_mut().set_mode(Mode::View);
+        settle(harness);
+        assert_eq!(drawn(harness), ["band", "tick"]);
+
+        // The same joint made prismatic: the bars are its band.
+        let app = harness.state_mut();
+        let mut joint = app.robot().joints[&hinge].clone();
+        joint.kind = riggen_core::JointKind::Prismatic;
+        app.apply(Command::SetJoint(hinge, joint.clone())).unwrap();
+        settle(harness);
+        assert_eq!(drawn(harness), ["bars", "tick"]);
+
+        // Actuated, the ring in Edit becomes a filled bore in View
+        // (ADR-0027 §3), which is the only mark left saying the joint is
+        // driven where the tree row is hidden by zen.
+        let app = harness.state_mut();
+        app.apply(Command::AddActuator(riggen_core::Actuator {
+            name: "hinge".to_owned(),
+            target: riggen_core::ActuatorTarget::Joint(hinge),
+            spec: riggen_core::ActuatorSpec::Position {
+                kp: 100.0,
+                kv: 10.0,
+            },
+            ranges: riggen_core::ActuatorRanges::default(),
+        }))
+        .unwrap();
+        settle(harness);
+        assert_eq!(drawn(harness), ["bore", "bars", "tick"]);
+        harness.state_mut().set_mode(Mode::Edit);
+        settle(harness);
+        assert_eq!(
+            drawn(harness),
+            ["axis", "pivot", "triad", "actuator", "bars", "tick"]
+        );
+
+        // A weld has nothing to pose: selected, it is the frame's own
+        // glyph in Edit — and the actuator goes with the movability, so
+        // the ring goes too — and nothing at all in View.
+        let app = harness.state_mut();
+        joint.kind = riggen_core::JointKind::Fixed;
+        app.apply(Command::SetJoint(hinge, joint)).unwrap();
+        app.select(Selection::Joint(hinge));
+        settle(harness);
+        assert_eq!(drawn(harness), ["axis", "pivot", "triad"]);
+        harness.state_mut().set_mode(Mode::View);
+        settle(harness);
+        assert!(drawn(harness).is_empty(), "a weld draws nothing in View");
+    });
+}
+
 /// In View the hover target is the band and its interior; in Edit it is the
 /// axis segment alone (plans/view-edit-modes step 7, ADR-0021 §6). The
 /// same screen point — in the band's bore, well off the axis — is on the
@@ -5698,6 +5769,44 @@ fn the_band_is_the_hover_target_in_view_and_not_in_edit() {
     });
 }
 
+/// An **actuated** joint in View: the ring ADR-0014 put at the pivot is
+/// one of the pieces View drops, and the mark that replaces it is the
+/// same bore **filled** (ADR-0027 §3). A fill like the band rather than a
+/// stroke, inside the clear bore where it cannot read as part of the
+/// band, and legible without the joint tree's row — which zen hides.
+#[test]
+fn view_glyph_actuated() {
+    scenario("view_glyph_actuated", |harness| {
+        let app = harness.state_mut();
+        app.open_path(&fixture("pendulum.riggen"))
+            .expect("open the corpus file");
+        let hinge = *app.robot().joints.keys().next().unwrap();
+        app.apply(Command::AddActuator(riggen_core::Actuator {
+            name: "hinge".to_owned(),
+            target: riggen_core::ActuatorTarget::Joint(hinge),
+            spec: riggen_core::ActuatorSpec::Position {
+                kp: 100.0,
+                kv: 10.0,
+            },
+            ranges: riggen_core::ActuatorRanges::default(),
+        }))
+        .unwrap();
+        app.set_joint_value(hinge, 40f64.to_radians());
+        app.fit_view_now();
+        // Down the joint's own axis, close: the band face on, with the
+        // bore in the middle of it.
+        app.look_from(90.0, 0.0, 1.0);
+        settle(harness);
+        pump_rendered(harness, 8);
+
+        let state = harness.state().debug_state();
+        assert_eq!(state.ui.mode, "View");
+        let glyph = &state.glyphs[0];
+        assert_eq!(glyph.actuators, ["position"]);
+        assert_eq!(glyph.drawn, ["bore", "band", "tick"], "the ring is Edit's");
+    });
+}
+
 /// `glyph_hover`'s View twin: the pointer in the band's bore, off the axis,
 /// has the glyph hot and the joint named in the status bar.
 #[test]
@@ -5722,6 +5831,9 @@ fn view_glyph_hover_band() {
         let state = harness.state().debug_state();
         assert!(state.glyphs[0].hovered && state.glyphs[0].active);
         assert_eq!(state.selection.hovered, None);
+        // And the band it was aimed at is the whole glyph here: no axis,
+        // no pivot dot, no triad (ADR-0027 §1).
+        assert_eq!(state.glyphs[0].drawn, ["band", "tick"]);
     });
 }
 
@@ -8210,6 +8322,15 @@ fn view_joint_tree() {
         assert!(glyph.hovered && glyph.active);
         assert_eq!(state.ui.mode, "View");
         assert_eq!(state.selection.hovered, None, "no mesh hover in View");
+        // Each glyph is its band, its tick, and — the upper joint being
+        // actuated — a filled bore (ADR-0027 §1, §3).
+        assert_eq!(glyph.drawn, ["bore", "band", "tick"]);
+        let follower = state
+            .glyphs
+            .iter()
+            .find(|g| g.name == "fore_joint")
+            .expect("the follower's glyph");
+        assert_eq!(follower.drawn, ["band", "tick"], "nothing drives it");
     });
 }
 

@@ -102,14 +102,19 @@ mechanical; **[2]** careful — a case to get right within a given design;
       Landed: 59 goldens refreshed and 2 added; the scenario needed a
       camera the harness could not set, so `RiggenApp::look_from(yaw,
       pitch, distance_scale)` joins `fit_view_now` in `debug/mod.rs`.
-- [ ] **[2]** Step 3 — **View draws the band and the tick and nothing
+- [x] **[2]** Step 3 — **View draws the band and the tick and nothing
       else.** `glyph_overlay()` branches on the mode: no axis segment, no
       pivot dot, no origin triad, no actuator ring in View; Edit unchanged.
       The actuated cue from step 1 lands here. `GlyphDebug::drawn` and
       `bar` land here too, and the View scenarios assert the composition
       (`["band", "tick"]` for a hinge, `["bars", "tick"]` for a slide,
       plus the cue) as JSON. New scenario **`view_glyph_actuated`**;
-      refreshed View goldens.
+      refreshed View goldens. Landed: the branch is one list,
+      `glyph_pieces()`, which `glyph_overlay()` draws from and
+      `GlyphDebug::drawn` reports, so the picture and the dump cannot
+      disagree; the tick moved out of `push_arc` / `push_slide` into
+      `JointGlyph::tick_ends()` to become a piece of its own. The cue is
+      `"bore"` in `drawn`, the ring stays `"actuator"`.
 - [ ] **[2]** Step 4 — **View's hover target is what View draws.**
       `glyph_distance()` in View drops the axis branch and gains the bars:
       `JointGlyph::bar_points()` and the same polygon-distance-or-interior

@@ -20,12 +20,22 @@
 //! (plans/m2-placement-ux OPEN 4): an unselected `Fixed` joint has nothing
 //! to show and every weld in a big assembly would be noise.
 //!
+//! **How much of it is drawn depends on the mode** (ADR-0027 §1,
+//! `glyph_pieces`). The axis, the pivot dot and the triad answer "where is
+//! this joint frame", which is Edit's question, so Edit draws all of it;
+//! **View** draws only what the user operates — the band or the bars, the
+//! tick, and for an actuated joint a filled bore — and a `Fixed` joint
+//! there draws nothing at all. What View draws is also all View answers
+//! from: a hidden thing answers nothing, and so does a thing that was
+//! never drawn (ADR-0021, amended; `glyph_at`).
+//!
 //! A glyph also says whether its joint is free to move: a **mimic
 //! follower** (ADR-0013) is drawn in a muted amber and labelled with its
 //! leader, an **actuated** joint (ADR-0014) keeps the full amber and gains
-//! a ring at the pivot labelled with the preset. Without that the viewport
-//! draws a driven hinge exactly like a free one and only the joint tree
-//! knows the difference (ADR-0020).
+//! a ring at the pivot labelled with the preset — the bore filled instead
+//! of stroked in View (ADR-0027 §3). Without that the viewport draws a
+//! driven hinge exactly like a free one and only the joint tree knows the
+//! difference (ADR-0020).
 //!
 //! The anchor is the **pivot** — `world(parent) ∘ origin` — not the child
 //! link frame, which for a prismatic joint has already slid away by `q`.
@@ -176,6 +186,40 @@ impl JointGlyph {
                 Some((self.size * BAND_INNER, self.size * ARC_RADIUS))
             }
             JointKind::Prismatic | JointKind::Fixed => None,
+        }
+    }
+
+    /// The extent of a **slide's** bars along its axis, in metres from
+    /// the pivot: the range bar's span, `±AXIS_HALF_LENGTH · size`
+    /// (ADR-0027 §4). The analogue of [`Self::band`] for a prismatic
+    /// joint — what it draws, and in View what it answers from. `None`
+    /// for a joint that has no bars.
+    pub fn bar(&self) -> Option<(f64, f64)> {
+        match self.kind {
+            JointKind::Prismatic => {
+                let half = self.size * AXIS_HALF_LENGTH;
+                Some((-half, half))
+            }
+            JointKind::Revolute | JointKind::Continuous | JointKind::Fixed => None,
+        }
+    }
+
+    /// The white tick's ends: from the pivot out through the band at the
+    /// current angle for a hinge, from the point `q` has slid to out
+    /// across the bars for a slide. `None` for a weld, which has no value
+    /// to point at.
+    pub fn tick_ends(&self) -> Option<(DVec3, DVec3)> {
+        let outer = self.size * ARC_RADIUS * TICK_OVERSHOOT;
+        match self.kind {
+            JointKind::Revolute | JointKind::Continuous => {
+                let at = DQuat::from_axis_angle(self.axis, self.q) * self.reference();
+                Some((self.pivot.t, self.pivot.t + at * outer))
+            }
+            JointKind::Prismatic => {
+                let at = self.pivot.t + self.axis * self.q;
+                Some((at, at + self.reference() * outer))
+            }
+            JointKind::Fixed => None,
         }
     }
 
@@ -484,6 +528,40 @@ impl RiggenApp {
         marks
     }
 
+    /// The pieces a glyph contributes this frame, in draw order — what
+    /// [`Self::glyph_overlay`] pushes and what `debug_state().glyphs[i]
+    /// .drawn` reports, from the one list so the picture and the dump
+    /// cannot disagree (ADR-0003).
+    ///
+    /// **Edit** draws all of it: the axis segment, the pivot dot, the
+    /// origin triad, ADR-0014's actuator ring, and the band or bars with
+    /// the tick. **View** draws only what the user operates (ADR-0027
+    /// §1): the band or the bars, the tick, and a filled bore for an
+    /// actuated joint in place of the ring (§3). A `Fixed` joint in View
+    /// therefore draws nothing at all (§5) — it has nothing to pose, and
+    /// it can only be selected there by carrying the selection over from
+    /// Edit.
+    pub(crate) fn glyph_pieces(&self, glyph: &JointGlyph) -> Vec<&'static str> {
+        let mut pieces = Vec::new();
+        if self.mode == Mode::View {
+            if !glyph.actuators.is_empty() {
+                pieces.push("bore");
+            }
+        } else {
+            pieces.extend(["axis", "pivot", "triad"]);
+            if !glyph.actuators.is_empty() {
+                pieces.push("actuator");
+            }
+        }
+        match glyph.kind {
+            JointKind::Revolute | JointKind::Continuous => pieces.push("band"),
+            JointKind::Prismatic => pieces.push("bars"),
+            JointKind::Fixed => return pieces,
+        }
+        pieces.push("tick");
+        pieces
+    }
+
     /// The glyphs as overlay primitives. `active` is the joint the user is
     /// pointing at or has selected, drawn brighter and thicker.
     pub(crate) fn glyph_overlay(&self, glyphs: &[JointGlyph], active: Option<JointId>) -> Overlay {
@@ -496,41 +574,65 @@ impl RiggenApp {
                 let color = Self::axis_color(glyph, hot);
                 let width = if hot { 3.0 } else { 1.5 };
 
-                let (from, to) = glyph.axis_ends();
-                overlay.segment(from, to, color, width);
-                overlay.point(glyph.pivot.t, if hot { 5.0 } else { 3.5 }, color);
-
-                // The pivot's own frame, in the triad's colours.
-                for (i, local) in [DVec3::X, DVec3::Y, DVec3::Z].into_iter().enumerate() {
-                    overlay.segment(
-                        glyph.pivot.t,
-                        glyph.pivot.t + glyph.pivot.r * local * glyph.size * TRIAD_LENGTH,
-                        TRIAD_COLORS[i],
-                        width,
-                    );
-                }
-
-                // An actuated joint gets a ring round the pivot, in the
-                // joint's own plane and well inside the limit arc
-                // (ADR-0014).
-                if !glyph.actuators.is_empty() {
-                    overlay.push(OverlayItem::Arc {
-                        center: glyph.pivot.t,
-                        axis: glyph.axis,
-                        start: glyph.reference(),
-                        radius: glyph.size * ACTUATOR_RING_RADIUS,
-                        sweep: std::f64::consts::TAU,
-                        color,
-                        width,
-                    });
-                }
-
-                match glyph.kind {
-                    JointKind::Revolute | JointKind::Continuous => {
-                        self.push_arc(overlay, glyph, color, width)
+                for piece in self.glyph_pieces(glyph) {
+                    match piece {
+                        "axis" => {
+                            let (from, to) = glyph.axis_ends();
+                            overlay.segment(from, to, color, width);
+                        }
+                        "pivot" => {
+                            overlay.point(glyph.pivot.t, if hot { 5.0 } else { 3.5 }, color);
+                        }
+                        // The pivot's own frame, in the triad's colours.
+                        "triad" => {
+                            for (i, local) in [DVec3::X, DVec3::Y, DVec3::Z].into_iter().enumerate()
+                            {
+                                overlay.segment(
+                                    glyph.pivot.t,
+                                    glyph.pivot.t
+                                        + glyph.pivot.r * local * glyph.size * TRIAD_LENGTH,
+                                    TRIAD_COLORS[i],
+                                    width,
+                                );
+                            }
+                        }
+                        // An actuated joint gets a ring round the pivot, in
+                        // the joint's own plane and well inside the limit
+                        // arc (ADR-0014) — and in View the same bore filled
+                        // instead, a mark that cannot read as a handle
+                        // beside the band (ADR-0027 §3).
+                        "actuator" => overlay.push(OverlayItem::Arc {
+                            center: glyph.pivot.t,
+                            axis: glyph.axis,
+                            start: glyph.reference(),
+                            radius: glyph.size * ACTUATOR_RING_RADIUS,
+                            sweep: std::f64::consts::TAU,
+                            color,
+                            width,
+                        }),
+                        "bore" => overlay.sector(
+                            glyph.pivot.t,
+                            glyph.axis,
+                            glyph.reference(),
+                            0.0,
+                            glyph.size * ACTUATOR_RING_RADIUS,
+                            std::f64::consts::TAU,
+                            color,
+                        ),
+                        "band" => self.push_arc(overlay, glyph, color),
+                        "bars" => self.push_slide(overlay, glyph, color, width),
+                        // The tick: a spoke from the pivot out through the
+                        // band at the current angle, or across the bars at
+                        // the travel `q` has reached, so "where is this
+                        // joint now" is one glance even at zero, where the
+                        // value sector has no width.
+                        "tick" => {
+                            if let Some((from, to)) = glyph.tick_ends() {
+                                overlay.segment(from, to, TICK_COLOR, width);
+                            }
+                        }
+                        other => debug_assert!(false, "unknown glyph piece {other}"),
                     }
-                    JointKind::Prismatic => self.push_slide(overlay, glyph, color, width),
-                    JointKind::Fixed => {}
                 }
             }
         });
@@ -623,21 +725,15 @@ impl RiggenApp {
     /// between [`BAND_INNER`] and [`ARC_RADIUS`], each an opaque shade of
     /// the glyph's colour (ADR-0027 §2) — the full circle at
     /// [`RANGE_SHADE`], the limits over it at [`LIMIT_SHADE`], the run
-    /// from the zero position to `q` on top at [`VALUE_SHADE`] — with the
-    /// white spoke at `q` kept, so a joint at zero still points. A
+    /// from the zero position to `q` on top at [`VALUE_SHADE`]. A
     /// `Continuous` joint has no limits: its full circle *is* the limit
-    /// band.
+    /// band; the white spoke at `q` is its own piece
+    /// ([`JointGlyph::tick_ends`]), so a joint at zero still points.
     ///
     /// The colour carries the mimic muting and the hot brightening as the
     /// stroke did; the width has no fill to change, so a hot band is the
     /// brighter amber alone.
-    fn push_arc(
-        &self,
-        overlay: &mut Overlay,
-        glyph: &JointGlyph,
-        color: egui::Color32,
-        width: f32,
-    ) {
+    fn push_arc(&self, overlay: &mut Overlay, glyph: &JointGlyph, color: egui::Color32) {
         let Some((inner, outer)) = glyph.band() else {
             return;
         };
@@ -662,16 +758,6 @@ impl RiggenApp {
             None => sector(reference, std::f64::consts::TAU, LIMIT_SHADE),
         }
         sector(reference, glyph.value_sweep(), VALUE_SHADE);
-        // The tick: a spoke from the pivot through the band at the current
-        // angle, so "where is this joint now" is one glance even at zero,
-        // where the value sector has no width.
-        let at = DQuat::from_axis_angle(glyph.axis, glyph.q) * reference;
-        overlay.segment(
-            glyph.pivot.t,
-            glyph.pivot.t + at * outer * TICK_OVERSHOOT,
-            TICK_COLOR,
-            width,
-        );
     }
 
     /// The travel of a prismatic joint: the band unrolled into **bars**
@@ -680,8 +766,9 @@ impl RiggenApp {
     /// the same way. Three bars in the three opaque shades, as the hinge
     /// has three sectors: the axis segment's own extent at
     /// [`RANGE_SHADE`], the limits over it at [`LIMIT_SHADE`], the run
-    /// from zero to `q` on top at [`VALUE_SHADE`], with the end stops and
-    /// the white tick at `q` kept as they were.
+    /// from zero to `q` on top at [`VALUE_SHADE`], with the end stops
+    /// kept as they were. The white tick at `q` is its own piece
+    /// ([`JointGlyph::tick_ends`]).
     ///
     /// The range bar is the hinge's full circle for a slide (ADR-0027 §4).
     /// A slide has no travel beyond its own limits to be faint over, so it
@@ -718,11 +805,6 @@ impl RiggenApp {
             let (from, to) = rung(end);
             overlay.segment(from, to, color, width);
         }
-        // The tick, as the revolute's spoke: from the axis out through the
-        // bar and past it, so `q` is one glance even where the value bar
-        // has no length.
-        let at = glyph.pivot.t + glyph.axis * glyph.q;
-        overlay.segment(at, at + outer * TICK_OVERSHOOT, TICK_COLOR, width);
     }
 }
 

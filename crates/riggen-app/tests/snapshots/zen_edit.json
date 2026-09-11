@@ -369,6 +369,14 @@
         0.017756,
         0.025366
       ],
+      "drawn": [
+        "axis",
+        "pivot",
+        "triad",
+        "actuator",
+        "band",
+        "tick"
+      ],
       "screen": [
         720.0,
         635.6698
@@ -400,6 +408,14 @@
         0.027352,
         0.039074
       ],
+      "drawn": [
+        "axis",
+        "pivot",
+        "triad",
+        "actuator",
+        "band",
+        "tick"
+      ],
       "screen": [
         720.0,
         535.97113
@@ -430,6 +446,13 @@
       "band": [
         0.021205,
         0.030293
+      ],
+      "drawn": [
+        "axis",
+        "pivot",
+        "triad",
+        "band",
+        "tick"
       ],
       "screen": [
         720.0,

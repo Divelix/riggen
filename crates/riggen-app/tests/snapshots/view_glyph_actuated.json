@@ -1,58 +1,58 @@
 {
   "camera": {
     "eye": [
-      2.585615,
-      -2.585615,
-      2.622616
+      0.262905,
+      4.346578,
+      0.543719
     ],
     "target": [
+      0.262905,
       0.0,
-      0.0,
-      0.625
+      0.543719
     ],
     "up": [
-      -0.339005,
-      0.339005,
-      0.877583
+      0.0,
+      0.0,
+      1.0
     ],
-    "distance": 4.166687,
-    "yaw_deg": -45.0,
-    "pitch_deg": 28.64789,
+    "distance": 4.346578,
+    "yaw_deg": 90.0,
+    "pitch_deg": 0.0,
     "fov_y_deg": 45.0,
-    "near": 0.013288,
-    "far": 1328.768311,
+    "near": 0.013861,
+    "far": 1386.13623,
     "projection": "Perspective",
     "animating": false,
-    "aspect": 0.960187,
+    "aspect": 1.405152,
     "view": [
       [
-        0.707107,
-        -0.339005,
-        0.620545,
-        0.0
-      ],
-      [
-        0.707107,
-        0.339005,
-        -0.620545,
+        -1.0,
+        0.0,
+        0.0,
         0.0
       ],
       [
         0.0,
-        0.877583,
-        0.479426,
+        0.0,
+        1.0,
         0.0
       ],
       [
         0.0,
-        -0.548489,
-        -4.466327,
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.262905,
+        -0.543719,
+        -4.346578,
         1.0
       ]
     ],
     "proj": [
       [
-        2.514315,
+        1.718115,
         0.0,
         0.0,
         0.0
@@ -72,7 +72,7 @@
       [
         0.0,
         0.0,
-        -0.013288,
+        -0.013862,
         0.0
       ]
     ]
@@ -102,16 +102,16 @@
       {
         "id": "j6",
         "name": "hinge",
-        "kind": "Prismatic",
+        "kind": "Revolute",
         "parent": "l0",
         "child": "l5",
-        "q": 0.25
+        "q": 0.698132
       }
     ],
     "selection": null
   },
   "ui": {
-    "mode": "Edit",
+    "mode": "View",
     "tool": "Select",
     "renaming": null,
     "windows": [],
@@ -171,9 +171,9 @@
         ]
       ],
       "position": [
+        0.321394,
         0.0,
-        0.0,
-        1.25
+        0.883022
       ],
       "color": [
         0.9,
@@ -187,12 +187,19 @@
     "hovered": null,
     "selected": null
   },
+  "input": {
+    "pick_suppressed": true,
+    "select_suppressed": false,
+    "camera_blocked": false,
+    "primary_drag_claimed": false,
+    "wheel_claimed": false
+  },
   "gizmo": null,
   "glyphs": [
     {
       "joint": "j6",
       "name": "hinge",
-      "kind": "Prismatic",
+      "kind": "Revolute",
       "origin": [
         0.0,
         0.0,
@@ -200,29 +207,31 @@
       ],
       "axis": [
         0.0,
-        0.0,
-        1.0
+        1.0,
+        0.0
       ],
       "size": 0.866025,
-      "q": 0.25,
-      "value_sweep": 0.25,
-      "bar": [
-        -0.995929,
-        0.995929
+      "q": 0.698132,
+      "value_sweep": 0.698132,
+      "band": [
+        0.363731,
+        0.519615
       ],
       "drawn": [
-        "axis",
-        "pivot",
-        "triad",
-        "bars",
+        "bore",
+        "band",
         "tick"
       ],
       "screen": [
-        650.0,
-        476.755249
+        902.352661,
+        460.368774
       ],
       "active": false,
-      "hovered": false
+      "hovered": false,
+      "actuators": [
+        "position"
+      ],
+      "pivot_hidden": true
     }
   ],
   "snap": null,
@@ -230,7 +239,7 @@
   "viewport_rect": [
     240.0,
     23.0,
-    1060.0,
+    1440.0,
     877.0
   ]
 }

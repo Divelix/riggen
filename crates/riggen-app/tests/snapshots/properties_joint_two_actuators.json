@@ -414,6 +414,14 @@
         0.374796,
         0.535422
       ],
+      "drawn": [
+        "axis",
+        "pivot",
+        "triad",
+        "actuator",
+        "band",
+        "tick"
+      ],
       "screen": [
         519.31958,
         646.614319
@@ -446,6 +454,13 @@
         0.481887,
         0.68841
       ],
+      "drawn": [
+        "axis",
+        "pivot",
+        "triad",
+        "band",
+        "tick"
+      ],
       "screen": [
         518.193848,
         633.436951
@@ -471,6 +486,18 @@
       "size": 1.14735,
       "q": 0.0,
       "value_sweep": 0.0,
+      "bar": [
+        -1.319453,
+        1.319453
+      ],
+      "drawn": [
+        "axis",
+        "pivot",
+        "triad",
+        "actuator",
+        "bars",
+        "tick"
+      ],
       "screen": [
         531.812988,
         612.266418
@@ -501,6 +528,13 @@
       "band": [
         0.003637,
         0.005196
+      ],
+      "drawn": [
+        "axis",
+        "pivot",
+        "triad",
+        "band",
+        "tick"
       ],
       "screen": [
         527.691833,
