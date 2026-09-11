@@ -101,7 +101,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       no fade. `CameraDebug::pivot_visible`. Scenario
       `orbit_shows_the_pivot` snapshots mid-drag and asserts the cue is gone
       after the release.
-- [ ] **[2]** Step 4 — **The cube's math.** `facets.rs` + `projection.rs` +
+- [x] **[2]** Step 4 — **The cube's math.** `facets.rs` + `projection.rs` +
       `tests.rs` ported (chamfered cube → 26 facets, project, depth-sort,
       backface-cull, hit-test, face text). No UI yet, so no golden: the
       ported unit tests are the step's evidence, and `cargo test -p

@@ -16,6 +16,7 @@ mod shortcuts;
 mod snap;
 mod status_bar;
 mod tool;
+mod viewcube;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
