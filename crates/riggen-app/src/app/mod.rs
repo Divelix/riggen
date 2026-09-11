@@ -395,8 +395,9 @@ impl RiggenApp {
                 .is_some_and(|r| r.contains(pos))
             && !self.over_chrome(pos)
         {
-            // A frame glyph is a small triad the user placed on purpose; a
-            // joint glyph is a long axis line that often runs through it.
+            // A frame glyph is a small triad the user placed on purpose;
+            // a joint glyph is a long axis line that often runs through it
+            // in Edit, and in View a band whose disc can contain it whole.
             // The frame wins the pointer where both are in reach.
             self.frame_glyph_hover = self.frame_glyph_at(frames, pos);
             if self.frame_glyph_hover.is_none() {

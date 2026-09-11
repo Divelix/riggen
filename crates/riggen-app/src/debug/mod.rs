@@ -360,7 +360,8 @@ pub struct GlyphDebug {
     /// The pointer is on this glyph, or on its row in the tree.
     pub hovered: bool,
     /// The joint this one follows, as `"j12"` — the glyph is drawn muted
-    /// and labelled `↳ <leader>` (ADR-0013). Omitted for a free joint.
+    /// and labelled `» <leader>` (ADR-0013; `↳` is a tofu box in egui's
+    /// bundled fonts, see `driven_marks`). Omitted for a free joint.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mimic: Option<String>,
     /// The preset of every actuator driving it, in `ActuatorId` order — the

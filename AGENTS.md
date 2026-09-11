@@ -33,7 +33,10 @@ joint tree with scrubbers, joints the only pick, the wheel driving a
 hovered joint, a glyph for range and value — Tab to **Edit** at the zero
 configuration, zen on `Z`, a visibility row top-right. **Next:** v0.5, the
 viewport and the camera — ViewCube, fly camera, ground grid, MSAA,
-rotate-drag snapping. **Before:** v0.3 (`v0.3.0`) the hand-feel debt
+rotate-drag snapping; its glyph line is in (ADR-0027): View draws the band
+or the bars, the tick and a filled bore for a driven joint, and answers
+from exactly that, over three opaque shades a grazing camera cannot seam.
+**Before:** v0.3 (`v0.3.0`) the hand-feel debt
 (ADR-0018/19/20); v0.2 (`v0.2.1`) "sim-ready" as a feature — SDK wheel,
 V-HACD, frames / mimics / actuators, MJCF import, SDF export, the web demo
 (ADR-0009 to 0017); M4 the wheel; M3 writers, URDF import, inertials,

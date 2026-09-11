@@ -24,7 +24,6 @@ below with the reason, so the same idea is not re-brainstormed.
 - A 30-second screencast for the README, recorded after the GUI polish and before the announced release (plans/m4-distribution OPEN 2; the README ships with the hero PNG)
 - macOS code signing / notarization, if the clean-VM run of the wheel hits Gatekeeper (pip-installed files carry no quarantine attribute, so an unsigned binary should run from a terminal — unverified until the human's macOS run)
 - The joint tree's scrubber bar stacks under the name/value line at full row width (`joint_tree.rs`'s `joint_row()`), and the wheel only scrubs a hovered joint when the bar itself is hovered (`response.hovered()` off the bar's own response, not the name button's): a separate, aligned slider column to the right of the names would let the wheel work over the whole row, name included
-- In View mode, `glyphs.rs`'s `glyph_overlay()` draws a line along the joint's axis (`axis_ends()`) alongside the range/value band; drop the axis line and keep just the band glyph
 - The `Overlay::JointNames` visibility toggle draws the mimic leader name and the actuator preset string next to a joint (`glyphs.rs`'s `driven_marks()`), not the joint's own name — an actuator with the "position" preset shows the literal word "position" for every such joint instead of identifying it
 - `<muscle joint=… | tendon=…>` and `<adhesion body=…>` stay `ActuatorDropped` (ADR-0024, decided out with plans/actuator-escape-hatch; kept out again by ADR-0025 §4 OPEN 1, plans/couplings, now that `ActuatorTarget::Tendon` gives a `<muscle>` somewhere to hang): a muscle needs an `actuator_lengthrange` riggen does not compute, whichever it drives; an adhesion drives a body, neither a joint nor a tendon. Neither is a *coupling* — they are a fifth actuator vocabulary and a body target — so neither was the couplings plan's to add
 - A `<default><general>` applies to `<general>` elements only on import (`mjcf_in.rs`'s per-tag `Defaults`), while MuJoCo also lets a `<position>` / `<velocity>` / `<motor>` inherit its `dyntype` / `dynprm` from it — a preset under such a class reads without the dynamics the original model has
@@ -116,16 +115,14 @@ The by-hand half was done headlessly: the manylinux wheel installed into
 
 - The depth readback is full-resolution; at 4K it is 33 MB and about 5 ms of memcpy per copy, against 0.28 ms at 1440×900 (ADR-0020 §3). Downsample — which needs a second pass, and would misclassify a thin glyph's ends by a pixel — only if a 4K viewport actually bites
 
-### From the glyph band (plans/joint-glyph-range-and-value, 2026-09-05)
+### From the glyph in View (plans/joint-glyph, 2026-09-11)
 
-- A band under the **rotate gizmo's** rings (`gizmo_rotate_joint`) was the
-  plan's one open question: if the filled band and the stroked handles ever
-  read as competing handles, drop the band to a stroke while a gizmo is on
-  the joint. Left as landed — a fill and thin rings did not compete in the
-  golden — so this is a line to revisit, not a decision to make again
-- Over an amber part the band is low-contrast (the alphas 0.2 / 0.5 / 0.9,
-  "fine for now" — the human, 2026-09-05). A second colour, or a thin
-  outline on the limit sector's ends, if it starts costing readings
+- The band's three shades come from whatever colour `axis_color()` hands
+  the ramp (ADR-0027 §2), and the **hot** amber is near-white — so a
+  hovered or selected joint's band reads as three khakis rather than three
+  ambers. Left alone: the ramp's order is what carries the meaning. A hot
+  ramp of its own, or a hot colour that is amber rather than cream, if it
+  starts costing readings
 
 ### From the human's GUI notes (the View / Edit split, 2026-09-05)
 

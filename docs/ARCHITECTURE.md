@@ -408,28 +408,51 @@ below.
   `debug_state().ui.zen` reports it.
 - **Joint glyphs** (in the viewport): a joint has no geometry, so without
   one it exists only in the tree and "which way does this hinge turn?" has
-  to be read off two number fields. Each glyph is an axis segment through
-  the **pivot** (`world(parent) ∘ origin`, which unlike the child link
+  to be read off two number fields. A glyph **in full** — what Edit
+  draws; View draws less of it, below — is an axis segment through the
+  **pivot** (`world(parent) ∘ origin`, which unlike the child link
   frame has not slid away by `q`), an origin triad in the axes triad's
-  colours, and — for a revolute joint — a **band**: an annulus in the
-  joint's plane between `BAND_INNER` and `ARC_RADIUS` (the actuator ring
-  and the triad stay in the clear bore) drawn as three translucent sectors
-  of the one amber, stacked so what *results* on screen is the full circle
-  at `RANGE_ALPHA`, the limits over it at `LIMIT_ALPHA`, and the run from
-  the zero position to `q` on top at `VALUE_ALPHA` (`layered` derives each
-  layer's own alpha from the one below), with the white spoke at `q` kept
-  so a joint at zero still points. Where a hinge's range sits, how much of
-  it is used and whether `q` is near a stop read at a glance, without
-  tracing a stroke from its start; *which* stop is the lower one is the
+  colours, and — for a revolute or continuous joint — a **band**: an
+  annulus in the joint's plane between `BAND_INNER` and `ARC_RADIUS` (the
+  actuator ring and the triad stay in the clear bore) drawn as three
+  **opaque** sectors, three shades of the glyph's own colour (`shade`
+  scales the RGB, at full alpha): the full circle at `RANGE_SHADE`, the
+  limits over it at `LIMIT_SHADE`, and the run from the zero position to
+  `q` on top at `VALUE_SHADE`, which is the colour itself. The white
+  spoke at `q` is drawn over them, so a joint at zero still points.
+  Opaque because translucency is exact only while the layers cover each
+  other once: at a
+  grazing camera angle a foreshortened sector is drawn over itself and
+  **double-covers**, showing a lighter seam the joint does not have
+  (ADR-0027 §2). A shade over itself is itself, so no camera can produce
+  one. Where a hinge's range sits, how much of it is used and whether `q`
+  is near a stop read at a glance, without tracing a stroke from its
+  start; *which* stop is the lower one is the
   value sector's direction, so it reads only off zero — the scrubber's
   number is what says it at rest. A `Continuous` joint has no
   limits, so its full circle is the limit band. A prismatic joint gets the
   same band unrolled into **bars** beside the axis, between the same two
-  offsets: the limits at `LIMIT_ALPHA`, zero to `q` over them at
-  `VALUE_ALPHA`, the end stops and the tick kept — and no faint bar under
-  the two, since a slide has no travel outside its limits to be faint over.
-  The band's centreline (`JointGlyph::band_points`) is View's hover target,
-  below.
+  offsets and in the same three shades: the axis segment's own extent
+  (`±AXIS_HALF_LENGTH · size`) at `RANGE_SHADE` — the hinge's full circle
+  for a slide, since a slide has no travel beyond its limits to be faint
+  over but has the length the glyph already claims — the limits over it,
+  zero to `q` on top, and the end stops kept. That range bar is also what
+  an **unlimited** slide shows: its limit and value bars have no length,
+  and without it there would be a tick and nothing to aim at (ADR-0027
+  §4). The band's centreline (`JointGlyph::band_points`) and the bars'
+  outline (`bar_points`) are View's hover target, below.
+
+  **How much of the glyph is drawn depends on the mode** (ADR-0027 §1,
+  `glyph_pieces` — the one list `glyph_overlay` draws from and
+  `debug_state().glyphs[i].drawn` reports, so the picture and the dump
+  cannot disagree). The axis, the pivot dot and the triad answer *where
+  this joint frame is*, which is Edit's question, so **Edit** draws all of
+  it. **View** draws only what the user operates: the band or the bars,
+  the tick, and for an actuated joint a filled bore. A `Fixed` joint in
+  View therefore draws nothing at all — a weld has nothing to pose, the
+  joint tree does not list it, and it can only be selected there by
+  carrying the selection over from Edit (ADR-0021 §3).
+
   Sized from the child link's bounds **in the child's own frame** — its
   geoms through their geom poses and nothing else — so a glyph is the size
   of the part it belongs to and keeps that size wherever the joint is:
@@ -449,19 +472,28 @@ below.
   (ADR-0013) in a muted amber labelled `» <leader>`, an **actuated** joint
   (ADR-0014) at full amber with a ring at the pivot named for its kind,
   since an actuator holds a joint the user can still pose where a mimic
-  takes the posing away. The tick sits at the *resolved* `q`, so a
-  follower's points where its link actually is. **Hover runs both ways**: a
+  takes the posing away. In View that ring is the same bore **filled**
+  (ADR-0027 §3): a fill like the band rather than a stroke, so it cannot
+  read as a second handle, and the only mark of "driven" left where zen
+  hides the joint tree. The muting is on the colour the three shades are
+  taken from, so a follower's band is muted at all three. The tick sits
+  at the *resolved* `q`, so a follower's points where its link actually
+  is. **Hover runs both ways**: a
   hovered tree row (the link's name or the joint's label) draws that
   joint's glyph hot, and a glyph under the cursor brightens the tree row
   and names the joint in the status bar. **The target depends on the
-  mode** (ADR-0021 §6): in Edit it is the axis segment within
+  mode** (ADR-0021 §6, ADR-0027 §6): in Edit it is the axis segment within
   `GLYPH_HOVER_RADIUS` screen points and nothing more, since the mesh
-  behind it is what Edit's tools aim at; in View, where a mesh answers
-  nothing, it grows to the **band and its interior** — the pointer inside
-  the band's projected centreline or within the same radius of it — so a
-  joint is a disc to aim a wheel at rather than a line. Measured in
-  screen space because what the user aims at is what they can see; the
-  score is the distance to the axis or the centreline, so a small glyph
+  behind it is what Edit's tools aim at; in View it is **exactly what View
+  draws** — the band and its interior for a hinge, the bars for a slide,
+  the pointer inside the projected outline or within the same radius of
+  it, and nothing at all for a weld. A disc or a quad is the better thing
+  to aim a wheel at than a line, and a prismatic joint, picked by its axis
+  alone before, now answers from the bars it draws. The axis segment is
+  Edit's alone, because View does not draw it: a hidden thing answers
+  nothing (ADR-0021, amended), and so does a thing that was never drawn.
+  Measured in screen space because what the user aims at is what they can
+  see; the score is the distance to the outline, so a small glyph
   inside a large band's disc still wins near its own ring. While a glyph is
   hovered the viewport's own **picking** is suppressed
   (`set_pick_suppressed`), so the part behind it is not highlighted as well
@@ -496,8 +528,9 @@ below.
   `GLYPH_HOVER_RADIUS`, `tcp (frame)` in the status bar beside a joint's
   `hinge (joint)`, picking
   suppressed so a click selects the frame — and a frame glyph wins the
-  pointer over a joint's, whose long axis line often runs straight through
-  it.
+  pointer over a joint's, which in Edit is a long axis line that often
+  runs straight through it and in View a band whose disc can contain it
+  whole.
 - **Properties** (right, in Edit): a link's name, material, and per geom the pose
   (xyz m, RPY °), asset scale and fix-up, "Add mesh to this link…"; then
   **Inertial** — the `InertialSpec` mode combo (Computed / Override /
@@ -856,12 +889,13 @@ Edit: a notch then poses the hovered joint by the ring's quantum, 5° or
 1° with shift, a slide by one percent of its travel (never under the
 metre floor, a tenth with shift), through `set_joint_value` and therefore
 with no history entry, since `q` is derived state. A follower's glyph
-takes no notch (ADR-0013). The glyph's own hover test is wider in View —
-the band and its interior, not the axis line alone (§Joint glyphs) — which
-the viewport never sees. View's tool is always Select — `Tab` into it
-resets the tool — so the gizmo's two switches and `snapping()` are off for
-the whole of the mode. The viewport crate does not know which mode it is
-in; it never needs to.
+takes no notch (ADR-0013). The glyph's own hover test is a different
+target in View — the band and its interior, or a slide's bars, and not
+the axis line at all, which View does not draw (§Joint glyphs, ADR-0027
+§6) — and the viewport never sees it. View's tool is always Select —
+`Tab` into it resets the tool — so the gizmo's two switches and
+`snapping()` are off for the whole of the mode. The viewport crate does
+not know which mode it is in; it never needs to.
 
 A gizmo *drag* is the one case that blocks the camera while keeping the
 hover pick: the drag is solved against the projection it started in, so the
@@ -1452,7 +1486,9 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   title, the visibility row's `overlays` (the classes switched *off*), a
   tree row being dragged — instances with
   their link/geom key, position and colour, viewport selection, the gizmo,
-  the joint glyphs, the frame glyphs, the snap candidate, the viewport's
+  the joint glyphs (each with the pieces it drew this frame, `drawn` — the
+  composition asserted as JSON and not only as pixels), the frame glyphs,
+  the snap candidate, the viewport's
   pointer policy (`input`, omitted while nothing is suppressed), status,
   viewport rect) accompanies every snapshot as
   a golden of its own; every float in it is rounded to six decimals and
@@ -1465,14 +1501,18 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   the View-mode set `view_opens_with_the_document`, `view_joint_tree`,
   `view_joint_tree_scrub`, `view_wheel_on_glyph`,
   `view_glyph_hover_band` (the band and its interior as View's target,
-  ADR-0021 §6), the two `zen_view` / `zen_edit` (the same key and the same
+  ADR-0021 §6), `view_glyph_hover_bar` (a slide's bars as the same,
+  ADR-0027 §6), `view_glyph_actuated` (the filled bore in place of the
+  ring), the two `zen_view` / `zen_edit` (the same key and the same
   empty window in both modes) and the visibility row's `overlay_row`,
   `overlay_row_joints_off`, `overlay_row_names_off`, `overlay_row_links_off`
   (ADR-0021, amended) and
   `joint_tree_chain` (a follower whose leader also follows: both rows
   read-only at their resolved values, each stating its own rule,
   ADR-0025),
-  `glyph_revolute`, `glyph_prismatic`, `glyph_hover`, `snap_vertex`,
+  `glyph_revolute`, `glyph_prismatic`, `glyph_band_grazing` (the band
+  foreshortened onto itself, where a translucent stack showed a seam),
+  `glyph_hover`, `snap_vertex`,
   `snap_circle`, `place_joint_bore`, `align_concentric`, `five_minute_arm`,
   `dirty_title`, `unsaved_confirm`, `file_menu`, `debug_menu`, and M3's
   `collision_hull`,
