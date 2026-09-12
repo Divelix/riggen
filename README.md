@@ -73,7 +73,7 @@ without a wheel, `pip install` builds the SDK from source with `cargo` on
    back.
 4. **File › Export…**, tick the formats you want (all three by default),
    choose a directory. The dialog lists anything that would stop the
-   export (a link with no mass, a joint with no axis) and writes
+   export (a moving link with no mass, a joint with no axis) and writes
    `arm.xml`, `arm.urdf` and `arm.sdf` beside `meshes/*.stl` when there is
    nothing.
 5. Load it:

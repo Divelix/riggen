@@ -304,9 +304,9 @@ imports exports, and the numbers and paths an import leaves for the user
 to fix are fixable in the window.*
 
 v0.4 made the way *in* lossless and measured what it bought: 172 of
-Menagerie's 261 models import. 31 of those then refuse to **export**, all
-of them on a link the user never touched, which is the largest remaining
-gap between "imports" and "round-trips". Every import line below is a
+Menagerie's 261 models import. 53 of those then refused to **export**, all
+of them on a link the user never touched, which was the largest remaining
+gap between "imports" and "round-trips"; 8 still do (ADR-0032). Every import line below is a
 backlog line this section now owns; the first line is chrome, taken ahead
 of them by the human's call.
 
@@ -314,12 +314,19 @@ of them by the human's call.
   X, Y and Z on its corner over a translucent cube, four arrows that turn
   the view 15°, the visibility row beside it, and the bottom-left triad
   gone (ADR-0030, ADR-0031). *Landed.*
-- **Every file that imports, exports.** The 31 refused on `link "base": no
-  material and no density override` (ADR-0015 §7) — a default density, an
-  unweighed-link mark or a better message; an idea decides which.
-- **A default material for an imported link**, or a one-click "assign PLA
-  to every link", so `Computed` runs on a file that carried no
-  `<inertial>`.
+- **Every file that imports, exports.** A static link with nothing to
+  weigh it by is written without `<inertial>` and named, a static
+  exactly-zero tensor is written `diaginertia="0 0 0"`, and a moving link
+  without mass is refused with the fix (ADR-0032). Menagerie: exporting
+  119 → 164 of the 172 that import, refused by the gate 53 → 8 — every
+  one a moving link the file gives no mass (`google_robot`, `sharpa_wave`,
+  `wonik_allegro`); 162 of the 164 load in MuJoCo with zero warnings.
+  *Landed.*
+- **A one-click "assign a material to every unweighed link"**, so
+  `Computed` runs on a file that carried no `<inertial>`: a row in the
+  export dialog and `robot.assign_material_to_unweighed` in the SDK, one
+  undo (ADR-0032 §5). No density is invented at import — ADR-0015 §7
+  stands. *Landed.*
 - **A `PackageMap` UI** — a packages table in Import URDF… for the
   `package://` paths the beside-the-file heuristic misses.
 - **`validate` checks the numbers it skips** — geom poses and an
