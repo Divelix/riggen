@@ -1082,7 +1082,8 @@ first equality over it (ADR-0025 §3), a `fromto` capsule, a non-uniform mesh sc
 `springlength` the document counts rather than keeps, driven by a `<motor>`
 (ADR-0025 §4), an `<actuator>` named something other than its joint plus
 a second one on that same joint (both kept, ADR-0023) carrying an explicit
-`ctrllimited="false"` beside a range (ADR-0024), and eight elements the
+`ctrllimited="false"` beside a range (ADR-0024), a static `tool` body
+with a mesh and no `<inertial>` that exports unweighed (ADR-0032), and eight elements the
 document has no field for — and its test pins the result warning by warning. The round trip
 itself is the `mujoco` CI job's fourth model: the arm exported, imported
 and exported again, held to the *original* document's `fk.json`. The

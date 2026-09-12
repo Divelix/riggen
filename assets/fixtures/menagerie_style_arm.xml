@@ -46,6 +46,7 @@
               <geom class="arm_visual" type="box" size="0.01 0.02 0.03"/>
               <geom class="arm_collision" type="ellipsoid" size="0.01 0.02 0.03"/>
               <body name="tool" zaxis="0 -1 0">
+                <geom class="arm_visual" mesh="pad"/>
                 <site name="tcp" pos="0 0 0.02"/>
                 <body name="finger" pos="0 0 0.03">
                   <joint name="finger_flex" axis="1 0 0" range="-30 30"/>

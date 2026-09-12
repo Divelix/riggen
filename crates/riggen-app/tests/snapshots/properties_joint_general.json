@@ -113,16 +113,16 @@
         "material": null
       },
       {
-        "id": "l17",
+        "id": "l18",
         "name": "tool",
-        "parent_joint": "j18",
-        "geoms": 0,
+        "parent_joint": "j19",
+        "geoms": 1,
         "material": null
       },
       {
-        "id": "l20",
+        "id": "l21",
         "name": "finger",
-        "parent_joint": "j21",
+        "parent_joint": "j22",
         "geoms": 1,
         "material": null
       }
@@ -154,25 +154,25 @@
         "q": 0.0
       },
       {
-        "id": "j18",
+        "id": "j19",
         "name": "tool_joint",
         "kind": "Fixed",
         "parent": "l15",
-        "child": "l17",
+        "child": "l18",
         "q": 0.0
       },
       {
-        "id": "j21",
+        "id": "j22",
         "name": "finger_flex",
         "kind": "Revolute",
-        "parent": "l17",
-        "child": "l20",
+        "parent": "l18",
+        "child": "l21",
         "q": 0.0
       }
     ],
     "frames": [
       {
-        "id": "f22",
+        "id": "f23",
         "name": "mount",
         "parent": "l4",
         "pos": [
@@ -188,9 +188,9 @@
         ]
       },
       {
-        "id": "f23",
+        "id": "f24",
         "name": "tcp",
-        "parent": "l17",
+        "parent": "l18",
         "pos": [
           0.0,
           0.0,
@@ -206,7 +206,7 @@
     ],
     "tendons": [
       {
-        "id": "t24",
+        "id": "t25",
         "name": "grip_tendon",
         "joints": [
           [
@@ -359,8 +359,38 @@
     },
     {
       "id": 4,
-      "link": "l20",
-      "geom": "g19",
+      "link": "l18",
+      "geom": "g17",
+      "visible": true,
+      "triangles": 4,
+      "bounds": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.01,
+          0.01,
+          0.01
+        ]
+      ],
+      "position": [
+        0.035355,
+        0.035355,
+        0.181603
+      ],
+      "color": [
+        0.2,
+        0.2,
+        0.25,
+        1.0
+      ]
+    },
+    {
+      "id": 5,
+      "link": "l21",
+      "geom": "g20",
       "visible": true,
       "triangles": 4,
       "bounds": [
@@ -510,7 +540,7 @@
       ]
     },
     {
-      "joint": "j21",
+      "joint": "j22",
       "name": "finger_flex",
       "kind": "Revolute",
       "origin": [
@@ -548,7 +578,7 @@
   ],
   "frame_glyphs": [
     {
-      "frame": "f22",
+      "frame": "f23",
       "name": "mount",
       "origin": [
         0.0,
@@ -564,14 +594,14 @@
       "hovered": false
     },
     {
-      "frame": "f23",
+      "frame": "f24",
       "name": "tcp",
       "origin": [
         0.028284,
         0.028284,
         0.164282
       ],
-      "size": 0.631043,
+      "size": 0.004763,
       "screen": [
         522.218384,
         616.542542
@@ -581,7 +611,7 @@
     }
   ],
   "snap": null,
-  "status": "imported menagerie_style.xml: link \"shoulder\": shoulder.stl has a non-uniform scale; 0.002 used for every axis (+11 more warnings)",
+  "status": "imported menagerie_style.xml: link \"shoulder\": shoulder.stl has a non-uniform scale; 0.002 used for every axis (+12 more warnings)",
   "viewport_rect": [
     267.4375,
     23.0,

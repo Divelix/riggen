@@ -493,6 +493,18 @@ mod tests {
         let (store, errors) = MeshStore::load(&from_memory, &memory);
         assert_eq!(errors, Vec::new());
         assert_eq!(store.0.len(), from_memory.referenced_assets().len());
+
+        // And it exports: the static `tool` carries a mesh and no
+        // `<inertial>`, which the gate lets through unweighed and names
+        // (ADR-0032) rather than refusing the whole file.
+        let resolved = crate::resolve(
+            &from_memory,
+            &store,
+            &crate::ComputeNow,
+            &crate::ExportOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(resolved.massless, ["tool"]);
     }
 
     /// A mesh missing from the set is an `UnloadableMesh` that names it,

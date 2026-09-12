@@ -33,6 +33,9 @@
       on that already-driven joint — both of which the document keeps
       (ADR-0023) — the second with an explicit ctrllimited="false" beside
       a ctrlrange (ADR-0024);
+    * a **static body with a mesh and no <inertial>** (`tool`), which MuJoCo
+      weighs from its geoms and riggen, inventing no density (ADR-0015 §7),
+      exports with no <inertial> and names as massless (ADR-0032);
     * <option>, <light>, <camera>, <texture>, <material>, <sensor>,
       <contact> and <keyframe>, none of which the document holds;
     * **composition** (ADR-0026): the <asset> and the whole robot live in a

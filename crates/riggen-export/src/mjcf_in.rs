@@ -2386,6 +2386,11 @@ mod tests {
                     link: "wrist".to_owned(),
                     kind: "an ellipsoid geom".to_owned()
                 },
+                // The static `tool` has a mesh and no `<inertial>`, and no
+                // density is invented for it (ADR-0015 §7).
+                ImportWarning::NoInertial {
+                    link: "tool".to_owned()
+                },
                 // No coupling, no tendon and no actuator of this file
                 // is dropped any more (ADR-0025): the chain, the `ref`,
                 // the `<fixed>` and the `<motor>` on it all come in.

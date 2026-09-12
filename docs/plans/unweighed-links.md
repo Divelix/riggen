@@ -124,13 +124,21 @@ mechanical; **[2]** careful — a case to get right within a given design;
     the file exported and failed identically before this step (its
     re-export is byte-for-byte unchanged). Not this plan's; a backlog
     line at retirement.
-- [ ] **[2]** Step 2 — The fixture: `menagerie_style_arm.xml`'s `tool`
+- [x] **[2]** Step 2 — The fixture: `menagerie_style_arm.xml`'s `tool`
   body, static and holding only a site today, gains a mesh geom and no
   `<inertial>`.
   - The corpus route of the `mujoco` job passes: zero warnings, `fk` to
     1e-6.
   - The `mjcf_in` corpus tests and goldens are updated for the new geom.
   - Run locally through `uv run --with mujoco` before committing.
+
+  Landed with `pad` (the inline 1 cm tetrahedron) as `tool`'s visual. Run
+  locally: 7 bodies, 40 poses to 1e-6, the four actuators, two
+  equalities and the tendon the original's, zero warnings. The import
+  pins one more `NoInertial { link: "tool" }`; the in-memory import test
+  now resolves the corpus and finds `massless == ["tool"]`. Four
+  menagerie-style snapshots moved: ids shift by one, and the `tcp`
+  frame's marker is sized by its link's 1 cm geometry now.
 - [ ] **[1]** Step 3 — ADR-0032, with step 1's measurement.
 - [ ] **[2]** Step 4 — The moving-link refusal: `NoDensity` on a moving
   link becomes `ZeroMassMovableLink`, and the message depends on whether
