@@ -111,7 +111,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   watch: a *click* on a selected frame under Rotate still places it
   (`placing_frame`), because both gestures live on the same tool and
   selection.
-- [ ] **[2]** Step 3 — **the overlay says what it landed on.** The spoke,
+- [x] **[2]** Step 3 — **the overlay says what it landed on.** The spoke,
   the axis-prefixed readout, `SnapDebug::align`, and the golden
   `gizmo_rotate_drag_snaps_to_a_bore` captured mid-drag with the button
   still down — the marker on the wall, the spoke on the ring, the part
@@ -147,6 +147,19 @@ PNG golden reviewed by the human before it is committed.
   lines.
 - `docs/BACKLOG.md` — nothing removed (the snap-quantum line is explicitly
   out of scope and stays); a new line if step 2 leaves one behind.
+
+## What step 3 found
+
+- **The readout's separator is `»`, not `→`.** The first capture drew a
+  tofu box: egui's bundled fonts have no arrows, which
+  `glyphs.rs::driven_marks` had already found once. ADR-0029 §8's example
+  is corrected in place — the rule it states is unchanged.
+- **The readout moves to the spoke's tip while a rotate drag aligns**,
+  rather than being drawn twice. The feature keeps its circle and its dot;
+  one set of words, at the gizmo, which is where the user is looking.
+- **The scenario puts the shaft 4 mm off the bore's axis.** Dead centre,
+  the spoke lay exactly along the circle's own axis stub and the picture
+  could not show it was there at all.
 
 ## What step 2 found (the plan was short by three)
 

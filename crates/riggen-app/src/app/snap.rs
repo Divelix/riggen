@@ -152,7 +152,6 @@ const MIN_PROJECTION: f64 = 1e-3;
 /// world direction it lands along, and the correction that puts it there
 /// (ADR-0029).
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[allow(dead_code, reason = "the overlay reads the rest at step 3 of the plan")]
 pub(crate) struct Alignment {
     /// The signed frame axis that lands — `"+z"`, `"-x"`.
     pub axis: &'static str,
@@ -166,6 +165,17 @@ pub(crate) struct Alignment {
     /// `correction`'s signed angle in degrees — the readout and
     /// `debug_state`.
     pub degrees: f64,
+}
+
+/// What a rotate drag is landing this frame, with the two numbers the
+/// marker needs: where the gizmo's pivot is, and how long the spoke that
+/// says so should be — the ring's own world radius, which is what the user
+/// is looking at while dragging it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct AlignPreview {
+    pub landed: Alignment,
+    pub pivot: DVec3,
+    pub radius: f64,
 }
 
 /// The rotate drag's rule, as a pure function (ADR-0029).
@@ -498,7 +508,20 @@ impl RiggenApp {
         fit
     }
 
+    /// What a rotate drag is landing, while one is (ADR-0029 §8): the
+    /// marker's second idiom, and `debug_state`'s `snap.align`.
+    pub(crate) fn snap_align(&self) -> Option<AlignPreview> {
+        self.snap_align
+    }
+
     /// The snap marker and its readout, appended to the glyph overlay.
+    ///
+    /// A rotate drag adds the second idiom: a spoke from the gizmo's pivot
+    /// along the direction being landed on, at the ring's own world radius,
+    /// with the readout at its tip and the axis that is landing in front of
+    /// it — `+z → circle r 12.0 mm · 24 seg · res 0.01 mm`. The feature
+    /// keeps its circle and its dot; the words move to the gizmo, which is
+    /// where the user is looking while dragging one (ADR-0029 §8).
     pub(crate) fn push_snap_overlay(&self, overlay: &mut Overlay) {
         let Some(snap) = self.snap_candidate else {
             return;
@@ -520,12 +543,20 @@ impl RiggenApp {
             overlay.segment(fit.center - half, fit.center + half, SNAP_COLOR, 1.5);
         }
         overlay.point(snap.point, 5.0, SNAP_COLOR);
-        overlay.label(
-            snap.point,
-            snap.readout(),
-            SNAP_COLOR,
-            egui::vec2(10.0, -6.0),
-        );
+        let (at, readout) = match self.snap_align {
+            Some(align) => {
+                let tip = align.pivot + align.landed.target * align.radius;
+                overlay.segment(align.pivot, tip, SNAP_COLOR, 2.0);
+                // `»` and not an arrow, for `driven_marks`' reason: egui's
+                // bundled fonts have none, and a tofu box says nothing.
+                (
+                    tip,
+                    format!("{} \u{bb} {}", align.landed.axis, snap.readout()),
+                )
+            }
+            None => (snap.point, snap.readout()),
+        };
+        overlay.label(at, readout, SNAP_COLOR, egui::vec2(10.0, -6.0));
     }
 }
 

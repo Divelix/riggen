@@ -90,10 +90,12 @@ rotation until one frame axis lies exactly along the feature's.**
 8. **The marker is a spoke plus an axis-prefixed readout.** The snap's own
    cyan, a segment from the gizmo's pivot along the target direction at the
    ring's own world radius, and the ladder's readout prefixed with the axis
-   that is landing: `+z → circle r 12.0 mm · 24 seg · res 0.01 mm`. The
+   that is landing: `+z » circle r 12.0 mm · 24 seg · res 0.01 mm` — `»`
+   and not an arrow, for the reason `glyphs.rs::driven_marks` already
+   found: egui's bundled fonts have none, and a tofu box says nothing. The
    circle overlay and the point marker the ladder already draws stay where
-   they are, on the feature; the spoke is on the gizmo, which is where the
-   user is looking.
+   they are, on the feature; the spoke and the words are on the gizmo,
+   which is where the user is looking while dragging one.
 
 9. **Nothing else changes.** One drag is still one command, committed on
    release exactly as previewed. No document field, no schema change, no

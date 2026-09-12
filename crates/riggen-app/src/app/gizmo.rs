@@ -305,6 +305,7 @@ impl RiggenApp {
                     // direction, in the latched ring's plane (ADR-0029).
                     // The raw pose is kept for the crate to go on solving
                     // against.
+                    self.snap_align = None;
                     if self.rotate_dragging() {
                         self.gizmo_state.raw = Some(pose);
                         if let Some(ring) = self.gizmo_state.drag_ring
@@ -313,6 +314,15 @@ impl RiggenApp {
                                 super::snap::align_in_plane(ring, pose.r, snap.axis())
                         {
                             pose = Pose::new(pose.t, (landed.correction * pose.r).normalize());
+                            // The spoke the overlay draws is the ring's own
+                            // radius, measured the way `ring_under_cursor`
+                            // measures it (ADR-0029 §8).
+                            self.snap_align = Some(super::snap::AlignPreview {
+                                landed,
+                                pivot: pose.t,
+                                radius: ring_scale(view, projection, rect, pose)
+                                    * visuals.gizmo_size as f64,
+                            });
                         }
                     }
                     self.gizmo_state.drag = Some((target, pose));
@@ -338,6 +348,7 @@ impl RiggenApp {
     fn end_gizmo_drag(&mut self, expected: Option<GizmoTarget>) {
         self.gizmo_state.drag_ring = None;
         self.gizmo_state.raw = None;
+        self.snap_align = None;
         let Some((target, pose)) = self.gizmo_state.drag.take() else {
             return;
         };

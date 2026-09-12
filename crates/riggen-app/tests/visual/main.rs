@@ -4597,8 +4597,11 @@ fn rotate_drag_onto_a_bore(
     let shaft = app.open_path(&shaft_path).expect("open the shaft").unwrap();
     let joint = app.robot().parent_joint(shaft).unwrap();
     let mut edited = app.robot().joints[&joint].clone();
+    // Off the bore's own axis by a few millimetres, so the spoke the
+    // overlay draws from the gizmo's pivot is a line of its own and not one
+    // laid over the circle's axis stub.
     edited.origin = Pose::from_xyz_rpy(
-        DVec3::ZERO,
+        DVec3::new(0.004, 0.0, 0.0),
         DVec3::new(ROTATE_SNAP_TILT.to_radians(), 0.0, 0.0),
     );
     app.apply(Command::SetJoint(joint, edited)).unwrap();
@@ -4723,6 +4726,46 @@ fn a_snapped_rotate_drag_commits_the_alignment() {
             off < 0.5f64.to_radians(),
             "the release moved the part {}° from what the preview showed",
             off.to_degrees()
+        );
+    });
+}
+
+/// The second overlay idiom, caught mid-drag with the button still down
+/// (ADR-0029 §8): the cyan spoke from the gizmo's pivot at the ring's own
+/// radius, along the direction being landed on, with the readout at its tip
+/// and the axis that is landing in front of it; the fitted circle and its
+/// dot still on the bore; the shaft already turned onto the bore's axis and
+/// nothing committed.
+#[test]
+fn gizmo_rotate_drag_snaps_to_a_bore() {
+    scenario("gizmo_rotate_drag_snaps_to_a_bore", |harness| {
+        let (_, _, depth) = rotate_drag_onto_a_bore(harness);
+
+        let state = harness.state().debug_state();
+        let snap = state.snap.as_ref().expect("the bore under the cursor");
+        assert_eq!(snap.kind, "circle");
+        let align = snap.align.as_ref().expect("an axis is landing");
+        assert_eq!(
+            align.axis, "+z",
+            "the nearest of the four the X ring allows"
+        );
+        assert_eq!(
+            align.target[2].abs(),
+            1.0,
+            "the bore's own axis: {:?}",
+            align.target
+        );
+        assert!(
+            (align.degrees.abs() - ROTATE_SNAP_TILT).abs() < 2.0,
+            "the correction is the tilt the shaft stood at: {}°",
+            align.degrees
+        );
+        assert!(snap.readout.starts_with("circle r 12.0 mm"));
+        assert!(state.gizmo.expect("a gizmo").dragging, "still in flight");
+        assert_eq!(
+            harness.state().history().undo_depth(),
+            depth,
+            "the drag previews; nothing is committed until the release"
         );
     });
 }

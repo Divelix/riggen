@@ -406,6 +406,25 @@ pub struct SnapDebug {
     /// The readout drawn beside the marker.
     pub readout: String,
     pub screen: Option<[f64; 2]>,
+    /// What a **rotate** drag is landing on it (ADR-0029). Omitted — and
+    /// absent from the JSON — every other time, which is every scenario
+    /// that is not mid-rotate-drag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub align: Option<AlignDebug>,
+}
+
+/// The alignment a rotate drag is previewing: which of the dragged frame's
+/// own axes lands, the direction it lands along, and how far the snap had
+/// to turn it. The rule, not the pixels — a headless scenario asserts on
+/// this and the golden PNG shows the spoke that says it.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct AlignDebug {
+    /// `"+z"` / `"-x"`: the frame axis, signed.
+    pub axis: &'static str,
+    /// The feature's axis projected into the ring's plane, normalised.
+    pub target: [f64; 3],
+    /// The correction the snap applied, in degrees. Never more than 45.
+    pub degrees: f64,
 }
 
 /// One viewport instance: identity, visibility, size and where it is.
@@ -679,6 +698,15 @@ impl RiggenApp {
                 screen: self
                     .project_world(snap.point)
                     .map(|p| [round32(p.x), round32(p.y)]),
+                align: self.snap_align().map(|align| AlignDebug {
+                    axis: align.landed.axis,
+                    target: [
+                        round(align.landed.target.x),
+                        round(align.landed.target.y),
+                        round(align.landed.target.z),
+                    ],
+                    degrees: round(align.landed.degrees),
+                }),
             }),
             gizmo: self.gizmo_target().and_then(|target| {
                 let world = self.gizmo_world(target)?;

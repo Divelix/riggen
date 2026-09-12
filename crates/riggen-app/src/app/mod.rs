@@ -127,6 +127,11 @@ pub struct RiggenApp {
     snap_candidate: Option<SnapCandidate>,
     /// The last circle fit, so a resting cursor fits once and not per frame.
     snap_cache: SnapCache,
+    /// What a rotate drag is landing, while one is: the axis, the direction
+    /// and where to draw the spoke that says so (ADR-0029 §8). Written by
+    /// `gizmo_ui` at the end of the frame, so the overlay and
+    /// `debug_state` read it one frame behind, like the drag's own pose.
+    snap_align: Option<snap::AlignPreview>,
     /// The Align tool's first pick, waiting for its second (`align.rs`).
     align_source: Option<SnapCandidate>,
     /// A link's world pose while a gizmo drag previews it: `sync_scene`
@@ -260,6 +265,7 @@ impl RiggenApp {
             viewcube_rect: None,
             snap_candidate: None,
             snap_cache: SnapCache::default(),
+            snap_align: None,
             align_source: None,
             preview_world: None,
             import_scale,
