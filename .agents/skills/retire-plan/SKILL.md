@@ -26,6 +26,16 @@ Deletion is the "done" signal. Anything worth keeping was moved first.
 6. Anything deferred from the plan goes to `docs/BACKLOG.md` as one line.
 7. `git rm docs/plans/<slug>.md` and commit everything as
    `docs: retire plan <slug>` with a body listing the docs updated.
+8. **Sweep the build cache**, after the commit so the hook's checks ran
+   on a warm build. Cargo reuses artefacts but never deletes them: every
+   dependency bump, toolchain update or feature-set change leaves the old
+   copies in `target/` (76 GB once, 30 GB in one week — `Cargo.toml`'s
+   profile comment). Run `cargo sweep --time 7` (once: `cargo install
+   cargo-sweep`), or `cargo clean` if it is not installed; the next
+   `/work` rebuilds in a minute or two. Report `du -sh target` before and
+   after. A directory a container build left root-owned
+   (`target/manylinux`, `target/clippy-latest`) is not yours to delete:
+   name it and hand the human `sudo rm -rf` for it, never run sudo.
 
 ## Don't
 
