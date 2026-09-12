@@ -875,9 +875,10 @@ instance** (a "face" on an STL is one triangle, so a face outline would
 trace a single triangle) and the status bar reads `arm (i1/t120)`.
 `Viewport::set_pick_excluded(Vec<InstanceId>)` takes instances out of the
 **pick pass** while they keep drawing: the cursor looks through them. A
-translate gizmo drag sets it to the dragged link's whole subtree, because
-that geometry follows the cursor and would otherwise be the only thing the
-drag could ever find under it (ADR-0019 §5).
+gizmo drag of a **link** sets it to that link's whole subtree, because that
+geometry follows the cursor — it is carried by a translate drag and turned
+by a rotate one — and would otherwise be the only thing the drag could ever
+find under it (ADR-0019 §5, ADR-0029 §9).
 
 `Viewport::set_selected(Option<InstanceId>)` is the other direction, for
 the tree; it records triangle `0`, since selection is per instance and the
@@ -900,15 +901,36 @@ circle > point** — with the winner, its axis and its readout in
 `debug_state().snap`.
 
 Snapping is a placement affordance: markers under the cursor while merely
-selecting would be noise. Three gestures ask for it
-(`RiggenApp::snapping`) — the placement tools (`Tool::snaps`), Move or
-Rotate on a selected frame, and a **translate gizmo drag**
-(`translate_dragging`). The drag runs the same ladder and draws the same
-marker: the previewed pose's translation becomes the snapped point, its
-rotation untouched, so the gizmo's own origin lands on the feature and the
-release commits that — the anchor a frame placement already uses. A
-*rotate* drag does not snap; a rotation about a named axis has nothing in
-the ladder to land on.
+selecting would be noise. Four gestures ask for it (`RiggenApp::snapping`)
+— the placement tools (`Tool::snaps`), Move or Rotate on a selected frame,
+a **translate gizmo drag** (`translate_dragging`) and a **rotate gizmo
+drag** (`rotate_dragging`). A translate drag runs the same ladder and draws
+the same marker: the previewed pose's translation becomes the snapped
+point, its rotation untouched, so the gizmo's own origin lands on the
+feature and the release commits that — the anchor a frame placement already
+uses.
+
+A **rotate drag lands the other way round** (ADR-0029): the translation is
+the drag's and one of the dragged frame's own axes is turned onto the
+feature's *direction*. A ring drag has one degree of freedom — about the
+ring latched at drag start, since `hovered_ring` goes `None` as soon as the
+cursor leaves the band — so only the two frame axes perpendicular to that
+ring can move, and their four signed directions sweep the ring's plane 90°
+apart. The feature's axis projected into that plane is the target (a
+feature parallel to the ring axis projects to nothing and there is no
+snap), the candidate nearest it by angle wins, and the correction is never
+more than 45°: `app/snap.rs::align_in_plane`, pure and unit-tested. The
+ladder runs **direction-only** for it — circle > point, since a vertex and
+a box corner say nothing about direction — and the snap is unconditional,
+so over geometry a rotate drag reaches four orientations per ring and free
+rotation is over the background. The crate solves a rotation as a delta on
+the transform it is handed, so `GizmoState` keeps the drag's *raw* pose for
+the crate to go on solving against and shows the corrected one; without
+that, each frame's delta would be erased and the part could never leave the
+first alignment it found. A drag on the crate's fourth — view-axis — ring
+latches no ring and therefore snaps to nothing, for the reason the wheel
+does not claim it either: the document has no name for the camera's
+forward axis (ADR-0019 §3, ADR-0029 §7).
 
 Move and Rotate snap for a **selected frame**
 (`RiggenApp::placing_frame`): a frame is the one thing the gizmo edits
@@ -961,19 +983,27 @@ decision the user cannot see. Nothing in the world moves; only the pivot
 does, and the status bar repeats the fit it placed on.
 
 Whenever the snap ladder runs — a placement tool, Move / Rotate with a
-frame selected, or a translate drag (`RiggenApp::snapping`) — the
-viewport's *select* click is suppressed (`set_select_suppressed`) while its
-hover keeps running: the click means "put it here", and the hover is what
-the snap is computed from. A drag needs the same thing for the same reason,
-which is why blocking the pointer during one had to narrow to blocking the
-camera (ADR-0019 §4).
-A glyph never takes the pointer then either, because the selected joint's
-or frame's own glyph sits exactly where the user is aiming.
+frame selected, or a gizmo drag of either kind (`RiggenApp::snapping`) —
+the viewport's *select* click is suppressed (`set_select_suppressed`) while
+its hover keeps running: the click means "put it here", and the hover is
+what the snap is computed from. A drag needs the same thing for the same
+reason, which is why blocking the pointer during one had to narrow to
+blocking the camera (ADR-0019 §4) and why `set_pick_suppressed` stands down
+for a drag in flight (`gizmo_dragging`) even though the gizmo owns the
+cursor. A glyph never takes the pointer then either, because the selected
+joint's or frame's own glyph sits exactly where the user is aiming.
 
 The marker is cyan and carries the fit's own confidence —
 `circle r 12.0 mm · 24 seg · res 0.01 mm` — so a bad fit is obvious rather
-than silent. The fit is memoised per `(instance, triangle)` and the welded
-adjacency is cached beside the loaded mesh, so a resting cursor fits once.
+than silent. A rotate drag adds the second idiom (ADR-0029 §8): a spoke
+from the gizmo's pivot along the direction being landed on, at the ring's
+own world radius, with the readout at its tip and the axis in front of it —
+`+z » circle r 12.0 mm · 24 seg · res 0.00 mm`. The feature keeps its
+circle and its dot; the words move to the gizmo, which is where the user is
+looking while dragging one, and `debug_state().snap.align` names the axis,
+the direction and the correction in degrees. The fit is memoised per
+`(instance, triangle)` and the welded adjacency is cached beside the loaded
+mesh, so a resting cursor fits once.
 
 Gizmos come from `transform-gizmo-egui` (ADR-0007), behind
 `app/gizmo.rs` — the only file that names the crate — fed the viewport's
@@ -1005,8 +1035,8 @@ and no more, because "the pointer is busy" has five different meanings:
 
 | Switch | Off | Set by |
 |---|---|---|
-| `set_pick_suppressed` | both picks; the camera stays live | a gizmo handle, or a joint or frame glyph under the cursor — something drawn *in front of* the geometry that would answer — and the toolbar |
-| `set_select_suppressed` | the select pick; the hover keeps running | `snapping()`: a placement tool, Move / Rotate on a frame, or a translate drag — the click means "put it here" |
+| `set_pick_suppressed` | both picks; the camera stays live | a gizmo handle, or a joint or frame glyph under the cursor — something drawn *in front of* the geometry that would answer — and the toolbar; **not** a gizmo drag in flight, which wants the hover the snap is computed from |
+| `set_select_suppressed` | the select pick; the hover keeps running | `snapping()`: a placement tool, Move / Rotate on a frame, or a gizmo drag of either kind — the click means "put it here" |
 | `set_camera_blocked` | camera input; the picks are not its business | the toolbar, which floats in the viewport's own egui layer; a gizmo drag in flight, which is solved against the projection it started in |
 | `set_primary_drag_claimed` | `dragged_by(Primary)` alone — the middle and right drags, the wheel and both picks stay live | `gizmo_captured()`: a handle under the cursor or a gizmo drag in flight (ADR-0018) |
 | `set_wheel_claimed` | zoom alone — every drag, both picks and the viewport's keys stay live | a **rotate ring** under the cursor, where a notch steps the ring instead (ADR-0019) |
@@ -1654,7 +1684,10 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   `glyph_hover`, `ground_grid` (a part on the floor beside one lifted
   above it, the depth cueing probed from the rendered pixels),
   `snap_vertex`,
-  `snap_circle`, `place_joint_bore`, `align_concentric`, `five_minute_arm`,
+  `snap_circle`, `gizmo_rotate_drag_snaps_to_a_bore` (a shaft caught mid-drag
+  with the button still down, landed on the bore it sits in, the spoke and
+  its axis-prefixed readout on the gizmo; ADR-0029),
+  `place_joint_bore`, `align_concentric`, `five_minute_arm`,
   `dirty_title`, `unsaved_confirm`, `file_menu`, `debug_menu`, and M3's
   `collision_hull`,
   `collision_primitives` (a pick through a translucent box hits the part),
@@ -1702,11 +1735,17 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   from them; and behind ADR-0019
   `a_ring_drag_turns_about_the_ring_the_hover_named` (which pins the ring
   hit test against the crate by dragging each ring and reading the rotation
-  the *crate* produced), `wheel_steps_the_hovered_ring`,
+  the *crate* produced — out to where nothing snaps, since a rotate drag
+  over a cube's cardinal normals would land an axis and cancel exactly the
+  rotation it is measuring), `wheel_steps_the_hovered_ring`,
   `a_wheel_burst_is_one_history_entry`, `the_wheel_still_zooms_beside_a_ring`,
   `a_snapped_drag_commits_where_the_marker_was`,
-  `a_drag_looks_through_the_part_it_is_moving`, `a_rotate_drag_does_not_snap`,
+  `a_drag_looks_through_the_part_it_is_moving`,
   `tool_shortcuts_switch_tools` and `tool_shortcuts_yield_to_a_text_field`;
+  and behind ADR-0029 `a_rotate_drag_lands_an_axis_on_a_bore` (the shaft's
+  +Z on the bore's axis mid-drag, the document untouched) and
+  `a_snapped_rotate_drag_commits_the_alignment` (one history entry, the
+  committed pose the one the preview showed);
   and v0.5's camera set behind ADR-0028 — `viewcube_corner` (the cube
   showing the three faces the camera can see), `viewcube_click_snaps_to_top`
   (a facet clicked, the flight landed, the target and distance untouched),

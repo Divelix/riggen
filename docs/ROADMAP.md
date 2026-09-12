@@ -321,12 +321,20 @@ Every line below is a backlog line this section now owns.
   not an average, for the reason the pick pass is single-sampled. ADR-0020
   is untouched: the overlay still reads one `Depth32Float` texel per
   pixel.
-- **Snapping during a rotate gizmo drag.** ADR-0019 §5 left the drag snap
-  to translation because a rotation about a named axis has nothing in the
-  ladder to land on. The answer is aligning the dragged frame's axis to a
-  snapped feature's (a circle's, a face normal), which needs a rule for
-  *which* of the three axes aligns and a second overlay idiom — an ADR if
-  the rule turns out to be contested.
+- **Snapping during a rotate gizmo drag.** *Landed
+  (plans/rotate-drag-snapping, ADR-0029).* ADR-0019 §5 left the drag snap
+  to translation for want of a rule saying which of the three axes aligns.
+  The rule is one the user never answers: a ring drag has one degree of
+  freedom, so only the two frame axes perpendicular to the ring can move,
+  and the one that lands is whichever of their four signed directions the
+  drag has already brought nearest. The ladder runs **direction-only**
+  while a rotate drag is in flight — a fitted circle's axis or a face
+  normal, a vertex and a box corner saying nothing about direction — and
+  the snap is unconditional, so over geometry a rotate drag reaches four
+  orientations per ring and free rotation is over the background. The
+  second overlay idiom is a cyan spoke from the gizmo's pivot at the
+  ring's own radius, with the ladder's readout at its tip and the axis in
+  front of it. One drag, one command, as before.
 - **View's joint glyph loses its legacy pieces and gains an opaque band.**
   *Landed (plans/joint-glyph, ADR-0027).* In View a glyph is the band or
   the bars, the tick at `q`, and a filled bore for a driven joint —

@@ -28,15 +28,17 @@ away at import, never stored — Menagerie's importing files 93 → 172 of 261
 `<attach>` stay refused (ADR-0022). The window is two modes (ADR-0021):
 **View** poses through the joint tree and the glyphs alone, Tab to
 **Edit** at the zero configuration, zen on `Z`.
-**Next:** v0.5, the viewport and the camera — five of six lines in. The
-glyph (ADR-0027): in View the band or the bars, the tick and a filled
-bore, opaque, answering from exactly what it draws. The camera
-(ADR-0028): one turntable still, the ViewCube bottom-right aiming it and
-owning the projection readout, `W A S D E Q` walking its pivot so a buried
-joint can be flown to and orbited locally, the pivot drawn unfaded while a
-gesture is live. The pass under it multisamples, and a ground grid at
-z = 0 gives a part somewhere to stand — furniture, but the first with a
-switch, the visibility row's sixth toggle. **Left:** rotate-drag snapping.
+**Next:** v0.5, the viewport and the camera — all six lines in, so
+`/close-cycle` is what follows. The glyph (ADR-0027): in View the band or
+the bars, the tick and a filled bore, opaque, answering from exactly what
+it draws. The camera (ADR-0028): one turntable still, the ViewCube
+bottom-right aiming it and owning the projection readout, `W A S D E Q`
+walking its pivot so a buried joint can be flown to and orbited locally,
+the pivot unfaded while a gesture is live. The pass under it multisamples,
+a ground grid at z = 0 gives a part somewhere to stand — furniture, but the
+first with a switch, the visibility row's sixth toggle — and a rotate drag
+snaps too (ADR-0029): direction-only, the nearest frame axis landing on the
+feature's, a spoke at the gizmo saying which.
 **Before:** v0.3 (`v0.3.0`) the hand-feel debt (ADR-0018/19/20); v0.2
 (`v0.2.1`) sim-ready — SDK wheel, V-HACD, frames / mimics / actuators,
 MJCF import, SDF export, the web demo (ADR-0009 to 0017); M4 the wheel;
