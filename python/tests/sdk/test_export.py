@@ -169,7 +169,9 @@ def test_export_of_an_unexportable_robot_lists_every_error(pendulum: Robot, tmp_
         pendulum.export(tmp_path)
     lines = str(info.value).splitlines()
     assert len(lines) == 2 and all(line.startswith("cannot export: ") for line in lines)
-    assert 'link "arm": no material and no density override' in lines[0]
+    # The arm is on a hinge: a moving link with a mesh and nothing to weigh
+    # it by is refused by name, with the fix (ADR-0032 §5).
+    assert 'link "arm" moves and has no mass — give it a material or a density' in lines[0]
     assert 'link "empty" moves but has no mass' in lines[1]
     assert not (tmp_path / "pendulum.xml").exists()
 

@@ -172,6 +172,10 @@ pub enum ExportError {
     ZeroMassMovableLink {
         link: LinkId,
         name: String,
+        /// The link has geometry and nothing to weigh it by (`Computed`
+        /// with neither a material nor a density override), so the fix is
+        /// a density rather than a mesh (ADR-0032 §5).
+        unweighed: bool,
     },
     /// A referenced mesh is not in the lookup (the file did not load).
     UnloadableMesh {
@@ -207,7 +211,19 @@ impl fmt::Display for ExportError {
         match self {
             Self::Invalid(e) => write!(f, "{e}"),
             Self::Inertial { name, error, .. } => write!(f, "link \"{name}\": {error}"),
-            Self::ZeroMassMovableLink { name, .. } => write!(
+            Self::ZeroMassMovableLink {
+                name,
+                unweighed: true,
+                ..
+            } => write!(
+                f,
+                "link \"{name}\" moves and has no mass — give it a material or a density"
+            ),
+            Self::ZeroMassMovableLink {
+                name,
+                unweighed: false,
+                ..
+            } => write!(
                 f,
                 "link \"{name}\" moves but has no mass (add a mesh, a material, or an override)"
             ),
@@ -713,6 +729,7 @@ pub fn resolve(
                     errors.push(ExportError::ZeroMassMovableLink {
                         link: lid,
                         name: link.name.clone(),
+                        unweighed: false,
                     });
                     None
                 } else if value.mass == 0.0 {
@@ -741,12 +758,17 @@ pub fn resolve(
             // still blocks — the user typed a mass for it, and the tensor
             // that mass scales cannot be made.
             Err(InertialError::NoDensity) if computed && !moving => None,
-            // A geometry-less moving body has no mass whatever its density:
-            // the clearer of the two errors.
-            Err(InertialError::NoDensity) if link.visuals.is_empty() => {
+            // A moving body with nothing to weigh it by is refused by name
+            // and with the fix (ADR-0032 §5): a density when it has
+            // geometry; a mesh, a material or an override when it has none,
+            // since no density weighs nothing. A `Hybrid` with geometry keeps
+            // `NoDensity` below — its mass is typed, and what is missing is
+            // the density its tensor is shaped by.
+            Err(InertialError::NoDensity) if computed || link.visuals.is_empty() => {
                 errors.push(ExportError::ZeroMassMovableLink {
                     link: lid,
                     name: link.name.clone(),
+                    unweighed: !link.visuals.is_empty(),
                 });
                 None
             }
@@ -1024,10 +1046,15 @@ mod tests {
             errors,
             vec![ExportError::ZeroMassMovableLink {
                 link: ghost,
-                name: "ghost".into()
+                name: "ghost".into(),
+                unweighed: false,
             }]
         );
-        assert!(errors[0].to_string().contains("\"ghost\" moves"));
+        assert_eq!(
+            errors[0].to_string(),
+            "link \"ghost\" moves but has no mass (add a mesh, a material, or an override)",
+            "no geometry: a density alone would weigh nothing"
+        );
 
         // Welded onto its parent, the same empty link is fine.
         b.robot.joints.values_mut().for_each(|j| {
@@ -1094,13 +1121,17 @@ mod tests {
         let errors = b.resolve().unwrap_err();
         assert_eq!(
             errors,
-            vec![ExportError::Inertial {
+            vec![ExportError::ZeroMassMovableLink {
                 link: shell,
                 name: "shell".into(),
-                error: InertialError::NoDensity
+                unweighed: true,
             }]
         );
-        assert!(errors[0].to_string().contains("\"shell\""), "{}", errors[0]);
+        assert_eq!(
+            errors[0].to_string(),
+            "link \"shell\" moves and has no mass — give it a material or a density",
+            "geometry and no density: the fix is the density (ADR-0032 §5)"
+        );
     }
 
     /// `Hybrid` is a typed mass over the mesh tensor: with no density there

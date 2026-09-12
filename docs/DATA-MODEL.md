@@ -655,7 +655,7 @@ pub struct Format { pub mjcf: bool, pub urdf: bool, pub sdf: bool }  // a set, n
 
 `resolve` returns **every** problem it finds, so the export dialog lists
 them all at once: `ExportError::{Invalid(ValidationError), Inertial { link,
-name, error }, ZeroMassMovableLink { link, name }, UnloadableMesh { mesh,
+name, error }, ZeroMassMovableLink { link, name, unweighed }, UnloadableMesh { mesh,
 path, reason }, DegenerateHull { … }, DegenerateDecomposition { … },
 DecompositionPending { mesh, path }}` — each carrying what the dialog needs
 to name the thing that failed. The gate guards what a simulator reads

@@ -159,12 +159,20 @@ mechanical; **[2]** careful — a case to get right within a given design;
     one `fullinertia`. A writer test pins both; URDF and SDF unchanged.
   - Checked in scratch: one `ufactory_lite6` file exports and loads in
     MuJoCo with zero warnings.
-- [ ] **[2]** Step 4 — The moving-link refusal: `NoDensity` on a moving
+- [x] **[2]** Step 4 — The moving-link refusal: `NoDensity` on a moving
   link becomes `ZeroMassMovableLink`, and the message depends on whether
   the link has geometry.
   - Resolve tests pin both messages.
   - `export_blocked` is refreshed if its text changes, and the image is
     shown to the human.
+
+  Landed as `ZeroMassMovableLink { link, name, unweighed }`, where
+  `unweighed` means a `Computed` link with geometry and no density. A
+  moving `Hybrid` with geometry keeps `Inertial { NoDensity }`: its mass
+  is typed, and the missing density shapes its tensor.
+  `export_blocked`'s ghost has no geometry, so its text and image are
+  unchanged. The SDK suite's pendulum-arm line moved to the new wording
+  (78 passed).
 - [ ] **[2]** Step 5 — The notice in the CLI and the SDK.
   - The CLI prints `warning: link "X" is static and carries no mass;
     written without <inertial>` for each `massless` entry. Covered by
