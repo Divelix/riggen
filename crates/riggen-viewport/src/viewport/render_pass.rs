@@ -65,7 +65,14 @@ pub struct ViewportCallback {
     /// Index into `instances` of the instance to tint as selected.
     pub select: Option<usize>,
     pub color_view: wgpu::TextureView,
+    /// The colour attachment's `resolve_target`, when the scene pass is
+    /// multisampled (`GpuState::sample_count`).
+    pub color_resolve_view: Option<wgpu::TextureView>,
     pub depth_view: wgpu::TextureView,
+    /// The depth-resolve pipeline and this size's bind group + target, when
+    /// the scene pass is multisampled. Run only on a frame that reads depth
+    /// back — nothing else in the frame looks at the resolved texture.
+    pub depth_resolve: Option<(wgpu::RenderPipeline, wgpu::BindGroup, wgpu::TextureView)>,
     pub blit_bind_group: wgpu::BindGroup,
     pub pick_color_view: wgpu::TextureView,
     pub pick_color_texture: wgpu::Texture,
@@ -104,10 +111,17 @@ impl ViewportCallback {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &self.color_view,
                 depth_slice: None,
-                resolve_target: None,
+                resolve_target: self.color_resolve_view.as_ref(),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(clear_color),
-                    store: wgpu::StoreOp::Store,
+                    // Nothing reads the multisampled texture once the
+                    // resolve has run — only the resolved one is blitted —
+                    // so its samples need not survive the pass.
+                    store: if self.color_resolve_view.is_some() {
+                        wgpu::StoreOp::Discard
+                    } else {
+                        wgpu::StoreOp::Store
+                    },
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -291,6 +305,38 @@ impl ViewportCallback {
 }
 
 impl ViewportCallback {
+    /// Writes sample 0 of the multisampled depth attachment into the
+    /// single-sampled texture `depth_copy` reads, when the scene pass is
+    /// multisampled. A no-op otherwise — at sample count 1 the attachment
+    /// *is* that texture.
+    ///
+    /// Recorded on egui's encoder between the scene pass and the copy, for
+    /// the same reason the copy is: it has to see the depth this frame wrote.
+    fn depth_resolve_pass(&self, encoder: &mut wgpu::CommandEncoder) {
+        let Some((pipeline, bind_group, target_view)) = self.depth_resolve.as_ref() else {
+            return;
+        };
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("riggen-viewport depth resolve pass"),
+            color_attachments: &[],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: target_view,
+                depth_ops: Some(wgpu::Operations {
+                    // Every pixel is written, so there is nothing to load.
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, bind_group, &[]);
+        pass.draw(0..3, 0..1);
+    }
+
     /// Copies the whole depth attachment into `depth.readback_buffer`.
     fn depth_copy(&self, encoder: &mut wgpu::CommandEncoder, depth: &DepthPassData) {
         let (width, height) = depth.size;
@@ -347,6 +393,7 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
         // After the scene pass, on the same encoder, so the copy sees the
         // depth this frame wrote (`viewport::depth`).
         if let Some(depth) = self.depth.as_ref() {
+            self.depth_resolve_pass(egui_encoder);
             self.depth_copy(egui_encoder, depth);
         }
 

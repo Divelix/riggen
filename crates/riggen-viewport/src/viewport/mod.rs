@@ -25,8 +25,9 @@ use crate::scene::{InstanceId, Scene, SceneFull};
 
 use depth::{DepthImage, DepthInputs, MAX_DEPTH_FRAMES, PendingDepth};
 use gpu_state::{
-    AXES_GIZMO_MARGIN, AXES_GIZMO_SIZE, CameraUniforms, DEPTH_FORMAT, GpuState, InstanceBuffers,
-    ModelUniforms, OffscreenTarget,
+    AXES_GIZMO_MARGIN, AXES_GIZMO_SIZE, CameraUniforms, DEPTH_FORMAT, DepthResolvePipeline,
+    DepthResolveTarget, GpuState, InstanceBuffers, ModelUniforms, OffscreenTarget,
+    choose_sample_count,
 };
 use picking::MAX_PICK_FRAMES;
 use picking::{
@@ -34,8 +35,8 @@ use picking::{
     decide_pick, resolve_pick_region,
 };
 use pipelines::{
-    build_axes_pipeline, build_background_pipeline, build_blit_pipeline, build_highlight_pipeline,
-    build_render_pipeline,
+    build_axes_pipeline, build_background_pipeline, build_blit_pipeline,
+    build_depth_resolve_pipeline, build_highlight_pipeline, build_render_pipeline,
 };
 use render_pass::{DepthPassData, PickPassData, ViewportCallback};
 
@@ -194,7 +195,20 @@ pub struct Viewport {
 }
 
 impl Viewport {
-    pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
+    /// The `adapter` is here for one question only: how many samples the
+    /// offscreen scene pass may use. Asked once, at construction, because the
+    /// answer decides the shape of every pipeline built below and the
+    /// textures `ensure_offscreen` allocates.
+    pub fn new(
+        device: &wgpu::Device,
+        adapter: &wgpu::Adapter,
+        target_format: wgpu::TextureFormat,
+    ) -> Self {
+        let sample_count = choose_sample_count(
+            adapter.get_texture_format_features(target_format).flags,
+            adapter.get_texture_format_features(DEPTH_FORMAT).flags,
+        );
+
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("riggen-viewport uniforms"),
             size: std::mem::size_of::<CameraUniforms>() as wgpu::BufferAddress,
@@ -236,6 +250,7 @@ impl Viewport {
             &[&uniform_bind_group_layout],
             include_str!("../shaders/background.wgsl"),
             target_format,
+            sample_count,
         );
         let scene_pipeline = build_render_pipeline(
             device,
@@ -247,6 +262,7 @@ impl Viewport {
             target_format,
             wgpu::CompareFunction::Less,
             true,
+            sample_count,
         );
         // Same shader, blended over what the opaque pass left, never
         // writing depth: translucent instances order among themselves by
@@ -257,6 +273,7 @@ impl Viewport {
             &[&uniform_bind_group_layout, &models.layout],
             include_str!("../shaders/scene.wgsl"),
             target_format,
+            sample_count,
         );
         let pick_pipeline = build_render_pipeline(
             device,
@@ -268,6 +285,10 @@ impl Viewport {
             PICK_FORMAT,
             wgpu::CompareFunction::Less,
             true,
+            // The id buffer stays single-sampled: an `R32Uint` attachment
+            // cannot be resolved, and an averaged id would name an instance
+            // nothing drew.
+            1,
         );
         let hover_pipeline = build_highlight_pipeline(
             device,
@@ -275,6 +296,7 @@ impl Viewport {
             &[&uniform_bind_group_layout, &models.layout],
             include_str!("../shaders/hover.wgsl"),
             target_format,
+            sample_count,
         );
         let select_pipeline = build_highlight_pipeline(
             device,
@@ -282,6 +304,7 @@ impl Viewport {
             &[&uniform_bind_group_layout, &models.layout],
             include_str!("../shaders/select.wgsl"),
             target_format,
+            sample_count,
         );
 
         let axes_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -303,10 +326,17 @@ impl Viewport {
             "riggen-viewport axes pipeline",
             &[&uniform_bind_group_layout],
             target_format,
+            sample_count,
         );
         let axes_mesh = AxesTriadMesh::new(device);
 
         let (blit_bind_group_layout, blit_pipeline) = build_blit_pipeline(device, target_format);
+
+        // Only a multisampled depth attachment needs resolving by hand.
+        let depth_resolve = (sample_count > 1).then(|| {
+            let (layout, pipeline) = build_depth_resolve_pipeline(device);
+            DepthResolvePipeline { layout, pipeline }
+        });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("riggen-viewport blit sampler"),
@@ -317,6 +347,7 @@ impl Viewport {
             gpu: GpuState {
                 device: device.clone(),
                 format: target_format,
+                sample_count,
                 scene_pipeline,
                 translucent_pipeline,
                 background_pipeline,
@@ -325,6 +356,7 @@ impl Viewport {
                 select_pipeline,
                 axes_pipeline,
                 blit_pipeline,
+                depth_resolve,
                 uniform_buffer,
                 uniform_bind_group,
                 axes_uniform_buffer,
@@ -655,6 +687,16 @@ impl Viewport {
         self.last_rect
     }
 
+    /// Samples per pixel in the offscreen scene pass: 4 where the adapter
+    /// multisamples both of its formats, 1 where it does not.
+    ///
+    /// Reported by `debug_state()` because antialiasing is otherwise only
+    /// visible as softer pixels, and "softer" is not something a scenario can
+    /// assert. The pick pass is always 1 and says nothing here.
+    pub fn sample_count(&self) -> u32 {
+        self.gpu.sample_count
+    }
+
     /// The scene's depth as the overlay reads it (`depth.rs`), or `None`
     /// before one has landed — no depth-tested item has been drawn yet, or
     /// no frame has reached the GPU.
@@ -794,11 +836,14 @@ impl Viewport {
             depth_or_array_layers: 1,
         };
 
+        let samples = self.gpu.sample_count;
+        let multisampled = samples > 1;
+
         let color_texture = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("riggen-viewport color"),
             size: extent,
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count: samples,
             dimension: wgpu::TextureDimension::D2,
             format: self.gpu.format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
@@ -806,19 +851,83 @@ impl Viewport {
         });
         let color_view = color_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let depth_texture = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+        // The scene pass's `resolve_target`, and what the blit samples: a
+        // multisampled texture is not `textureSample`able (`blit.wgsl`).
+        let color_resolve_view = multisampled.then(|| {
+            self.gpu
+                .device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("riggen-viewport color resolve"),
+                    size: extent,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: self.gpu.format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        });
+
+        // The scene pass's depth attachment. Multisampled it is bound by the
+        // resolve pass instead of being copied from — `copy_texture_to_buffer`
+        // refuses a multisampled source.
+        let depth_attachment = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("riggen-viewport depth"),
             size: extent,
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count: samples,
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH_FORMAT,
             // `COPY_SRC`: the overlay reads this buffer back to depth-test
             // itself (ADR-0020).
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | if multisampled {
+                    wgpu::TextureUsages::TEXTURE_BINDING
+                } else {
+                    wgpu::TextureUsages::COPY_SRC
+                },
             view_formats: &[],
         });
-        let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let depth_view = depth_attachment.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Single-sampled always: what `depth_copy` reads. Its own texture
+        // when multisampling, the attachment itself otherwise.
+        let (depth_texture, depth_resolve) = match self.gpu.depth_resolve.as_ref() {
+            Some(resolve) => {
+                let texture = self.gpu.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("riggen-viewport depth resolve"),
+                    size: extent,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: DEPTH_FORMAT,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                });
+                let target_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let bind_group = self
+                    .gpu
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("riggen-viewport depth resolve bind group"),
+                        layout: &resolve.layout,
+                        entries: &[wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&depth_view),
+                        }],
+                    });
+                (
+                    texture,
+                    Some(DepthResolveTarget {
+                        bind_group,
+                        target_view,
+                    }),
+                )
+            }
+            None => (depth_attachment, None),
+        };
 
         let blit_bind_group = self
             .gpu
@@ -829,7 +938,9 @@ impl Viewport {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&color_view),
+                        resource: wgpu::BindingResource::TextureView(
+                            color_resolve_view.as_ref().unwrap_or(&color_view),
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -866,8 +977,10 @@ impl Viewport {
         self.offscreen = Some(OffscreenTarget {
             size,
             color_view,
+            color_resolve_view,
             depth_texture,
             depth_view,
+            depth_resolve,
             blit_bind_group,
             pick_color_texture,
             pick_color_view,
@@ -1494,7 +1607,20 @@ impl Viewport {
             hover,
             select,
             color_view: offscreen.color_view.clone(),
+            color_resolve_view: offscreen.color_resolve_view.clone(),
             depth_view: offscreen.depth_view.clone(),
+            depth_resolve: self
+                .gpu
+                .depth_resolve
+                .as_ref()
+                .zip(offscreen.depth_resolve.as_ref())
+                .map(|(pipeline, target)| {
+                    (
+                        pipeline.pipeline.clone(),
+                        target.bind_group.clone(),
+                        target.target_view.clone(),
+                    )
+                }),
             blit_bind_group: offscreen.blit_bind_group.clone(),
             pick_color_view: offscreen.pick_color_view.clone(),
             pick_color_texture: offscreen.pick_color_texture.clone(),

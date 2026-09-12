@@ -207,7 +207,11 @@ impl RiggenApp {
             .wgpu_render_state
             .as_ref()
             .expect("riggen-app requires eframe's wgpu backend");
-        let viewport = Viewport::new(&render_state.device, render_state.target_format);
+        let viewport = Viewport::new(
+            &render_state.device,
+            &render_state.adapter,
+            render_state.target_format,
+        );
         let import_scale = cc
             .storage
             .and_then(|s| s.get_string(IMPORT_SCALE_KEY))

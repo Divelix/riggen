@@ -4,6 +4,31 @@ use crate::gpu_mesh::AxesTriadMesh;
 
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
+/// Sample count the offscreen scene pass runs at when the adapter can do it.
+/// 4 is the only count WebGPU guarantees beyond 1, and the only one worth
+/// having: the step from 1 to 4 is what turns a staircase edge into a line.
+pub const PREFERRED_SAMPLES: u32 = 4;
+
+/// How many samples the scene pass may use, given what the adapter says about
+/// the two formats it writes.
+///
+/// Both have to agree — a pass cannot mix sample counts across its colour and
+/// depth attachments — and the colour format additionally has to be
+/// *resolvable*, since the blit reads a single-sampled resolve target rather
+/// than the multisampled texture itself. Anything short of that is 1, which
+/// is exactly the pipeline shape this viewport had before multisampling: no
+/// resolve texture, no resolve pass, the blit sampling the colour attachment
+/// directly.
+pub fn choose_sample_count(
+    color: wgpu::TextureFormatFeatureFlags,
+    depth: wgpu::TextureFormatFeatureFlags,
+) -> u32 {
+    let supported = color.sample_count_supported(PREFERRED_SAMPLES)
+        && color.contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE)
+        && depth.sample_count_supported(PREFERRED_SAMPLES);
+    if supported { PREFERRED_SAMPLES } else { 1 }
+}
+
 /// Size, in physical pixels, of the square the axes-triad gizmo is drawn
 /// into, clamped to a viewport-relative cap so it never dwarfs a tiny
 /// viewport panel.
@@ -37,6 +62,11 @@ pub struct CameraUniforms {
 pub struct GpuState {
     pub device: wgpu::Device,
     pub format: wgpu::TextureFormat,
+    /// What every pipeline that draws into the scene pass was built at, and
+    /// what [`OffscreenTarget`]'s colour and depth attachments are allocated
+    /// at. Chosen once by [`choose_sample_count`]; `pick` and `blit` are
+    /// always 1.
+    pub sample_count: u32,
     pub scene_pipeline: wgpu::RenderPipeline,
     /// The scene shader again, alpha-blended and depth-tested without a
     /// depth write: the pass every [`crate::RenderGroup::Translucent`]
@@ -48,6 +78,10 @@ pub struct GpuState {
     pub select_pipeline: wgpu::RenderPipeline,
     pub axes_pipeline: wgpu::RenderPipeline,
     pub blit_pipeline: wgpu::RenderPipeline,
+    /// Copies the multisampled depth attachment into a single-sampled one the
+    /// overlay readback can be copied from. `None` at sample count 1, where
+    /// the attachment already is that texture.
+    pub depth_resolve: Option<DepthResolvePipeline>,
     pub uniform_buffer: wgpu::Buffer,
     pub uniform_bind_group: wgpu::BindGroup,
     pub axes_uniform_buffer: wgpu::Buffer,
@@ -149,21 +183,59 @@ impl ModelUniforms {
     }
 }
 
+/// The depth-resolve pipeline and the layout its per-size bind group is
+/// built against: a fullscreen triangle that reads the multisampled depth
+/// attachment and writes `@builtin(frag_depth)` into a single-sampled one.
+///
+/// WebGPU has no depth equivalent of a colour `resolve_target`, and
+/// `copy_texture_to_buffer` refuses a multisampled source outright — so the
+/// overlay's depth readback (ADR-0020) needs this pass to have anything to
+/// copy from at all.
+pub struct DepthResolvePipeline {
+    pub layout: wgpu::BindGroupLayout,
+    pub pipeline: wgpu::RenderPipeline,
+}
+
 /// The offscreen color+depth pair the 3D scene renders into before being
 /// blitted into egui's own render pass (depth testing needs a real depth
 /// attachment, which egui's pass does not provide), plus the ID-buffer
 /// pick target — resized together to match the allocated viewport rect.
+///
+/// Both scene attachments carry [`GpuState::sample_count`] samples, so each
+/// has a single-sampled counterpart downstream of it: the colour one is the
+/// pass's own `resolve_target` and is what the blit samples, the depth one is
+/// written by [`DepthResolvePipeline`] and is what the readback copies.
 pub struct OffscreenTarget {
     pub size: (u32, u32),
+    /// The scene pass's colour attachment.
     pub color_view: wgpu::TextureView,
+    /// The colour attachment's `resolve_target`, and the texture the blit
+    /// samples. `None` at sample count 1, where the blit samples
+    /// `color_view`'s own texture — a multisampled texture cannot be
+    /// `textureSample`d the way `blit.wgsl` does.
+    pub color_resolve_view: Option<wgpu::TextureView>,
     /// Kept as well as its view: the overlay copies it back to classify
     /// glyphs against the depth the scene pass wrote (`viewport::depth`).
+    /// Single-sampled always — the resolve target when multisampling, the
+    /// attachment itself otherwise.
     pub depth_texture: wgpu::Texture,
+    /// The scene pass's depth attachment.
     pub depth_view: wgpu::TextureView,
+    /// `depth_texture` as a render target, plus the bind group holding the
+    /// multisampled attachment. `None` at sample count 1.
+    pub depth_resolve: Option<DepthResolveTarget>,
     pub blit_bind_group: wgpu::BindGroup,
     pub pick_color_texture: wgpu::Texture,
     pub pick_color_view: wgpu::TextureView,
     pub pick_depth_view: wgpu::TextureView,
+}
+
+/// This size's half of the depth resolve: where it reads and where it writes.
+pub struct DepthResolveTarget {
+    /// The multisampled depth attachment, as `texture_depth_multisampled_2d`.
+    pub bind_group: wgpu::BindGroup,
+    /// [`OffscreenTarget::depth_texture`] as a depth-stencil attachment.
+    pub target_view: wgpu::TextureView,
 }
 
 /// GPU buffer handles for one instance's [`crate::GpuMesh`], grouped so the
@@ -182,4 +254,37 @@ pub struct InstanceBuffers {
     /// Drawn as usual, left out of the **pick** pass: the cursor looks
     /// through it (`Viewport::set_pick_excluded`, ADR-0019 §5).
     pub pick_hidden: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wgpu::TextureFormatFeatureFlags as Flags;
+
+    /// What the WebGPU spec guarantees for a renderable colour format and for
+    /// `Depth32Float` — the case every adapter riggen runs on should hit.
+    #[test]
+    fn an_adapter_that_can_multisample_both_formats_gets_four_samples() {
+        let color = Flags::MULTISAMPLE_X4 | Flags::MULTISAMPLE_RESOLVE | Flags::FILTERABLE;
+        let depth = Flags::MULTISAMPLE_X4;
+        assert_eq!(choose_sample_count(color, depth), 4);
+    }
+
+    #[test]
+    fn anything_either_format_cannot_do_falls_back_to_one() {
+        let color = Flags::MULTISAMPLE_X4 | Flags::MULTISAMPLE_RESOLVE;
+        let depth = Flags::MULTISAMPLE_X4;
+        // Colour that multisamples but cannot be resolved is no use: the blit
+        // samples the resolve target.
+        assert_eq!(choose_sample_count(Flags::MULTISAMPLE_X4, depth), 1);
+        // Depth that cannot follow the colour count is no use either: one
+        // pass, one sample count.
+        assert_eq!(choose_sample_count(color, Flags::empty()), 1);
+        assert_eq!(choose_sample_count(Flags::empty(), Flags::empty()), 1);
+        // 2x and 8x are not a fallback ladder — 4 or nothing.
+        assert_eq!(
+            choose_sample_count(Flags::MULTISAMPLE_X2 | Flags::MULTISAMPLE_RESOLVE, depth),
+            1
+        );
+    }
 }

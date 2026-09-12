@@ -81,6 +81,12 @@ pub struct DebugState {
     /// `[min_x, min_y, max_x, max_y]` of the viewport in egui logical points.
     /// `None` before the first frame has laid it out.
     pub viewport_rect: Option<[f64; 4]>,
+    /// Samples per pixel in the offscreen scene pass — 4 where the adapter
+    /// multisamples, 1 where it does not. Here because antialiasing is
+    /// otherwise only assertable as "the pixels look softer", and because a
+    /// golden PNG taken at one sample count means nothing at another: this
+    /// line says which one the image beside it was rendered at.
+    pub sample_count: u32,
     /// Wall-clock numbers. Absent whenever the frame-time HUD is off — the
     /// snapshot suite turns it off, so the goldens never see them.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -701,6 +707,7 @@ impl RiggenApp {
                     round32(rect.max.y),
                 ]
             }),
+            sample_count: self.viewport.sample_count(),
             timing: self.show_frame_hud.then(|| TimingDebug {
                 first_frame_ms: self.first_frame_ms.map(round),
                 frame_dt: self.last_frame_dt.map(round32),
