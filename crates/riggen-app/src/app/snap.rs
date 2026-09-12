@@ -20,13 +20,13 @@
 //! a GPU, and the circle fit is memoised per `(instance, triangle)`: a
 //! cursor resting on one facet fits once, not once per frame.
 
-use riggen_core::glam::{DMat4, DVec3};
+use riggen_core::glam::{DMat4, DQuat, DVec3};
 use riggen_core::{JointId, LinkId, Pose};
 use riggen_mesh::feature::CircleFit;
 use riggen_mesh::{Ray, ray_triangle};
 use riggen_viewport::{InstanceId, Overlay, OverlayItem};
 
-use super::{RiggenApp, Tool};
+use super::{RiggenApp, RingAxis, Tool};
 
 /// How near the cursor has to come to a vertex or a box corner, in screen
 /// points, for it to win over the plain hit point. Wider than the glyph
@@ -134,6 +134,117 @@ pub(crate) fn choose(
         return (SnapKind::Circle, fit.center, Some(fit));
     }
     (SnapKind::Point, point, None)
+}
+
+/// How much of the feature axis has to survive the projection into the
+/// ring's plane for the alignment to mean anything. Below this the feature
+/// axis is parallel to the ring's: no rotation about that ring brings any
+/// frame axis onto it, so there is no snap (ADR-0029 §3).
+#[allow(dead_code, reason = "the drag calls it at step 2 of the plan")]
+const MIN_PROJECTION: f64 = 1e-3;
+
+/// What a rotate drag landed on: which of the dragged frame's own axes, the
+/// world direction it lands along, and the correction that puts it there
+/// (ADR-0029).
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code, reason = "the drag calls it at step 2 of the plan")]
+pub(crate) struct Alignment {
+    /// The signed frame axis that lands — `"+z"`, `"-x"`.
+    pub axis: &'static str,
+    /// The feature axis projected into the ring's plane, normalised: the
+    /// direction the chosen axis ends up along.
+    pub target: DVec3,
+    /// The rotation about the ring's **world** axis that takes the chosen
+    /// frame axis exactly onto `target`, applied on the left of the
+    /// previewed rotation.
+    pub correction: DQuat,
+    /// `correction`'s signed angle in degrees — the readout and
+    /// `debug_state`.
+    pub degrees: f64,
+}
+
+/// The rotate drag's rule, as a pure function (ADR-0029).
+///
+/// A ring drag has one degree of freedom — about the ring's own axis — so
+/// only the two frame axes perpendicular to that ring can move at all, and
+/// their four signed directions sweep the ring's plane 90° apart. The
+/// feature axis is projected into that plane; the candidate nearest it by
+/// angle wins, and the correction is the rotation about the plane's normal
+/// that lands it exactly. Which axis is therefore never a question the user
+/// answers: it is the one the drag has already brought nearest.
+///
+/// `rotation` is the drag's previewed world rotation, `feature_axis` the
+/// snapped feature's world axis (a fitted circle's, else the face normal).
+/// `None` when the feature axis is parallel to the ring's, because then no
+/// rotation about this ring can reach it.
+#[allow(dead_code, reason = "the drag calls it at step 2 of the plan")]
+pub(crate) fn align_in_plane(
+    ring: RingAxis,
+    rotation: DQuat,
+    feature_axis: DVec3,
+) -> Option<Alignment> {
+    let rotation = rotation.normalize();
+    let normal = (rotation * ring.local()).normalize_or_zero();
+    let feature = feature_axis.normalize_or_zero();
+    if normal == DVec3::ZERO || feature == DVec3::ZERO {
+        return None;
+    }
+    let projected = feature - normal * feature.dot(normal);
+    if projected.length() < MIN_PROJECTION {
+        return None;
+    }
+    let target = projected.normalize();
+
+    // The four signed directions, in the plane by construction: a frame
+    // axis perpendicular to the ring's local axis stays perpendicular to
+    // the ring's world axis under the frame's own rotation.
+    let (axis, angle) = perpendiculars(ring)
+        .into_iter()
+        .flat_map(|axis| [(axis, true), (axis, false)])
+        .map(|(axis, positive)| {
+            let local = if positive {
+                axis.local()
+            } else {
+                -axis.local()
+            };
+            let spoke = (rotation * local).normalize();
+            let angle = f64::atan2(spoke.cross(target).dot(normal), spoke.dot(target));
+            (signed_label(axis, positive), angle)
+        })
+        // Four candidates a quarter turn apart: the nearest is within 45°,
+        // so the snap never spins the part somewhere the drag was not
+        // already heading.
+        .min_by(|a, b| a.1.abs().total_cmp(&b.1.abs()))?;
+
+    Some(Alignment {
+        axis,
+        target,
+        correction: DQuat::from_axis_angle(normal, angle),
+        degrees: angle.to_degrees(),
+    })
+}
+
+/// The two frame axes a drag about `ring` can move.
+#[allow(dead_code, reason = "the drag calls it at step 2 of the plan")]
+fn perpendiculars(ring: RingAxis) -> [RingAxis; 2] {
+    match ring {
+        RingAxis::X => [RingAxis::Y, RingAxis::Z],
+        RingAxis::Y => [RingAxis::Z, RingAxis::X],
+        RingAxis::Z => [RingAxis::X, RingAxis::Y],
+    }
+}
+
+/// `"+z"` / `"-x"`: the axis as the readout and `debug_state` name it.
+#[allow(dead_code, reason = "the drag calls it at step 2 of the plan")]
+fn signed_label(axis: RingAxis, positive: bool) -> &'static str {
+    match (axis, positive) {
+        (RingAxis::X, true) => "+x",
+        (RingAxis::X, false) => "-x",
+        (RingAxis::Y, true) => "+y",
+        (RingAxis::Y, false) => "-y",
+        (RingAxis::Z, true) => "+z",
+        (RingAxis::Z, false) => "-z",
+    }
 }
 
 /// The nearest of `candidates` to `cursor` within `radius` screen points,
@@ -694,6 +805,134 @@ mod tests {
         assert_eq!(snap.readout(), "vertex");
         snap.normal = DVec3::Y;
         assert_eq!(snap.axis(), DVec3::Y, "no circle: the face normal");
+    }
+
+    /// The candidate nearest the feature wins, and the correction lands it
+    /// exactly (ADR-0029 §§2, 4).
+    #[test]
+    fn the_nearest_of_the_four_signed_axes_lands() {
+        // A Z ring at the identity: the plane is z = 0, the candidates are
+        // ±X and ±Y.
+        let target = DVec3::new(1.0, 0.2, 0.0).normalize();
+        let landed = align_in_plane(RingAxis::Z, DQuat::IDENTITY, target).expect("in the plane");
+        assert_eq!(landed.axis, "+x");
+        assert!(
+            (landed.degrees - 0.2f64.atan().to_degrees()).abs() < 1e-9,
+            "{}",
+            landed.degrees
+        );
+        assert!((landed.correction * DVec3::X - target).length() < 1e-12);
+
+        // Just past the quarter-way point the neighbour wins instead.
+        let near_y = DVec3::new(0.9, 1.0, 0.0).normalize();
+        assert_eq!(
+            align_in_plane(RingAxis::Z, DQuat::IDENTITY, near_y)
+                .unwrap()
+                .axis,
+            "+y"
+        );
+        // The other two signs are reachable too; a feature axis has no
+        // preferred direction, so the opposite one lands the opposite axis.
+        assert_eq!(
+            align_in_plane(RingAxis::Z, DQuat::IDENTITY, -target)
+                .unwrap()
+                .axis,
+            "-x"
+        );
+        assert_eq!(
+            align_in_plane(RingAxis::Z, DQuat::IDENTITY, DVec3::new(-0.2, -1.0, 0.0))
+                .unwrap()
+                .axis,
+            "-y"
+        );
+
+        // The ring's own axis is never a candidate: an X ring offers ±Y
+        // and ±Z only.
+        let landed =
+            align_in_plane(RingAxis::X, DQuat::IDENTITY, DVec3::new(0.0, 0.1, 1.0)).unwrap();
+        assert_eq!(landed.axis, "+z");
+
+        // And the candidates are the *frame's* axes, not the world's: a
+        // quarter turn about Z puts the frame's +X along the world's +Y.
+        let turned = DQuat::from_axis_angle(DVec3::Z, std::f64::consts::FRAC_PI_2);
+        let landed = align_in_plane(RingAxis::Z, turned, DVec3::Y).unwrap();
+        assert_eq!(landed.axis, "+x");
+        assert!(landed.degrees.abs() < 1e-9, "already there: {landed:?}");
+    }
+
+    /// Four candidates a quarter turn apart mean the correction is never
+    /// more than 45°, whatever the feature and whatever the frame.
+    #[test]
+    fn the_correction_is_never_more_than_a_quarter_turn() {
+        let frame = DQuat::from_axis_angle(DVec3::new(1.0, 2.0, 3.0).normalize(), 0.7);
+        for ring in [RingAxis::X, RingAxis::Y, RingAxis::Z] {
+            for step in 0..72 {
+                let turn = f64::from(step) * std::f64::consts::TAU / 72.0;
+                // A feature axis swept round the world, tilted out of every
+                // plane so nothing is conveniently cardinal.
+                let feature = DVec3::new(turn.cos(), turn.sin(), 0.31).normalize();
+                let Some(landed) = align_in_plane(ring, frame, feature) else {
+                    continue;
+                };
+                assert!(
+                    landed.degrees.abs() <= 45.0 + 1e-9,
+                    "{ring:?} at {turn}: {landed:?}"
+                );
+                // And it lands: the named axis, corrected, is the target.
+                let sign = if landed.axis.starts_with('+') {
+                    1.0
+                } else {
+                    -1.0
+                };
+                let local = match &landed.axis[1..] {
+                    "x" => DVec3::X,
+                    "y" => DVec3::Y,
+                    _ => DVec3::Z,
+                };
+                let landed_axis = landed.correction * (frame * (local * sign));
+                assert!(
+                    (landed_axis - landed.target).length() < 1e-9,
+                    "{ring:?} at {turn}: {landed:?} → {landed_axis:?}"
+                );
+            }
+        }
+    }
+
+    /// A feature axis parallel to the ring's projects to nothing: no
+    /// rotation about that ring can reach it, so there is no snap
+    /// (ADR-0029 §3).
+    #[test]
+    fn a_feature_along_the_ring_axis_does_not_align() {
+        assert_eq!(align_in_plane(RingAxis::Z, DQuat::IDENTITY, DVec3::Z), None);
+        assert_eq!(
+            align_in_plane(RingAxis::Z, DQuat::IDENTITY, -DVec3::Z),
+            None
+        );
+        // A hair off is still nothing worth landing on.
+        let nearly = DVec3::new(MIN_PROJECTION / 2.0, 0.0, 1.0).normalize();
+        assert_eq!(align_in_plane(RingAxis::Z, DQuat::IDENTITY, nearly), None);
+        // The frame's ring, not the world's: turned a quarter about X, the
+        // Z ring's axis is the world's −Y.
+        let turned = DQuat::from_axis_angle(DVec3::X, std::f64::consts::FRAC_PI_2);
+        assert_eq!(align_in_plane(RingAxis::Z, turned, DVec3::Y), None);
+        assert!(align_in_plane(RingAxis::Z, turned, DVec3::Z).is_some());
+        // A degenerate feature axis says nothing either.
+        assert_eq!(
+            align_in_plane(RingAxis::Z, DQuat::IDENTITY, DVec3::ZERO),
+            None
+        );
+    }
+
+    /// A frame already lying on the feature gives a zero correction — and
+    /// still names the axis, because the overlay has to say what it is
+    /// holding as well as what it is turning.
+    #[test]
+    fn an_aligned_frame_corrects_by_nothing_and_still_names_the_axis() {
+        let landed = align_in_plane(RingAxis::Z, DQuat::IDENTITY, DVec3::Y).expect("in the plane");
+        assert_eq!(landed.axis, "+y");
+        assert_eq!(landed.degrees, 0.0);
+        assert_eq!(landed.target, DVec3::Y);
+        assert!((landed.correction * DVec3::Y - DVec3::Y).length() < 1e-12);
     }
 
     #[test]
