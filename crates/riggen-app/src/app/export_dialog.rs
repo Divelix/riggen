@@ -26,6 +26,18 @@ pub struct ExportDialog {
     stale: bool,
 }
 
+impl ExportDialog {
+    /// One note per static link the export will write without mass
+    /// (ADR-0032 §2): not a blocker, so shown under the ready line, in the
+    /// words the CLI and the SDK use. Empty while anything blocks.
+    pub fn massless_notes(&self) -> Vec<String> {
+        self.resolved
+            .as_ref()
+            .map(|r| r.massless_warnings().collect())
+            .unwrap_or_default()
+    }
+}
+
 /// The directory the browser's export pretends to write into: it prefixes
 /// every path `export_files` returns, is stripped again to make the zip's
 /// entry names, and is what `MeshPathStyle::Absolute` would write. No such
@@ -291,6 +303,9 @@ impl RiggenApp {
                     ),
                     None => "resolving…".to_owned(),
                 });
+                for note in d.massless_notes() {
+                    ui.weak(note);
+                }
             } else {
                 ui.colored_label(
                     ui.visuals().warn_fg_color,

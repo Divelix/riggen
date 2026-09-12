@@ -1,0 +1,622 @@
+{
+  "camera": {
+    "eye": [
+      2.232598,
+      -1.557311,
+      2.244879
+    ],
+    "target": [
+      0.0,
+      0.675287,
+      0.52
+    ],
+    "up": [
+      -0.339005,
+      0.339005,
+      0.877583
+    ],
+    "distance": 3.597805,
+    "yaw_deg": -45.0,
+    "pitch_deg": 28.64789,
+    "fov_y_deg": 45.0,
+    "near": 0.011474,
+    "far": 1147.35022,
+    "projection": "Perspective",
+    "animating": false,
+    "aspect": 0.928059,
+    "view": [
+      [
+        0.707107,
+        -0.339005,
+        0.620545,
+        0.0
+      ],
+      [
+        0.707107,
+        0.339005,
+        -0.620545,
+        0.0
+      ],
+      [
+        0.0,
+        0.877582,
+        0.479425,
+        0.0
+      ],
+      [
+        -0.4775,
+        -0.685268,
+        -3.42806,
+        1.0
+      ]
+    ],
+    "proj": [
+      [
+        2.601357,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        2.414213,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        -1.00001,
+        -1.0
+      ],
+      [
+        0.0,
+        0.0,
+        -0.011474,
+        0.0
+      ]
+    ],
+    "pivot_visible": false
+  },
+  "document": {
+    "file": null,
+    "name": "menagerie_style",
+    "dirty": false,
+    "import_scale": 1.0,
+    "links": [
+      {
+        "id": "l4",
+        "name": "base_link",
+        "parent_joint": null,
+        "geoms": 1,
+        "material": null
+      },
+      {
+        "id": "l11",
+        "name": "shoulder",
+        "parent_joint": "j12",
+        "geoms": 3,
+        "material": null
+      },
+      {
+        "id": "l13",
+        "name": "upper",
+        "parent_joint": "j14",
+        "geoms": 0,
+        "material": null
+      },
+      {
+        "id": "l15",
+        "name": "wrist",
+        "parent_joint": "j16",
+        "geoms": 0,
+        "material": null
+      },
+      {
+        "id": "l18",
+        "name": "tool",
+        "parent_joint": "j19",
+        "geoms": 1,
+        "material": null
+      },
+      {
+        "id": "l21",
+        "name": "finger",
+        "parent_joint": "j22",
+        "geoms": 1,
+        "material": null
+      }
+    ],
+    "joints": [
+      {
+        "id": "j12",
+        "name": "shoulder_pan",
+        "kind": "Revolute",
+        "parent": "l4",
+        "child": "l11",
+        "q": 0.0,
+        "qpos_ref": 0.174533
+      },
+      {
+        "id": "j14",
+        "name": "shoulder_lift",
+        "kind": "Revolute",
+        "parent": "l11",
+        "child": "l13",
+        "q": 0.0
+      },
+      {
+        "id": "j16",
+        "name": "wrist_slide",
+        "kind": "Prismatic",
+        "parent": "l13",
+        "child": "l15",
+        "q": 0.0
+      },
+      {
+        "id": "j19",
+        "name": "tool_joint",
+        "kind": "Fixed",
+        "parent": "l15",
+        "child": "l18",
+        "q": 0.0
+      },
+      {
+        "id": "j22",
+        "name": "finger_flex",
+        "kind": "Revolute",
+        "parent": "l18",
+        "child": "l21",
+        "q": 0.0
+      }
+    ],
+    "frames": [
+      {
+        "id": "f23",
+        "name": "mount",
+        "parent": "l4",
+        "pos": [
+          0.0,
+          0.0,
+          0.03
+        ],
+        "quat": [
+          0.707107,
+          0.707107,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "id": "f24",
+        "name": "tcp",
+        "parent": "l18",
+        "pos": [
+          0.0,
+          0.0,
+          0.02
+        ],
+        "quat": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    ],
+    "tendons": [
+      {
+        "id": "t25",
+        "name": "grip_tendon",
+        "joints": [
+          [
+            "wrist_slide",
+            1.0
+          ],
+          [
+            "finger_flex",
+            -0.02
+          ]
+        ],
+        "actuators": [
+          "grip (motor)"
+        ]
+      }
+    ],
+    "selection": null
+  },
+  "ui": {
+    "mode": "Edit",
+    "tool": "Select",
+    "renaming": null,
+    "windows": [],
+    "modal": "export",
+    "title": "untitled — riggen",
+    "overlays": [
+      "collision"
+    ]
+  },
+  "instances": [
+    {
+      "id": 0,
+      "link": "l4",
+      "geom": "g2",
+      "visible": true,
+      "triangles": 108,
+      "bounds": [
+        [
+          -0.03,
+          -0.03,
+          0.0
+        ],
+        [
+          0.03,
+          0.03,
+          0.06
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.2,
+        0.2,
+        0.25,
+        1.0
+      ]
+    },
+    {
+      "id": 1,
+      "link": "l11",
+      "geom": "g6",
+      "visible": true,
+      "triangles": 108,
+      "bounds": [
+        [
+          -0.02,
+          -0.07,
+          0.12
+        ],
+        [
+          0.02,
+          0.07,
+          0.206
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.04
+      ],
+      "color": [
+        0.2,
+        0.2,
+        0.25,
+        1.0
+      ]
+    },
+    {
+      "id": 2,
+      "link": "l11",
+      "geom": "g8",
+      "visible": true,
+      "triangles": 4,
+      "bounds": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.0,
+          1.0,
+          1.0
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.04
+      ],
+      "color": [
+        0.2,
+        0.2,
+        0.25,
+        1.0
+      ]
+    },
+    {
+      "id": 3,
+      "link": "l11",
+      "geom": "g10",
+      "visible": true,
+      "triangles": 4,
+      "bounds": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.01,
+          0.01,
+          0.01
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.04
+      ],
+      "color": [
+        0.2,
+        0.2,
+        0.25,
+        1.0
+      ]
+    },
+    {
+      "id": 4,
+      "link": "l18",
+      "geom": "g17",
+      "visible": true,
+      "triangles": 4,
+      "bounds": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.01,
+          0.01,
+          0.01
+        ]
+      ],
+      "position": [
+        0.035355,
+        0.035355,
+        0.181603
+      ],
+      "color": [
+        0.2,
+        0.2,
+        0.25,
+        1.0
+      ]
+    },
+    {
+      "id": 5,
+      "link": "l21",
+      "geom": "g20",
+      "visible": true,
+      "triangles": 4,
+      "bounds": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.01,
+          0.01,
+          0.01
+        ]
+      ],
+      "position": [
+        0.024749,
+        0.024749,
+        0.155622
+      ],
+      "color": [
+        0.2,
+        0.2,
+        0.25,
+        1.0
+      ]
+    }
+  ],
+  "selection": {
+    "hovered": null,
+    "selected": null
+  },
+  "gizmo": null,
+  "glyphs": [
+    {
+      "joint": "j12",
+      "name": "shoulder_pan",
+      "kind": "Revolute",
+      "origin": [
+        0.0,
+        0.0,
+        0.04
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "size": 0.89237,
+      "q": 0.0,
+      "value_sweep": 0.0,
+      "band": [
+        0.374796,
+        0.535422
+      ],
+      "drawn": [
+        "axis",
+        "pivot",
+        "triad",
+        "actuator",
+        "band",
+        "tick"
+      ],
+      "screen": [
+        519.31958,
+        646.614319
+      ],
+      "active": false,
+      "hovered": false,
+      "actuators": [
+        "position",
+        "velocity"
+      ]
+    },
+    {
+      "joint": "j14",
+      "name": "shoulder_lift",
+      "kind": "Revolute",
+      "origin": [
+        0.0,
+        0.0,
+        0.095
+      ],
+      "axis": [
+        -0.707107,
+        0.707107,
+        0.0
+      ],
+      "size": 1.14735,
+      "q": 0.0,
+      "value_sweep": 0.0,
+      "band": [
+        0.481887,
+        0.68841
+      ],
+      "drawn": [
+        "axis",
+        "pivot",
+        "triad",
+        "band",
+        "tick"
+      ],
+      "screen": [
+        518.193848,
+        633.436951
+      ],
+      "active": false,
+      "hovered": false,
+      "mimic": "j12"
+    },
+    {
+      "joint": "j16",
+      "name": "wrist_slide",
+      "kind": "Prismatic",
+      "origin": [
+        0.035355,
+        0.035355,
+        0.181603
+      ],
+      "axis": [
+        0.707107,
+        -0.707107,
+        0.0
+      ],
+      "size": 1.14735,
+      "q": 0.0,
+      "value_sweep": 0.0,
+      "bar": [
+        -1.319453,
+        1.319453
+      ],
+      "drawn": [
+        "axis",
+        "pivot",
+        "triad",
+        "actuator",
+        "bars",
+        "tick"
+      ],
+      "screen": [
+        531.812988,
+        612.266418
+      ],
+      "active": false,
+      "hovered": false,
+      "actuators": [
+        "general"
+      ]
+    },
+    {
+      "joint": "j22",
+      "name": "finger_flex",
+      "kind": "Revolute",
+      "origin": [
+        0.024749,
+        0.024749,
+        0.155622
+      ],
+      "axis": [
+        0.612372,
+        0.612372,
+        -0.5
+      ],
+      "size": 0.00866,
+      "q": 0.0,
+      "value_sweep": 0.0,
+      "band": [
+        0.003637,
+        0.005196
+      ],
+      "drawn": [
+        "axis",
+        "pivot",
+        "triad",
+        "band",
+        "tick"
+      ],
+      "screen": [
+        527.691833,
+        618.672607
+      ],
+      "active": false,
+      "hovered": false,
+      "mimic": "j14"
+    }
+  ],
+  "frame_glyphs": [
+    {
+      "frame": "f23",
+      "name": "mount",
+      "origin": [
+        0.0,
+        0.0,
+        0.03
+      ],
+      "size": 0.028579,
+      "screen": [
+        519.522339,
+        648.988342
+      ],
+      "active": false,
+      "hovered": false
+    },
+    {
+      "frame": "f24",
+      "name": "tcp",
+      "origin": [
+        0.028284,
+        0.028284,
+        0.164282
+      ],
+      "size": 0.004763,
+      "screen": [
+        529.062134,
+        616.542542
+      ],
+      "active": false,
+      "hovered": false
+    }
+  ],
+  "snap": null,
+  "status": "imported menagerie_style.xml: link \"shoulder\": shoulder.stl has a non-uniform scale; 0.002 used for every axis (+12 more warnings)",
+  "viewport_rect": [
+    267.4375,
+    23.0,
+    1060.0,
+    877.0
+  ],
+  "sample_count": 4
+}

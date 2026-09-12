@@ -679,7 +679,10 @@ below.
   (`rfd`), mesh path style (URDF and SDF), MJCF floating base; it resolves
   the document on open and on every option change and lists each
   `ExportError` with the link it names, the Export button disabled while
-  any exist or while no format is ticked; success is the status bar's
+  any exist or while no format is ticked; under a ready line, each static
+  link the export writes without mass is a weak note in the CLI's words
+  (`ExportDialog::massless_notes`, ADR-0032 §2), which does not disable
+  the button; success is the status bar's
   `exported N files to <dir>`. In a browser there is no dialog and no
   directory to choose: Open and the two Imports point at the drop gesture
   instead, the export row reads `download   <name>.zip`, and Save, Save As,
@@ -1725,7 +1728,9 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   `collision_hull`,
   `collision_primitives` (a pick through a translucent box hits the part),
   `properties_inertial`, `properties_inertial_open_mesh`,
-  `properties_collision`, `export_dialog`, `export_blocked`, `import_urdf`,
+  `properties_collision`, `export_dialog`, `export_blocked`,
+  `export_massless_static` (ready, with the corpus's `tool` noted as
+  written without mass, ADR-0032 §2), `import_urdf`,
   v0.2's `collision_decomposition`, `properties_collision_decomposition`,
   the mimic and actuator set — `properties_joint_mimic`, `properties_joint_actuator`,
   `properties_joint_actuator_applied`, and v0.4's

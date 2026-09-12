@@ -8125,6 +8125,35 @@ fn export_blocked() {
     });
 }
 
+/// The export ready with a note (ADR-0032 §2): the import corpus's `tool`
+/// is static and has a mesh and no `<inertial>`, so it is written without
+/// one. That is not a blocker — the Export button stays enabled — but the
+/// dialog says it, in the CLI's words, under the ready line.
+#[test]
+fn export_massless_static() {
+    scenario("export_massless_static", |harness| {
+        open_for_editing(harness.state_mut(), &menagerie_style_scratch())
+            .expect("the corpus opens");
+        let app = harness.state_mut();
+        app.set_export_dir(std::path::Path::new("/tmp/menagerie_style_export"));
+        app.open_export_dialog();
+        app.fit_view_now();
+        settle(harness);
+
+        let dialog = harness.state().export_dialog();
+        assert!(dialog.errors.is_empty(), "{:?}", dialog.errors);
+        let note = "link \"tool\" is static and carries no mass; written without <inertial>";
+        assert_eq!(dialog.massless_notes(), [note]);
+        harness.get_by_label(note);
+        assert!(
+            !harness
+                .get_by_label("Export")
+                .accesskit_node()
+                .is_disabled()
+        );
+    });
+}
+
 /// Export writes the files where the dialog says and reports it.
 #[test]
 fn export_writes_the_files() {

@@ -188,9 +188,14 @@ mechanical; **[2]** careful — a case to get right within a given design;
     `tests/cli.rs`.
   - `_riggen.Robot.export` returns the warnings, `Robot.export` warns
     `RiggenWarning`, and `_riggen.pyi` follows. Covered by an SDK test.
-- [ ] **[2]** Step 6 — The notice in the export dialog: weak lines under
+- [x] **[2]** Step 6 — The notice in the export dialog: weak lines under
   the ready line. New snapshot `export_massless_static`, image shown to
   the human.
+  Landed as `ExportDialog::massless_notes`, reading the same
+  `massless_warnings`. The scenario opens a scratch copy of the corpus
+  and shows "6 links, 5 joints, 4 mesh files — ready" with one weak
+  note about `tool` under it; Export stays enabled. `export_dialog` and
+  `export_blocked` are unchanged.
 - [ ] **[1]** Step 7 — `Command::AssignMaterialToUnweighed` in core. Tests:
   one undo reverts every link; unknown material refused; `Override` links,
   links with a material and empty links untouched. Also
