@@ -206,9 +206,18 @@ mechanical; **[2]** careful — a case to get right within a given design;
   apply that changes nothing and so records no history entry. The SDK
   test runs the pendulum's arm from refusal to export, plus the public
   layer's handles; 80 SDK tests passed, and pyright is clean.
-- [ ] **[2]** Step 8 — The one-click assign in the app, where ⚠ OPEN 1
+- [x] **[2]** Step 8 — The one-click assign in the app, where ⚠ OPEN 1
   decides. After the command the dialog re-resolves, so the blockers it
   cleared disappear. New snapshot, image shown to the human.
+  Landed in the export dialog (OPEN 1). The row reads "**Assign**
+  [material ▾] to the N unweighed links", shown under either list while
+  `Robot::unweighed_links` is non-empty and the document has a material.
+  The combo defaults to the first material by name (ABS in the defaults).
+  New snapshot `export_assign_unweighed` shows the pendulum arm's blocker
+  with the row under it. A behaviour test, `…_clears_the_blockers`, clicks
+  Assign and gets the ready line back. `export_massless_static` was
+  re-captured, since the corpus's `tool` is unweighed and the row now sits
+  under its note. `export_dialog` and `export_blocked` are unchanged.
 - [ ] **[1]** Step 9 — The acceptance scan: all 261 Menagerie `.xml`
   through `--export mjcf` with the release build. Bucket as ADR-0026's
   table does, and record the numbers here for `/retire-plan`.

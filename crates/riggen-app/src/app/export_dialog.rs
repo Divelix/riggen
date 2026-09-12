@@ -24,6 +24,9 @@ pub struct ExportDialog {
     resolved: Option<ResolvedRobot>,
     /// Set by an option change; the next frame re-resolves.
     stale: bool,
+    /// The material the one-click fix offers (ADR-0032 §5); the document's
+    /// first until the user picks another.
+    pub assign_material: Option<String>,
 }
 
 impl ExportDialog {
@@ -105,6 +108,27 @@ impl RiggenApp {
             }
         }
         self.export_dialog.stale = false;
+    }
+
+    /// The dialog's one-click fix (ADR-0032 §5): the chosen material — the
+    /// document's first if none was chosen — on every link nothing weighs,
+    /// as one command and one undo, then a fresh resolve so the blockers it
+    /// cleared go. `false` when refused (the status bar says why) or when
+    /// the document has no material to give.
+    pub fn assign_material_to_unweighed(&mut self) -> bool {
+        let Some(material) = self
+            .export_dialog
+            .assign_material
+            .clone()
+            .or_else(|| self.robot.materials.keys().next().cloned())
+        else {
+            return false;
+        };
+        let applied = self
+            .apply(riggen_core::Command::AssignMaterialToUnweighed(material))
+            .is_ok();
+        self.export_dialog.stale = true;
+        applied
     }
 
     /// The Export button: writes the files and closes the modal. `false`
@@ -192,6 +216,8 @@ impl RiggenApp {
         }
         let mut action: Option<fn(&mut Self)> = None;
         let mut choose_dir = false;
+        let unweighed = self.robot.unweighed_links().len();
+        let materials: Vec<String> = self.robot.materials.keys().cloned().collect();
         let modal = egui::Modal::new(egui::Id::new("export")).show(ctx, |ui| {
             ui.set_width(460.0);
             ui.heading("Export to MJCF / URDF / SDF");
@@ -318,6 +344,41 @@ impl RiggenApp {
                 for error in &d.errors {
                     ui.label(format!("• {error}"));
                 }
+            }
+
+            // The one-click fix (ADR-0032 §5), where the refusal is met:
+            // every link nothing weighs gets the chosen material in one
+            // undo, and the dialog re-resolves, so the blockers it cleared
+            // go and the notes it answered with them.
+            if unweighed > 0 && !materials.is_empty() {
+                if d.assign_material
+                    .as_ref()
+                    .is_some_and(|m| !materials.contains(m))
+                {
+                    d.assign_material = None;
+                }
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Assign").clicked() {
+                        action = Some(|app: &mut Self| {
+                            app.assign_material_to_unweighed();
+                        });
+                    }
+                    let chosen = d
+                        .assign_material
+                        .get_or_insert_with(|| materials[0].clone());
+                    egui::ComboBox::from_id_salt("export_assign_material")
+                        .selected_text(chosen.clone())
+                        .show_ui(ui, |ui| {
+                            for name in &materials {
+                                ui.selectable_value(chosen, name.clone(), name);
+                            }
+                        });
+                    ui.label(format!(
+                        "to the {unweighed} unweighed link{}",
+                        if unweighed == 1 { "" } else { "s" }
+                    ));
+                });
             }
 
             ui.add_space(8.0);

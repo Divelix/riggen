@@ -8154,6 +8154,84 @@ fn export_massless_static() {
     });
 }
 
+/// The one-click fix under the blockers (ADR-0032 §5, plans/unweighed-links
+/// OPEN 1): the pendulum's arm, stripped of its material on a hinge, blocks
+/// the export as a moving link with no mass, and the row under the list
+/// offers the document's first material for the one unweighed link.
+#[test]
+fn export_assign_unweighed() {
+    scenario("export_assign_unweighed", |harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .unwrap()
+            .0;
+        app.apply(Command::SetLinkMaterial(arm, None)).unwrap();
+        app.set_export_dir(std::path::Path::new("/tmp/pendulum_export"));
+        app.open_export_dialog();
+        app.fit_view_now();
+        settle(harness);
+
+        assert_eq!(
+            harness.state().export_dialog().errors,
+            ["link \"arm\" moves and has no mass — give it a material or a density"]
+        );
+        harness.get_by_label("to the 1 unweighed link");
+        assert!(
+            harness
+                .get_by_label("Export")
+                .accesskit_node()
+                .is_disabled()
+        );
+    });
+}
+
+/// …and pressing Assign weighs the arm and re-resolves: the blocker is
+/// gone, the ready line is back and Export is enabled.
+#[test]
+fn export_assign_unweighed_clears_the_blockers() {
+    with_app(|harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
+        let arm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "arm")
+            .unwrap()
+            .0;
+        app.apply(Command::SetLinkMaterial(arm, None)).unwrap();
+        app.set_export_dir(std::path::Path::new("/tmp/pendulum_export"));
+        app.open_export_dialog();
+        settle(harness);
+        assert_eq!(harness.state().export_dialog().errors.len(), 1);
+
+        harness.get_by_label("Assign").click();
+        settle(harness);
+
+        let app = harness.state();
+        assert!(
+            app.export_dialog().errors.is_empty(),
+            "{:?}",
+            app.export_dialog().errors
+        );
+        let chosen = app.export_dialog().assign_material.clone();
+        assert!(chosen.is_some());
+        assert_eq!(app.robot().links[&arm].material, chosen);
+        harness.get_by_label("2 links, 1 joints, 2 mesh files — ready");
+        assert!(
+            !harness
+                .get_by_label("Export")
+                .accesskit_node()
+                .is_disabled()
+        );
+    });
+}
+
 /// Export writes the files where the dialog says and reports it.
 #[test]
 fn export_writes_the_files() {

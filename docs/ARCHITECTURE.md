@@ -682,7 +682,10 @@ below.
   any exist or while no format is ticked; under a ready line, each static
   link the export writes without mass is a weak note in the CLI's words
   (`ExportDialog::massless_notes`, ADR-0032 §2), which does not disable
-  the button; success is the status bar's
+  the button; while any link is unweighed (`Robot::unweighed_links`), a row
+  under either list — **Assign** [material ▾] to the N unweighed links —
+  issues `AssignMaterialToUnweighed`, one undo, and the dialog re-resolves,
+  so the blockers it cleared go (ADR-0032 §5); success is the status bar's
   `exported N files to <dir>`. In a browser there is no dialog and no
   directory to choose: Open and the two Imports point at the drop gesture
   instead, the export row reads `download   <name>.zip`, and Save, Save As,
@@ -1732,7 +1735,9 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   `properties_inertial`, `properties_inertial_open_mesh`,
   `properties_collision`, `export_dialog`, `export_blocked`,
   `export_massless_static` (ready, with the corpus's `tool` noted as
-  written without mass, ADR-0032 §2), `import_urdf`,
+  written without mass, ADR-0032 §2), `export_assign_unweighed` (the
+  one-click fix under a moving unweighed link's blocker, ADR-0032 §5),
+  `import_urdf`,
   v0.2's `collision_decomposition`, `properties_collision_decomposition`,
   the mimic and actuator set — `properties_joint_mimic`, `properties_joint_actuator`,
   `properties_joint_actuator_applied`, and v0.4's
