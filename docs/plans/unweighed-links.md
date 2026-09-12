@@ -18,8 +18,8 @@ the fix. One gesture gives every unweighed link a material, in the GUI and
 the SDK. Measured over Menagerie (HEAD `ca95c4d`), **41** of the 53 files
 that import and refuse to export now export (step 1). Of the 12 that
 remain, 8 name a moving link without mass, and 4 (`ufactory_lite6`) a
-static root whose file says `diaginertia="0 0 0"` — ⚠ OPEN 3 decides
-whether those four are this plan's.
+static root whose file says `diaginertia="0 0 0"` — OPEN 3 took
+those four (step 3b, ADR-0032 §4), so the plan's number is 164.
 
 ## Non-goals
 
@@ -75,7 +75,8 @@ whether those four are this plan's.
 - **App.**
   - The export dialog lists the massless static links under the ready line
     as weak notes (not blockers).
-  - The one-click assign sits where ⚠ OPEN 1 decides.
+  - The one-click assign sits in the export dialog, under the blockers
+    (OPEN 1, decided).
 - **ADR-0032**, "the export gate guards what a simulator reads". It amends
   DATA-MODEL's rule, cites ADR-0015 §7 as standing, and records the scan.
 
@@ -139,7 +140,19 @@ mechanical; **[2]** careful — a case to get right within a given design;
   now resolves the corpus and finds `massless == ["tool"]`. Four
   menagerie-style snapshots moved: ids shift by one, and the `tcp`
   frame's marker is sized by its link's 1 cm geometry now.
-- [ ] **[1]** Step 3 — ADR-0032, with step 1's measurement.
+- [x] **[1]** Step 3 — ADR-0032, with step 1's measurement. It also
+  carries ⚠ OPEN 3's decision (§4) and the MuJoCo probe table it rests on.
+- [ ] **[2]** Step 3b — A static link's exactly-zero tensor (ADR-0032 §4,
+  ⚠ OPEN 3 decided yes).
+  - `resolve`: on a static link with a finite positive mass, a finite CoM
+    and a bitwise-zero tensor, `NotPositiveDefinite` does not block. A
+    moving link's zero tensor, a near-zero one and a singular non-zero one
+    still do. Resolve tests pin all four; step 1's `zero` case moves to
+    "passes".
+  - The MJCF writer spells a zero tensor `diaginertia="0 0 0"`, every other
+    one `fullinertia`. A writer test pins both; URDF and SDF unchanged.
+  - Checked in scratch: one `ufactory_lite6` file exports and loads in
+    MuJoCo with zero warnings.
 - [ ] **[2]** Step 4 — The moving-link refusal: `NoDensity` on a moving
   link becomes `ZeroMassMovableLink`, and the message depends on whether
   the link has geometry.
@@ -168,10 +181,10 @@ mechanical; **[2]** careful — a case to get right within a given design;
 
 ## Acceptance
 
-- The scan (step 9) shows **160** of 172 importing files exporting — 164
-  if ⚠ OPEN 3 takes the four `ufactory_lite6` files. Every file still
-  refused names a moving link with no mass (or, if OPEN 3 says no, the
-  `link_base` zero tensor). No file that exported before stops exporting.
+- The scan (step 9) shows **164** of 172 importing files exporting (OPEN 3
+  took the four `ufactory_lite6` files, step 3b). Every file still refused
+  names a moving link with no mass. No file that exported before stops
+  exporting.
 - Every file step 1 newly exports loads in MuJoCo with zero warnings.
 - The `mujoco` CI job passes with `menagerie_style.xml` carrying a static
   link with geometry and neither material nor density.
@@ -207,7 +220,9 @@ mechanical; **[2]** careful — a case to get right within a given design;
 
 ## Open questions
 
-- ⚠ OPEN 1 (human, by step 8): **where the one-click assign lives.**
+- ~~⚠ OPEN 1~~ **Decided by the human, 2026-09-13: in the export dialog**
+  (the preferred answer). The question as it stood: **where the one-click
+  assign lives.**
   - Preferred: in the export dialog, right under the blockers — "Assign
     [material ▾] to the N unweighed links" — because that is where the
     user meets the refusal.
@@ -219,7 +234,13 @@ mechanical; **[2]** careful — a case to get right within a given design;
   `fullinertia` with a non-positive eigenvalue on any body — a static
   link's `check` failures keep blocking, and the static pass is
   `NoDensity` under `Computed` alone. The design delta is amended above.
-- ⚠ OPEN 3 (human, by step 3 — ADR-0032 is where it belongs): **is a
+- ~~⚠ OPEN 3~~ **Decided, step 3: yes, narrowly** — by the agent, on the
+  human's delegation ("decide yourself on open questions"); ADR-0032 §4,
+  step 3b. Re-probed on 3.13: `diaginertia="0 0 0"` loads on a static
+  body as the root, as a hinge's child and as a hinge's parent, at mass
+  1.65394 and 0; `fullinertia` zeros are refused in all six. ⚠ OPEN 1 was
+  answered by the human: the export dialog. The question as it stood:
+  **is a
   static link's exactly-zero tensor written, as `diaginertia="0 0 0"`?**
   MuJoCo loads it in that spelling and refuses it as `fullinertia`;
   `ufactory_lite6` ships its static root that way (4 of the 12 files the
