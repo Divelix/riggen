@@ -188,6 +188,12 @@ pub struct Viewport {
     /// The rect allocated by the most recent [`Viewport::ui`] call, in egui
     /// logical points.
     last_rect: Option<egui::Rect>,
+    /// Whether the ground at z = 0 is drawn. Viewport furniture with a
+    /// switch, like the background is furniture without one: the app's
+    /// visibility row owns the switch (`app/overlays.rs`), and nothing
+    /// about the document or the picking changes with it — the ground was
+    /// never a pointer target.
+    ground_visible: bool,
     /// Whether a camera *gesture* is in flight this frame — an orbit, a
     /// pan, a fly key held, or a view animation. The pivot cue is drawn
     /// exactly while it is (ADR-0028 §4). Recomputed every frame from the
@@ -397,6 +403,7 @@ impl Viewport {
             last_seen_render: 0,
             last_pick: None,
             last_rect: None,
+            ground_visible: true,
             camera_gesture: false,
         }
     }
@@ -694,6 +701,18 @@ impl Viewport {
     /// `None` before the first frame.
     pub fn viewport_rect(&self) -> Option<egui::Rect> {
         self.last_rect
+    }
+
+    /// Switches the ground at z = 0 on or off. Nothing else moves: it is
+    /// not an instance, it writes no depth, and it answers no pick, so the
+    /// scene, the overlay and the cursor are the same either way.
+    pub fn set_ground_visible(&mut self, visible: bool) {
+        self.ground_visible = visible;
+    }
+
+    /// Whether the ground is drawn.
+    pub fn ground_visible(&self) -> bool {
+        self.ground_visible
     }
 
     /// Samples per pixel in the offscreen scene pass: 4 where the adapter
@@ -1603,6 +1622,7 @@ impl Viewport {
             translucent_pipeline: self.gpu.translucent_pipeline.clone(),
             background_pipeline: self.gpu.background_pipeline.clone(),
             grid_pipeline: self.gpu.grid_pipeline.clone(),
+            draw_ground: self.ground_visible,
             hover_pipeline: self.gpu.hover_pipeline.clone(),
             select_pipeline: self.gpu.select_pipeline.clone(),
             axes_pipeline: self.gpu.axes_pipeline.clone(),

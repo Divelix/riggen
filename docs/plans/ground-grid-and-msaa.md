@@ -134,6 +134,18 @@ design; **[3]** unproven — behaviour that has to be established here.
   cueing is asserted rather than merely visible; every existing scenario's
   goldens refresh alongside it (the grid is now in frame everywhere the
   ground is). Commit typed `snapshots:` for the same reason as Step 1.
+- [x] **[1]** Step 3 — a visibility toggle for the ground. *Added after
+  Step 2, at the human's request: the floor is furniture the user should be
+  able to switch off, and the row that switches everything else off is
+  already there.* A sixth `Overlay::Ground` in `app/overlays.rs`, leftmost
+  — the viewport's own furniture ahead of the five document classes — on by
+  default, with its own eframe storage key and a lattice mark. Unlike the
+  other five it is neither a scene instance nor an overlay item, so
+  `set_overlay` hands it to `Viewport::set_ground_visible` and the wgpu
+  pass skips the draw; `RiggenApp::with_start` hands over a restored one,
+  since the viewport holds the state rather than re-reading it each frame.
+  The row grows a button, so every golden refreshes again — `snapshots:` a
+  third time. New `overlay_row_ground_off` scenario.
 
 ## Acceptance
 
@@ -159,6 +171,12 @@ depth resolve change).
 - `AGENTS.md` "Current state" — drop "ground grid, MSAA" from the "Left:"
   line, keeping "rotate-drag snapping" (the one item this plan doesn't
   touch).
+- `docs/ARCHITECTURE.md` §Panels and menus — the visibility row is six
+  toggles, and the first of them switches something the viewport draws
+  rather than something the document has (Step 3).
+- `docs/ROADMAP.md` v0.5, the ground-grid bullet — say that the floor has a
+  toggle in the visibility row, which the bullet as written did not ask
+  for.
 
 ## Open questions
 

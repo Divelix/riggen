@@ -207,7 +207,7 @@ impl RiggenApp {
             .wgpu_render_state
             .as_ref()
             .expect("riggen-app requires eframe's wgpu backend");
-        let viewport = Viewport::new(
+        let mut viewport = Viewport::new(
             &render_state.device,
             &render_state.adapter,
             render_state.target_format,
@@ -223,6 +223,11 @@ impl RiggenApp {
             })
             .unwrap_or(Self::DEFAULT_IMPORT_SCALE);
         let overlays = Overlays::load(cc.storage);
+        // The other five toggles are read every frame where the scene and
+        // the glyphs are built, so a restored `false` takes effect on its
+        // own. The ground is state the viewport holds, so a restored one
+        // has to be handed over.
+        viewport.set_ground_visible(overlays.ground);
 
         Self {
             robot: Robot::new("robot"),

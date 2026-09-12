@@ -1,0 +1,225 @@
+{
+  "camera": {
+    "eye": [
+      3.922033,
+      -3.922033,
+      4.280117
+    ],
+    "target": [
+      0.0,
+      0.0,
+      1.25
+    ],
+    "up": [
+      -0.339005,
+      0.339005,
+      0.877583
+    ],
+    "distance": 6.320308,
+    "yaw_deg": -45.0,
+    "pitch_deg": 28.64789,
+    "fov_y_deg": 45.0,
+    "near": 0.020156,
+    "far": 2015.564453,
+    "projection": "Perspective",
+    "animating": false,
+    "aspect": 0.927035,
+    "view": [
+      [
+        0.707107,
+        -0.339005,
+        0.620545,
+        0.0
+      ],
+      [
+        0.707107,
+        0.339005,
+        -0.620545,
+        0.0
+      ],
+      [
+        0.0,
+        0.877582,
+        0.479425,
+        0.0
+      ],
+      [
+        0.0,
+        -1.096978,
+        -6.91959,
+        1.0
+      ]
+    ],
+    "proj": [
+      [
+        2.604232,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        2.414213,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        -1.00001,
+        -1.0
+      ],
+      [
+        0.0,
+        0.0,
+        -0.020156,
+        0.0
+      ]
+    ],
+    "pivot_visible": false
+  },
+  "document": {
+    "file": null,
+    "name": "robot",
+    "dirty": true,
+    "import_scale": 1.0,
+    "links": [
+      {
+        "id": "l0",
+        "name": "base_link",
+        "parent_joint": null,
+        "geoms": 0,
+        "material": null
+      },
+      {
+        "id": "l3",
+        "name": "cube_binary",
+        "parent_joint": "j4",
+        "geoms": 1,
+        "material": null
+      },
+      {
+        "id": "l7",
+        "name": "cube_binary_2",
+        "parent_joint": "j8",
+        "geoms": 1,
+        "material": null
+      }
+    ],
+    "joints": [
+      {
+        "id": "j4",
+        "name": "cube_binary_joint",
+        "kind": "Fixed",
+        "parent": "l0",
+        "child": "l3",
+        "q": 0.0
+      },
+      {
+        "id": "j8",
+        "name": "cube_binary_2_joint",
+        "kind": "Fixed",
+        "parent": "l0",
+        "child": "l7",
+        "q": 0.0
+      }
+    ],
+    "selection": null
+  },
+  "ui": {
+    "mode": "Edit",
+    "tool": "Select",
+    "renaming": null,
+    "windows": [],
+    "modal": null,
+    "title": "untitled* — riggen",
+    "overlays": [
+      "ground",
+      "collision"
+    ]
+  },
+  "instances": [
+    {
+      "id": 0,
+      "link": "l3",
+      "geom": "g2",
+      "visible": true,
+      "triangles": 12,
+      "bounds": [
+        [
+          -0.5,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.5,
+          0.5,
+          0.5
+        ]
+      ],
+      "position": [
+        -1.0,
+        0.0,
+        0.5
+      ],
+      "color": [
+        0.55,
+        0.65,
+        0.78,
+        1.0
+      ]
+    },
+    {
+      "id": 1,
+      "link": "l7",
+      "geom": "g6",
+      "visible": true,
+      "triangles": 12,
+      "bounds": [
+        [
+          -0.5,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.5,
+          0.5,
+          0.5
+        ]
+      ],
+      "position": [
+        1.0,
+        0.0,
+        2.0
+      ],
+      "color": [
+        0.55,
+        0.65,
+        0.78,
+        1.0
+      ]
+    }
+  ],
+  "selection": {
+    "hovered": null,
+    "selected": null
+  },
+  "input": {
+    "pick_suppressed": true,
+    "select_suppressed": false,
+    "camera_blocked": true,
+    "primary_drag_claimed": false,
+    "wheel_claimed": false
+  },
+  "gizmo": null,
+  "glyphs": [],
+  "snap": null,
+  "status": null,
+  "viewport_rect": [
+    268.3125,
+    23.0,
+    1060.0,
+    877.0
+  ],
+  "sample_count": 4
+}

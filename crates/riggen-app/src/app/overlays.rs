@@ -1,4 +1,4 @@
-//! The visibility row: five class toggles in the viewport's top-right
+//! The visibility row: six class toggles in the viewport's top-right
 //! corner (docs/ARCHITECTURE.md §Panels and menus).
 //!
 //! Everything riggen draws over the robot used to be drawn always, and
@@ -23,6 +23,7 @@ use super::RiggenApp;
 /// One class of thing the viewport draws, and one button in the row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Overlay {
+    Ground,
     Joints,
     JointNames,
     Links,
@@ -31,9 +32,10 @@ pub enum Overlay {
 }
 
 impl Overlay {
-    /// Left to right in the row: the two that are geometry last, so the
-    /// three overlay toggles sit together.
-    pub const ALL: [Self; 5] = [
+    /// Left to right in the row: the viewport's own furniture first, then
+    /// the three overlay toggles together, then the two that are geometry.
+    pub const ALL: [Self; 6] = [
+        Self::Ground,
         Self::Joints,
         Self::JointNames,
         Self::Frames,
@@ -45,6 +47,7 @@ impl Overlay {
     /// "… hidden" line and in `debug_state().ui.overlays`.
     pub fn name(self) -> &'static str {
         match self {
+            Self::Ground => "ground",
             Self::Joints => "joints",
             Self::JointNames => "joint names",
             Self::Frames => "frames",
@@ -57,6 +60,7 @@ impl Overlay {
     /// rule is not something the user has to discover.
     fn tooltip(self) -> &'static str {
         match self {
+            Self::Ground => "Ground — the grid at z = 0. Furniture: it is never a pointer target",
             Self::Joints => "Joints — the glyphs, and in View the only thing the cursor can hit",
             Self::JointNames => "Joint names — the mimic and actuator labels, and frame names",
             Self::Frames => "Frames — the named triads (ADR-0012)",
@@ -75,6 +79,7 @@ impl Overlay {
     /// so a key added later defaults on its own.
     fn key(self) -> &'static str {
         match self {
+            Self::Ground => "riggen.overlays.ground",
             Self::Joints => "riggen.overlays.joints",
             Self::JointNames => "riggen.overlays.joint_names",
             Self::Frames => "riggen.overlays.frames",
@@ -87,6 +92,7 @@ impl Overlay {
 /// What the viewport is currently drawing, class by class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Overlays {
+    pub ground: bool,
     pub joints: bool,
     pub joint_names: bool,
     pub frames: bool,
@@ -97,6 +103,7 @@ pub struct Overlays {
 impl Default for Overlays {
     fn default() -> Self {
         let mut overlays = Self {
+            ground: false,
             joints: false,
             joint_names: false,
             frames: false,
@@ -113,6 +120,7 @@ impl Default for Overlays {
 impl Overlays {
     pub fn get(self, overlay: Overlay) -> bool {
         match overlay {
+            Overlay::Ground => self.ground,
             Overlay::Joints => self.joints,
             Overlay::JointNames => self.joint_names,
             Overlay::Frames => self.frames,
@@ -123,6 +131,7 @@ impl Overlays {
 
     fn set(&mut self, overlay: Overlay, on: bool) {
         match overlay {
+            Overlay::Ground => self.ground = on,
             Overlay::Joints => self.joints = on,
             Overlay::JointNames => self.joint_names = on,
             Overlay::Frames => self.frames = on,
@@ -176,13 +185,19 @@ impl RiggenApp {
     }
 
     /// Switch one class of thing on or off. `sync_scene` because two of
-    /// the five are scene instances rather than overlay items; the other
-    /// three are read where the glyphs are built.
+    /// the six are scene instances rather than overlay items; three more
+    /// are read where the glyphs are built. The ground is neither — it is
+    /// a draw in the wgpu pass and nothing in the scene knows about it, so
+    /// it is handed straight to the viewport.
     pub fn set_overlay(&mut self, overlay: Overlay, on: bool) {
-        if self.overlays.get(overlay) != on {
-            self.overlays.set(overlay, on);
-            self.sync_scene();
+        if self.overlays.get(overlay) == on {
+            return;
         }
+        self.overlays.set(overlay, on);
+        if overlay == Overlay::Ground {
+            self.viewport.set_ground_visible(on);
+        }
+        self.sync_scene();
     }
 
     /// The row itself, in the viewport's top-right — the corner the Joints
@@ -252,15 +267,32 @@ impl RiggenApp {
     }
 }
 
-/// The five marks, drawn rather than typed: egui bundles no icon set worth
+/// The six marks, drawn rather than typed: egui bundles no icon set worth
 /// the name, and each of these is the thing it switches as the viewport
-/// draws it — a band and its spoke, a triad, a box, a hull round a box.
-/// `joint names` is the exception and is simply an `A`: a name has no
-/// shape of its own.
+/// draws it — a lattice, a band and its spoke, a triad, a box, a hull
+/// round a box. `joint names` is the exception and is simply an `A`: a
+/// name has no shape of its own.
 fn paint_mark(painter: &egui::Painter, rect: egui::Rect, overlay: Overlay, color: egui::Color32) {
     let stroke = egui::Stroke::new(1.2, color);
     let center = rect.center();
     match overlay {
+        Overlay::Ground => {
+            // Two lines each way: the smallest thing that reads as a grid
+            // rather than as a window or a plus.
+            for i in 1..3 {
+                let t = i as f32 / 3.0;
+                let x = rect.left() + rect.width() * t;
+                let y = rect.top() + rect.height() * t;
+                painter.line_segment(
+                    [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                    stroke,
+                );
+                painter.line_segment(
+                    [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+                    stroke,
+                );
+            }
+        }
         Overlay::Joints => {
             let radius = rect.width() * 0.42;
             painter.circle_stroke(center, radius, stroke);
@@ -318,6 +350,16 @@ impl RiggenApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The ground is the one toggle that is not document-derived: the row
+    /// owns it, but switching it reaches the wgpu pass rather than the
+    /// scene or the glyphs.
+    #[test]
+    fn the_ground_is_on_by_default_and_named_in_the_row() {
+        assert!(Overlays::default().ground);
+        assert_eq!(Overlay::ALL[0], Overlay::Ground, "furniture leads the row");
+        assert_eq!(Overlay::Ground.name(), "ground");
+    }
 
     #[test]
     fn defaults_are_everything_but_collision() {

@@ -1513,11 +1513,11 @@ fn view_opens_with_the_document() {
     });
 }
 
-/// The visibility row, everything lit: the five toggles in the viewport's
+/// The visibility row, everything lit: the six toggles in the viewport's
 /// top-right, collision switched on so no button is dim and the hulls are
-/// in the picture. The marks are drawn rather than typed — a band and its
-/// spoke, an `A`, the link tree's own `⌖`, a box, a hull round a box
-/// (plans/visibility-row step 2).
+/// in the picture. The marks are drawn rather than typed — a lattice, a
+/// band and its spoke, an `A`, the link tree's own `⌖`, a box, a hull
+/// round a box (plans/visibility-row step 2).
 #[test]
 fn overlay_row() {
     scenario("overlay_row", |harness| {
@@ -1533,9 +1533,89 @@ fn overlay_row() {
         let state = harness.state().debug_state();
         assert!(state.ui.overlays.is_empty(), "nothing is hidden");
         // Every toggle is a named widget, so the row is clickable by name.
-        for name in ["joints", "joint names", "frames", "links", "collision"] {
+        for name in [
+            "ground",
+            "joints",
+            "joint names",
+            "frames",
+            "links",
+            "collision",
+        ] {
             harness.get_by_label(name);
         }
+    });
+}
+
+/// Ground off: the floor leaves the wgpu pass and nothing else moves.
+///
+/// The one toggle in the row that is not document-derived, so it is the one
+/// whose "nothing else moves" is worth stating as a fact: the same probe
+/// that `ground_grid` uses to find a drawn metre line finds none, while
+/// every instance, glyph and camera number in `debug_state()` is what it
+/// was with the floor up.
+#[test]
+fn overlay_row_ground_off() {
+    scenario("overlay_row_ground_off", |harness| {
+        let app = harness.state_mut();
+        let resting = open_link(app, "cube_binary.stl");
+        let lifted = open_link(app, "cube_binary.stl");
+        place(app, resting, DVec3::new(-1.0, 0.0, 0.5));
+        place(app, lifted, DVec3::new(1.0, 0.0, 2.0));
+        app.fit_view_now();
+        settle(harness);
+        pump_rendered(harness, 8);
+        // The button is wired and reachable by name. Done first, so both
+        // sides of the comparison below are taken with the pointer in the
+        // same place: chrome under the cursor suppresses the picks and
+        // blocks the camera (01 §Picking and snapping), which would
+        // otherwise read as a change the ground had made.
+        assert!(
+            harness.state().overlays().ground,
+            "the floor is on by default"
+        );
+        harness.get_by_label("ground").click();
+        settle(harness);
+        assert!(!harness.state().overlays().ground);
+        harness.get_by_label("ground").click();
+        settle(harness);
+        assert!(harness.state().overlays().ground);
+        pump_rendered(harness, 8);
+        let with_ground = harness.state().debug_state_json();
+
+        harness
+            .state_mut()
+            .set_overlay(riggen_app::Overlay::Ground, false);
+        settle(harness);
+        pump_rendered(harness, 8);
+        assert_eq!(
+            harness.state().debug_state().ui.overlays,
+            vec!["ground", "collision"],
+            "the status bar names a floor switched off"
+        );
+
+        let image = harness.render().expect("render").clone();
+        let state = harness.state();
+        let luma = |world: DVec3| -> u32 {
+            let at = state
+                .project_world(world)
+                .unwrap_or_else(|| panic!("{world} is off screen"));
+            let px = image.get_pixel(at.x.round() as u32, at.y.round() as u32).0;
+            (px[0] as u32 + px[1] as u32 + px[2] as u32) / 3
+        };
+        assert!(
+            luma(DVec3::new(1.0, -1.0, 0.0)) as i32 - luma(DVec3::new(1.5, -0.5, 0.0)) as i32 <= 2,
+            "the metre line `ground_grid` finds in the open is gone"
+        );
+
+        // Only the hidden list changed: the ground is not an instance, it
+        // writes no depth and it answers no pick, so nothing downstream of
+        // it has an opinion about whether it is drawn.
+        let without_ground = state.debug_state_json();
+        let lines: Vec<&str> = without_ground
+            .lines()
+            .filter(|line| line.trim() != "\"ground\",")
+            .collect();
+        assert_eq!(lines.join("\n"), with_ground, "nothing else moved");
     });
 }
 
