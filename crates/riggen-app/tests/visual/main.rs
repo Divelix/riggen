@@ -1766,8 +1766,8 @@ fn overlay_row_hides_frames_and_their_hover() {
 }
 
 /// Zen on `Z` (ADR-0021, amended): the sample arm in View with the menu
-/// bar, the status bar, the joint tree and both pieces of corner chrome
-/// gone — the viewport filling the window with the robot alone. The mode
+/// bar, the status bar, the joint tree and all three pieces of corner
+/// chrome gone — the viewport filling the window with the robot alone. The mode
 /// underneath is untouched, and so is every switch it sets.
 #[test]
 fn zen_view() {

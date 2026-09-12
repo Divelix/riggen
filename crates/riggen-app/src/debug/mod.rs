@@ -108,7 +108,7 @@ pub struct TimingDebug {
 pub struct UiDebug {
     /// `"View"` or `"Edit"` (ADR-0021).
     pub mode: &'static str,
-    /// Zen: every panel and both pieces of corner chrome hidden
+    /// Zen: every panel and all three pieces of corner chrome hidden
     /// (ADR-0021, amended). Omitted when false, so no golden taken with
     /// the chrome up gains a line.
     #[serde(skip_serializing_if = "std::ops::Not::not")]

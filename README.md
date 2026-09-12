@@ -48,11 +48,13 @@ without a wheel, `pip install` builds the SDK from source with `cargo` on
    the button under it switches perspective and orthographic. `W A S D E Q`
    walk the camera *into* the assembly — the point it orbits around comes
    with you, so a joint buried in a shell can be put in front of you and
-   then turned around locally. The five buttons top-right are the
-   **visibility row**: joints, joint names, frames, links, collision
-   geometry. Switching one off takes it out of the picture *and* out of
-   the cursor's reach, so with joints off you get the robot and nothing
-   else — the status bar says what is hidden.
+   then turned around locally. The arm stands on a **ground grid** at
+   z = 0, so a part at the origin reads as resting on something. The six
+   buttons top-right are the **visibility row**: ground, joints, joint
+   names, frames, links, collision geometry. Switching one off takes it
+   out of the picture *and* out of the cursor's reach, so with joints off
+   you get the robot and nothing else — the status bar says what is
+   hidden.
 2. Pose it: drag a joint's bar in the tree, or turn the wheel over it —
    or over the joint's glyph in the viewport, which steps it by 5° (1°
    with shift) instead of zooming. A click on a glyph selects the joint;

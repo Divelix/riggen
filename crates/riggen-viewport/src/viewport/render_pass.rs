@@ -163,9 +163,10 @@ impl ViewportCallback {
 
         // The ground, over the finished opaque depth buffer: depth-tested,
         // so a part in front of it hides it and it hides the background
-        // behind it, but writing no depth of its own. Drawn unconditionally —
-        // it is furniture, like the background and the axes triad, and zen
-        // hides chrome, not the scene (ADR-0021, amended).
+        // behind it, but writing no depth of its own. Furniture, like the
+        // background and the axes triad, so zen draws it — zen hides
+        // chrome, not the scene (ADR-0021, amended). The visibility row's
+        // **ground** toggle is the only thing that takes it away.
         if self.draw_ground {
             pass.set_pipeline(&self.grid_pipeline);
             pass.set_bind_group(0, &self.uniform_bind_group, &[]);

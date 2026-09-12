@@ -3,7 +3,7 @@
 //! (`shortcuts.rs`).
 //!
 //! And **zen**, which is orthogonal to both: `Z` hides every panel and
-//! both pieces of corner chrome, leaving the viewport filling the window
+//! all three pieces of corner chrome, leaving the viewport filling the window
 //! with the robot alone. It lives here because it is the same policy the
 //! mode is — which panels are drawn — and is read in the same places. It
 //! changes nothing else: not the mode, not the visibility row's toggles,

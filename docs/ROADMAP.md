@@ -290,15 +290,37 @@ Every line below is a backlog line this section now owns.
   while a camera gesture is live — a cross at `target` in the viewport's
   own overlay, `Occlusion::Always`, and **no fade**, because a fade is a
   clock in a golden (ADR-0003).
-- **A ground grid at z = 0.** RoboCAD never had one either; M0 ships the
-  gradient background alone, so a part at the origin and a part a metre up
-  read the same. Z-up and meters are the document's (02 §Conventions), so
-  the grid is simply where the floor is.
-- **MSAA on the offscreen colour pass.** RoboCAD had none. The scene
-  renders into an offscreen colour + `Depth32Float` pair and is blitted in
-  `paint()` (01 §Frame loop), so this is that pair and the blit. The
-  **pick pass stays single-sampled** — an `R32Uint` ID buffer cannot be
-  resolved, and averaging two instance ids would invent a third.
+- **A ground grid at z = 0.** *Landed (plans/ground-grid-and-msaa).*
+  RoboCAD never had one either; M0 shipped the gradient background alone,
+  so a part at the origin and a part a metre up read the same. Z-up and
+  meters are the document's (02 §Conventions), so the grid is simply where
+  the floor is: `grid.wgsl` unprojects each pixel and intersects the ray
+  with the plane — no mesh, since an infinite plane has none without an
+  edge the camera can reach — and shades metre and ten-metre lattices, each
+  a constant pixel thickness against its own screen-space derivative and
+  faded out by that same derivative toward the horizon. Depth-tested from
+  the intersection and writing no depth of its own, so a part in front
+  hides it and no glyph below z = 0 is lost. Furniture like the axes triad,
+  drawn in zen — with one thing the other furniture has not: the bullet as
+  written did not ask for a switch, and it has one, the visibility row's
+  sixth toggle (**ground**, leftmost), because a floor this large is worth
+  being able to turn off and the row that turns off everything else riggen
+  draws was already in the corner above it.
+- **MSAA on the offscreen colour pass.** *Landed
+  (plans/ground-grid-and-msaa).* RoboCAD had none. The scene renders into
+  an offscreen colour + `Depth32Float` pair and is blitted in `paint()`
+  (01 §Frame loop), so this is that pair and the blit. Both attachments
+  now carry the sample count the adapter admits to for both formats — 4 or
+  1, asked once through `get_texture_format_features` rather than assumed,
+  and reported by `debug_state().sample_count`. The **pick pass stays
+  single-sampled** — an `R32Uint` ID buffer cannot be resolved, and
+  averaging two instance ids would invent a third. Colour resolves in
+  hardware; depth cannot, since WebGPU has no depth resolve attachment and
+  no multisampled copy source, so `depth_resolve.wgsl` writes sample 0 into
+  a single-sampled texture for the overlay readback to copy — sample 0 and
+  not an average, for the reason the pick pass is single-sampled. ADR-0020
+  is untouched: the overlay still reads one `Depth32Float` texel per
+  pixel.
 - **Snapping during a rotate gizmo drag.** ADR-0019 §5 left the drag snap
   to translation because a rotation about a named axis has nothing in the
   ladder to land on. The answer is aligning the dragged frame's axis to a

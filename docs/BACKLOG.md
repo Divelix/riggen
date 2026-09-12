@@ -142,6 +142,18 @@ The by-hand half was done headlessly: the manylinux wheel installed into
   reduced it but has not removed it; the remaining suspect is load from
   the *other* test binaries running beside it
 
+### From the ground grid and MSAA (plans/ground-grid-and-msaa, 2026-09-12)
+
+- The floor's two lattices are fixed at 1 m and 10 m, so the camera close
+  in on a 5 cm part sees no line at all and the floor reads as gone. A
+  decade-adaptive spacing — the lattice pair chosen from the metres per
+  pixel, cross-fading at each decade — is the usual answer and would also
+  retire the hand-tuned fade constants
+- `sample_count == 1` is the fallback for an adapter that cannot
+  multisample, and nothing exercises it: the design deliberately has no
+  flag to force it, so only such an adapter takes the branch. Worth a way
+  to force it if a report ever comes back from one
+
 ### From the human's GUI notes (the View / Edit split, 2026-09-05)
 
 The notes themselves — two modes with Tab between them, the joint tree with

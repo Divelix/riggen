@@ -72,7 +72,7 @@ pub struct RiggenApp {
     /// row's collision toggle is off. Beside each, what was uploaded for it.
     collision_instances: BTreeMap<(LinkId, usize), (InstanceId, CollisionSource)>,
     /// What the viewport is drawing, class by class: the visibility row's
-    /// five toggles (`overlays.rs`). Remembered through eframe storage,
+    /// six toggles (`overlays.rs`). Remembered through eframe storage,
     /// never in the document.
     overlays: Overlays,
     /// The job thread (`crate::jobs`, docs/ARCHITECTURE.md §Jobs and
@@ -88,9 +88,9 @@ pub struct RiggenApp {
     selection: Selection,
     /// View or Edit (`mode.rs`, ADR-0021).
     mode: Mode,
-    /// Zen: every panel and both pieces of corner chrome hidden, the robot
-    /// alone in the window (`mode.rs`, ADR-0021 amended). Orthogonal to
-    /// the mode and never persisted.
+    /// Zen: every panel and all three pieces of corner chrome hidden, the
+    /// robot alone in the window (`mode.rs`, ADR-0021 amended). Orthogonal
+    /// to the mode and never persisted.
     zen: bool,
     /// The pose View was showing when `Tab` went to Edit, which is the zero
     /// configuration for the whole of the mode; restored on the way back.
@@ -112,9 +112,11 @@ pub struct RiggenApp {
     /// suppressed so it does not select the part behind it instead.
     glyph_hover: Option<JointId>,
     /// The rects of the **corner chrome**: the `View | Edit` control with
-    /// the toolbar beside it at the left (`mode.rs::viewport_chrome`), the
-    /// visibility row at the right (`overlays.rs`). A glyph behind either
-    /// is not "hovered" through it and the camera holds still under it.
+    /// the toolbar beside it at the top-left (`mode.rs::viewport_chrome`),
+    /// the visibility row at the top-right (`overlays.rs`) and the
+    /// ViewCube at the bottom-right (`viewcube/`). A glyph behind any of
+    /// the three is not "hovered" through it and the camera holds still
+    /// under it.
     chrome_rects: Vec<egui::Rect>,
     /// Where the ViewCube was drawn last frame, or `None` in zen, where it
     /// is not drawn at all (ADR-0028 §3). Only `viewcube_facet_center`
@@ -223,10 +225,10 @@ impl RiggenApp {
             })
             .unwrap_or(Self::DEFAULT_IMPORT_SCALE);
         let overlays = Overlays::load(cc.storage);
-        // The other five toggles are read every frame where the scene and
-        // the glyphs are built, so a restored `false` takes effect on its
-        // own. The ground is state the viewport holds, so a restored one
-        // has to be handed over.
+        // The other five reach the picture through `sync_scene` or through
+        // the glyphs, both of which run after this, so a restored `false`
+        // takes effect on its own. The ground is state the viewport holds,
+        // so a restored one has to be handed over.
         viewport.set_ground_visible(overlays.ground);
 
         Self {
@@ -322,9 +324,10 @@ impl RiggenApp {
     }
 
     /// Whether `pos` is on the corner chrome — the mode control and the
-    /// toolbar at the left, the visibility row at the right. Both float in
-    /// the viewport's own egui layer, which `contains_pointer` cannot see
-    /// through, so the app has to ask (01 §Picking and snapping).
+    /// toolbar at the top-left, the visibility row at the top-right, the
+    /// ViewCube at the bottom-right. All three float in the viewport's own
+    /// egui layer, which `contains_pointer` cannot see through, so the app
+    /// has to ask (01 §Picking and snapping).
     pub(crate) fn over_chrome(&self, pos: egui::Pos2) -> bool {
         self.chrome_rects.iter().any(|rect| rect.contains(pos))
     }
@@ -453,8 +456,9 @@ impl eframe::App for RiggenApp {
         self.handle_shortcuts(ui.ctx());
         self.update_title(ui.ctx());
 
-        // Zen takes every panel and both pieces of corner chrome; what is
-        // left is the viewport with the robot in it (ADR-0021, amended).
+        // Zen takes every panel and all three pieces of corner chrome;
+        // what is left is the viewport with the robot in it (ADR-0021,
+        // amended).
         // The mode underneath is unchanged, and so is everything the
         // switches below are set from.
         if !self.zen {

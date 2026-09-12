@@ -209,7 +209,7 @@ pub struct RiggenApp {
     instances: BTreeMap<(LinkId, GeomId), InstanceId>,  // the only map between document and scene
     collision_instances: BTreeMap<(LinkId, usize), (InstanceId, CollisionSource)>, // translucent shapes,
     overlays: Overlays,                                 // per link and shape index, while the row's collision toggle is on;
-                                                        // the visibility row's five toggles (§Panels and menus)
+                                                        // the visibility row's six toggles (§Panels and menus)
     jobs: Jobs,                                         // the job thread (§Jobs and threads), drained once per frame
     decomp: HashMap<(MeshId, DecompParams), DecompState>, // convex pieces it produced; the document holds the
                                                         // parameters and never the pieces (ADR-0011)
@@ -428,7 +428,7 @@ below.
   again brings all of them back, and the floating Materials window with
   them, its `open` flag untouched. Zen is **orthogonal to the mode**: it
   is the same key and the same state in View and Edit, `Tab` still
-  switches modes inside it, the visibility row's five toggles stay
+  switches modes inside it, the visibility row's six toggles stay
   exactly as the user set them, and the five switches are derived from
   the mode and the hover exactly as before — there is simply no chrome
   rect left to block the camera or suppress a pick under (ADR-0021,
@@ -534,23 +534,36 @@ below.
   and a click selects the *joint* — the camera keeps the pointer, and the
   wheel still zooms (ADR-0010).
 - **The visibility row** (viewport, top-right — the corner the Joints
-  window vacated): five toggles, `app/overlays.rs`, drawn in both modes.
-  **joints**, **joint names**, **frames**, **links**, **collision**, each
-  a small mark rather than a word — a band and its spoke, an `A`, the link
-  tree's own `⌖`, a filled box, a hull round a box — because egui
-  bundles no icon set worth the name and each of these is the thing it
-  switches as the viewport draws it. The two that are scene instances go
-  through `set_instance_visible` in `sync_scene`; the three overlay ones
-  are read where the glyphs are built (§Joint glyphs). **A hidden thing
-  answers nothing** (ADR-0021, amended): the drawing and the pointer
-  target go together, so a hidden link leaves the ID buffer and Edit's
-  tools find nothing where it was, and hidden joints leave View with
-  nothing under the cursor at all. The row's rect is **corner chrome**
-  beside the mode control's (§Picking and snapping). The five are
-  remembered through eframe storage, one key each, and never enter the
-  document: what a robot *is* does not depend on what the window is
-  showing. `debug_state().ui.overlays` lists what is off, in the row's
-  order.
+  window vacated): six toggles, `app/overlays.rs`, drawn in both modes.
+  **ground**, **joints**, **joint names**, **frames**, **links**,
+  **collision**, each a small mark rather than a word — a lattice, a band
+  and its spoke, an `A`, the link tree's own `⌖`, a filled box, a hull
+  round a box — because egui bundles no icon set worth the name and each
+  of these is the thing it switches as the viewport draws it. Reading
+  order puts the viewport's own furniture first and the two that are
+  geometry last, which leaves the three overlay toggles together.
+  Everything but **ground** is document-derived and reaches the picture
+  the way the thing it names does. **links** hides instances through
+  `set_instance_visible`; **collision** does not hide anything but adds
+  and removes the translucent set outright (`sync_collision`); both run in
+  `sync_scene`, which is called on an edit and by `set_overlay` itself,
+  not every frame. The three overlay toggles are read where the glyphs are
+  built, which *is* every frame (§Joint glyphs). **ground** is the
+  exception to all of it — the floor is a draw in the wgpu pass and no
+  part of the scene or the glyphs knows about it, so `set_overlay` hands
+  it to `Viewport::set_ground_visible` and the viewport holds it, which is
+  why a restored one is handed over at startup rather than picked up by
+  the first sync. **A hidden thing answers nothing**
+  (ADR-0021, amended): the drawing and the pointer target go together, so
+  a hidden link leaves the ID buffer and Edit's tools find nothing where
+  it was, and hidden joints leave View with nothing under the cursor at
+  all; the ground is the one toggle with nothing to say here, having never
+  been a pointer target. The row's rect is **corner chrome** beside the
+  mode control's (§Picking and snapping). All six are remembered through
+  eframe storage, one key each — so a toggle added later defaults on its
+  own — and never enter the document: what a robot *is* does not depend on
+  what the window is showing. `debug_state().ui.overlays` lists what is
+  off, in the row's order.
 - **Frame glyphs** (in the viewport): a frame has no geometry either, so
   each is drawn as a triad in the axes triad's colours at its world pose
   (`world(parent) ∘ frame.pose`) with its name as a label beside it. Every
@@ -688,12 +701,63 @@ binding.
 The scene renders into an offscreen colour + `Depth32Float` pair (egui's
 own pass has no depth attachment) and is blitted in `paint()`; the axes
 triad draws last in its own corner viewport with a rotation-only camera.
-The depth half carries `COPY_SRC` and is read back for the overlay
-(ADR-0020): the copy is recorded on **egui's** encoder right after the
-scene pass, so it sees the depth this frame wrote, and is mapped on the
-following `ui()` — asynchronous like the pick, never waited on, and
-abandoned after eight frames if nothing answers. Only the opaque pass
-writes depth, so a translucent collision hull hides no glyph.
+
+Both attachments are **multisampled**. The count is asked of the adapter
+once, in `Viewport::new`: 4 where `get_texture_format_features` reports
+`MULTISAMPLE_X4` for `DEPTH_FORMAT` and `MULTISAMPLE_X4 |
+MULTISAMPLE_RESOLVE` for the colour format, 1 otherwise — the branch is
+the adapter's own answer and there is no flag for it. Every pipeline that
+draws into the scene pass is built at that count, and
+`debug_state().sample_count` reports it, since antialiasing is otherwise
+assertable only as "the pixels look softer". The **pick pass stays at 1**:
+an `R32Uint` id buffer cannot be resolved, and an averaged id would name
+an instance nothing drew.
+
+Each attachment therefore has a single-sampled counterpart downstream of
+it. Colour resolves in hardware — the pass carries a `resolve_target`, and
+the blit samples *that*, because a multisampled texture is not
+`textureSample`able. Depth has no such attachment in WebGPU and
+`copy_texture_to_buffer` refuses a multisampled source outright, so
+`depth_resolve.wgsl` writes **sample 0** through `@builtin(frag_depth)`
+into a single-sampled `COPY_SRC` texture — a fullscreen triangle recorded
+only on a frame that reads depth back, nothing else looking at the result.
+Sample 0 rather than an average, for the reason the pick pass is
+single-sampled: a blended depth would name a surface no sample wrote, and
+the overlay's `DEPTH_BIAS` already carries the slack a near-surface glyph
+needs.
+
+That single-sampled depth is what the overlay reads back (ADR-0020): the
+copy is recorded on **egui's** encoder right after the scene pass, so it
+sees the depth this frame wrote, and is mapped on the following `ui()` —
+asynchronous like the pick, never waited on, and abandoned after eight
+frames if nothing answers. Only the opaque pass writes depth, so a
+translucent collision hull hides no glyph.
+
+The **ground** is the world z = 0 plane, drawn in the same pass between
+the translucent instances and the hover/select restyles. Not a mesh: an
+infinite plane has no mesh without an edge the camera can reach, so
+`grid.wgsl` is a fullscreen triangle that unprojects each pixel through
+`inv_view_proj` and intersects the ray with the plane — one path under
+either projection, since the matrix carries the difference — and shades
+two lattices, a metre apart and ten metres apart. Each line holds a
+constant thickness in pixels because it is measured against its own
+screen-space derivative, and that same derivative fades a lattice out once
+its cells crowd below about a dozen pixels, which is the horizon fade: the
+floor thins away where it runs from the camera instead of ending at a rim.
+Two palettes off the `is_dark_mode` uniform the background already
+carries. It is depth-tested `LessEqual` against `@builtin(frag_depth)`
+from the intersection, so a part in front of the floor hides it and a part
+buried below z = 0 is crossed by it, and it writes **no** depth of its
+own — the overlay classifies its glyphs against that buffer, and a floor
+in it would hide every glyph below the ground. Furniture, like the
+background and the axes triad: not an instance, not pickable, contributing
+nothing the rest of the frame can see — no `PickHit`, no entry anywhere in
+`debug_state()` — and drawn in zen, which hides chrome and not the scene.
+The one thing it has that the other furniture does not is a switch, the
+visibility row's **ground** toggle (§Panels and menus), which is the only
+trace of it in `debug_state()` and reaches it as `ui.overlays` like any
+other hidden class.
+
 `f64` → `f32` happens in `GpuMesh::upload` and the model-uniform pack, and
 nowhere else.
 
@@ -974,10 +1038,11 @@ hover pick: the drag is solved against the projection it started in, so the
 camera must hold still, but the snap ladder under the cursor is exactly
 what the drag is aiming at (ADR-0019 §4). The corner chrome, which wants
 neither, sets `set_camera_blocked` **and** `set_pick_suppressed`. There
-are two pieces of it — the mode control with the toolbar beside it at the
-top-left, the visibility row at the top-right — so the app keeps a list of
-`chrome_rects` and asks whether the cursor is on any of them
-(`over_chrome`). In **zen** neither piece is drawn and the list is empty,
+are three pieces of it — the mode control with the toolbar beside it at
+the top-left, the visibility row at the top-right, the ViewCube at the
+bottom-right — so the app keeps a list of `chrome_rects` and asks whether
+the cursor is on any of them (`over_chrome`). In **zen** none is drawn and
+the list is empty,
 so nothing is blocked by position and the mode's own rules are the whole
 of what answers the cursor (ADR-0021, amended).
 
@@ -1562,9 +1627,10 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   composition asserted as JSON and not only as pixels), the frame glyphs,
   the snap candidate, the viewport's
   pointer policy (`input`, omitted while nothing is suppressed), status,
-  viewport rect) accompanies every snapshot as
-  a golden of its own; every float in it is rounded to six decimals and
-  `-0.0` normalised so goldens never churn. At runtime the same JSON is
+  viewport rect, the scene pass's `sample_count`) accompanies every
+  snapshot as a golden of its own; every float in it is rounded to six
+  decimals and `-0.0` normalised so goldens never churn. At runtime the
+  same JSON is
   under Debug › Copy / Save state (JSON), beside egui's layout overlays.
   The scenarios: `startup`, `cube`, `hover_cube`, `select_cube`,
   `three_parts`, `pendulum`, `mm_scale_part`, `tree_pendulum`,
@@ -1578,13 +1644,16 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   ring), the two `zen_view` / `zen_edit` (the same key and the same
   empty window in both modes) and the visibility row's `overlay_row`,
   `overlay_row_joints_off`, `overlay_row_names_off`, `overlay_row_links_off`
-  (ADR-0021, amended) and
+  (ADR-0021, amended) and `overlay_row_ground_off` (the one toggle whose
+  "nothing else moved" is asserted as a JSON diff of one line) and
   `joint_tree_chain` (a follower whose leader also follows: both rows
   read-only at their resolved values, each stating its own rule,
   ADR-0025),
   `glyph_revolute`, `glyph_prismatic`, `glyph_band_grazing` (the band
   foreshortened onto itself, where a translucent stack showed a seam),
-  `glyph_hover`, `snap_vertex`,
+  `glyph_hover`, `ground_grid` (a part on the floor beside one lifted
+  above it, the depth cueing probed from the rendered pixels),
+  `snap_vertex`,
   `snap_circle`, `place_joint_bore`, `align_concentric`, `five_minute_arm`,
   `dirty_title`, `unsaved_confirm`, `file_menu`, `debug_menu`, and M3's
   `collision_hull`,
