@@ -218,9 +218,39 @@ mechanical; **[2]** careful — a case to get right within a given design;
   Assign and gets the ready line back. `export_massless_static` was
   re-captured, since the corpus's `tool` is unweighed and the row now sits
   under its note. `export_dialog` and `export_blocked` are unchanged.
-- [ ] **[1]** Step 9 — The acceptance scan: all 261 Menagerie `.xml`
+- [x] **[1]** Step 9 — The acceptance scan: all 261 Menagerie `.xml`
   through `--export mjcf` with the release build. Bucket as ADR-0026's
   table does, and record the numbers here for `/retire-plan`.
+
+  Run 2026-09-13 on a scratch copy of the corpus, file by file. Before is
+  a release build of `d18a679` (the tree before step 1, extracted with
+  `git archive`); after is `093737c` (step 8).
+
+  | Bucket | Before | After |
+  |---|---|---|
+  | imported **and** exported | 119 | **164** |
+  | imported, refused by the export gate | 53 | **8** |
+  | refused: no root link | 43 | 43 |
+  | refused: multiple roots | 21 | 21 |
+  | refused: composite joint (ADR-0022) | 15 | 15 |
+  | refused: invalid identifier | 7 | 7 |
+  | refused: ball joint | 2 | 2 |
+  | refused: `<attach>` | 1 | 1 |
+  | **importing** | **172** | **172** |
+
+  - **No file changed for the worse.** All 119 that exported still do,
+    and no import bucket moved.
+  - **45 newly export:** step 1's 41 and step 3b's four `ufactory_lite6`.
+  - **The 8 still refused** (`google_robot` ×2, `sharpa_wave` ×4,
+    `wonik_allegro` ×2) name only moving links: every line is `link "…"
+    moves and has no mass — give it a material or a density`.
+  - **The MuJoCo load**, all 164 re-exported at `093737c` under the
+    `test_mjcf_load.py` warning hook: **162 load with zero warnings, every
+    one of the 45 newly exporting among them.**
+  - **The 2 failures** are `pndbotics_adam_lite` (both files), `mesh
+    volume is too small … Try setting inertia to shell`. That is step 1's
+    finding, unchanged: the source's `<mesh inertia="shell">` is not
+    carried. A backlog line at retirement.
 
 ## Acceptance
 
