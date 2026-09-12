@@ -9,7 +9,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use riggen_core::glam::DVec3;
+use riggen_core::glam::{DMat3, DVec3};
 use riggen_core::inertial::{self, Inertial, InertialError, MeshLookup};
 use riggen_core::{
     ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Dynamics, Geom, InertialSpec,
@@ -701,8 +701,10 @@ pub fn resolve(
         // The gate guards what a simulator reads (ADR-0032): a moving link
         // must have mass, and a static link with no mass to compose gets no
         // `<inertial>`. What a static link *does* carry is checked as
-        // strictly as a moving one's — MuJoCo refuses a zero tensor and a
-        // triangle-inequality violation on any body, joint or no joint.
+        // strictly as a moving one's — MuJoCo refuses a triangle-inequality
+        // violation on any body, joint or no joint — save one tensor: a
+        // static link's exactly-zero one, which MuJoCo loads spelled
+        // `diaginertia="0 0 0"` and the MJCF writer spells so (§4).
         let computed = matches!(link.inertial, InertialSpec::Computed { .. });
         let inertial = match inertial::compose_inertial(link, meshes, &robot.materials) {
             Ok(composed) => {
@@ -718,7 +720,13 @@ pub fn resolve(
                     // mass is not "nothing" and fails `check` below.
                     None
                 } else {
+                    let static_zero_tensor = !moving && value.inertia == DMat3::ZERO;
                     for error in inertial::check(&value) {
+                        if static_zero_tensor
+                            && matches!(error, InertialError::NotPositiveDefinite { .. })
+                        {
+                            continue;
+                        }
                         errors.push(ExportError::Inertial {
                             link: lid,
                             name: link.name.clone(),
@@ -1122,9 +1130,10 @@ mod tests {
     /// What a static link *does* carry is held to the same checks as a
     /// moving one's: MuJoCo 3.13 refuses `inertia must have positive
     /// eigenvalues` and `A + B >= C` on a body with no joint, so neither
-    /// passes through (plans/unweighed-links OPEN 2), and a non-finite or
-    /// negative value is refused as before. Zero mass is the one value that
-    /// means "nothing to write".
+    /// passes through (plans/unweighed-links OPEN 2) — a singular tensor
+    /// that is not all zeros included — and a non-finite or negative value
+    /// is refused as before. Zero mass is the one value that means "nothing
+    /// to write"; the exactly-zero tensor has a test of its own below.
     #[test]
     fn a_static_links_tensor_is_checked_as_a_moving_ones_is() {
         let mut b = Builder::new();
@@ -1133,7 +1142,14 @@ mod tests {
         let over =
             |mass: f64, com: DVec3, inertia: DMat3| InertialSpec::Override { mass, com, inertia };
         let cases = [
-            ("zero", over(1.0, DVec3::ZERO, DMat3::ZERO)),
+            (
+                "singular",
+                over(
+                    1.0,
+                    DVec3::ZERO,
+                    DMat3::from_diagonal(DVec3::new(1.0, 1.0, 0.0)),
+                ),
+            ),
             (
                 "lopsided",
                 over(
@@ -1165,7 +1181,7 @@ mod tests {
         assert_eq!(
             of(ids[0]),
             InertialError::NotPositiveDefinite {
-                moments: [0.0, 0.0, 0.0]
+                moments: [0.0, 1.0, 1.0]
             }
         );
         assert_eq!(
@@ -1176,6 +1192,63 @@ mod tests {
         );
         assert_eq!(of(ids[2]), InertialError::NonFinite);
         assert_eq!(of(ids[3]), InertialError::NonPositiveMass(-1.0));
+    }
+
+    /// A static link's exactly-zero tensor passes (ADR-0032 §4):
+    /// `ufactory_lite6` ships its welded base as `mass="1.65394"
+    /// diaginertia="0 0 0"`, MuJoCo loads that, and the import copied it
+    /// faithfully. The same tensor on a moving link still blocks — MuJoCo
+    /// refuses a moving body's inertia below `mjMINVAL` — and so does a
+    /// near-zero one, which is not the zero MuJoCo skips the check for.
+    #[test]
+    fn a_static_links_exactly_zero_tensor_passes_and_a_moving_ones_does_not() {
+        let mut b = Builder::new();
+        let cube = b.mesh("cube", TriMesh::cube(0.05));
+        let root = b.robot.root;
+        let base = b.link("base", root, JointKind::Fixed, Some(cube));
+        let zero = InertialSpec::Override {
+            mass: 1.65394,
+            com: DVec3::ZERO,
+            inertia: DMat3::ZERO,
+        };
+        b.robot.links.get_mut(&base).unwrap().inertial = zero.clone();
+
+        let resolved = b.resolve().unwrap();
+        let inertial = resolved.links[1].inertial.expect("written, zeros and all");
+        assert_eq!((inertial.mass, inertial.inertia), (1.65394, DMat3::ZERO));
+        assert!(resolved.massless.is_empty(), "it has a mass");
+
+        // A near-zero moment is not the zero.
+        b.robot.links.get_mut(&base).unwrap().inertial = InertialSpec::Override {
+            mass: 1.65394,
+            com: DVec3::ZERO,
+            inertia: DMat3::from_diagonal(DVec3::new(1e-30, 1.0, 1.0)),
+        };
+        assert!(matches!(
+            b.resolve().unwrap_err()[..],
+            [ExportError::Inertial {
+                error: InertialError::NotPositiveDefinite { .. },
+                ..
+            }]
+        ));
+
+        // On a hinge, the zero tensor blocks.
+        b.robot.links.get_mut(&base).unwrap().inertial = zero;
+        for j in b.robot.joints.values_mut() {
+            if j.child == base {
+                j.kind = JointKind::Continuous;
+            }
+        }
+        assert_eq!(
+            b.resolve().unwrap_err(),
+            vec![ExportError::Inertial {
+                link: base,
+                name: "base".into(),
+                error: InertialError::NotPositiveDefinite {
+                    moments: [0.0, 0.0, 0.0]
+                }
+            }]
+        );
     }
 
     #[test]

@@ -13,7 +13,7 @@ Consequences, Alternatives considered.
 | [0005](0005-ids-as-counters-joints-as-edges.md) | Ids are per-document counters; joints are the edges of the link tree | Accepted |
 | [0006](0006-drops-are-links-removal-takes-the-subtree.md) | A dropped mesh is a link; removal takes the subtree; import scale is an app setting | Accepted |
 | [0007](0007-transform-gizmo-crate-over-our-own.md) | The gizmo comes from `transform-gizmo-egui`, bridged through `mint` | Accepted, amended by 0010 |
-| [0008](0008-export-conventions.md) | Export conventions: meshes baked to meters as STL, `fullinertia`, a headless CLI export | Accepted |
+| [0008](0008-export-conventions.md) | Export conventions: meshes baked to meters as STL, `fullinertia`, a headless CLI export | Accepted, `fullinertia` narrowed by 0032 §4 (a static zero tensor is `diaginertia`) |
 | [0009](0009-one-wheel-abi3-extension-plus-binary-as-data.md) | One wheel: a PyO3 abi3 extension module plus the binary as wheel data | Accepted |
 | [0010](0010-gizmo-egui-glue-is-ours.md) | The gizmo's egui glue is ours; the pointer is shared per handle | Accepted, §3 amended by 0018 and 0019, a mode policy over it in 0021 |
 | [0011](0011-convex-decomposition-from-parry-vhacd.md) | Convex decomposition from `parry3d-f64`'s V-HACD; the merge step is ours; the document stores parameters, not pieces | Accepted |

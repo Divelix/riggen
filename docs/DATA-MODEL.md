@@ -602,10 +602,13 @@ and positive-definite; principal moments satisfy the triangle inequality
 the axes are not needed because the MJCF writer hands MuJoCo the full
 tensor (ADR-0008). MuJoCo refuses the last two silently enough that this
 check alone justifies the tool. They apply to a **static** link exactly as
-to a moving one: MuJoCo refuses a zero tensor and a triangle-inequality
-violation on any body, joint or no joint (measured on 3.13,
-plans/unweighed-links). What a static link may do without is the inertial
-altogether — see §`ResolvedRobot`.
+to a moving one: MuJoCo refuses a non-positive-definite `fullinertia` and
+a triangle-inequality violation on any body, joint or no joint (measured
+on 3.13, ADR-0032). One tensor is let through on a **static** link only:
+the exactly-zero one, which MuJoCo loads when it is spelled
+`diaginertia="0 0 0"` and which the MJCF writer spells so (ADR-0032 §4).
+What a static link may do without is the inertial altogether — see
+§`ResolvedRobot`.
 
 ## `ResolvedRobot` (`riggen-export`)
 
@@ -667,8 +670,9 @@ so the CLI, the SDK and the export dialog can say which links were written
 without mass; the writers never read it. A static `Hybrid` link without a
 density still blocks — the user typed a mass for it and the tensor that
 mass scales cannot be made — and a static link that *has* an inertial is
-held to every `inertial::check` (§Inertials): MuJoCo refuses a zero tensor
-or a triangle-inequality violation on a static body too. Mesh file stems are the assets' own
+held to every `inertial::check` (§Inertials): MuJoCo refuses a
+triangle-inequality violation on a static body too. The exception is a
+static link's exactly-zero tensor, written `diaginertia="0 0 0"` (ADR-0032 §4). Mesh file stems are the assets' own
 stems made into identifiers, `_2`, `_3`, … when two collide;
 `CollisionPolicy::ConvexHull` adds `<stem>_hull` — `riggen_mesh::convex_hull`
 (quickhull) of the visual mesh, computed once per `MeshId` however many
@@ -737,7 +741,7 @@ ignores it, because it has `meshdir`.
 | Visual geom | `<visual><origin/><geometry><mesh filename/></geometry></visual>` | `<geom class="visual" mesh=… pos quat/>` with `<default class="visual">` = `type="mesh" contype="0" conaffinity="0" group="2"` | `<visual name="«link»_visual_«i»"><pose/><geometry><mesh><uri/>` — SDF requires a name on every visual and collision and requires it unique within the link |
 | Collision geom (one per resolved collision — N of them for a decomposition) | `<collision>…` | `<geom class="collision" type="mesh" mesh=… />` (mesh → MuJoCo takes the convex hull itself; primitives map directly), `<default class="collision">` = `group="3"`, translucent rgba | `<collision name="«link»_collision_«i»">…`, one per piece; SDF has no class system and none is invented |
 | Primitive | `<box size>` (full extents), `<cylinder radius length>`, `<sphere radius>`; a capsule becomes a cylinder plus a warning | `type="box\|cylinder\|sphere\|capsule" size pos quat` — **`size` is half-extents / (radius, half-length)**, pinned by a test | `<box><size>` (full extents), `<cylinder><radius><length>`, `<sphere><radius>` and a **native `<capsule><radius><length>`**, its `length` the cylindrical part — the one place SDF beats URDF, so nothing is apologised for |
-| Inertial | `<inertial><origin xyz(com) rpy="0 0 0"/><mass/><inertia ixx ixy ixz iyy iyz izz/></inertial>` | `<inertial pos(com) mass fullinertia="Ixx Iyy Izz Ixy Ixz Iyz"/>` — MuJoCo does the principal-axes decomposition itself (ADR-0008) | `<inertial><pose>`(com)`</pose><mass/><inertia><ixx>…<izz/>` — numbers in element bodies, not attributes |
+| Inertial | `<inertial><origin xyz(com) rpy="0 0 0"/><mass/><inertia ixx ixy ixz iyy iyz izz/></inertial>` | `<inertial pos(com) mass fullinertia="Ixx Iyy Izz Ixy Ixz Iyz"/>` — MuJoCo does the principal-axes decomposition itself (ADR-0008); a static link's exactly-zero tensor is `diaginertia="0 0 0"` (ADR-0032 §4) | `<inertial><pose>`(com)`</pose><mass/><inertia><ixx>…<izz/>` — numbers in element bodies, not attributes |
 | Mesh assets | `meshes/<stem>.stl`, path style per `MeshPathStyle` | `<asset><mesh name file/></asset>`, one per written **file** — a referenced mesh, plus each hull and decomposition piece; **meshes are written in meters as binary STL, no `scale`** (ADR-0008) | `<geometry><mesh><uri>`, the same `MeshPathStyle` with no new variant: `meshes/<stem>.stl`, `model://<name>/meshes/…` (SDF's own scheme, what `package://` is to URDF), or `file:///…` |
 | Root | first `<link>` | `<worldbody>` child; `floating_base` in `ExportOptions` adds `<freejoint name="root"/>` | first `<link>`; a **fixed** base is `<joint name="world_joint" type="fixed"><parent>world</parent>`, and `floating_base` is that joint left out |
 | Frame (`Frame`, a `ResolvedSite`) | a massless `<link name="tcp"/>` — no visual, collision or inertial — plus `<joint name="tcp_fixed" type="fixed">` with the frame pose as its `<origin xyz rpy/>`; the dummy links after every real link and the fixed joints after every real joint, so the file still reads root-first (ADR-0012) | `<site name pos quat/>` inside its body after the geoms, bare: no `size`, `group` or `rgba`, so MuJoCo's default 0.005 m sphere marks it (ADR-0012) | `<frame name attached_to="«link»"><pose/>` after the joints — `<pose>`'s default `relative_to` *is* `attached_to`, so the link-frame pose goes out unchanged, and no dummy link is needed |

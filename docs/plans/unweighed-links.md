@@ -142,8 +142,14 @@ mechanical; **[2]** careful — a case to get right within a given design;
   frame's marker is sized by its link's 1 cm geometry now.
 - [x] **[1]** Step 3 — ADR-0032, with step 1's measurement. It also
   carries ⚠ OPEN 3's decision (§4) and the MuJoCo probe table it rests on.
-- [ ] **[2]** Step 3b — A static link's exactly-zero tensor (ADR-0032 §4,
+- [x] **[2]** Step 3b — A static link's exactly-zero tensor (ADR-0032 §4,
   ⚠ OPEN 3 decided yes).
+  Landed. The four `ufactory_lite6` files (`lite6`, both grippers,
+  `scene`) export with `link_base` as `mass="1.65394"
+  diaginertia="0 0 0"`, and all four load in MuJoCo 3.13 with zero
+  warnings under the `test_mjcf_load.py` hook. The "near-zero" case is
+  `diag(1e-30, 1, 1)`, and the singular non-zero one is `diag(1, 1, 0)`,
+  which replaced step 1's `zero` case.
   - `resolve`: on a static link with a finite positive mass, a finite CoM
     and a bitwise-zero tensor, `NotPositiveDefinite` does not block. A
     moving link's zero tensor, a near-zero one and a singular non-zero one

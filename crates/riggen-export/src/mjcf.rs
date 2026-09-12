@@ -4,7 +4,7 @@
 //! so MuJoCo does the principal-axes decomposition itself, meshes by stem
 //! under `meshdir="meshes"`.
 
-use riggen_core::glam::DVec3;
+use riggen_core::glam::{DMat3, DVec3};
 use riggen_core::{ActuatorSpec, JointKind, Pose, Primitive};
 
 use crate::resolve::{
@@ -166,25 +166,29 @@ fn write_body(x: &mut Xml, robot: &ResolvedRobot, index: usize) {
     }
     if let Some(i) = &link.inertial {
         let m = &i.inertia;
+        // MuJoCo checks a `fullinertia`'s eigenvalues and not a
+        // `diaginertia`'s, so the one zero tensor the gate lets through — a
+        // static link's (ADR-0032 §4) — is spelled the way MuJoCo loads it.
+        let tensor = if *m == DMat3::ZERO {
+            ("diaginertia", "0 0 0".to_owned())
+        } else {
+            (
+                "fullinertia",
+                // MuJoCo's order: Ixx Iyy Izz Ixy Ixz Iyz.
+                format!(
+                    "{} {} {} {} {} {}",
+                    num(m.x_axis.x),
+                    num(m.y_axis.y),
+                    num(m.z_axis.z),
+                    num(m.y_axis.x),
+                    num(m.z_axis.x),
+                    num(m.z_axis.y)
+                ),
+            )
+        };
         x.empty(
             "inertial",
-            &[
-                ("pos", vec3(i.com)),
-                ("mass", num(i.mass)),
-                (
-                    "fullinertia",
-                    // MuJoCo's order: Ixx Iyy Izz Ixy Ixz Iyz.
-                    format!(
-                        "{} {} {} {} {} {}",
-                        num(m.x_axis.x),
-                        num(m.y_axis.y),
-                        num(m.z_axis.z),
-                        num(m.y_axis.x),
-                        num(m.z_axis.x),
-                        num(m.z_axis.y)
-                    ),
-                ),
-            ],
+            &[("pos", vec3(i.com)), ("mass", num(i.mass)), tensor],
         );
     }
     for geom in &link.visuals {
@@ -868,6 +872,32 @@ pub(crate) mod tests {
             xml.contains("    <body name=\"base_link\">\n      <freejoint name=\"root\"/>\n"),
             "{xml}"
         );
+    }
+
+    /// A static link's exactly-zero tensor is `diaginertia="0 0 0"`, the
+    /// spelling MuJoCo loads — its `fullinertia` twin is refused for
+    /// non-positive eigenvalues (ADR-0032 §4) — and every other tensor
+    /// stays `fullinertia`.
+    #[test]
+    fn a_zero_tensor_is_diaginertia_and_every_other_is_fullinertia() {
+        use riggen_core::InertialSpec;
+        let mut b = Builder::new();
+        let cube = b.mesh("cube", riggen_mesh::TriMesh::cube(0.05));
+        let root = b.robot.root;
+        let base = b.link("base", root, JointKind::Fixed, Some(cube));
+        b.robot.links.get_mut(&base).unwrap().inertial = InertialSpec::Override {
+            mass: 1.65394,
+            com: DVec3::new(0.0, 0.0, 0.01),
+            inertia: DMat3::ZERO,
+        };
+        b.link("arm", base, JointKind::Continuous, Some(cube));
+        let xml = write(&b.resolve().unwrap(), &ExportOptions::default());
+        assert!(
+            xml.contains(r#"<inertial pos="0 0 0.01" mass="1.65394" diaginertia="0 0 0"/>"#),
+            "{xml}"
+        );
+        assert_eq!(xml.matches("diaginertia").count(), 1, "{xml}");
+        assert_eq!(xml.matches("fullinertia").count(), 1, "the arm: {xml}");
     }
 
     #[test]
