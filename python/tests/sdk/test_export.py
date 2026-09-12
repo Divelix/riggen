@@ -248,6 +248,31 @@ def test_a_static_link_without_mass_is_a_warning_and_the_export_succeeds(cli: Pa
     assert f"warning: {line}" in result.stderr.splitlines()
 
 
+def test_assign_material_to_unweighed_weighs_every_link_nothing_weighed(pendulum: Robot, tmp_path: Path):
+    """ADR-0032 §5, the one-click fix: the pendulum's arm, stripped of its
+    material on a hinge, blocks the export; one call weighs it, returns its
+    id, and the export goes through. A second call has nothing left to
+    weigh, and an unknown material is refused."""
+    import riggen
+
+    pendulum.set_link_material(5, None)
+    with pytest.raises(errors.ExportError, match='link "arm" moves and has no mass'):
+        pendulum.export(tmp_path / "refused")
+    with pytest.raises(errors.UnknownMaterial):
+        pendulum.assign_material_to_unweighed("unobtainium")
+    assert pendulum.assign_material_to_unweighed("PLA") == [5]
+    assert pendulum.links()[5]["material"] == "PLA"
+    assert pendulum.assign_material_to_unweighed("PLA") == []
+    _, warned = pendulum.export(tmp_path / "weighed")
+    assert warned == []
+
+    # The public layer hands back handles.
+    robot = riggen.Robot._wrap(pendulum)
+    robot.link("arm").material = None
+    (weighed,) = robot.assign_material_to_unweighed("aluminium")
+    assert (weighed.name, weighed.material) == ("arm", "aluminium")
+
+
 def test_load_urdf_errors_are_typed(tmp_path: Path):
     with pytest.raises(errors.UrdfImportError, match="nowhere.urdf"):
         Robot.load_urdf(tmp_path / "nowhere.urdf")

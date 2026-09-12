@@ -196,10 +196,16 @@ mechanical; **[2]** careful — a case to get right within a given design;
   and shows "6 links, 5 joints, 4 mesh files — ready" with one weak
   note about `tool` under it; Export stays enabled. `export_dialog` and
   `export_blocked` are unchanged.
-- [ ] **[1]** Step 7 — `Command::AssignMaterialToUnweighed` in core. Tests:
+- [x] **[1]** Step 7 — `Command::AssignMaterialToUnweighed` in core. Tests:
   one undo reverts every link; unknown material refused; `Override` links,
   links with a material and empty links untouched. Also
   `robot.assign_material_to_unweighed` in the SDK, with its test.
+  Landed. The rule lives in `Robot::unweighed_links()`, which the
+  command, the SDK's return value and step 8's count all read. The core
+  test also covers a `density_override` link (untouched), and a second
+  apply that changes nothing and so records no history entry. The SDK
+  test runs the pendulum's arm from refusal to export, plus the public
+  layer's handles; 80 SDK tests passed, and pyright is clean.
 - [ ] **[2]** Step 8 — The one-click assign in the app, where ⚠ OPEN 1
   decides. After the command the dialog re-resolves, so the blockers it
   cleared disappear. New snapshot, image shown to the human.

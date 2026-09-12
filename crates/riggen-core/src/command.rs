@@ -156,6 +156,13 @@ pub enum Command {
     ///
     /// [`SetActuator`]: Command::SetActuator
     SetActuators(Option<ActuatorSpec>),
+    /// Gives the material to every link [`Robot::unweighed_links`] names —
+    /// geometry, no material, and an inertial that needs a density it has
+    /// not got — in one history entry (ADR-0032 §5). The one-click answer to
+    /// an import full of links nothing weighs, shaped like `SetActuators`:
+    /// many links, one command, one undo. Refused for a material the
+    /// document has not got; a no-op when no link qualifies.
+    AssignMaterialToUnweighed(String),
 }
 
 /// What a command created, for the caller that selects it afterwards.
@@ -649,6 +656,14 @@ impl Command {
                             ranges: ActuatorRanges::default(),
                         },
                     );
+                }
+            }
+            Command::AssignMaterialToUnweighed(material) => {
+                if !robot.materials.contains_key(&material) {
+                    return Err(EditError::UnknownMaterial(material));
+                }
+                for link in robot.unweighed_links() {
+                    link_mut(robot, link)?.material = Some(material.clone());
                 }
             }
         }
@@ -1773,6 +1788,106 @@ mod tests {
 
         apply(&mut robot, Command::SetActuators(None)).unwrap();
         assert!(robot.actuators.is_empty());
+    }
+
+    /// `AssignMaterialToUnweighed` (ADR-0032 §5): every link with geometry,
+    /// no material and an inertial that takes its density from one gets the
+    /// material, in one history entry; a link with an `Override`, a
+    /// material, a density override or no geometry is untouched; an unknown
+    /// material is refused; and once nothing is unweighed the command
+    /// changes nothing, so it records nothing.
+    #[test]
+    fn assign_material_to_unweighed_is_one_undo_over_every_unweighed_link() {
+        use crate::history::History;
+        let (mut robot, [arm, hand, tip, tail]) = arm_with_geoms();
+        let empty = robot.root;
+        let set = |robot: &mut Robot, link: LinkId, material: Option<&str>, spec: InertialSpec| {
+            let l = robot.links.get_mut(&link).unwrap();
+            l.material = material.map(Into::into);
+            l.inertial = spec;
+        };
+        let unset = InertialSpec::Computed {
+            density_override: None,
+        };
+        set(&mut robot, arm, None, unset.clone());
+        set(&mut robot, hand, None, InertialSpec::Hybrid { mass: 0.3 });
+        set(
+            &mut robot,
+            tip,
+            None,
+            InertialSpec::Override {
+                mass: 1.0,
+                com: DVec3::ZERO,
+                inertia: riggen_mesh::glam::DMat3::IDENTITY,
+            },
+        );
+        set(&mut robot, tail, Some("PLA"), unset.clone());
+        set(&mut robot, empty, None, unset);
+        let dense = add(
+            &mut robot,
+            tail,
+            "dense",
+            fixed("dense_joint", Pose::IDENTITY),
+        );
+        let geom = robot.links[&tail].visuals[0].clone();
+        set(
+            &mut robot,
+            dense,
+            None,
+            InertialSpec::Computed {
+                density_override: Some(1000.0),
+            },
+        );
+        let id = robot.next_id.alloc();
+        robot
+            .links
+            .get_mut(&dense)
+            .unwrap()
+            .visuals
+            .push(Geom { id, ..geom });
+        assert_eq!(robot.unweighed_links(), [arm, hand]);
+        let before = robot.clone();
+
+        let mut history = History::new();
+        assert_eq!(
+            history.apply(
+                &mut robot,
+                Command::AssignMaterialToUnweighed("unobtainium".into())
+            ),
+            Err(EditError::UnknownMaterial("unobtainium".into()))
+        );
+        assert_eq!(robot, before, "a refusal changes nothing");
+
+        history
+            .apply(
+                &mut robot,
+                Command::AssignMaterialToUnweighed("aluminium".into()),
+            )
+            .unwrap();
+        let material = |robot: &Robot, l: LinkId| robot.links[&l].material.clone();
+        assert_eq!(material(&robot, arm).as_deref(), Some("aluminium"));
+        assert_eq!(material(&robot, hand).as_deref(), Some("aluminium"));
+        for l in [tip, empty, dense] {
+            assert_eq!(material(&robot, l), None, "{l}");
+        }
+        assert_eq!(material(&robot, tail).as_deref(), Some("PLA"));
+        assert!(robot.unweighed_links().is_empty());
+        assert_eq!(history.undo_depth(), 1);
+
+        history
+            .apply(
+                &mut robot,
+                Command::AssignMaterialToUnweighed("aluminium".into()),
+            )
+            .unwrap();
+        assert_eq!(
+            history.undo_depth(),
+            1,
+            "nothing qualified, nothing recorded"
+        );
+
+        assert!(history.undo(&mut robot));
+        assert_eq!(robot, before, "one undo reverts every link");
     }
 
     /// The table's own quartet, following `AddFrame` / `SetFrame` /

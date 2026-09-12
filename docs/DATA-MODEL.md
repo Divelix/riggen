@@ -307,6 +307,9 @@ pub enum Command {
     AddActuator(Actuator),                                     // allocates the ActuatorId, returns it
     RemoveActuator(ActuatorId), SetActuator(ActuatorId, Actuator), RenameActuator(ActuatorId, String),
     SetActuators(Option<ActuatorSpec>),                        // every movable joint at once; mimic followers skipped
+    AssignMaterialToUnweighed(String),                         // the material on every Robot::unweighed_links link at once — visuals,
+                                                               // no material, Computed without a density override or Hybrid (ADR-0032 §5);
+                                                               // UnknownMaterial if absent, a no-op when none qualify
 }
 
 /// What a command created, for the caller that selects it afterwards.

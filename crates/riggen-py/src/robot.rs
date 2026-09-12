@@ -813,6 +813,20 @@ impl PyRobot {
         Ok(())
     }
 
+    /// `AssignMaterialToUnweighed`: `material` on every link with visuals,
+    /// no material and an inertial that needs a density it has not got, in
+    /// one edit. Returns their ids (ADR-0032 §5); `UnknownMaterial` for a
+    /// name the document has not got.
+    fn assign_material_to_unweighed(
+        &mut self,
+        py: Python<'_>,
+        material: String,
+    ) -> PyResult<Vec<u32>> {
+        let links = self.inner.unweighed_links();
+        self.edit(py, Command::AssignMaterialToUnweighed(material))?;
+        Ok(links.into_iter().map(|l| l.raw()).collect())
+    }
+
     /// `UpsertMaterial`: adds or replaces `{"density": …, "color": […]}`.
     fn upsert_material(
         &mut self,

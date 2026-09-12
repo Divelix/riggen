@@ -1388,6 +1388,7 @@ the id counter included. No `History`: a script has no undo.
 | `reparent(link, new_parent, *, keep_world_pose, q=None)` | `Reparent`; `q` is the configuration kept (`at`) |
 | `set_root(link)` | `SetRoot` |
 | `set_link_material`, `upsert_material`, `remove_material`, `rename_material(from, to)` | `SetLinkMaterial`, `UpsertMaterial`, `RemoveMaterial`, `RenameMaterial` |
+| `assign_material_to_unweighed(material) -> [link id]` | `AssignMaterialToUnweighed`: one edit over `Robot::unweighed_links`, whose ids it returns in link order (ADR-0032 §5) |
 | `set_asset(mesh, doc)` | `SetAsset`; the path absolutised, the hash recomputed |
 | `set_inertial(link, doc)`, `set_collision(link, doc)` | `SetInertial`, `SetCollision` |
 | `validate() -> list[str]`, `check()` | `validation_errors`; `check` raises `ValidationError`. Empty for any document the edit methods, `load` or `from_json` let through — they validate |
@@ -1434,6 +1435,7 @@ over that table — no logic of its own beyond spelling:
 | `robot.root`, `.links`, `.joints`, `.link(name)`, `.joint(name)` (`KeyError`), `.materials` | handles by id; `Material(density, color)` |
 | `robot.add_link(name, parent, spec, *, mesh, scale, fix_up, material, joint_name)` = `link.add_link(name, spec, …)` | `add_link` with `spec.to_doc(joint_name or f"{name}_joint")` |
 | `link.name`, `.material`, `.collision`, `.inertial_spec` (get/set) | `rename_link`, `set_link_material`, `set_collision`, `set_inertial` — one edit per assignment |
+| `robot.assign_material_to_unweighed(material)` → `[Link]` | `assign_material_to_unweighed`, its ids as handles: every link nothing weighs, one edit (ADR-0032 §5) |
 | `link.joint`, `.parent`, `.joints`, `.children`, `.subtree`, `.geoms` | `parent_joint`, `child_joints`, `subtree`, `links()[id]["visuals"]` |
 | `link.add_mesh(path, *, pose, scale, fix_up, color)` → `Geom`; `geom.pose`, `.mesh`, `.remove()` | `add_asset` + `add_geom`; `set_geom_pose`, `remove_geom` |
 | `link.remove()`, `.reparent(parent, keep_world_pose=True)`, `.place(world)`, `.make_root()` | `remove_link`, `reparent`, `origin_for_world` + `set_joint`, `set_root` |

@@ -1594,6 +1594,16 @@ class Robot:
         name it already has (:class:`MaterialExists`)."""
         self._inner.rename_material(name, new_name)
 
+    def assign_material_to_unweighed(self, material: str) -> list[Link]:
+        """Gives ``material`` to every link nothing weighs — one with
+        geometry, no material, and an inertial that takes its density from a
+        material (computed with no density override, or hybrid) — in one
+        edit, and returns those links. An imported link without an
+        ``<inertial>`` is one, and on a moving joint it blocks the export
+        until it is weighed (ADR-0032 §5). Refused for a name the document
+        has not got (:class:`UnknownMaterial`)."""
+        return [Link(self, l) for l in self._inner.assign_material_to_unweighed(material)]
+
     # -- kinematics and export -----------------------------------------------
 
     def fk(self, q: dict[str | Joint, float] | None = None) -> dict[str, Pose]:

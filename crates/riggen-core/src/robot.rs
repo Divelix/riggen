@@ -755,6 +755,30 @@ impl Robot {
         self.subtree(ancestor).contains(&link)
     }
 
+    /// The links nothing weighs, in id order (ADR-0032 §5): visuals, no
+    /// material, and an inertial that takes its density from one —
+    /// `Computed` without a `density_override`, or `Hybrid`. What
+    /// `Command::AssignMaterialToUnweighed` gives a material to, and what
+    /// an import leaves behind for a body without `<inertial>`. An empty
+    /// link and an `Override` are not unweighed: there is nothing to weigh,
+    /// or it is already weighed.
+    pub fn unweighed_links(&self) -> Vec<LinkId> {
+        self.links
+            .iter()
+            .filter(|(_, l)| {
+                !l.visuals.is_empty()
+                    && l.material.is_none()
+                    && matches!(
+                        l.inertial,
+                        InertialSpec::Computed {
+                            density_override: None
+                        } | InertialSpec::Hybrid { .. }
+                    )
+            })
+            .map(|(&id, _)| id)
+            .collect()
+    }
+
     /// Mesh ids referenced by at least one geom, visual or collision.
     pub fn referenced_assets(&self) -> std::collections::BTreeSet<MeshId> {
         self.links
