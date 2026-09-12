@@ -127,7 +127,7 @@ design; **[3]** unproven — behaviour that has to be established here.
   edge — and commit it typed `snapshots:` per the roadmap's own accept
   note ("that refresh is one `snapshots:` commit that says so and nothing
   else").
-- [ ] **[2]** Step 2 — the ground grid. `grid.wgsl`, its pipeline (built
+- [x] **[2]** Step 2 — the ground grid. `grid.wgsl`, its pipeline (built
   once, at the sample count Step 1 chose), the draw call in `scene_pass`,
   the light/dark palette. At least one new or extended snapshot scenario
   that puts a part above the grid next to one resting on it, so the depth
@@ -179,6 +179,12 @@ depth resolve change).
   format that multisamples but cannot be resolved is no use to this
   pipeline; the spec guarantees the two together for every renderable
   colour format, so the extra term never costs a working adapter anything.
+- Step 2 note, for the docs at retirement: the two lattices are fixed at
+  **1 m and 10 m**, which is the plan's "metre lines, a coarser
+  subdivision" taken literally. It suits a robot; it means the floor goes
+  blank when the camera is close enough to a 5 cm part that no metre line
+  is in frame. A decade-adaptive spacing would fix that and is a candidate
+  backlog line, not a change this plan authorised.
 - The `sample_count == 1` fallback has no test of its own and no way to be
   forced — the plan's *Design deltas* rules out a feature flag, so the
   branch is only ever taken by an adapter that cannot multisample, and this

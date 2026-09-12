@@ -36,7 +36,8 @@ use picking::{
 };
 use pipelines::{
     build_axes_pipeline, build_background_pipeline, build_blit_pipeline,
-    build_depth_resolve_pipeline, build_highlight_pipeline, build_render_pipeline,
+    build_depth_resolve_pipeline, build_grid_pipeline, build_highlight_pipeline,
+    build_render_pipeline,
 };
 use render_pass::{DepthPassData, PickPassData, ViewportCallback};
 
@@ -252,6 +253,13 @@ impl Viewport {
             target_format,
             sample_count,
         );
+        let grid_pipeline = build_grid_pipeline(
+            device,
+            "riggen-viewport grid pipeline",
+            &[&uniform_bind_group_layout],
+            target_format,
+            sample_count,
+        );
         let scene_pipeline = build_render_pipeline(
             device,
             "riggen-viewport scene pipeline",
@@ -351,6 +359,7 @@ impl Viewport {
                 scene_pipeline,
                 translucent_pipeline,
                 background_pipeline,
+                grid_pipeline,
                 pick_pipeline,
                 hover_pipeline,
                 select_pipeline,
@@ -1593,6 +1602,7 @@ impl Viewport {
             scene_pipeline: self.gpu.scene_pipeline.clone(),
             translucent_pipeline: self.gpu.translucent_pipeline.clone(),
             background_pipeline: self.gpu.background_pipeline.clone(),
+            grid_pipeline: self.gpu.grid_pipeline.clone(),
             hover_pipeline: self.gpu.hover_pipeline.clone(),
             select_pipeline: self.gpu.select_pipeline.clone(),
             axes_pipeline: self.gpu.axes_pipeline.clone(),

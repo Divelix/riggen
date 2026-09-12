@@ -46,6 +46,7 @@ pub struct ViewportCallback {
     pub scene_pipeline: wgpu::RenderPipeline,
     pub translucent_pipeline: wgpu::RenderPipeline,
     pub background_pipeline: wgpu::RenderPipeline,
+    pub grid_pipeline: wgpu::RenderPipeline,
     pub hover_pipeline: wgpu::RenderPipeline,
     pub select_pipeline: wgpu::RenderPipeline,
     pub axes_pipeline: wgpu::RenderPipeline,
@@ -157,6 +158,15 @@ impl ViewportCallback {
                 pass.draw_indexed(0..instance.index_count, 0, 0..1);
             }
         }
+
+        // The ground, over the finished opaque depth buffer: depth-tested,
+        // so a part in front of it hides it and it hides the background
+        // behind it, but writing no depth of its own. Drawn unconditionally —
+        // it is furniture, like the background and the axes triad, and zen
+        // hides chrome, not the scene (ADR-0021, amended).
+        pass.set_pipeline(&self.grid_pipeline);
+        pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+        pass.draw(0..3, 0..1);
 
         // Whole-instance restyles for hover and selection, drawn over the
         // shaded geometry (selection last, so it reads on top of a hover of

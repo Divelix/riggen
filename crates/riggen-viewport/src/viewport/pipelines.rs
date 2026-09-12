@@ -187,6 +187,66 @@ pub fn build_highlight_pipeline(
     })
 }
 
+/// Builds the ground-grid pipeline: `build_highlight_pipeline`'s shape — alpha
+/// blended, depth-tested `LessEqual` against what the opaque pass wrote,
+/// writing no depth of its own — over `build_background_pipeline`'s geometry,
+/// a vertex-buffer-less fullscreen triangle binding group 0 alone.
+///
+/// No depth write because the ground is furniture: the overlay classifies its
+/// glyphs against this buffer (ADR-0020), and a floor in it would hide every
+/// glyph that sits below z = 0.
+pub fn build_grid_pipeline(
+    device: &wgpu::Device,
+    label: &str,
+    bind_group_layouts: &[&wgpu::BindGroupLayout],
+    target_format: wgpu::TextureFormat,
+    sample_count: u32,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(label),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/grid.wgsl").into()),
+    });
+    let layout = pipeline_layout(device, label, bind_group_layouts);
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(label),
+        layout: Some(&layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: target_format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: sample_count,
+            ..Default::default()
+        },
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
 /// Builds the axes-triad pipeline: flat-colored line list with depth
 /// testing disabled (`Always`/no-write) so the gizmo stays visible in its
 /// screen-space corner regardless of what's rendered behind it there.

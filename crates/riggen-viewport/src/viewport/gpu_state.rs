@@ -73,6 +73,10 @@ pub struct GpuState {
     /// instance draws in, after the opaque ones.
     pub translucent_pipeline: wgpu::RenderPipeline,
     pub background_pipeline: wgpu::RenderPipeline,
+    /// The ground at z = 0, drawn in the scene pass between the translucent
+    /// instances and the highlights. Furniture like the background and the
+    /// axes triad: not an instance, not pickable, drawn in zen too.
+    pub grid_pipeline: wgpu::RenderPipeline,
     pub pick_pipeline: wgpu::RenderPipeline,
     pub hover_pipeline: wgpu::RenderPipeline,
     pub select_pipeline: wgpu::RenderPipeline,

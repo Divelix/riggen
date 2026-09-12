@@ -115,6 +115,77 @@ fn cube() {
     });
 }
 
+/// Puts a link's parent joint origin at `at`, which for a link whose mesh is
+/// centred on its own origin is where the part goes.
+fn place(app: &mut riggen_app::RiggenApp, link: LinkId, at: DVec3) {
+    let joint = app
+        .robot()
+        .parent_joint(link)
+        .expect("a link under the root");
+    let mut edited = app.robot().joints[&joint].clone();
+    edited.origin = Pose::from_translation(at);
+    app.apply(Command::SetJoint(joint, edited)).unwrap();
+}
+
+/// The ground at z = 0: one cube resting on it beside one lifted a metre and
+/// a half above it.
+///
+/// The picture is half the point; the other half is that the floor is
+/// *depth-cued* rather than painted over the frame. Both halves are asserted
+/// from the same rendered image, by probing a world point known to sit on a
+/// metre line against one known to sit mid-cell — in the open, where the line
+/// must be drawn, and behind the resting cube, where the same line must be
+/// hidden.
+#[test]
+fn ground_grid() {
+    scenario("ground_grid", |harness| {
+        let app = harness.state_mut();
+        let resting = open_link(app, "cube_binary.stl");
+        let lifted = open_link(app, "cube_binary.stl");
+        // The fixture is a unit cube centred on its own origin, so "resting
+        // on the floor" is an origin half a side up.
+        place(app, resting, DVec3::new(-1.0, 0.0, 0.5));
+        place(app, lifted, DVec3::new(1.0, 0.0, 2.0));
+        app.fit_view_now();
+        settle(harness);
+        pump_rendered(harness, 8);
+
+        let image = harness.render().expect("render").clone();
+        let state = harness.state();
+        // The scenarios render at one physical pixel per point (`SIZE`).
+        let luma = |world: DVec3| -> u32 {
+            let at = state
+                .project_world(world)
+                .unwrap_or_else(|| panic!("{world} is off screen"));
+            let px = image.get_pixel(at.x.round() as u32, at.y.round() as u32).0;
+            (px[0] as u32 + px[1] as u32 + px[2] as u32) / 3
+        };
+        // A ground point on a metre line against one half a cell off it, at
+        // the same screen row so the two are the same distance away. In the
+        // open and under the lifted cube the line is drawn; behind the
+        // resting cube the same comparison finds one flat face and no line.
+        let line_contrast = |on: DVec3, off: DVec3| luma(on) as i32 - luma(off) as i32;
+
+        assert!(
+            line_contrast(DVec3::new(1.0, -1.0, 0.0), DVec3::new(1.5, -0.5, 0.0)) > 20,
+            "the open floor is drawn, and as lines rather than a wash"
+        );
+        assert!(
+            line_contrast(DVec3::new(1.0, 0.0, 0.0), DVec3::new(1.5, 0.5, 0.0)) > 20,
+            "the floor under the lifted cube is visible: it is not resting on it"
+        );
+        assert!(
+            line_contrast(DVec3::new(-2.0, 1.0, 0.0), DVec3::new(-2.5, 1.0, 0.0)).abs() <= 2,
+            "the floor behind the resting cube is hidden by it, line and all"
+        );
+
+        let state = state.debug_state();
+        assert_eq!(state.instances.len(), 2);
+        assert_eq!(state.instances[0].position, [-1.0, 0.0, 0.5]);
+        assert_eq!(state.instances[1].position, [1.0, 0.0, 2.0]);
+    });
+}
+
 /// Hover restyle on the cube: the whole-instance tint and the `hover:`
 /// readout in the status bar.
 ///
