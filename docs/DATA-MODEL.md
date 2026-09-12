@@ -601,7 +601,11 @@ and positive-definite; principal moments satisfy the triangle inequality
 `principal_moments`, a cyclic Jacobi eigen-solve for the symmetric 3×3;
 the axes are not needed because the MJCF writer hands MuJoCo the full
 tensor (ADR-0008). MuJoCo refuses the last two silently enough that this
-check alone justifies the tool.
+check alone justifies the tool. They apply to a **static** link exactly as
+to a moving one: MuJoCo refuses a zero tensor and a triangle-inequality
+violation on any body, joint or no joint (measured on 3.13,
+plans/unweighed-links). What a static link may do without is the inertial
+altogether — see §`ResolvedRobot`.
 
 ## `ResolvedRobot` (`riggen-export`)
 
@@ -620,13 +624,15 @@ pub struct ResolvedRobot {
     pub tendons: Vec<ResolvedTendon>, // TendonId order (ADR-0025 §4); MJCF only
     pub meshes: BTreeMap<String, Arc<TriMesh>>, // every file to write, by stem, in meters
     pub floating_base: bool,
+    pub massless: Vec<String>,        // static links with geometry and no <inertial>, link order (ADR-0032);
+                                      // the writers never read it, the CLI / SDK / dialog report it
 }
 pub struct ResolvedLink {
     pub name: String,
     pub visuals: Vec<ResolvedGeom>,
     pub collisions: Vec<ResolvedGeom>,     // SameAsVisual copies visuals; hulls, decomposition
                                            // pieces and primitives computed
-    pub inertial: Option<Inertial>,        // None for an empty static body: no <inertial>
+    pub inertial: Option<Inertial>,        // None for a static body with no mass to write: no <inertial>
     pub sites: Vec<ResolvedSite>,          // the link's frames, FrameId order
 }
 pub struct ResolvedSite { pub name: String, pub pose: Pose }  // frame in the link frame
@@ -649,10 +655,20 @@ them all at once: `ExportError::{Invalid(ValidationError), Inertial { link,
 name, error }, ZeroMassMovableLink { link, name }, UnloadableMesh { mesh,
 path, reason }, DegenerateHull { … }, DegenerateDecomposition { … },
 DecompositionPending { mesh, path }}` — each carrying what the dialog needs
-to name the thing that failed. A link whose
-parent joint is movable — or the root when `floating_base` is set — must
-have mass, because MuJoCo refuses a moving body without it; an empty static
-body is fine and gets no `<inertial>`. Mesh file stems are the assets' own
+to name the thing that failed. The gate guards what a simulator reads
+(ADR-0032): a link whose parent joint is movable — or the root when
+`floating_base` is set — must have mass, because MuJoCo refuses a moving
+body without it; a **static** link with no mass to compose gets no
+`<inertial>`, whether it is empty or has geometry and nothing to weigh it
+by (`Computed` with neither a material nor a density override, the state
+every imported link without an `<inertial>` is in — ADR-0015 §7). The
+static links of the second kind are listed in `massless`, in link order,
+so the CLI, the SDK and the export dialog can say which links were written
+without mass; the writers never read it. A static `Hybrid` link without a
+density still blocks — the user typed a mass for it and the tensor that
+mass scales cannot be made — and a static link that *has* an inertial is
+held to every `inertial::check` (§Inertials): MuJoCo refuses a zero tensor
+or a triangle-inequality violation on a static body too. Mesh file stems are the assets' own
 stems made into identifiers, `_2`, `_3`, … when two collide;
 `CollisionPolicy::ConvexHull` adds `<stem>_hull` — `riggen_mesh::convex_hull`
 (quickhull) of the visual mesh, computed once per `MeshId` however many

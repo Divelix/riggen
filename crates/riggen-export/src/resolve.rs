@@ -12,8 +12,8 @@ use std::sync::Arc;
 use riggen_core::glam::DVec3;
 use riggen_core::inertial::{self, Inertial, InertialError, MeshLookup};
 use riggen_core::{
-    ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Dynamics, Geom, JointId,
-    JointKind, Limits, LinkId, MeshId, Pose, Primitive, Robot, TendonId, ValidationError,
+    ActuatorRanges, ActuatorSpec, ActuatorTarget, CollisionPolicy, Dynamics, Geom, InertialSpec,
+    JointId, JointKind, Limits, LinkId, MeshId, Pose, Primitive, Robot, TendonId, ValidationError,
     validation_errors,
 };
 use riggen_mesh::{DecompParams, TriMesh};
@@ -166,8 +166,9 @@ pub enum ExportError {
         error: InertialError,
     },
     /// A body that moves (its parent joint is movable, or it is a floating
-    /// root) with no mass: MuJoCo refuses it. An empty static body is fine
-    /// and gets no `<inertial>`.
+    /// root) with no mass: MuJoCo refuses it. A static body with no mass to
+    /// compose — empty, or unweighed under `Computed` — is fine and gets no
+    /// `<inertial>` (ADR-0032).
     ZeroMassMovableLink {
         link: LinkId,
         name: String,
@@ -309,7 +310,9 @@ pub struct ResolvedLink {
     pub name: String,
     pub visuals: Vec<ResolvedGeom>,
     pub collisions: Vec<ResolvedGeom>,
-    /// `None` for an empty static body.
+    /// `None` for a static body with no mass to write: empty, or with
+    /// geometry and nothing to weigh it by — the latter are named in
+    /// [`ResolvedRobot::massless`].
     pub inertial: Option<Inertial>,
     /// The link's frames in `FrameId` order.
     pub sites: Vec<ResolvedSite>,
@@ -436,6 +439,12 @@ pub struct ResolvedRobot {
     /// Every mesh file to write, by stem: the union of what the geoms name.
     pub meshes: BTreeMap<String, Arc<TriMesh>>,
     pub floating_base: bool,
+    /// The static links that have geometry and are written without
+    /// `<inertial>`, in link order (ADR-0032): nothing to weigh them by, and
+    /// nothing a simulator needs from a body that never moves. The writers
+    /// never read this; the CLI, the SDK and the export dialog report it, so
+    /// a link left unweighed by mistake is not left silently.
+    pub massless: Vec<String>,
 }
 
 impl ResolvedRobot {
@@ -513,6 +522,7 @@ pub fn resolve(
     let mut decomp_variants: BTreeMap<MeshId, u32> = BTreeMap::new();
     let mut links = Vec::with_capacity(order.len());
     let mut joints = Vec::with_capacity(order.len().saturating_sub(1));
+    let mut massless = Vec::new();
 
     for (i, &lid) in order.iter().enumerate() {
         let link = &robot.links[&lid];
@@ -688,16 +698,24 @@ pub fn resolve(
             Some(j) => j.kind.is_movable(),
             None => options.floating_base,
         };
+        // The gate guards what a simulator reads (ADR-0032): a moving link
+        // must have mass, and a static link with no mass to compose gets no
+        // `<inertial>`. What a static link *does* carry is checked as
+        // strictly as a moving one's — MuJoCo refuses a zero tensor and a
+        // triangle-inequality violation on any body, joint or no joint.
+        let computed = matches!(link.inertial, InertialSpec::Computed { .. });
         let inertial = match inertial::compose_inertial(link, meshes, &robot.materials) {
             Ok(composed) => {
                 let value = composed.inertial;
-                if value.mass <= 0.0 && !moving {
-                    None
-                } else if value.mass <= 0.0 {
+                if value.mass <= 0.0 && moving {
                     errors.push(ExportError::ZeroMassMovableLink {
                         link: lid,
                         name: link.name.clone(),
                     });
+                    None
+                } else if value.mass == 0.0 {
+                    // Static and weightless: nothing to write. A negative
+                    // mass is not "nothing" and fails `check` below.
                     None
                 } else {
                     for error in inertial::check(&value) {
@@ -710,15 +728,18 @@ pub fn resolve(
                     Some(value)
                 }
             }
-            // A geometry-less body has no mass whatever its density: fine
-            // when static, and the clearer of the two errors when moving.
+            // `Computed` with nothing to weigh by: no mass to compose, which
+            // a static body may do without. A `Hybrid` in the same state
+            // still blocks — the user typed a mass for it, and the tensor
+            // that mass scales cannot be made.
+            Err(InertialError::NoDensity) if computed && !moving => None,
+            // A geometry-less moving body has no mass whatever its density:
+            // the clearer of the two errors.
             Err(InertialError::NoDensity) if link.visuals.is_empty() => {
-                if moving {
-                    errors.push(ExportError::ZeroMassMovableLink {
-                        link: lid,
-                        name: link.name.clone(),
-                    });
-                }
+                errors.push(ExportError::ZeroMassMovableLink {
+                    link: lid,
+                    name: link.name.clone(),
+                });
                 None
             }
             Err(error) => {
@@ -730,6 +751,9 @@ pub fn resolve(
                 None
             }
         };
+        if inertial.is_none() && !moving && !link.visuals.is_empty() {
+            massless.push(link.name.clone());
+        }
 
         links.push(ResolvedLink {
             name: link.name.clone(),
@@ -798,6 +822,7 @@ pub fn resolve(
         tendons,
         meshes: files,
         floating_base: options.floating_base,
+        massless,
     })
 }
 
@@ -867,7 +892,7 @@ mod tests {
     use crate::MeshStore;
     use crate::test_util::{Builder, fixtures};
     use riggen_core::glam::{DMat3, DQuat};
-    use riggen_core::{Command, InertialSpec, MeshAsset};
+    use riggen_core::{Command, MeshAsset};
     use std::f64::consts::FRAC_PI_2;
 
     /// `Format` is a set of three writers, and the five spellings name the
@@ -1004,6 +1029,153 @@ mod tests {
             }
         });
         assert!(b.resolve().is_ok());
+    }
+
+    /// The gate guards what a simulator reads (ADR-0032): a static link
+    /// with geometry and nothing to weigh it by is written without
+    /// `<inertial>` and named in `massless`, so nobody is told it silently;
+    /// an empty static link is written the same way and not named, since
+    /// there was nothing to weigh; and the same unweighed link on a movable
+    /// joint still blocks, naming the link.
+    #[test]
+    fn an_unweighed_static_link_is_written_without_inertial_and_named() {
+        let mut b = Builder::new();
+        let cube = b.mesh("cube", TriMesh::cube(0.05));
+        let root = b.robot.root;
+        let shell = b.link("shell", root, JointKind::Fixed, Some(cube));
+        let bracket = b.link("bracket", shell, JointKind::Fixed, None);
+        // A typed zero mass is no mass either.
+        let plate = b.link("plate", root, JointKind::Fixed, Some(cube));
+        for l in [shell, bracket] {
+            b.robot.links.get_mut(&l).unwrap().material = None;
+        }
+        b.robot.links.get_mut(&plate).unwrap().inertial = InertialSpec::Override {
+            mass: 0.0,
+            com: DVec3::ZERO,
+            inertia: DMat3::ZERO,
+        };
+
+        let resolved = b.resolve().unwrap();
+        let by_name = |n: &str| resolved.links.iter().find(|l| l.name == n).unwrap();
+        assert_eq!(by_name("shell").inertial, None);
+        assert_eq!(by_name("bracket").inertial, None);
+        assert_eq!(by_name("plate").inertial, None);
+        assert_eq!(
+            by_name("shell").visuals.len(),
+            1,
+            "the geometry is still written"
+        );
+        assert_eq!(
+            resolved.massless,
+            ["shell", "plate"],
+            "link order; the empty bracket and the empty root are not unweighed, they are empty"
+        );
+
+        // On a hinge, the shell moves and its missing mass blocks.
+        for j in b.robot.joints.values_mut() {
+            if j.child == shell {
+                j.kind = JointKind::Revolute;
+                j.limits = Some(Limits {
+                    lower: -1.0,
+                    upper: 1.0,
+                    effort: 1.0,
+                    velocity: 1.0,
+                });
+            }
+        }
+        let errors = b.resolve().unwrap_err();
+        assert_eq!(
+            errors,
+            vec![ExportError::Inertial {
+                link: shell,
+                name: "shell".into(),
+                error: InertialError::NoDensity
+            }]
+        );
+        assert!(errors[0].to_string().contains("\"shell\""), "{}", errors[0]);
+    }
+
+    /// `Hybrid` is a typed mass over the mesh tensor: with no density there
+    /// is no tensor to scale, so a static one still blocks. The pass is
+    /// for a link nobody has weighed, not for one weighed and left
+    /// unmeasurable.
+    #[test]
+    fn a_static_hybrid_without_a_density_still_blocks() {
+        let mut b = Builder::new();
+        let cube = b.mesh("cube", TriMesh::cube(0.05));
+        let root = b.robot.root;
+        let weighed = b.link("weighed", root, JointKind::Fixed, Some(cube));
+        let link = b.robot.links.get_mut(&weighed).unwrap();
+        link.material = None;
+        link.inertial = InertialSpec::Hybrid { mass: 0.3 };
+        let errors = b.resolve().unwrap_err();
+        assert_eq!(
+            errors,
+            vec![ExportError::Inertial {
+                link: weighed,
+                name: "weighed".into(),
+                error: InertialError::NoDensity
+            }]
+        );
+    }
+
+    /// What a static link *does* carry is held to the same checks as a
+    /// moving one's: MuJoCo 3.13 refuses `inertia must have positive
+    /// eigenvalues` and `A + B >= C` on a body with no joint, so neither
+    /// passes through (plans/unweighed-links OPEN 2), and a non-finite or
+    /// negative value is refused as before. Zero mass is the one value that
+    /// means "nothing to write".
+    #[test]
+    fn a_static_links_tensor_is_checked_as_a_moving_ones_is() {
+        let mut b = Builder::new();
+        let cube = b.mesh("cube", TriMesh::cube(0.05));
+        let root = b.robot.root;
+        let over =
+            |mass: f64, com: DVec3, inertia: DMat3| InertialSpec::Override { mass, com, inertia };
+        let cases = [
+            ("zero", over(1.0, DVec3::ZERO, DMat3::ZERO)),
+            (
+                "lopsided",
+                over(
+                    1.0,
+                    DVec3::ZERO,
+                    DMat3::from_diagonal(DVec3::new(1.0, 1.0, 3.0)),
+                ),
+            ),
+            ("nan", over(1.0, DVec3::NAN, DMat3::IDENTITY)),
+            ("negative", over(-1.0, DVec3::ZERO, DMat3::IDENTITY)),
+        ];
+        let mut ids = Vec::new();
+        for (name, spec) in cases {
+            let id = b.link(name, root, JointKind::Fixed, Some(cube));
+            b.robot.links.get_mut(&id).unwrap().inertial = spec;
+            ids.push(id);
+        }
+        let errors = b.resolve().unwrap_err();
+        assert_eq!(errors.len(), 4, "{errors:?}");
+        let of = |l: LinkId| {
+            errors
+                .iter()
+                .find_map(|e| match e {
+                    ExportError::Inertial { link, error, .. } if *link == l => Some(error.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("no inertial error for {l}: {errors:?}"))
+        };
+        assert_eq!(
+            of(ids[0]),
+            InertialError::NotPositiveDefinite {
+                moments: [0.0, 0.0, 0.0]
+            }
+        );
+        assert_eq!(
+            of(ids[1]),
+            InertialError::TriangleInequality {
+                moments: [1.0, 1.0, 3.0]
+            }
+        );
+        assert_eq!(of(ids[2]), InertialError::NonFinite);
+        assert_eq!(of(ids[3]), InertialError::NonPositiveMass(-1.0));
     }
 
     #[test]

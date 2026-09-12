@@ -8,15 +8,18 @@
 ## Goal
 
 A link with geometry and no mass stops blocking an export unless it moves.
-An unweighed **static** link is written without `<inertial>`, and a static
-link's tensor-shape failures under `check` no longer block. The export says
+An unweighed **static** link is written without `<inertial>`. A static
+link's tensor-shape failures under `check` keep blocking: MuJoCo refuses
+them on a static body too (step 1's verdict, ⚠ OPEN 2). The export says
 which static links carry no mass: a `warning:` line in the CLI, a
 `RiggenWarning` in the SDK, a note in the dialog. A **moving** link with
 geometry and no mass is still refused, and the refusal names the link and
 the fix. One gesture gives every unweighed link a material, in the GUI and
-the SDK. Measured over Menagerie (HEAD `ca95c4d`), 45 of the 53 files that
-import and refuse to export now export. The 8 that remain each name a
-moving link without mass.
+the SDK. Measured over Menagerie (HEAD `ca95c4d`), **41** of the 53 files
+that import and refuse to export now export (step 1). Of the 12 that
+remain, 8 name a moving link without mass, and 4 (`ufactory_lite6`) a
+static root whose file says `diaginertia="0 0 0"` — ⚠ OPEN 3 decides
+whether those four are this plan's.
 
 ## Non-goals
 
@@ -43,12 +46,15 @@ moving link without mass.
   - The pass covers `InertialError::NoDensity` under **`Computed`** only. A
     static `Hybrid` link without a density still blocks, because the user
     typed a mass for it.
-  - On a static link, `check`'s `NotPositiveDefinite` and
-    `TriangleInequality` are written through as the document holds them.
-    `NonFinite`, `NotSymmetric` and a negative mass still block.
+  - On a static link, every `inertial::check` failure still blocks —
+    `NotPositiveDefinite` and `TriangleInequality` included, since MuJoCo
+    refuses both on a body with no joint (step 1, ⚠ OPEN 2). A typed mass
+    of exactly zero is "nothing to write", not a failure; a negative mass
+    is a failure.
 - **`ResolvedRobot` gains `massless: Vec<String>`**: the static links with
-  geometry written without `<inertial>`, in link order. The writers never
-  read it. The CLI, the SDK and the dialog report it.
+  geometry written without `<inertial>`, in link order — unweighed
+  `Computed` and a typed zero mass alike. The writers never read it. The
+  CLI, the SDK and the dialog report it.
 - **`ExportError`.** `NoDensity` on a moving link with geometry becomes
   `ZeroMassMovableLink`. Its message is told apart by whether the link has
   geometry: "moves and has no mass — give it a material or a density"
@@ -79,25 +85,45 @@ Complexity: **[1]** routine — the design says what to write, the tests are
 mechanical; **[2]** careful — a case to get right within a given design;
 **[3]** unproven — behaviour that has to be established here.
 
-- [ ] **[3]** Step 1 — The static-link pass in `resolve` and
+- [x] **[3]** Step 1 — The static-link pass in `resolve` and
   `ResolvedRobot::massless`. Unit tests cover:
-  - an unweighed static link (with geometry and without);
+  - an unweighed static link (with geometry and without), and a typed
+    zero mass;
   - a static `Hybrid` without a density, which still blocks;
-  - a static zero tensor, which is written;
-  - a static `NonFinite`, which blocks;
+  - a static zero tensor, a triangle-inequality tensor, a `NonFinite` and
+    a negative mass, which all still block (the verdict below);
   - an unweighed moving link, which still blocks.
 
-  Then establish MuJoCo's verdict in scratch, never CI:
-  - Re-export every Menagerie file that now exports and load it with
-    `mujoco.MjModel.from_xml_path` under the `test_mjcf_load.py` warning
-    hook. A body left without `<inertial>` falls back to `inertiafromgeom`
-    over our re-exported geoms, and MuJoCo may warn about a mesh's volume
-    where the source never did.
-  - Load a synthetic static body whose tensor violates the triangle
-    inequality, to settle ⚠ OPEN 2.
-
-  Record both results here. DATA-MODEL §ResolvedRobot and §Inertials
-  change in the same commit.
+  MuJoCo's verdict, established in scratch (MuJoCo 3.13.0):
+  - **Synthetic bodies.** A body with no joint carrying
+    `fullinertia="1 1 3 0 0 0"` is refused (`inertia must satisfy
+    A + B >= C`), and so is one carrying `fullinertia="0 0 0 0 0 0"`
+    (`inertia must have positive eigenvalues`) — with any mass, under a
+    static or a moving parent. The second refusal is the `fullinertia`
+    spelling's: `diaginertia="0 0 0"` on a static body **loads**, with
+    `mass="1"` or `mass="0"`, while `diaginertia="1 1 3"` is refused.
+    So ⚠ OPEN 2 is answered "neither passes", and the zero tensor opens
+    ⚠ OPEN 3. A static body with no `<inertial>` and a visual geom
+    (`contype="0" group="2"`, riggen's spelling) loads and gets
+    `inertiafromgeom` mass at 1000 kg/m³ — a static body with no geom
+    gets zero.
+  - **The Menagerie scan** (all 261 `.xml`, release build, before = HEAD
+    `d18a679`, after = this step): exported 119 → **160**; refused by the
+    export gate 53 → **12**; every import bucket unchanged (no root 43,
+    multiple roots 21, composite joint 15, identifier 7, ball 2,
+    `<attach>` 1). No file changed outcome for the worse. Of the 12: 8
+    name a moving link with no density (`google_robot` ×2, `sharpa_wave`
+    ×4, `wonik_allegro` ×2) and 4 are `ufactory_lite6`'s static
+    `link_base` with `mass="1.65394" diaginertia="0 0 0"` (⚠ OPEN 3).
+  - **The MuJoCo load** of all 160 exports under the `test_mjcf_load.py`
+    warning hook: **158 load with zero warnings, every one of the 41
+    newly exporting among them.** The 2 failures are
+    `pndbotics_adam_lite` (both files), `mesh volume is too small:
+    hipRollRight_1 … Try setting inertia to shell` — the original
+    declares `<mesh inertia="shell">`, which riggen does not carry, and
+    the file exported and failed identically before this step (its
+    re-export is byte-for-byte unchanged). Not this plan's; a backlog
+    line at retirement.
 - [ ] **[2]** Step 2 — The fixture: `menagerie_style_arm.xml`'s `tool`
   body, static and holding only a site today, gains a mesh geom and no
   `<inertial>`.
@@ -134,10 +160,10 @@ mechanical; **[2]** careful — a case to get right within a given design;
 
 ## Acceptance
 
-- The scan (step 9) shows **164** of 172 importing files exporting, or the
-  number step 1 justified if MuJoCo's verdict moved it. Every file still
-  refused names a moving link with no mass. No file that exported before
-  stops exporting.
+- The scan (step 9) shows **160** of 172 importing files exporting — 164
+  if ⚠ OPEN 3 takes the four `ufactory_lite6` files. Every file still
+  refused names a moving link with no mass (or, if OPEN 3 says no, the
+  `link_base` zero tensor). No file that exported before stops exporting.
 - Every file step 1 newly exports loads in MuJoCo with zero warnings.
 - The `mujoco` CI job passes with `menagerie_style.xml` carrying a static
   link with geometry and neither material nor density.
@@ -180,7 +206,25 @@ mechanical; **[2]** careful — a case to get right within a given design;
   - Alternative: a row action in the Materials window ("assign to
     unweighed links"), which is where materials already live but
     invisible from the refusal.
-- ⚠ OPEN 2 (agent, by step 1): **does `TriangleInequality` on a static
-  link pass through, or only `NotPositiveDefinite`?** Decided by MuJoCo's
-  verdict on a synthetic static body. If MuJoCo refuses it, it keeps
-  blocking, since the gate guards what the simulator reads.
+- ~~⚠ OPEN 2 (agent, by step 1)~~ **Decided, step 1: neither passes.**
+  MuJoCo 3.13 refuses a triangle-inequality tensor on any body, and a
+  `fullinertia` with a non-positive eigenvalue on any body — a static
+  link's `check` failures keep blocking, and the static pass is
+  `NoDensity` under `Computed` alone. The design delta is amended above.
+- ⚠ OPEN 3 (human, by step 3 — ADR-0032 is where it belongs): **is a
+  static link's exactly-zero tensor written, as `diaginertia="0 0 0"`?**
+  MuJoCo loads it in that spelling and refuses it as `fullinertia`;
+  `ufactory_lite6` ships its static root that way (4 of the 12 files the
+  gate still refuses), so the `Override { mass, inertia: ZERO }` it
+  imports to is a faithful copy of a file MuJoCo accepts.
+  - Preferred: yes, narrowly — a static link whose tensor is exactly zero
+    passes `check` at the gate and the MJCF writer spells it
+    `diaginertia="0 0 0"`; URDF and SDF write the zeros as they are (no
+    parser refuses them). Anything else non-positive-definite keeps
+    blocking. One writer arm, one gate arm, the four files export, and
+    the tensor MuJoCo reads is the one the file said.
+  - Alternative: no — a zero tensor with a positive mass is a
+    contradiction the user should resolve, and the four files stay a
+    "fix your source" refusal. Cheaper, and the number stays 160.
+  - Either way it is a new step between 3 and 4, or a line in the
+    backlog.
