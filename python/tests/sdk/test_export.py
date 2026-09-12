@@ -85,7 +85,8 @@ def test_origin_for_world_inverts_one_fk_step(arm: Robot):
 
 def test_export_is_byte_identical_to_the_cli(arm: Robot, cli: Path, tmp_path: Path):
     run_cli(cli, "--export", "both", "--fk-samples", "--out", tmp_path / "cli", ARM)
-    written = arm.export(tmp_path / "sdk", format="both", fk_samples=True)
+    written, warned = arm.export(tmp_path / "sdk", format="both", fk_samples=True)
+    assert warned == [], "every link of the arm is weighed"
     assert [p.name for p in written] == ["arm.xml", "arm.urdf", "base.stl", "fore.stl", "shoulder.stl", "upper.stl", "arm.fk.json"]
     assert all(p.is_file() for p in written)
     assert tree(tmp_path / "sdk") == tree(tmp_path / "cli")
@@ -94,7 +95,7 @@ def test_export_is_byte_identical_to_the_cli(arm: Robot, cli: Path, tmp_path: Pa
 def test_all_three_writers_are_reachable_from_the_sdk(arm: Robot, cli: Path, tmp_path: Path):
     """`format` is a set of writers (ADR-0016), and `all` is the default."""
     run_cli(cli, "--export", "all", "--out", tmp_path / "cli", ARM)
-    written = arm.export(tmp_path / "sdk", format="all")
+    written, _ = arm.export(tmp_path / "sdk", format="all")
     assert [p.name for p in written][:3] == ["arm.xml", "arm.urdf", "arm.sdf"]
     assert tree(tmp_path / "sdk") == tree(tmp_path / "cli")
     # `all` is what `export` does when asked for nothing in particular.
@@ -102,7 +103,7 @@ def test_all_three_writers_are_reachable_from_the_sdk(arm: Robot, cli: Path, tmp
     assert tree(tmp_path / "sdk") == tree(tmp_path / "default")
     # SDF alone writes the one file, and it is SDF 1.11 with the mimic the
     # other two also carry (ADR-0016 §1).
-    only = arm.export(tmp_path / "sdf", format="sdf")
+    only, _ = arm.export(tmp_path / "sdf", format="sdf")
     assert [p.name for p in only][0] == "arm.sdf"
     assert not (tmp_path / "sdf" / "arm.urdf").exists()
     sdf = (tmp_path / "sdf" / "arm.sdf").read_text()
@@ -135,7 +136,7 @@ def test_export_options_reach_the_writers(arm: Robot, tmp_path: Path):
 
 
 def test_floating_base_adds_a_freejoint(pendulum: Robot, tmp_path: Path):
-    written = pendulum.export(tmp_path, format="mjcf", floating_base=True)
+    written, _ = pendulum.export(tmp_path, format="mjcf", floating_base=True)
     assert [p.suffix for p in written] == [".xml", ".stl", ".stl"]
     assert "<freejoint" in (tmp_path / "pendulum.xml").read_text()
 
@@ -210,6 +211,41 @@ def test_load_mjcf_errors_are_typed(tmp_path: Path):
     )
     with pytest.raises(errors.MjcfImportError, match="w0, w1"):
         Robot.load_mjcf(composite)
+
+
+def test_a_static_link_without_mass_is_a_warning_and_the_export_succeeds(cli: Path, tmp_path: Path):
+    """ADR-0032 §2: the import corpus's `tool` has a mesh and no
+    `<inertial>`, so it is written without one and said once — returned by
+    `_riggen`, a `RiggenWarning` from `riggen`, and the line the CLI prints.
+    Copied out of the tree first: importing it writes its inline mesh."""
+    import shutil
+    import warnings
+
+    import riggen
+
+    (tmp_path / "arm").mkdir()
+    for name in ("menagerie_style.xml", "menagerie_style_arm.xml"):
+        shutil.copy2(FIXTURES / name, tmp_path / name)
+    for name in ("base.stl", "shoulder.stl", "thing.msh"):
+        shutil.copy2(FIXTURES / "arm" / name, tmp_path / "arm" / name)
+    corpus = tmp_path / "menagerie_style.xml"
+    line = 'link "tool" is static and carries no mass; written without <inertial>'
+
+    raw, _ = Robot.load_mjcf(corpus)
+    written, warned = raw.export(tmp_path / "raw", format="mjcf")
+    assert warned == [line]
+    assert (tmp_path / "raw" / "menagerie_style.xml") in written
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        robot = riggen.load_mjcf(corpus)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        robot.export(tmp_path / "sdk", format="mjcf")
+    assert [(w.category, str(w.message)) for w in caught] == [(riggen.RiggenWarning, line)]
+
+    result = run_cli(cli, "--export", "mjcf", "--out", tmp_path / "cli", corpus)
+    assert f"warning: {line}" in result.stderr.splitlines()
 
 
 def test_load_urdf_errors_are_typed(tmp_path: Path):

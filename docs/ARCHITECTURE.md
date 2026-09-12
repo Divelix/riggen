@@ -1392,7 +1392,7 @@ the id counter included. No `History`: a script has no undo.
 | `fk_frames({joint: q}) -> {frame: pose}` | `fk::frames`; `fk` itself stays links only |
 | `origin_for_world(link, world) -> pose \| None` | `origin_for_world` |
 | `inertial(link) -> (mass, com, inertia rows)` | `MeshStore::load` + `compose_inertial`; `InertialError` (mesh load errors appended) |
-| `export(dir, *, format, mesh_paths, floating_base, fk_samples) -> [Path]` | `MeshStore::load` + `resolve` + `export` (+ `fk_samples::to_json`), exactly `cli::run`: every resolve error joined one per line as `cannot export: …` into `ExportError`; `format` names a **set** of writers — `"mjcf" \| "urdf" \| "sdf" \| "both"` (the first two) `\| "all"`, the default — and `mesh_paths` (URDF and SDF) is `"relative" \| "absolute" \| "package://<name>"` |
+| `export(dir, *, format, mesh_paths, floating_base, fk_samples) -> (paths, warnings)` | `MeshStore::load` + `resolve` + `export` (+ `fk_samples::to_json`), exactly `cli::run`: every resolve error joined one per line as `cannot export: …` into `ExportError`; the warnings are `ResolvedRobot::massless_warnings`, one per static link written without mass — the lines the CLI prints after `warning:` (ADR-0032 §2); `format` names a **set** of writers — `"mjcf" \| "urdf" \| "sdf" \| "both"` (the first two) `\| "all"`, the default — and `mesh_paths` (URDF and SDF) is `"relative" \| "absolute" \| "package://<name>"` |
 | `fk_samples_json()` | `fk_samples::to_json` |
 | `Robot.load_urdf(path, packages=None) -> (robot, warnings)` | `urdf_in::load` with a `PackageMap`; `UrdfImportError`, `ImportWarning`s as strings |
 | `Robot.load_mjcf(path) -> (robot, warnings)` | `mjcf_in::load`; `MjcfImportError`, the same `ImportWarning`s as strings |
@@ -1452,7 +1452,7 @@ over that table — no logic of its own beyond spelling:
 | `Fixed(origin)`, `Revolute(axis, *, origin, limits, dynamics, degrees)`, `Continuous`, `Prismatic` → `JointSpec` | the joint dict; `axis` is `"x" \| "-y" \| (x, y, z)`; `limits` a `Limits` or `(lower, upper)`; the app's defaults (`±π`, `±1`, effort and velocity 0) |
 | `ComputedInertial(density)`, `OverrideInertial(mass, com, rows)`, `HybridInertial(mass)` | the `InertialSpec` dict (the tensor column-major in the file, rows here) |
 | `ConvexDecomposition(max_hulls, resolution, concavity)` | the `{"ConvexDecomposition": {…}}` `set_collision` already takes — no new `Command` method; `link.collision` reads it back as the dataclass, the three simple policies as their names, anything else as the document value (ADR-0011) |
-| `robot.fk({name \| joint: q})` → `{name: Pose}`, `.frame_poses({…})` → `{name: Pose}`, `.validate()`, `.save()`, `.export(dir, *, format, mesh_paths, floating_base, fk_samples)`, `.to_json()` / `from_json`, `.copy()` | the same names, ids ↔ names |
+| `robot.fk({name \| joint: q})` → `{name: Pose}`, `.frame_poses({…})` → `{name: Pose}`, `.validate()`, `.save()`, `.export(dir, *, format, mesh_paths, floating_base, fk_samples)` (each static link written without mass a `RiggenWarning`, ADR-0032 §2), `.to_json()` / `from_json`, `.copy()` | the same names, ids ↔ names; `_riggen`'s `export` returns `(paths, warnings)`, the `load_*` shape |
 
 `examples/pendulum.py` (the README's ten lines; the corpus pendulum) and
 `examples/arm.py` (the M2 arm from its STLs, joints typed, a `tcp` and a

@@ -1637,8 +1637,14 @@ class Robot:
         ``"all"``. ``mesh_paths`` (URDF and SDF) is ``"relative"``,
         ``"absolute"`` or ``"package://<name>"``. Returns every path
         written; raises :class:`riggen.ExportError` listing every reason
-        the document cannot be exported."""
-        return self._inner.export(dir, format=format, mesh_paths=mesh_paths, floating_base=floating_base, fk_samples=fk_samples)
+        the document cannot be exported. A static link with geometry and
+        nothing to weigh it by is written without ``<inertial>`` — no
+        simulator reads a mass from a body that never moves — and each one
+        is a :class:`riggen.RiggenWarning`, so it is not left unweighed
+        silently (ADR-0032)."""
+        written, warned = self._inner.export(dir, format=format, mesh_paths=mesh_paths, floating_base=floating_base, fk_samples=fk_samples)
+        _warn(warned)
+        return written
 
     def to_json(self) -> str:
         """The document as ``.riggen`` JSON text (mesh paths absolute)."""

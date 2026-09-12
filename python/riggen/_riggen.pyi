@@ -287,7 +287,9 @@ class Robot:
         mesh_paths: str = "relative",
         floating_base: bool = False,
         fk_samples: bool = False,
-    ) -> list[Path]: ...
+    ) -> tuple[list[Path], list[str]]:
+        """The paths written and the warnings: one per static link written
+        without mass (ADR-0032 §2), the lines ``riggen --export`` prints."""
     def fk_samples_json(self) -> str: ...
     @staticmethod
     def load_urdf(

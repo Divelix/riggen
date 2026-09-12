@@ -474,6 +474,15 @@ impl ResolvedRobot {
         self.joints.iter().filter(move |j| j.parent == link)
     }
 
+    /// One line per [`Self::massless`] link: what the CLI prints after
+    /// `warning:`, the SDK warns and the export dialog notes (ADR-0032 §2),
+    /// worded once so the three say the same thing.
+    pub fn massless_warnings(&self) -> impl Iterator<Item = String> + '_ {
+        self.massless.iter().map(|name| {
+            format!("link \"{name}\" is static and carries no mass; written without <inertial>")
+        })
+    }
+
     /// The actuators driving `joints[joint]`, in order. What "this joint
     /// has an actuator" is now asked as (ADR-0023).
     pub fn actuators_on(&self, joint: usize) -> impl Iterator<Item = &ResolvedActuator> + '_ {

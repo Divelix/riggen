@@ -955,7 +955,9 @@ impl PyRobot {
     /// `<name>.fk.json` too. `format` names a **set** of writers —
     /// `"mjcf"`, `"urdf"`, `"sdf"`, `"both"` (the first two) or `"all"`;
     /// `mesh_paths` (URDF and SDF) `"relative"`, `"absolute"` or
-    /// `"package://<name>"`. Returns every path written. Raises
+    /// `"package://<name>"`. Returns every path written and the warnings —
+    /// one per static link written without mass (ADR-0032 §2), the lines
+    /// `riggen --export` prints — the shape `load_*` returns. Raises
     /// `riggen.ExportError` listing every reason the document cannot be
     /// exported, exactly as `riggen --export` prints them.
     #[pyo3(signature = (dir, *, format = "all", mesh_paths = "relative", floating_base = false, fk_samples = false))]
@@ -967,7 +969,7 @@ impl PyRobot {
         mesh_paths: &str,
         floating_base: bool,
         fk_samples: bool,
-    ) -> PyResult<Vec<PathBuf>> {
+    ) -> PyResult<(Vec<PathBuf>, Vec<String>)> {
         let options = ExportOptions {
             format: format_from(format)?,
             mesh_paths: mesh_paths_from(mesh_paths)?,
@@ -984,6 +986,7 @@ impl PyRobot {
                     return Err(raise(py, "ExportError", join_export_errors(&errors)));
                 }
             };
+        let warnings = resolved.massless_warnings().collect();
         let mut written = riggen_export::export(&resolved, &options, &dir)
             .map_err(|e| PyOSError::new_err(e.to_string()))?;
         if fk_samples {
@@ -992,7 +995,7 @@ impl PyRobot {
                 .map_err(|e| PyOSError::new_err(format!("{}: {e}", path.display())))?;
             written.push(path);
         }
-        Ok(written)
+        Ok((written, warnings))
     }
 
     /// The `<name>.fk.json` text `export(fk_samples=True)` writes: five

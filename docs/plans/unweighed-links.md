@@ -173,7 +173,16 @@ mechanical; **[2]** careful — a case to get right within a given design;
   `export_blocked`'s ghost has no geometry, so its text and image are
   unchanged. The SDK suite's pendulum-arm line moved to the new wording
   (78 passed).
-- [ ] **[2]** Step 5 — The notice in the CLI and the SDK.
+- [x] **[2]** Step 5 — The notice in the CLI and the SDK.
+  Landed. The wording lives once, in `ResolvedRobot::massless_warnings`,
+  which the CLI, `_riggen` and (step 6) the dialog all read. Covered by
+  `tests/cli.rs` on the corpus copy, and by one SDK test that checks all
+  three surfaces: `_riggen`'s tuple, `riggen`'s `RiggenWarning` and the
+  CLI's stderr. 79 SDK tests passed, and pyright is clean. Local finding:
+  `target/sdk-venv/bin/riggen` was a stale 0.2.1-dev binary that refuses
+  `<include>`, and `find_cli` prefers it over `target/`. Run the suite
+  locally with `RIGGEN_BINARY=$PWD/target/debug/riggen`; CI's wheel job
+  bundles the fresh binary.
   - The CLI prints `warning: link "X" is static and carries no mass;
     written without <inertial>` for each `massless` entry. Covered by
     `tests/cli.rs`.

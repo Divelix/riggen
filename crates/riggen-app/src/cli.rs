@@ -286,6 +286,8 @@ pub fn run(args: &ExportArgs) -> Result<Vec<PathBuf>, String> {
                 return Err(join_errors(&errors));
             }
         };
+    // A static link written without mass is not written silently (ADR-0032 §2).
+    warn_all(&resolved.massless_warnings().collect::<Vec<_>>());
     let mut written =
         riggen_export::export(&resolved, &options, &args.out).map_err(|e| e.to_string())?;
     if args.fk_samples {

@@ -50,3 +50,43 @@ fn a_bad_flag_exits_two_with_the_usage_on_stderr() {
     assert!(err.contains("unknown flag --bogus"), "{err}");
     assert!(err.contains("usage:"), "{err}");
 }
+
+/// A static link exported without mass is a `warning:` line on stderr, one
+/// per link, and the export still succeeds (ADR-0032 §2). The import corpus
+/// has one: `tool`, a mesh and no `<inertial>`. Copied out of the tree
+/// first, because importing it writes its inline mesh beside it.
+#[test]
+fn a_static_link_without_mass_is_a_warning_and_the_export_succeeds() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fixtures");
+    let dir = std::env::temp_dir().join(format!("riggen-cli-massless-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("arm")).unwrap();
+    for name in ["menagerie_style.xml", "menagerie_style_arm.xml"] {
+        std::fs::copy(fixtures.join(name), dir.join(name)).unwrap();
+    }
+    for name in ["base.stl", "shoulder.stl", "thing.msh"] {
+        std::fs::copy(fixtures.join("arm").join(name), dir.join("arm").join(name)).unwrap();
+    }
+    let out_dir = dir.join("out");
+    let out = riggen(&[
+        "--export",
+        "mjcf",
+        "--out",
+        out_dir.to_str().unwrap(),
+        dir.join("menagerie_style.xml").to_str().unwrap(),
+    ]);
+    assert!(out.status.success(), "{out:?}");
+    let err = String::from_utf8(out.stderr).unwrap();
+    let massless: Vec<&str> = err
+        .lines()
+        .filter(|l| l.contains("carries no mass"))
+        .collect();
+    assert_eq!(
+        massless,
+        ["warning: link \"tool\" is static and carries no mass; written without <inertial>"],
+        "{err}"
+    );
+    let xml = std::fs::read_to_string(out_dir.join("menagerie_style.xml")).unwrap();
+    assert!(xml.contains("<body name=\"tool\""), "{xml}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
