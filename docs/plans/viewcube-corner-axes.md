@@ -248,7 +248,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   the letter size and the arrow ring to it, checks for facet seams, and
   shows the human the board. *Done:* no seams at 5× in either theme, so
   the facets stay one `PathShape` each; the letter stays 11 pt.
-- [ ] **[1]** Step 3 — `docs(adr)`: ADR-0030, amending ADR-0028 §3, with
+- [x] **[1]** Step 3 — `docs(adr)`: ADR-0030, amending ADR-0028 §3, with
   the human's answers and step 2's tuned constants, plus the index rows.
 - [ ] **[2]** Step 4 — `snapshots(app,viewport)`: paint and wire it all,
   and delete the triad, in one commit so the suite is refreshed once.
