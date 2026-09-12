@@ -5,7 +5,7 @@ the scariest remaining unknown first. A milestone's "out" list is as binding
 as its "in" list. Calibration: RoboCAD went from empty to 58k lines in three
 weeks; this roadmap is smaller than that.
 
-Spine: M0 → M1 → M2 → M3 → M4, then v0.2 → v0.3 → v0.4 → v0.5.
+Spine: M0 → M1 → M2 → M3 → M4, then v0.2 → v0.3 → v0.4 → v0.5 → v0.6.
 
 ---
 
@@ -255,98 +255,25 @@ editor again — every visible state of both modes in the snapshot suite
 
 ## v0.5 — the viewport and the camera
 
-*Goal: the viewport stops being M0's. You always know which way you are
-looking, you can get inside an assembly instead of only orbiting round it,
-a part reads as standing somewhere rather than floating in a gradient, and
-an edge is an edge.*
+*Goal: the viewport stops being M0's. You know which way you are looking,
+you can get inside an assembly rather than only orbit round it, a part
+stands somewhere, and an edge is an edge.*
 
-The oldest untouched cluster in the backlog, most of it from the M2 exit
-gate. v0.3 paid down the hand-feel debt in the *panels* and the pointer;
-this is the same debt in the camera and the pass under it, and the
-viewport is what the demo puts in front of people who have read no docs.
-Every line below is a backlog line this section now owns.
+**Status: done 2026-09-12, tag `v0.5.0`.** The risk — a viewport still
+M0's, orbit-only and unaided, in front of the people the demo reaches
+before any doc does — was retired line by line. Decisions: ADR-0027
+(narrowing ADR-0021 §1), ADR-0028, ADR-0029 (amending ADR-0019 §5).
 
-- **A ViewCube in the corner.** *Landed (plans/viewcube-and-fly-camera,
-  ADR-0028).* RoboCAD's, ported into `riggen-app` as an egui painter
-  widget over the 26 `ViewOrientation` variants `orientation.rs` had held
-  unused since M0. Bottom-right, its rect the third in `chrome_rects`
-  beside the mode control's and the visibility row's, and gone in zen for
-  the same reason they are. A facet click animates to that view, a drag on
-  the cube orbits, the house icon re-frames, and the projection button
-  **is** the readout — the viewport's `persp` / `ortho` text is removed
-  rather than duplicated, so zen has no readout at all (`P`, `Num5` and
-  `debug_state().camera` still answer). The bottom-left axes triad stays:
-  it names the axes, the cube names the faces.
-- **A fly camera on `W A S D E Q`.** *Landed (plans/viewcube-and-fly-camera,
-  ADR-0028).* Not a second camera: there is one turntable and the keys walk
-  its **pivot**. `OrbitCamera::fly` adds to `target` along the camera's own
-  basis in all six directions — `E` / `Q` follow the view's up, not world
-  Z, so all six are one rule and the pole heuristic needs no case of its
-  own — at `FLY_SPEED · distance · boost · dt`, leaving yaw, pitch and
-  distance alone. The eye follows rigidly, so the pivot arrives inside the
-  assembly with you and the same left-drag then orbits *locally*, which is
-  the gesture that was missing. Nothing downstream of the camera learned a
-  new question. The other half landed with it: the **orbit pivot is drawn**
-  while a camera gesture is live — a cross at `target` in the viewport's
-  own overlay, `Occlusion::Always`, and **no fade**, because a fade is a
-  clock in a golden (ADR-0003).
-- **A ground grid at z = 0.** *Landed (plans/ground-grid-and-msaa).*
-  RoboCAD never had one either; M0 shipped the gradient background alone,
-  so a part at the origin and a part a metre up read the same. Z-up and
-  meters are the document's (02 §Conventions), so the grid is simply where
-  the floor is: `grid.wgsl` unprojects each pixel and intersects the ray
-  with the plane — no mesh, since an infinite plane has none without an
-  edge the camera can reach — and shades metre and ten-metre lattices, each
-  a constant pixel thickness against its own screen-space derivative and
-  faded out by that same derivative toward the horizon. Depth-tested from
-  the intersection and writing no depth of its own, so a part in front
-  hides it and no glyph below z = 0 is lost. Furniture like the axes triad,
-  drawn in zen — with one thing the other furniture has not: the bullet as
-  written did not ask for a switch, and it has one, the visibility row's
-  sixth toggle (**ground**, leftmost), because a floor this large is worth
-  being able to turn off and the row that turns off everything else riggen
-  draws was already in the corner above it.
-- **MSAA on the offscreen colour pass.** *Landed
-  (plans/ground-grid-and-msaa).* RoboCAD had none. The scene renders into
-  an offscreen colour + `Depth32Float` pair and is blitted in `paint()`
-  (01 §Frame loop), so this is that pair and the blit. Both attachments
-  now carry the sample count the adapter admits to for both formats — 4 or
-  1, asked once through `get_texture_format_features` rather than assumed,
-  and reported by `debug_state().sample_count`. The **pick pass stays
-  single-sampled** — an `R32Uint` ID buffer cannot be resolved, and
-  averaging two instance ids would invent a third. Colour resolves in
-  hardware; depth cannot, since WebGPU has no depth resolve attachment and
-  no multisampled copy source, so `depth_resolve.wgsl` writes sample 0 into
-  a single-sampled texture for the overlay readback to copy — sample 0 and
-  not an average, for the reason the pick pass is single-sampled. ADR-0020
-  is untouched: the overlay still reads one `Depth32Float` texel per
-  pixel.
-- **Snapping during a rotate gizmo drag.** *Landed
-  (plans/rotate-drag-snapping, ADR-0029).* ADR-0019 §5 left the drag snap
-  to translation for want of a rule saying which of the three axes aligns.
-  The rule is one the user never answers: a ring drag has one degree of
-  freedom, so only the two frame axes perpendicular to the ring can move,
-  and the one that lands is whichever of their four signed directions the
-  drag has already brought nearest. The ladder runs **direction-only**
-  while a rotate drag is in flight — a fitted circle's axis or a face
-  normal, a vertex and a box corner saying nothing about direction — and
-  the snap is unconditional, so over geometry a rotate drag reaches four
-  orientations per ring and free rotation is over the background. The
-  second overlay idiom is a cyan spoke from the gizmo's pivot at the
-  ring's own radius, with the ladder's readout at its tip and the axis in
-  front of it. One drag, one command, as before.
-- **View's joint glyph loses its legacy pieces and gains an opaque band.**
-  *Landed (plans/joint-glyph, ADR-0027).* In View a glyph is the band or
-  the bars, the tick at `q`, and a filled bore for a driven joint —
-  nothing else; the axis segment, the pivot dot, the origin triad and the
-  actuator ring answer *where a joint frame is*, which is Edit's question,
-  and Edit still draws all four. The band's three shades are **opaque**
-  (`shade` scales the RGB at full alpha) rather than one hue at three
-  alphas, so the grazing-angle seam a foreshortened sector drew over
-  itself is gone by construction. What View draws is what View answers: a
-  slide is picked by its bars, and a hinge by its band, where the axis
-  line used to take the pick. Absorbed two backlog lines (from the glyph
-  band, and from plans/joint-glyph-range-and-value).
+- **A ViewCube in the corner**, the projection toggle moving onto it.
+- **A fly camera on `W A S D E Q`**, and the orbit pivot drawn while the
+  camera moves — which the turntable wants too.
+- **A ground grid at z = 0**, simply where the floor is (02 §Conventions).
+- **MSAA on the offscreen colour pass**; the **pick pass stays
+  single-sampled**, an `R32Uint` id buffer being unresolvable.
+- **Snapping during a rotate gizmo drag**, which wanted a rule for *which*
+  of the three axes lands and a second overlay idiom.
+- **View's joint glyph loses its legacy pieces and gains an opaque band**,
+  the three-alpha stack having double-covered at a grazing angle.
 
 **Out:** any new format, importer or writer, and the import gap's last
 mile — the 31 Menagerie files that import and then refuse to *export*,
@@ -367,6 +294,55 @@ names the right instance and triangle; and a rotate drag lands the dragged
 frame's axis on a bore's. Every visible state in the snapshot suite
 (ADR-0003) — and because MSAA moves every golden at once, that refresh is
 one `snapshots:` commit that says so and nothing else.
+
+---
+
+## v0.6 — the import gap's last mile
+
+*Goal: a model riggen can open, riggen can also write. Every file that
+imports exports, and the numbers and paths an import leaves for the user
+to fix are fixable in the window.*
+
+v0.4 made the way *in* lossless and measured what it bought: 172 of
+Menagerie's 261 models import. 31 of those then refuse to **export**, all
+of them on a link the user never touched, which is the largest remaining
+gap between "imports" and "round-trips". Every line below is a backlog
+line this section now owns.
+
+- **Every file that imports, exports.** The 31 refused on `link "base": no
+  material and no density override` (ADR-0015 §7) — a default density, an
+  unweighed-link mark or a better message; an idea decides which.
+- **A default material for an imported link**, or a one-click "assign PLA
+  to every link", so `Computed` runs on a file that carried no
+  `<inertial>`.
+- **A `PackageMap` UI** — a packages table in Import URDF… for the
+  `package://` paths the beside-the-file heuristic misses.
+- **`validate` checks the numbers it skips** — geom poses and an
+  `Override` inertial's — so a NaN cannot reach a writer.
+- **`MoveJointFrame` re-expresses collision geometry too**:
+  `CollisionPolicy::Meshes` and `Primitives` poses, which move in the
+  world today when a link's pivot does.
+
+**Out:** `<attach>` and `<replicate>` stay refused (ADR-0026 §4) — the
+first is two robots composed and a document question, the second buys zero
+files — and composite joints stay refused with them (ADR-0022). No SDF
+import and no fourth writer: the reading direction stays URDF and MJCF. A
+mass *model* is not on the table either — no boolean of interpenetrating
+shells, only the note the readout owes the user. Distribution (crates.io,
+the screencast, notarization), the demo's four gaps and the panel lines
+(an actuator's ranges row, a Tendons panel, the joint-tree scrubber
+column) all stay backlog lines. §What not to spend agent time on stands.
+
+**Accept:** a scan of all 261 Menagerie models — a sizing tool, never a CI
+dependency (AGENTS.md) — shows every file that imports also exporting,
+both numbers recorded, and names any refusal left with a reason about the
+user's own file. `menagerie_style.xml`, grown to carry a link with
+geometry but neither material nor density, still imports and re-exports
+into a MuJoCo load with zero warnings agreeing with `fk` to 1e-6. A NaN in
+a geom pose is refused by `validate` instead of exported, and moving a
+pivot on a link with imported collision meshes leaves that collision where
+it was in the world. Every visible change in the snapshot suite
+(ADR-0003).
 
 ---
 

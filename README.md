@@ -7,7 +7,7 @@
 Drop meshes in, get a simulation-ready MJCF, URDF or SDF out — in a
 window, or from ten lines of Python.
 
-![The sample arm in riggen, opened in View: the joint tree with its scrubbers, the viewport with joint glyphs](https://raw.githubusercontent.com/Divelix/riggen/main/docs/assets/arm.png)
+![The sample arm in riggen, opened in View: the joint tree with its scrubbers, the viewport with its joint glyphs, the ground grid and the ViewCube](https://raw.githubusercontent.com/Divelix/riggen/main/docs/assets/arm.png)
 
 ## Try it in the browser
 

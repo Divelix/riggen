@@ -5,8 +5,6 @@ One line per raw idea. Picking one up means `/idea` (needs thinking) or
 has committed to, which now lives in `docs/ROADMAP.md` instead. Rejected ideas keep one line
 below with the reason, so the same idea is not re-brainstormed.
 
-- `validate` does not check that geom poses or an `Override` inertial's numbers are finite (joint origins, joint limits, frame poses and densities are); a NaN typed into a geom pose reaches the export
-- `MoveJointFrame` re-expresses a link's visual geom poses but not `CollisionPolicy::Meshes` / `Primitives` poses, so a link with imported collision meshes or hand-placed primitives moves its collision in the world when its pivot moves
 - Things that *reference* a site now that frames exist (ADR-0012): MJCF sensors, actuators on a site, equality constraints, cameras, `<touch>`/`<force>`
 - Frames as a snap source — placing a joint or another frame onto an existing frame, and frame-relative geom poses (a frame's parent is a link, always, today)
 - Live joint-state link from a running Python script to the GUI (file or socket)
@@ -47,14 +45,6 @@ below with the reason, so the same idea is not re-brainstormed.
   rename of every `<actuator>` / `<tendon>` / `<equality>` / `<sensor>`
   entry that names something inside the block. It buys **zero** Menagerie
   files today, which is why it is a line here and not a plan
-- **31 Menagerie files import and then fail to *export*** on `link
-  "base": no material and no density override` (ADR-0015 §7, measured by
-  the composition scan). Nothing about the import is wrong — the document
-  has no mass for a link whose geoms carry neither — but a user who opens
-  a Menagerie model and hits Export gets a refusal about a link they never
-  touched. A default density, an "unweighed link" mark, or a better
-  message: unowned, and the largest remaining gap between "imports" and
-  "round-trips"
 
 ### From the M3 exit gate (the export run, 2026-08-29)
 
@@ -64,8 +54,6 @@ FK, and swing under gravity for 10 s without a NaN; the interactive
 `mujoco.viewer` look is the human's. What was annoying on the way:
 
 - Interpenetrating shells (the fixture parts are a box plus a shaft, not a boolean) count the overlap twice in `mass_properties`; a note in the Inertial readout ("N geoms, overlaps counted twice") would save a puzzled minute
-- No `PackageMap` UI: `package://` on import is resolved beside the file or up the tree; a "packages" table in Import URDF… for the cases that heuristic misses
-- An imported link without `<inertial>` has no material and `Computed` cannot run until one is assigned — a default material for imports, or a one-click "assign PLA to every link"
 - The export dialog re-resolves (hulls included) on every option change; fine for the arm, and `riggen-app::jobs` now exists to move it off the UI thread for the first big mesh (decomposition already goes through it; hulls stay synchronous and cached per `MeshId`)
 - Oriented (PCA) primitive fits; today every fit starts from the AABB in the link frame and the user rotates it
 - MuJoCo's joint limits are soft: a freely swinging arm overshoots `range` by a few degrees with default `solref` — not an export bug, but a "joint limits are soft in MuJoCo" note in the export dialog would pre-empt the question

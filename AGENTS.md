@@ -19,27 +19,21 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**v0.4 — the round trip keeps what it read, and the window has two modes
-— is closed (2026-09-10); the human tags `v0.4.0`.** An MJCF import is
-lossless: actuators as a model-level table, the `<general>` escape hatch,
-couplings, `.msh` and inline meshes, and composition spliced and folded
-away at import, never stored — Menagerie's importing files 93 → 172 of 261
-(ADR-0023 to 0026). Schema 6; composite joints, `<replicate>` and
-`<attach>` stay refused (ADR-0022). The window is two modes (ADR-0021):
-**View** poses through the joint tree and the glyphs alone, Tab to
-**Edit** at the zero configuration, zen on `Z`.
-**Next:** v0.5, the viewport and the camera — all six lines in, so
-`/close-cycle` is what follows. The glyph (ADR-0027): in View the band or
-the bars, the tick and a filled bore, opaque, answering from exactly what
-it draws. The camera (ADR-0028): one turntable still, the ViewCube
-bottom-right aiming it and owning the projection readout, `W A S D E Q`
-walking its pivot so a buried joint can be flown to and orbited locally,
-the pivot unfaded while a gesture is live. The pass under it multisamples,
-a ground grid at z = 0 gives a part somewhere to stand — furniture, but the
-first with a switch, the visibility row's sixth toggle — and a rotate drag
-snaps too (ADR-0029): direction-only, the nearest frame axis landing on the
-feature's, a spoke at the gizmo saying which.
-**Before:** v0.3 (`v0.3.0`) the hand-feel debt (ADR-0018/19/20); v0.2
+**v0.5 — the viewport and the camera — is closed (2026-09-12); the human
+tags `v0.5.0`.** Still one turntable (ADR-0028): the ViewCube aims it and
+owns the projection readout, `W A S D E Q` walk its pivot into an
+assembly, and the pivot is drawn while a gesture is live. Beside it a
+ground grid at z = 0, a multisampled scene pass, a rotate drag that lands
+a frame axis on the feature under it (ADR-0029), and in View a glyph that
+is the band or the bars alone, opaque (ADR-0027).
+**Next:** v0.6, the import gap's last mile — the 31 Menagerie models that
+import and then refuse to *export*, a default material for an imported
+link, a `PackageMap` UI, the two numbers `validate` skips, collision poses
+under `MoveJointFrame`. Nothing planned yet; `/idea` for the first line.
+**Before:** v0.4 (`v0.4.0`) the lossless MJCF round trip and the two
+modes, schema 6, Menagerie's importing files 93 → 172 of 261 (ADR-0021 to
+0026; composite joints, `<replicate>` and `<attach>` refused); v0.3
+(`v0.3.0`) the hand-feel debt (ADR-0018/19/20); v0.2
 (`v0.2.1`) sim-ready — SDK wheel, V-HACD, frames / mimics / actuators,
 MJCF import, SDF export, the web demo (ADR-0009 to 0017); M4 the wheel;
 M3 writers, URDF import, inertials, collision; M2 the mouse-only arm;
