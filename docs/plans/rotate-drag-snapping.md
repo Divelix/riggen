@@ -99,7 +99,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   is already aligned gives a zero correction and still names the axis.
   Index row in `docs/adr/README.md`. No behaviour changes yet, nothing
   visible.
-- [ ] **[3]** Step 2 — **the drag lands the axis.** `rotate_dragging`,
+- [x] **[3]** Step 2 — **the drag lands the axis.** `rotate_dragging`,
   `snapping()`, the direction-only ladder, the pick exclusion for a link
   drag, the ring latched at drag start, the correction applied to the
   preview, the release committing it unchanged. Tests: `a_rotate_drag_does_not_snap`
@@ -131,8 +131,11 @@ PNG golden reviewed by the human before it is committed.
 - `docs/ARCHITECTURE.md` §Picking and snapping — four gestures ask for the
   ladder, not three; the rotate rule and the direction-only ladder; the
   `set_pick_excluded` sentence; the `set_select_suppressed` row's "translate
-  drag" → "a gizmo drag"; the test list (`a_rotate_drag_does_not_snap` out,
-  the three new names in, `gizmo_rotate_drag_snaps_to_a_bore` in the golden
+  drag" → "a gizmo drag"; the `set_pick_suppressed` sentence, which also
+  stopped saying "translate"; the sentence step 2 found — over geometry a
+  rotate drag reaches four orientations per ring and free rotation is over
+  the background; the test list (`a_rotate_drag_does_not_snap` out, the
+  three new names in, `gizmo_rotate_drag_snaps_to_a_bore` in the golden
   set).
 - `docs/adr/README.md` — ADR-0029's row, and ADR-0019's status becomes
   "Accepted, §5 amended by 0029".
@@ -144,6 +147,30 @@ PNG golden reviewed by the human before it is committed.
   lines.
 - `docs/BACKLOG.md` — nothing removed (the snap-quantum line is explicitly
   out of scope and stays); a new line if step 2 leaves one behind.
+
+## What step 2 found (the plan was short by three)
+
+- **`app/mod.rs`'s `set_pick_suppressed` had to narrow too**, from
+  `!translate_dragging()` to `!gizmo_dragging()`. The design deltas named
+  only `compute_snap`'s early return; with the switch left alone the picks
+  were off for the whole rotate drag and the ladder had nothing to run
+  against.
+- **`GizmoState` keeps the drag's raw pose** beside the latched ring. The
+  crate solves a *rotation* as a delta on the transform it is handed
+  (`update_transforms_with_result` → `update_rotation`), unlike a
+  translation, which it solves from the transform at drag start. Handing it
+  the corrected pose would erase each frame's delta as fast as it
+  accumulated and the part could never leave the first alignment it found.
+  The raw pose is what the crate goes on solving against; the corrected one
+  is what the scene, the commit and (step 3) the overlay see.
+- **`a_ring_drag_turns_about_the_ring_the_hover_named` now drags out to
+  where nothing snaps.** It reads the rotation the crate produced, and on
+  the pendulum's cube every face normal is cardinal, so an unconditional
+  snap (ADR-0029 §6) cancelled exactly the rotation it was measuring. The
+  test walks the cursor outward until `snap()` is `None` and says why.
+  That is the decision working as decided, and it is worth a sentence in
+  the design doc: over geometry a rotate drag reaches four orientations per
+  ring; free rotation is over the background.
 
 ## Open questions
 

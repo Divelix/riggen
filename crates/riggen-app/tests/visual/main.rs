@@ -4178,10 +4178,46 @@ fn a_ring_drag_turns_about_the_ring_the_hover_named() {
                 .gizmo_world(harness.state().gizmo_target().expect("a gizmo"))
                 .expect("a pose");
             // Tangentially, so the drag is along the ring rather than
-            // across it.
+            // across it, and walked outward until it has nothing under it:
+            // a rotate drag over a feature lands an axis on that feature
+            // (ADR-0029), and on a cube every face normal is cardinal, so
+            // the correction would cancel exactly the rotation this test is
+            // here to read. Where the ladder finds nothing the drag is
+            // free, which is the state this measures in.
             let spoke = (at - origin).normalized();
-            let to = at + egui::vec2(-spoke.y, spoke.x) * 40.0;
-            synthetic_drag(harness, at, to, 8);
+            let tangent = egui::vec2(-spoke.y, spoke.x);
+            harness.hover_at(at);
+            pump_rendered(harness, 4);
+            harness.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            });
+            pump_rendered(harness, 2);
+            let mut to = at;
+            for reach in 1..=10 {
+                to = at + tangent * (reach as f32 * 40.0);
+                harness.event(egui::Event::PointerMoved(to));
+                pump_rendered(harness, 6);
+                if harness.state().snap().is_none() {
+                    break;
+                }
+            }
+            assert_eq!(
+                harness.state().snap(),
+                None,
+                "the {} ring drag ends with nothing to land on",
+                ring.label()
+            );
+            harness.event(egui::Event::PointerButton {
+                pos: to,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+            pump_rendered(harness, 4);
+            harness.event(egui::Event::PointerGone);
             settle(harness);
 
             let after = harness
@@ -4536,50 +4572,158 @@ fn a_drag_looks_through_the_part_it_is_moving() {
     });
 }
 
-/// A rotate drag turns about a named axis; there is nothing in the ladder
-/// for it to land on, so it does not snap (ADR-0019 §5).
+/// How far off the bore's axis the dragged part starts: inside the 45° the
+/// four candidates divide the ring's plane into, so the axis the drag has
+/// already brought nearest — and therefore the one that lands — is its +Z.
+const ROTATE_SNAP_TILT: f64 = 20.0;
+
+/// A shaft standing [`ROTATE_SNAP_TILT`] off the bore it sits in, and a
+/// rotate drag on its **X** ring left with the button **down**.
+///
+/// The cursor stays on the bore's wall and moves straight *out* from the
+/// ring's centre rather than round it, so the drag itself sweeps almost no
+/// angle: what lands the shaft's axis on the bore's is the snap. The
+/// shaft's own geometry is looked through while it is being dragged
+/// (ADR-0019 §5, ADR-0029 §9), which is why the bore behind it is what the
+/// ladder finds. Returns the bore's link, the dragged link, and the history
+/// depth before the gesture.
+fn rotate_drag_onto_a_bore(
+    harness: &mut egui_kittest::Harness<'_, riggen_app::RiggenApp>,
+) -> (LinkId, LinkId, usize) {
+    let boss_path = cylinder_stl("rotate_snap_boss", 0.012, 0.05, 24);
+    let shaft_path = cylinder_stl("rotate_snap_shaft", 0.004, 0.06, 16);
+    let app = harness.state_mut();
+    let boss = app.open_path(&boss_path).expect("open the boss").unwrap();
+    let shaft = app.open_path(&shaft_path).expect("open the shaft").unwrap();
+    let joint = app.robot().parent_joint(shaft).unwrap();
+    let mut edited = app.robot().joints[&joint].clone();
+    edited.origin = Pose::from_xyz_rpy(
+        DVec3::ZERO,
+        DVec3::new(ROTATE_SNAP_TILT.to_radians(), 0.0, 0.0),
+    );
+    app.apply(Command::SetJoint(joint, edited)).unwrap();
+    app.fit_view_now();
+    app.set_tool(Tool::Rotate);
+    app.select(Selection::Link(shaft));
+    settle(harness);
+
+    // The gizmo is in the middle of the bore, so its rings are drawn over
+    // the bore's wall wherever they are grabbed.
+    let from = ring_cursor(harness, RingAxis::X);
+    let out = (from - gizmo_handle(harness)).normalized();
+    let to = from + out * 25.0;
+
+    let depth = harness.state().history().undo_depth();
+    harness.hover_at(from);
+    pump_rendered(harness, 4);
+    harness.event(egui::Event::PointerButton {
+        pos: from,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    pump_rendered(harness, 2);
+    harness.event(egui::Event::PointerMoved(to));
+    pump_rendered(harness, 10);
+    (boss, shaft, depth)
+}
+
+/// A rotate drag lands one of the dragged frame's own axes on the feature
+/// under the cursor (ADR-0029): the drag's plane is the ring's, the ladder
+/// runs direction-only, and the nearest of the four signed directions —
+/// here the frame's +Z, 20° off to start with — is turned exactly onto the
+/// bore's axis while the button is still down.
 #[test]
-fn a_rotate_drag_does_not_snap() {
+fn a_rotate_drag_lands_an_axis_on_a_bore() {
     with_app(|harness| {
-        let app = harness.state_mut();
-        open_for_editing(app, &fixture("pendulum.riggen")).expect("open the corpus file");
-        let arm = *app
-            .robot()
-            .links
-            .iter()
-            .find(|(_, l)| l.name == "arm")
-            .map(|(id, _)| id)
-            .unwrap();
-        app.fit_view_now();
-        app.set_tool(Tool::Rotate);
-        app.select(Selection::Link(arm));
-        settle(harness);
+        let (boss, shaft, _) = rotate_drag_onto_a_bore(harness);
 
-        let from = ring_cursor(harness, RingAxis::Z);
-        let spoke = (from - gizmo_handle(harness)).normalized();
-        let to = from + egui::vec2(-spoke.y, spoke.x) * 40.0;
-        harness.hover_at(from);
-        pump_rendered(harness, 4);
-        harness.event(egui::Event::PointerButton {
-            pos: from,
-            button: egui::PointerButton::Primary,
-            pressed: true,
-            modifiers: egui::Modifiers::NONE,
-        });
-        pump_rendered(harness, 2);
-        harness.event(egui::Event::PointerMoved(to));
-        pump_rendered(harness, 10);
+        assert!(harness.state().rotate_dragging(), "still dragging");
+        let snap = harness
+            .state()
+            .snap()
+            .expect("the bore is under the cursor");
+        assert_eq!(snap.link, boss, "the bore, not the part being turned");
+        assert_eq!(
+            snap.kind,
+            riggen_app::SnapKind::Circle,
+            "direction-only: a vertex and a box corner are skipped"
+        );
 
-        assert!(harness.state().gizmo_dragging(), "still dragging");
-        assert!(!harness.state().translate_dragging(), "a rotate drag");
-        assert_eq!(harness.state().snap(), None, "a rotate drag does not snap");
+        // The previewed frame's +Z is on the bore's axis. A circle's axis
+        // has no preferred direction, so the line is what agrees.
+        let pose = harness
+            .state()
+            .gizmo_world(riggen_app::GizmoTarget::Link(shaft))
+            .expect("the drag's own pose");
+        let off = (pose.r * DVec3::Z)
+            .dot(snap.axis())
+            .abs()
+            .clamp(-1.0, 1.0)
+            .acos();
+        assert!(
+            off < 0.5f64.to_radians(),
+            "the preview is {}° off the bore",
+            off.to_degrees()
+        );
+
+        // And nothing has been written yet: the document still holds the
+        // part as it stood, twenty degrees off.
+        let app = harness.state();
+        let resting = riggen_core::fk(app.robot(), &riggen_core::JointState::default())[&shaft];
+        let tilt = (resting.r * DVec3::Z).dot(DVec3::Z).clamp(-1.0, 1.0).acos();
+        assert!(
+            (tilt.to_degrees() - ROTATE_SNAP_TILT).abs() < 0.5,
+            "the drag previews: the document is still {}° off",
+            tilt.to_degrees()
+        );
+
         harness.event(egui::Event::PointerButton {
-            pos: to,
+            pos: harness.state().viewport_center().unwrap(),
             button: egui::PointerButton::Primary,
             pressed: false,
             modifiers: egui::Modifiers::NONE,
         });
         pump_rendered(harness, 8);
+    });
+}
+
+/// The release commits what the preview showed, and costs one history
+/// entry: one gesture, one command (AGENTS.md, ADR-0029 §9).
+#[test]
+fn a_snapped_rotate_drag_commits_the_alignment() {
+    with_app(|harness| {
+        let (_, shaft, depth) = rotate_drag_onto_a_bore(harness);
+        let previewed = harness
+            .state()
+            .gizmo_world(riggen_app::GizmoTarget::Link(shaft))
+            .expect("the drag's own pose");
+        let at = harness.state().viewport_center().unwrap();
+        harness.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        pump_rendered(harness, 8);
+
+        let app = harness.state();
+        assert!(!app.gizmo_dragging(), "the drag is over");
+        assert_eq!(
+            app.history().undo_depth(),
+            depth + 1,
+            "one drag, one history entry"
+        );
+        let committed = riggen_core::fk(app.robot(), &riggen_core::JointState::default())[&shaft];
+        let off = (committed.r * DVec3::Z)
+            .dot(previewed.r * DVec3::Z)
+            .clamp(-1.0, 1.0)
+            .acos();
+        assert!(
+            off < 0.5f64.to_radians(),
+            "the release moved the part {}° from what the preview showed",
+            off.to_degrees()
+        );
     });
 }
 

@@ -535,9 +535,10 @@ impl eframe::App for RiggenApp {
                 // the geometry that would answer for it, but the camera has
                 // no reason to stop (ADR-0010).
                 //
-                // The exception is a translate drag: it *wants* the hover
-                // pick, because the snap ladder under the cursor is what it
-                // lands on (ADR-0019 §4).
+                // The exception is a gizmo drag of either kind: it *wants*
+                // the hover pick, because the snap ladder under the cursor
+                // is what it lands on — a point for a translate drag
+                // (ADR-0019 §4), a direction for a rotate one (ADR-0029).
                 //
                 // In View the picks are off outright: only the glyphs answer
                 // the cursor, and a mesh is neither tinted nor selectable
@@ -548,7 +549,7 @@ impl eframe::App for RiggenApp {
                     view || over_toolbar
                         || self.glyph_hover.is_some()
                         || self.frame_glyph_hover.is_some()
-                        || (self.gizmo_state.captured && !self.translate_dragging()),
+                        || (self.gizmo_state.captured && !self.gizmo_dragging()),
                 );
                 // The camera, on the other hand, belongs to the toolbar while
                 // the cursor is on it — it is drawn in the viewport's own

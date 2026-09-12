@@ -16,6 +16,11 @@
 //!   translation leaves it pointing the same way. Nothing in the world
 //!   moves, which is the point — only the pivot does.
 //!
+//! A drag snaps, both ways round (ADR-0019 §5, ADR-0029): a **translate**
+//! drag puts the gizmo's own origin on the feature under the cursor, a
+//! **rotate** drag turns one of the dragged frame's own axes onto that
+//! feature's direction, in the plane of the ring it started on.
+//!
 //! Drag previews, release commits (AGENTS.md: one gesture = one command).
 //! During a link drag `preview_world` overrides the FK pose in `sync_scene`
 //! and no command exists yet; the single command is applied when the crate
@@ -80,6 +85,19 @@ pub(crate) struct GizmoState {
     /// ([`ring_under_cursor`]). `None` outside the Rotate tool, off the
     /// handles, and on the crate's fourth — view-axis — ring.
     pub(crate) hovered_ring: Option<RingAxis>,
+    /// The ring a rotate drag started on, latched for as long as it lasts:
+    /// the snap needs the drag's plane, and `hovered_ring` is gated on a
+    /// handle being under the cursor, so it goes `None` the moment the
+    /// drag leaves the band (ADR-0029 §1). `None` for a view-ring drag,
+    /// which is not claimed.
+    pub(crate) drag_ring: Option<RingAxis>,
+    /// The rotate drag's pose **before** the snap's correction. The crate
+    /// applies each frame's rotation delta to the transform it is handed,
+    /// so handing it the corrected one would erase the drag as fast as it
+    /// accumulates and the part could never leave the first alignment it
+    /// found. The raw pose is what the crate keeps solving against; the
+    /// corrected one is what the scene, the overlay and the commit see.
+    raw: Option<Pose>,
     /// The wheel gesture the ring steps under, and when its last notch
     /// was: notches closer together than [`WHEEL_BURST`] coalesce into one
     /// history entry (ADR-0019 §2).
@@ -204,8 +222,15 @@ impl RiggenApp {
             ..Default::default()
         });
 
-        let transform =
-            Transform::from_scale_rotation_translation(DVec3::ONE, world.r.normalize(), world.t);
+        // The crate solves a rotation as a delta on the transform it is
+        // handed, so a snapped rotate drag hands it the *raw* pose it
+        // produced last frame rather than the corrected one it is showing.
+        let solving = self.gizmo_state.raw.unwrap_or(world);
+        let transform = Transform::from_scale_rotation_translation(
+            DVec3::ONE,
+            solving.r.normalize(),
+            solving.t,
+        );
 
         // Our own hit test, not the widget's `hovered()`: `pick_preview`
         // asks the subgizmos directly, so it answers this frame rather than
@@ -256,6 +281,13 @@ impl RiggenApp {
                         DVec3::from(next.translation),
                         DQuat::from(next.rotation).normalize(),
                     );
+                    // The ring this drag turns about, latched at the frame
+                    // it starts on — the only frame `hovered_ring` is still
+                    // answering, since the cursor leaves the band at once
+                    // (ADR-0029 §1).
+                    if self.gizmo_state.drag.is_none() {
+                        self.gizmo_state.drag_ring = self.gizmo_state.hovered_ring;
+                    }
                     // A translate drag lands on the feature under the
                     // cursor, if there is one: the same ladder, marker and
                     // readout the placement tools use, and the gizmo's own
@@ -266,6 +298,22 @@ impl RiggenApp {
                         && let Some(snap) = self.snap_candidate
                     {
                         pose = Pose::new(snap.point, pose.r);
+                    }
+                    // A rotate drag lands the other way round: the
+                    // translation is the drag's and one of the dragged
+                    // frame's own axes is turned onto the feature's
+                    // direction, in the latched ring's plane (ADR-0029).
+                    // The raw pose is kept for the crate to go on solving
+                    // against.
+                    if self.rotate_dragging() {
+                        self.gizmo_state.raw = Some(pose);
+                        if let Some(ring) = self.gizmo_state.drag_ring
+                            && let Some(snap) = self.snap_candidate
+                            && let Some(landed) =
+                                super::snap::align_in_plane(ring, pose.r, snap.axis())
+                        {
+                            pose = Pose::new(pose.t, (landed.correction * pose.r).normalize());
+                        }
                     }
                     self.gizmo_state.drag = Some((target, pose));
                     // Only a link drag moves anything in the world; a pivot
@@ -288,6 +336,8 @@ impl RiggenApp {
     /// a target that is no longer the gizmo's (the selection changed
     /// mid-drag).
     fn end_gizmo_drag(&mut self, expected: Option<GizmoTarget>) {
+        self.gizmo_state.drag_ring = None;
+        self.gizmo_state.raw = None;
         let Some((target, pose)) = self.gizmo_state.drag.take() else {
             return;
         };

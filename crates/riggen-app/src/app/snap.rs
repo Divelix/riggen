@@ -19,6 +19,12 @@
 //! The ladder is a pure function ([`choose`]) so it is unit-tested without
 //! a GPU, and the circle fit is memoised per `(instance, triangle)`: a
 //! cursor resting on one facet fits once, not once per frame.
+//!
+//! While a **rotate** gizmo drag is in flight the ladder runs
+//! *direction-only* — rungs 3 and 4 alone, since a vertex and a box corner
+//! say nothing about direction — and [`align_in_plane`] turns what it finds
+//! into the correction that lands one of the dragged frame's own axes on it
+//! (ADR-0029).
 
 use riggen_core::glam::{DMat4, DQuat, DVec3};
 use riggen_core::{JointId, LinkId, Pose};
@@ -140,14 +146,13 @@ pub(crate) fn choose(
 /// ring's plane for the alignment to mean anything. Below this the feature
 /// axis is parallel to the ring's: no rotation about that ring brings any
 /// frame axis onto it, so there is no snap (ADR-0029 §3).
-#[allow(dead_code, reason = "the drag calls it at step 2 of the plan")]
 const MIN_PROJECTION: f64 = 1e-3;
 
 /// What a rotate drag landed on: which of the dragged frame's own axes, the
 /// world direction it lands along, and the correction that puts it there
 /// (ADR-0029).
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[allow(dead_code, reason = "the drag calls it at step 2 of the plan")]
+#[allow(dead_code, reason = "the overlay reads the rest at step 3 of the plan")]
 pub(crate) struct Alignment {
     /// The signed frame axis that lands — `"+z"`, `"-x"`.
     pub axis: &'static str,
@@ -177,7 +182,6 @@ pub(crate) struct Alignment {
 /// snapped feature's world axis (a fitted circle's, else the face normal).
 /// `None` when the feature axis is parallel to the ring's, because then no
 /// rotation about this ring can reach it.
-#[allow(dead_code, reason = "the drag calls it at step 2 of the plan")]
 pub(crate) fn align_in_plane(
     ring: RingAxis,
     rotation: DQuat,
@@ -225,7 +229,6 @@ pub(crate) fn align_in_plane(
 }
 
 /// The two frame axes a drag about `ring` can move.
-#[allow(dead_code, reason = "the drag calls it at step 2 of the plan")]
 fn perpendiculars(ring: RingAxis) -> [RingAxis; 2] {
     match ring {
         RingAxis::X => [RingAxis::Y, RingAxis::Z],
@@ -235,7 +238,6 @@ fn perpendiculars(ring: RingAxis) -> [RingAxis; 2] {
 }
 
 /// `"+z"` / `"-x"`: the axis as the readout and `debug_state` name it.
-#[allow(dead_code, reason = "the drag calls it at step 2 of the plan")]
 fn signed_label(axis: RingAxis, positive: bool) -> &'static str {
     match (axis, positive) {
         (RingAxis::X, true) => "+x",
@@ -298,17 +300,15 @@ impl RiggenApp {
         }
     }
 
-    /// The instances a translate drag is carrying: the dragged link's
-    /// whole subtree, visual and collision alike. The picks look through
-    /// them, so the part that follows the cursor cannot cover the feature
-    /// the drag is aiming at — or snap to itself (ADR-0019 §5).
+    /// The instances a **link** drag is carrying: the dragged link's whole
+    /// subtree, visual and collision alike. The picks look through them, so
+    /// the part that follows the cursor cannot cover the feature the drag
+    /// is aiming at — or snap to itself (ADR-0019 §5). A rotate drag turns
+    /// that same subtree and needs the same exclusion (ADR-0029 §9).
     pub(crate) fn dragged_instances(&self) -> Vec<InstanceId> {
         let Some((super::GizmoTarget::Link(dragged), _)) = self.gizmo_state.drag else {
             return Vec::new();
         };
-        if !self.translate_dragging() {
-            return Vec::new();
-        }
         let moving = self.robot.subtree(dragged);
         self.instances
             .iter()
@@ -323,17 +323,26 @@ impl RiggenApp {
             .collect()
     }
 
-    /// Whether a **translate** gizmo drag is in flight: the drag that
-    /// snaps (ADR-0019 §5). A rotate drag turns about a named axis and has
-    /// nothing in the ladder to land on.
+    /// Whether a **translate** gizmo drag is in flight: the drag that lands
+    /// the gizmo's origin on a feature (ADR-0019 §5).
     pub fn translate_dragging(&self) -> bool {
         self.tool == Tool::Move && self.gizmo_dragging()
     }
 
+    /// Whether a **rotate** gizmo drag is in flight: the drag that lands one
+    /// of the dragged frame's own axes on a feature's direction
+    /// (ADR-0029). The ladder runs direction-only for it.
+    pub fn rotate_dragging(&self) -> bool {
+        self.tool == Tool::Rotate && self.gizmo_dragging()
+    }
+
     /// Whether the snap ladder runs this frame: a placement tool, a frame
-    /// being placed under Move / Rotate, or a translate drag.
+    /// being placed under Move / Rotate, or a gizmo drag of either kind.
     pub fn snapping(&self) -> bool {
-        self.tool.snaps() || self.placing_frame().is_some() || self.translate_dragging()
+        self.tool.snaps()
+            || self.placing_frame().is_some()
+            || self.translate_dragging()
+            || self.rotate_dragging()
     }
 
     /// Recomputes the snap target for this frame. Called before the overlay
@@ -347,10 +356,10 @@ impl RiggenApp {
 
     fn compute_snap(&mut self, ctx: &egui::Context) -> Option<SnapCandidate> {
         // Nothing behind the toolbar, the gizmo or a modal is being pointed
-        // at, and a click there must not place anything either. A translate
-        // drag is the exception: the gizmo owns the cursor and still wants
-        // to know what is under it.
-        if (self.gizmo_state.captured && !self.translate_dragging()) || self.pending.is_some() {
+        // at, and a click there must not place anything either. A gizmo
+        // drag is the exception: it owns the cursor and still wants to know
+        // what is under it.
+        if (self.gizmo_state.captured && !self.gizmo_dragging()) || self.pending.is_some() {
             return None;
         }
         let hit = self.viewport.hovered()?;
@@ -411,8 +420,14 @@ impl RiggenApp {
             .transform_vector3((corners[1] - corners[0]).cross(corners[2] - corners[0]))
             .normalize_or_zero();
 
+        // A rotate drag lands a *direction*, and a vertex or a box corner
+        // says nothing about direction — the same reason Place joint leaves
+        // the axis alone for them — so those two rungs are skipped while
+        // one is in flight and the ladder is circle > point (ADR-0029 §5).
+        let direction_only = self.rotate_dragging();
+
         // Vertex: a corner of that triangle, in screen space.
-        let vertex = {
+        let vertex = (!direction_only).then(|| {
             let projected: Vec<_> = corners
                 .iter()
                 .filter_map(|c| {
@@ -421,11 +436,11 @@ impl RiggenApp {
                 })
                 .collect();
             nearest_within(cursor, &projected, SNAP_PIXEL_RADIUS).map(|(_, at)| at)
-        };
+        });
 
         // Box: the instance's own bounds, corners and face centres — the
         // ones on this side of the part (see `in_front_of`).
-        let boxed = {
+        let boxed = (!direction_only).then(|| {
             let bounds = self
                 .viewport
                 .instance_states()
@@ -440,13 +455,13 @@ impl RiggenApp {
                 .filter_map(|(world, kind)| Some((self.viewport.project(world)?, world, kind)))
                 .collect();
             nearest_within(cursor, &projected, SNAP_PIXEL_RADIUS)
-        };
+        });
 
         let circle = self
             .cached_circle(mesh_id, hit.instance, hit.triangle)
             .map(|fit| world_circle(&fit, &model));
 
-        let (kind, point, circle) = choose(vertex, boxed, circle, hit_point);
+        let (kind, point, circle) = choose(vertex.flatten(), boxed.flatten(), circle, hit_point);
         Some(SnapCandidate {
             kind,
             point,
