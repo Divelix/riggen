@@ -306,9 +306,14 @@ to fix are fixable in the window.*
 v0.4 made the way *in* lossless and measured what it bought: 172 of
 Menagerie's 261 models import. 31 of those then refuse to **export**, all
 of them on a link the user never touched, which is the largest remaining
-gap between "imports" and "round-trips". Every line below is a backlog
-line this section now owns.
+gap between "imports" and "round-trips". Every import line below is a
+backlog line this section now owns; the first line is chrome, taken ahead
+of them by the human's call.
 
+- **The ViewCube names the axes and steps the view, from the top-right**:
+  X, Y and Z on its corner over a translucent cube, four arrows that turn
+  the view 15°, the visibility row beside it, and the bottom-left triad
+  gone (ADR-0030, ADR-0031). *Landed.*
 - **Every file that imports, exports.** The 31 refused on `link "base": no
   material and no density override` (ADR-0015 §7) — a default density, an
   unweighed-link mark or a better message; an idea decides which.

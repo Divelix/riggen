@@ -29,7 +29,9 @@ is the band or the bars alone, opaque (ADR-0027).
 **Next:** v0.6, the import gap's last mile — the 31 Menagerie models that
 import and then refuse to *export*, a default material for an imported
 link, a `PackageMap` UI, the two numbers `validate` skips, collision poses
-under `MoveJointFrame`. Nothing planned yet; `/idea` for the first line.
+under `MoveJointFrame`; `/idea` for the first. Landed ahead of them, by the
+human's call: the ViewCube went top-right, letters X Y Z on its corner and
+steps the view 15°, and the bottom-left triad is gone (ADR-0030, 0031).
 **Before:** v0.4 (`v0.4.0`) the lossless MJCF round trip and the two
 modes, schema 6, Menagerie's importing files 93 → 172 of 261 (ADR-0021 to
 0026; composite joints, `<replicate>` and `<attach>` refused); v0.3

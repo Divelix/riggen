@@ -42,15 +42,17 @@ without a wheel, `pip install` builds the SDK from source with `cargo` on
    tree on the left, the viewport with the robot. Drag with the left
    button to orbit and with the right to pan (shift+left pans too, for a
    trackpad; the middle button orbits and shift+middle pans), zoom with the
-   wheel, `Home` to frame everything. The **ViewCube** in the bottom-right
-   says which way you are looking: click a face, edge or corner to fly to
-   that view, drag it to orbit, click the house to frame everything, and
-   the button under it switches perspective and orthographic. `W A S D E Q`
+   wheel, `Home` to frame everything. The **ViewCube** in the top-right
+   says which way you are looking, and the red, green and blue arms on its
+   corner are X, Y and Z: click a face, edge or corner to fly to that view,
+   drag it to orbit, click an arrow round it to turn the view 15°, click
+   the house to frame everything, and the button under it switches
+   perspective and orthographic. `W A S D E Q`
    walk the camera *into* the assembly — the point it orbits around comes
    with you, so a joint buried in a shell can be put in front of you and
    then turned around locally. The arm stands on a **ground grid** at
    z = 0, so a part at the origin reads as resting on something. The six
-   buttons top-right are the **visibility row**: ground, joints, joint
+   buttons left of the cube are the **visibility row**: ground, joints, joint
    names, frames, links, collision geometry. Switching one off takes it
    out of the picture *and* out of the cursor's reach, so with joints off
    you get the robot and nothing else — the status bar says what is

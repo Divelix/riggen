@@ -122,9 +122,9 @@ riggen/
 │       ├── src/app/        # document, file_io, file_menu, export_dialog, debug_menu,
 │       │                   # shortcuts, status_bar, tool, gizmo, glyphs, snap, align,
 │       │                   # mode (View | Edit and zen, ADR-0021), overlays (the
-│       │                   # visibility row), viewcube/{facets, projection, widget}
-│       │                   # (ADR-0028), panels/{tree, joint_tree, properties,
-│       │                   # materials}
+│       │                   # visibility row), viewcube/{facets, projection, axes,
+│       │                   # arrows, widget} (ADR-0028, 0030), panels/{tree,
+│       │                   # joint_tree, properties, materials}
 │       └── src/debug/      # debug_state(): what the app thinks it drew, as JSON (ADR-0003)
 │   ├── riggen-py/          # cdylib `_riggen`, the PyO3 abi3 extension module `riggen._riggen`
 │   │                       # over core + export; `test = false`, tested from Python (ADR-0009)
@@ -222,7 +222,7 @@ pub struct RiggenApp {
     hovered_frame, frame_glyph_hover,                  // the same pair for a frame's triad glyph
     snap_cache, align_source, chrome_rects,            // the memoised fit, the align gesture's first pick,
     viewcube_rect,                                      // and the three corner-chrome rects; the cube's own is
-                                                        // kept apart so a test can click a facet (ADR-0028 §3)
+                                                        // kept apart for the ViewCube's test hooks (ADR-0030)
     import_scale: f64, pending: Option<PendingAction>,  // File › Import units; New/Open/Quit awaiting the dirty answer
     export_dialog: ExportDialog,                        // File › Export…: options, directory, the resolve errors
     mode, zen, stashed_q, tree, joint_tree, props, materials_window, // View / Edit, zen, the stashed pose; transient panel state
@@ -389,39 +389,73 @@ below.
   Rotate / Place joint / Align — each in a popup frame floating over the
   viewport's top-left corner. Drawn *after* the viewport in the same layer,
   which is what gives them the pointer: egui's hit test prefers the widget
-  registered last. Their joint rect, the **visibility row**'s at the
-  top-right and the **ViewCube**'s at the bottom-right are remembered as
+  registered last. Their joint rect, the **ViewCube**'s block at the
+  top-right and the **visibility row**'s just left of it are remembered as
   `chrome_rects` — three of them: the camera holds still and the picks are
   off under any, and no glyph is hovered through them (`over_chrome`). In
   **zen** none is drawn and the list is *cleared* rather than left holding
   the previous frame's rects: nothing is there, so nothing may go on
   blocking (ADR-0021, amended).
-- **The ViewCube** (bottom-right, `app/viewcube/`, ADR-0028 §3): a
-  chamfered cube showing the camera's own orientation — the face towards
-  you on the cube is the face towards you in the viewport. Click a facet
-  and the camera animates to that view (`animate_to_orientation`); drag
-  the cube and it orbits at the viewport's own radians-per-point; the
-  house icon in its top-left corner re-frames the scene
+- **The ViewCube** (top-right, `app/viewcube/`, ADR-0028 §3, ADR-0030,
+  ADR-0031): a chamfered cube showing the camera's own orientation — the
+  face towards you on the cube is the face towards you in the viewport.
+  Click a facet and the camera animates to that view
+  (`animate_to_orientation`); drag the cube and it orbits at the viewport's
+  own radians-per-point (`drag_orbit`); the house icon re-frames the scene
   (`animate_frame_scene`); the button under it reads `Perspective` or
   `Orthographic` and switches between them. That button **is** the
-  projection readout — the viewport used to paint `persp` / `ortho` in
-  this corner and no longer does, so the thing that says which projection
-  is live is the thing that changes it, and zen has no readout at all
-  (ADR-0028 §5; `P`, `Num5` and `debug_state().camera.projection` still
-  answer). Its 26 facets are the 26 `ViewOrientation` variants —
-  6 face squares, 12 edge quads, 8 corner triangles — projected through
-  the scene camera's basis in a fixed orthographic projection of its own,
-  so the cube is the same size in the corner whatever the scene is doing;
-  depth-sorted back to front, backfacing facets culled, and hit-tested as
-  convex polygons in screen space, front-most first. Face labels are
-  meshed into the face's *own plane*, so they foreshorten with it. It is
-  app-side and painter-drawn: it writes the camera but does not own it,
-  picking a facet needs a screen-space hit test regardless, and a third
-  wgpu pass is one more thing a later MSAA change would have to be
-  taught. The bottom-left **axes triad** stays where it is, in the
-  viewport's own pass — it names the axes, the cube names the faces.
-  `viewcube_facet_center` projects one facet for a test that wants to
-  click it, and answers `None` in zen.
+  projection readout — the viewport paints no `persp` / `ortho` of its
+  own, so the thing that says which projection is live is the thing that
+  changes it, and zen has no readout at all (ADR-0028 §5; `P`, `Num5` and
+  `debug_state().camera.projection` still answer). Its 26 facets are the
+  26 `ViewOrientation` variants — 6 face squares, 12 edge quads, 8 corner
+  triangles — projected through the scene camera's basis in a fixed
+  orthographic projection of its own (`cube_scale`), so the cube is the
+  same size in the corner whatever the scene is doing; depth-sorted back
+  to front, backfacing facets culled, and hit-tested as convex polygons in
+  screen space, front-most first. The facets are filled at **50 % alpha**;
+  the face labels, meshed into the face's *own plane* so they foreshorten
+  with it, are opaque.
+
+  **The world axes ride on its corner** (`axes.rs`). Three arms — X red,
+  Y green, Z blue, `AXIS_COLORS`, the colours every triad in the app uses
+  — start just outside the (−X, −Y, −Z) corner (`AXES_GAP`) and run along
+  its three edges for `ARM_LENGTH`, 1.2 edges, through the same basis and
+  scale as the facets. An arm is split into the runs the cube hides — a
+  point that projects into a front-facing facet and lies on the cube's
+  side of that facet's plane, exact because the cube is convex — and the
+  runs nothing hides. The widget paints the hidden runs, the translucent
+  facets, the labels, then the open runs, so a hidden arm shows through the
+  fill in its own opaque colour. Each arm's letter sits past its end; a
+  letter whose end is behind the cube is **not drawn at all**, one covered
+  by a nearer letter (two arms on one screen line, at six edge views) is
+  dropped the same way, and an arm pointing at the eye turns its letter out
+  along the corner's direction. The arms are paint — not clickable, no part
+  of what a click selects — and the only axes indicator the window has; zen
+  has none.
+
+  **Four step arrows** (`arrows.rs`) sit on a ring 28 pt outside the cube's
+  circle at 12, 3, 6 and 9 o'clock, past the farthest any letter reaches.
+  A click is `ViewCubeAction::Step`: the camera animates 15° (`ARROW_STEP`)
+  in yaw or pitch from wherever it is (`step_camera`), the way a drag of
+  the cube towards that arrow turns it — `Right` −15° of yaw, `Up` −15° of
+  pitch — with pitch stopped at ±90°, so a step past a pole is a no-op
+  rather than a flip. There are no roll arrows (ADR-0028 §1). Arrows are
+  hit before the house, the button and the facets.
+
+  The widget's clip and the rect it returns for `chrome_rects` are the
+  whole **block** (`viewcube_block`): the cube, the arms' reach at any
+  orientation, the arrows and the button below the down arrow, with the
+  house at the reach's top-left corner. `mode.rs::viewcube_rect_in` places
+  the cube, 92 pt square, so the block's top-right is 8 pt in from the
+  viewport's corner, and the visibility row ends 8 pt short of the block.
+  It is app-side and painter-drawn: it writes the camera but does not own
+  it, picking a facet needs a screen-space hit test regardless, and a third
+  wgpu pass is one more thing a later MSAA change would have to be taught.
+  `viewcube_facet_center`, `viewcube_axis_tips`, `viewcube_arrow_center`
+  and `viewcube_rect` answer where a facet, an arm's tip (and whether its
+  letter is drawn), an arrow and the cube itself landed, for a test, and
+  `None` in zen.
 - **Zen** (`Z`, `mode.rs`): every panel — the menu bar, the status bar,
   the left panel, the properties panel — and all three pieces of corner
   chrome hidden, so the viewport fills the window with the robot alone; `Z`
@@ -445,8 +479,8 @@ below.
   to be read off two number fields. A glyph **in full** — what Edit
   draws; View draws less of it, below — is an axis segment through the
   **pivot** (`world(parent) ∘ origin`, which unlike the child link
-  frame has not slid away by `q`), an origin triad in the axes triad's
-  colours, and — for a revolute or continuous joint — a **band**: an
+  frame has not slid away by `q`), an origin triad in the axis colours
+  the ViewCube names, and — for a revolute or continuous joint — a **band**: an
   annulus in the joint's plane between `BAND_INNER` and `ARC_RADIUS` (the
   actuator ring and the triad stay in the clear bore) drawn as three
   **opaque** sectors, three shades of the glyph's own colour (`shade`
@@ -533,8 +567,8 @@ below.
   (`set_pick_suppressed`), so the part behind it is not highlighted as well
   and a click selects the *joint* — the camera keeps the pointer, and the
   wheel still zooms (ADR-0010).
-- **The visibility row** (viewport, top-right — the corner the Joints
-  window vacated): six toggles, `app/overlays.rs`, drawn in both modes.
+- **The visibility row** (viewport, along the top edge just left of the
+  ViewCube's block, ADR-0031): six toggles, `app/overlays.rs`, drawn in both modes.
   **ground**, **joints**, **joint names**, **frames**, **links**,
   **collision**, each a small mark rather than a word — a lattice, a band
   and its spoke, an `A`, the link tree's own `⌖`, a filled box, a hull
@@ -565,7 +599,7 @@ below.
   what the window is showing. `debug_state().ui.overlays` lists what is
   off, in the row's order.
 - **Frame glyphs** (in the viewport): a frame has no geometry either, so
-  each is drawn as a triad in the axes triad's colours at its world pose
+  each is drawn as a triad in the axis colours at its world pose
   (`world(parent) ∘ frame.pose`) with its name as a label beside it. Every
   frame is drawn, always — there are a handful and the user placed each on
   purpose, unlike a weld — until the row's **frames** toggle empties
@@ -699,8 +733,7 @@ uniform buffer (80 bytes per instance, grown by `next_power_of_two`), one
 shaders declare only the matrix, which is valid against the larger
 binding.
 The scene renders into an offscreen colour + `Depth32Float` pair (egui's
-own pass has no depth attachment) and is blitted in `paint()`; the axes
-triad draws last in its own corner viewport with a rotation-only camera.
+own pass has no depth attachment) and is blitted in `paint()`.
 
 Both attachments are **multisampled**. The count is asked of the adapter
 once, in `Viewport::new`: 4 where `get_texture_format_features` reports
@@ -750,7 +783,7 @@ from the intersection, so a part in front of the floor hides it and a part
 buried below z = 0 is crossed by it, and it writes **no** depth of its
 own — the overlay classifies its glyphs against that buffer, and a floor
 in it would hide every glyph below the ground. Furniture, like the
-background and the axes triad: not an instance, not pickable, contributing
+background: not an instance, not pickable, contributing
 nothing the rest of the frame can see — no `PickHit`, no entry anywhere in
 `debug_state()` — and drawn in zen, which hides chrome and not the scene.
 The one thing it has that the other furniture does not is a switch, the
@@ -1069,8 +1102,8 @@ camera must hold still, but the snap ladder under the cursor is exactly
 what the drag is aiming at (ADR-0019 §4). The corner chrome, which wants
 neither, sets `set_camera_blocked` **and** `set_pick_suppressed`. There
 are three pieces of it — the mode control with the toolbar beside it at
-the top-left, the visibility row at the top-right, the ViewCube at the
-bottom-right — so the app keeps a list of `chrome_rects` and asks whether
+the top-left, the ViewCube's block at the top-right and the visibility
+row just left of it — so the app keeps a list of `chrome_rects` and asks whether
 the cursor is on any of them (`over_chrome`). In **zen** none is drawn and
 the list is empty,
 so nothing is blocked by position and the mode's own rules are the whole
@@ -1746,9 +1779,12 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   +Z on the bore's axis mid-drag, the document untouched) and
   `a_snapped_rotate_drag_commits_the_alignment` (one history entry, the
   committed pose the one the preview showed);
-  and v0.5's camera set behind ADR-0028 — `viewcube_corner` (the cube
-  showing the three faces the camera can see), `viewcube_click_snaps_to_top`
-  (a facet clicked, the flight landed, the target and distance untouched),
+  and v0.5's camera set behind ADR-0028 and ADR-0030 — `viewcube_corner`
+  (the cube showing the three faces the camera can see, every arm tip and
+  arrow inside its chrome rect, `Y` unlettered, the cube still 92 pt),
+  `viewcube_click_snaps_to_top` (a facet clicked, the flight landed, the
+  target and distance untouched), `viewcube_arrow_steps` (`Right` clicked,
+  the flight landed, −15° of yaw and nothing else moved),
   `fly_into_the_assembly` (`W` held into the sample arm),
   `orbit_shows_the_pivot` (captured mid-drag, and asserting the cue is gone
   once the button is up) and the golden-less
@@ -1809,7 +1845,10 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   - `RiggenApp::viewcube_facet_center(orientation)` is the ViewCube's
     `project_world`: it answers where one facet landed on screen, so a
     scenario clicks `TOP` rather than guessing at a pixel, and `None` in
-    zen, where the cube is not drawn.
+    zen, where the cube is not drawn. `viewcube_axis_tips()`,
+    `viewcube_arrow_center(arrow)` and `viewcube_rect()` answer the same
+    for the arms, the step arrows and the cube itself, and `over_chrome`
+    whether a point is inside a registered chrome rect.
   - **The harness's `step_dt` is a quarter of a second**, and egui's clock
     advances by it (kittest never sets `RawInput::time`). So a press held for
     more than about three frames is past `max_click_duration` and egui calls
