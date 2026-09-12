@@ -1,5 +1,5 @@
 //! The ViewCube: the chamfered cube's geometry, its projection, and the
-//! widget that paints it in the viewport's bottom-right corner.
+//! widget that paints it in the viewport's top-right corner.
 //!
 //! App-side on purpose (ADR-0028 §3). The cube is interactive chrome that
 //! *writes* the camera — it registers a rect in `chrome_rects` like every

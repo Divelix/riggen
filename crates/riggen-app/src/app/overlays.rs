@@ -1,5 +1,6 @@
-//! The visibility row: six class toggles in the viewport's top-right
-//! corner (docs/ARCHITECTURE.md §Panels and menus).
+//! The visibility row: six class toggles along the viewport's top edge,
+//! just left of the ViewCube in the top-right corner (ADR-0031,
+//! docs/ARCHITECTURE.md §Panels and menus).
 //!
 //! Everything riggen draws over the robot used to be drawn always, and
 //! `View › Collision geometry` was the one thing anybody could turn off —
@@ -200,17 +201,22 @@ impl RiggenApp {
         self.sync_scene();
     }
 
-    /// The row itself, in the viewport's top-right — the corner the Joints
-    /// window vacated (ADR-0021). Drawn in both modes: what is on screen
-    /// is not a question about which mode the window is in. Returns its
-    /// rect, which joins the mode control's as **corner chrome**: the
-    /// camera is blocked and the picks suppressed under both
-    /// (01 §Picking and snapping).
-    pub(crate) fn overlay_row(&mut self, ui: &mut egui::Ui, rect: egui::Rect) -> egui::Rect {
+    /// The row itself, along the viewport's top edge ending at `right` —
+    /// just left of the ViewCube, which holds the top-right corner
+    /// (ADR-0031). Drawn in both modes: what is on screen is not a question
+    /// about which mode the window is in. Returns its rect, which joins the
+    /// mode control's as **corner chrome**: the camera is blocked and the
+    /// picks suppressed under both (01 §Picking and snapping).
+    pub(crate) fn overlay_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: egui::Rect,
+        right: f32,
+    ) -> egui::Rect {
         const MARGIN: f32 = 8.0;
         let corner = egui::Rect::from_min_max(
             egui::pos2(rect.min.x, rect.min.y + MARGIN),
-            egui::pos2(rect.max.x - MARGIN, rect.max.y),
+            egui::pos2(right, rect.max.y),
         );
         let mut toggled = None;
         let response = ui.scope_builder(

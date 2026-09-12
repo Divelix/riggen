@@ -278,6 +278,18 @@ mechanical; **[2]** careful — a case to get right within a given design;
   - Show the human `empty_app`, `viewcube_corner`, `viewcube_arrow_steps`
     and one zen golden, before and after (ADR-0003), next to the Onshape
     screenshot. The message says `snapshots:` and why.
+- [x] **[1]** Step 5 — `snapshots(app)`: the cube to the top-right, the
+  row to its left (ADR-0031). Added after the human saw step 4: "yes, it
+  looks perfect. Now move it to top-right (like in all CADs) corner and
+  just shift visibility buttons to the left of viewcube".
+  - `mode.rs::viewcube_rect_in` anchors the block's top-right 8 pt in;
+    `overlay_row` takes the x it ends at, 8 pt short of the block.
+  - ADR-0031, amending ADR-0028 §3 and ADR-0030 §6, with its index rows.
+  - Refresh every golden. Allowed changes: the block gone from the
+    bottom-right and drawn at the top-right, and the row shifted left by
+    the block's width plus the gap. Any other pixel is a regression.
+  - Show the human `startup`, `viewcube_corner` and `overlay_row`, before
+    and after.
 
 ## Acceptance
 
@@ -294,7 +306,8 @@ mechanical; **[2]** careful — a case to get right within a given design;
     the arms never come loose from the corner;
   - clicking each arrow steps 15° the way the arrow points;
   - clicking a facet still flies to it;
-  - the bottom-left corner is empty;
+  - both bottom corners are empty, the cube is top-right and the
+    visibility row sits left of it;
   - `Z` takes cube, arms and arrows together.
 
 ## Docs to update on completion
@@ -316,7 +329,12 @@ mechanical; **[2]** careful — a case to get right within a given design;
   "in the axes triad's colours" becomes "in the axis colours the ViewCube
   names".
 - `README.md` first-run paragraph: the ViewCube's corner names X, Y and Z,
-  and its arrows step the view 15°.
+  and its arrows step the view 15°; the cube is top-right and the
+  visibility buttons are left of it (≈ lines 45 and 53, ADR-0031).
+- `docs/ARCHITECTURE.md` placement (ADR-0031): the chrome summary
+  (≈ 393), §ViewCube "bottom-right" (≈ 399), the visibility row "top-right
+  — the corner the Joints window vacated" (≈ 536) and the `chrome_rects`
+  paragraph (≈ 1072).
 - `docs/ROADMAP.md` v0.6: one line in the section's in-list — "**The
   ViewCube names the axes and steps the view**, and the bottom-left triad
   goes (ADR-0030) — chrome, taken first by the human's call". The status

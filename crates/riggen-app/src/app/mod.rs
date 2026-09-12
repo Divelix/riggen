@@ -114,8 +114,8 @@ pub struct RiggenApp {
     glyph_hover: Option<JointId>,
     /// The rects of the **corner chrome**: the `View | Edit` control with
     /// the toolbar beside it at the top-left (`mode.rs::viewport_chrome`),
-    /// the visibility row at the top-right (`overlays.rs`) and the
-    /// ViewCube at the bottom-right (`viewcube/`). A glyph behind any of
+    /// the ViewCube at the top-right (`viewcube/`) and the visibility row
+    /// to its left (`overlays.rs`). A glyph behind any of
     /// the three is not "hovered" through it and the camera holds still
     /// under it.
     chrome_rects: Vec<egui::Rect>,
@@ -332,8 +332,8 @@ impl RiggenApp {
     }
 
     /// Whether `pos` is on the corner chrome — the mode control and the
-    /// toolbar at the top-left, the visibility row at the top-right, the
-    /// ViewCube at the bottom-right. All three float in the viewport's own
+    /// toolbar at the top-left, the ViewCube at the top-right and the
+    /// visibility row left of it. All three float in the viewport's own
     /// egui layer, which `contains_pointer` cannot see through, so the app
     /// has to ask (01 §Picking and snapping). Public so a scenario can
     /// assert that what a widget paints is inside the rect it claims.

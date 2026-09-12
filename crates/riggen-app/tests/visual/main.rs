@@ -5510,7 +5510,7 @@ fn a_left_drag_turns_the_sample_arm() {
 }
 
 /// The cube in the corner (ADR-0028 §3): the sample arm at its home view,
-/// with the bottom-right showing the three faces the camera can see, the
+/// with the top-right showing the three faces the camera can see, the
 /// home icon, and the projection button that replaced the viewport's
 /// `persp` / `ortho` text.
 #[test]

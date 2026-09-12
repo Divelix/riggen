@@ -129,9 +129,9 @@ impl RiggenApp {
 impl RiggenApp {
     /// The corner chrome: the `View | Edit` control in the viewport's
     /// top-left in both modes with `Tab` in its tooltip, the toolbar to its
-    /// right in Edit, the **visibility row** at the top-right
-    /// (`overlays.rs`), and the **ViewCube** at the bottom-right
-    /// (`viewcube/`, ADR-0028 §3). Drawn after the viewport in the same
+    /// right in Edit, the **ViewCube** at the top-right (`viewcube/`,
+    /// ADR-0031) and the **visibility row** to its left (`overlays.rs`).
+    /// Drawn after the viewport in the same
     /// layer so egui's hit test gives it the pointer (`tool.rs`). Records
     /// all three rects in `chrome_rects`: camera blocked and picks
     /// suppressed under any of them, no glyph hovered through them. Not
@@ -167,10 +167,14 @@ impl RiggenApp {
                 }
             },
         );
+        // The cube's block takes the corner and the row ends the same gap
+        // short of it (ADR-0031).
+        let cube_rect = viewcube_rect_in(rect);
+        let row_right = viewcube::viewcube_block(cube_rect).min.x - MARGIN;
         self.chrome_rects = vec![
             response.response.rect,
-            self.overlay_row(ui, rect),
-            self.view_cube(ui, rect),
+            self.overlay_row(ui, rect, row_right),
+            self.view_cube(ui, cube_rect),
         ];
         if let Some(mode) = chosen_mode {
             self.set_mode(mode);
@@ -180,23 +184,10 @@ impl RiggenApp {
         }
     }
 
-    /// The ViewCube in the bottom-right corner, and the camera call its
-    /// action makes (ADR-0028 §3). Returns the rect it occupies — the cube
-    /// plus its projection button — for `chrome_rects`.
-    ///
-    /// Bottom-right because top-right is the visibility row's and the only
-    /// thing this corner held was the `persp` / `ortho` text the cube's own
-    /// button now *is*. The block is laid out upwards from the bottom
-    /// margin so the button, which hangs below the cube, stays inside the
-    /// viewport.
-    fn view_cube(&mut self, ui: &mut egui::Ui, rect: egui::Rect) -> egui::Rect {
-        const MARGIN: f32 = 8.0;
-        const SIZE: f32 = 92.0;
-        // The cube keeps its size and moves inward by what its arms,
-        // letters, arrows and button reach past it.
-        let probe = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::splat(SIZE));
-        let corner = egui::pos2(rect.max.x - MARGIN, rect.max.y - MARGIN);
-        let cube_rect = probe.translate(corner - viewcube::viewcube_block(probe).max);
+    /// The ViewCube drawn in `cube_rect` ([`viewcube_rect_in`]), and the
+    /// camera call its action makes (ADR-0028 §3, ADR-0030). Returns the
+    /// rect its whole block occupies, for `chrome_rects`.
+    fn view_cube(&mut self, ui: &mut egui::Ui, cube_rect: egui::Rect) -> egui::Rect {
         self.viewcube_rect = Some(cube_rect);
 
         let camera = &self.viewport.camera;
@@ -300,6 +291,19 @@ impl RiggenApp {
         self.set_joint_value(joint, q);
         ui.ctx().request_repaint();
     }
+}
+
+/// The cube's own rect in a viewport `rect`: 92 points square, placed so
+/// its whole block — arms and letters at any orientation, the arrows, the
+/// button hanging below — sits in the top-right corner, where every CAD
+/// tool keeps it (ADR-0031). The cube moves inward by what the block
+/// reaches past it; it does not shrink.
+fn viewcube_rect_in(rect: egui::Rect) -> egui::Rect {
+    const MARGIN: f32 = 8.0;
+    const SIZE: f32 = 92.0;
+    let probe = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::splat(SIZE));
+    let corner = egui::pos2(rect.max.x - MARGIN, rect.min.y + MARGIN);
+    probe.translate(corner - viewcube::viewcube_block(probe).right_top())
 }
 
 #[cfg(test)]
