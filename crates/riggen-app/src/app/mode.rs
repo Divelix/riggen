@@ -192,15 +192,11 @@ impl RiggenApp {
     fn view_cube(&mut self, ui: &mut egui::Ui, rect: egui::Rect) -> egui::Rect {
         const MARGIN: f32 = 8.0;
         const SIZE: f32 = 92.0;
+        // The cube keeps its size and moves inward by what its arms,
+        // letters, arrows and button reach past it.
         let probe = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::splat(SIZE));
-        let block_height = SIZE + (viewcube::projection_button_rect(probe).max.y - probe.max.y);
-        let cube_rect = egui::Rect::from_min_size(
-            egui::pos2(
-                rect.max.x - MARGIN - SIZE,
-                rect.max.y - MARGIN - block_height,
-            ),
-            egui::Vec2::splat(SIZE),
-        );
+        let corner = egui::pos2(rect.max.x - MARGIN, rect.max.y - MARGIN);
+        let cube_rect = probe.translate(corner - viewcube::viewcube_block(probe).max);
         self.viewcube_rect = Some(cube_rect);
 
         let camera = &self.viewport.camera;
@@ -246,6 +242,34 @@ impl RiggenApp {
             .into_iter()
             .find(|facet| facet.orientation == orientation)
             .map(|facet| facet.center_2d)
+    }
+
+    /// The rect the cube itself is drawn in — without its arms, arrows or
+    /// button. `None` in zen.
+    pub fn viewcube_rect(&self) -> Option<egui::Rect> {
+        self.viewcube_rect
+    }
+
+    /// Where the ViewCube's arms end on screen, X then Y then Z, each with
+    /// whether its letter is drawn — `false` while the tip is behind the
+    /// cube (ADR-0030 §3). `None` in zen, where the cube is not drawn.
+    pub fn viewcube_axis_tips(&self) -> Option<[(egui::Pos2, bool); 3]> {
+        let rect = self.viewcube_rect?;
+        let camera = &self.viewport.camera;
+        Some(
+            viewcube::axes::project_corner_axes(rect, camera.yaw, camera.pitch)
+                .map(|axis| (axis.tip, axis.letter_visible)),
+        )
+    }
+
+    /// Where a ViewCube step arrow is on screen, for a test that wants to
+    /// click one (ADR-0030 §4). `None` in zen.
+    pub fn viewcube_arrow_center(&self, arrow: viewcube::arrows::StepArrow) -> Option<egui::Pos2> {
+        let rect = self.viewcube_rect?;
+        viewcube::arrows::arrow_rects(rect)
+            .into_iter()
+            .find(|(candidate, _)| *candidate == arrow)
+            .map(|(_, arrow_rect)| arrow_rect.center())
     }
 
     /// In View, the wheel over a hovered glyph poses that joint — a notch

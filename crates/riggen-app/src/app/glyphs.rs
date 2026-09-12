@@ -5,7 +5,7 @@
 //! viewport — the tree is the only place it exists, and "which way does this
 //! hinge turn?" has to be read off two number fields. The glyph answers it
 //! in the picture: an **axis segment** through the pivot, an **origin triad**
-//! in the axes triad's colours, and a **band** (revolute) or the same band
+//! in the axis colours the ViewCube names, and a **band** (revolute) or the same band
 //! unrolled into **bars** (prismatic) with a tick at the current `q`. The
 //! band is an annulus in the joint's plane drawn as three **opaque**
 //! sectors, three shades of the one colour — the full circle darkest, the
@@ -44,20 +44,14 @@ use riggen_core::glam::{DQuat, DVec3};
 use riggen_core::{FrameId, JointId, JointKind, JointState, LinkId, Pose};
 use riggen_viewport::{Overlay, OverlayItem};
 
+use super::viewcube::axes::AXIS_COLORS;
 use super::{Mode, RiggenApp, Selection};
 
 /// Colour of the axis segment and the limit arc: amber, which nothing in
-/// the scene or the triad already means.
+/// the scene or the axis colours already means.
 const AXIS_COLOR: egui::Color32 = egui::Color32::from_rgb(255, 183, 77);
 /// The same, for the joint the user is pointing at or has selected.
 const AXIS_COLOR_ACTIVE: egui::Color32 = egui::Color32::from_rgb(255, 236, 179);
-/// The axes triad's colours (`gpu_mesh::AxesTriadMesh`), so a frame reads
-/// the same in the corner and on a joint.
-const TRIAD_COLORS: [egui::Color32; 3] = [
-    egui::Color32::from_rgb(230, 64, 64),
-    egui::Color32::from_rgb(89, 217, 89),
-    egui::Color32::from_rgb(77, 140, 242),
-];
 /// A mimic follower's amber, muted (ADR-0013): the joint cannot move on
 /// its own, and the glyph says so before its label is read.
 const AXIS_COLOR_MIMIC: egui::Color32 = egui::Color32::from_rgb(166, 133, 84);
@@ -396,7 +390,7 @@ impl RiggenApp {
             // unreadable rather than informative (ADR-0020).
             overlay.depth_tested(|overlay| {
                 overlay.point(glyph.pose.t, if hot { 5.0 } else { 3.5 }, LABEL_COLOR);
-                for (arm, color) in glyph.arms().into_iter().zip(TRIAD_COLORS) {
+                for (arm, color) in glyph.arms().into_iter().zip(AXIS_COLORS) {
                     overlay.segment(glyph.pose.t, arm, color, width);
                 }
             });
@@ -608,7 +602,7 @@ impl RiggenApp {
                         "pivot" => {
                             overlay.point(glyph.pivot.t, if hot { 5.0 } else { 3.5 }, color);
                         }
-                        // The pivot's own frame, in the triad's colours.
+                        // The pivot's own frame, in the axis colours.
                         "triad" => {
                             for (i, local) in [DVec3::X, DVec3::Y, DVec3::Z].into_iter().enumerate()
                             {
@@ -616,7 +610,7 @@ impl RiggenApp {
                                     glyph.pivot.t,
                                     glyph.pivot.t
                                         + glyph.pivot.r * local * glyph.size * TRIAD_LENGTH,
-                                    TRIAD_COLORS[i],
+                                    AXIS_COLORS[i],
                                     width,
                                 );
                             }

@@ -113,19 +113,6 @@ impl OrbitCamera {
         self.proj_matrix(aspect) * self.view_matrix()
     }
 
-    /// View-projection for the corner axes-triad gizmo: same orientation as
-    /// the main camera (so the triad orbits with it) but fixed distance and
-    /// a small orthographic frustum, so panning/zooming the model never
-    /// moves or scales it.
-    pub fn axes_gizmo_view_proj(&self) -> Mat4 {
-        let (_, _, up) = self.basis();
-        let dir = (self.eye() - self.target).normalize();
-        let eye = dir * 3.0;
-        let view = Mat4::look_at_rh(eye, Vec3::ZERO, up);
-        let proj = Mat4::orthographic_rh(-1.3, 1.3, -1.3, 1.3, 0.1, 10.0);
-        proj * view
-    }
-
     pub fn toggle_projection(&mut self) {
         self.projection = self.projection.toggled();
     }

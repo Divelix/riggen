@@ -17,7 +17,7 @@ use riggen_mesh::{Aabb, Ray, TriMesh};
 
 use crate::PickHit;
 use crate::camera::{OrbitCamera, Projection, StandardView};
-use crate::gpu_mesh::{AxesTriadMesh, GpuMesh, PickVertex, Vertex};
+use crate::gpu_mesh::{GpuMesh, PickVertex, Vertex};
 use crate::overlay;
 use crate::overlay::{Occlusion, Overlay, OverlayItem};
 use crate::scene::RenderGroup;
@@ -25,9 +25,8 @@ use crate::scene::{InstanceId, Scene, SceneFull};
 
 use depth::{DepthImage, DepthInputs, MAX_DEPTH_FRAMES, PendingDepth};
 use gpu_state::{
-    AXES_GIZMO_MARGIN, AXES_GIZMO_SIZE, CameraUniforms, DEPTH_FORMAT, DepthResolvePipeline,
-    DepthResolveTarget, GpuState, InstanceBuffers, ModelUniforms, OffscreenTarget,
-    choose_sample_count,
+    CameraUniforms, DEPTH_FORMAT, DepthResolvePipeline, DepthResolveTarget, GpuState,
+    InstanceBuffers, ModelUniforms, OffscreenTarget, choose_sample_count,
 };
 use picking::MAX_PICK_FRAMES;
 use picking::{
@@ -35,9 +34,8 @@ use picking::{
     decide_pick, resolve_pick_region,
 };
 use pipelines::{
-    build_axes_pipeline, build_background_pipeline, build_blit_pipeline,
-    build_depth_resolve_pipeline, build_grid_pipeline, build_highlight_pipeline,
-    build_render_pipeline,
+    build_background_pipeline, build_blit_pipeline, build_depth_resolve_pipeline,
+    build_grid_pipeline, build_highlight_pipeline, build_render_pipeline,
 };
 use render_pass::{DepthPassData, PickPassData, ViewportCallback};
 
@@ -321,29 +319,6 @@ impl Viewport {
             sample_count,
         );
 
-        let axes_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("riggen-viewport axes uniforms"),
-            size: std::mem::size_of::<[[f32; 4]; 4]>() as wgpu::BufferAddress,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let axes_uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("riggen-viewport axes uniform bind group"),
-            layout: &uniform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: axes_uniform_buffer.as_entire_binding(),
-            }],
-        });
-        let axes_pipeline = build_axes_pipeline(
-            device,
-            "riggen-viewport axes pipeline",
-            &[&uniform_bind_group_layout],
-            target_format,
-            sample_count,
-        );
-        let axes_mesh = AxesTriadMesh::new(device);
-
         let (blit_bind_group_layout, blit_pipeline) = build_blit_pipeline(device, target_format);
 
         // Only a multisampled depth attachment needs resolving by hand.
@@ -369,16 +344,12 @@ impl Viewport {
                 pick_pipeline,
                 hover_pipeline,
                 select_pipeline,
-                axes_pipeline,
                 blit_pipeline,
                 depth_resolve,
                 uniform_buffer,
                 uniform_bind_group,
-                axes_uniform_buffer,
-                axes_uniform_bind_group,
                 blit_bind_group_layout,
                 sampler,
-                axes_mesh,
                 models,
             },
             offscreen: None,
@@ -1598,26 +1569,10 @@ impl Viewport {
             });
         }
 
-        // Bottom-left corner square, clamped so it never outgrows a tiny
-        // viewport panel.
-        let gizmo_size = AXES_GIZMO_SIZE
-            .min(size.0 as f32 * 0.5)
-            .min(size.1 as f32 * 0.5);
-        let axes_viewport = (
-            AXES_GIZMO_MARGIN,
-            (size.1 as f32 - gizmo_size - AXES_GIZMO_MARGIN).max(0.0),
-            gizmo_size.max(1.0),
-            gizmo_size.max(1.0),
-        );
-
         let callback = ViewportCallback {
             camera_uniforms,
-            axes_view_proj: self.camera.axes_gizmo_view_proj().to_cols_array_2d(),
-            axes_viewport,
             uniform_buffer: self.gpu.uniform_buffer.clone(),
             uniform_bind_group: self.gpu.uniform_bind_group.clone(),
-            axes_uniform_buffer: self.gpu.axes_uniform_buffer.clone(),
-            axes_uniform_bind_group: self.gpu.axes_uniform_bind_group.clone(),
             scene_pipeline: self.gpu.scene_pipeline.clone(),
             translucent_pipeline: self.gpu.translucent_pipeline.clone(),
             background_pipeline: self.gpu.background_pipeline.clone(),
@@ -1625,11 +1580,8 @@ impl Viewport {
             draw_ground: self.ground_visible,
             hover_pipeline: self.gpu.hover_pipeline.clone(),
             select_pipeline: self.gpu.select_pipeline.clone(),
-            axes_pipeline: self.gpu.axes_pipeline.clone(),
             pick_pipeline: self.gpu.pick_pipeline.clone(),
             blit_pipeline: self.gpu.blit_pipeline.clone(),
-            axes_vertex_buffer: self.gpu.axes_mesh.vertex_buffer.clone(),
-            axes_vertex_count: self.gpu.axes_mesh.vertex_count,
             instances,
             model_bind_group: self.gpu.models.bind_group.clone(),
             model_buffer: self.gpu.models.buffer.clone(),

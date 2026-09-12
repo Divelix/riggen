@@ -583,11 +583,11 @@ fn interact(
 /// wheel steps cannot drift from the ring that was drawn.
 fn gizmo_visuals() -> GizmoVisuals {
     GizmoVisuals {
-        // The axes triad's colours, so red/green/blue means the same thing
-        // in the corner and under the cursor.
-        x_color: egui::Color32::from_rgb(230, 64, 64),
-        y_color: egui::Color32::from_rgb(89, 217, 89),
-        z_color: egui::Color32::from_rgb(77, 140, 242),
+        // The axis colours the ViewCube names, so red/green/blue means the
+        // same thing on the cube and under the cursor.
+        x_color: super::viewcube::axes::AXIS_COLORS[0],
+        y_color: super::viewcube::axes::AXIS_COLORS[1],
+        z_color: super::viewcube::axes::AXIS_COLORS[2],
         // 75 px (the crate's default) is a small target for a handle that
         // has to be hit on the first try.
         gizmo_size: 110.0,

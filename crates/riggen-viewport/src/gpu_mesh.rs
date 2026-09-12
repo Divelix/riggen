@@ -1,5 +1,5 @@
 //! A [`TriMesh`] on the GPU: the shaded vertex/index buffers, the pick
-//! vertices tagged with [`crate::pick_id`]s, and the fixed axes triad.
+//! vertices tagged with [`crate::pick_id`]s.
 //! `f64` → `f32` happens here and nowhere else (docs/DATA-MODEL.md).
 
 use egui_wgpu::wgpu;
@@ -166,77 +166,6 @@ fn non_empty<T: bytemuck::Pod>(items: &[T]) -> &[u8] {
         &ZEROS[..size.min(ZEROS.len())]
     } else {
         bytemuck::cast_slice(items)
-    }
-}
-
-/// Vertex layout for the corner axes-triad gizmo: position plus a flat
-/// per-axis color, no lighting.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ColorVertex {
-    pub position: [f32; 3],
-    pub color: [f32; 3],
-}
-
-impl ColorVertex {
-    const ATTRS: [wgpu::VertexAttribute; 2] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
-
-    pub fn layout() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<ColorVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &Self::ATTRS,
-        }
-    }
-}
-
-/// Fixed unit-length X/Y/Z line-list, colored red/green/blue, drawn in a
-/// small screen-space corner with a rotation-only view — the axes triad
-/// orients with the camera but never pans or scales with the model.
-pub struct AxesTriadMesh {
-    pub vertex_buffer: wgpu::Buffer,
-    pub vertex_count: u32,
-}
-
-impl AxesTriadMesh {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let origin = [0.0, 0.0, 0.0];
-        let verts = [
-            ColorVertex {
-                position: origin,
-                color: [0.9, 0.25, 0.25],
-            },
-            ColorVertex {
-                position: [1.0, 0.0, 0.0],
-                color: [0.9, 0.25, 0.25],
-            },
-            ColorVertex {
-                position: origin,
-                color: [0.35, 0.85, 0.35],
-            },
-            ColorVertex {
-                position: [0.0, 1.0, 0.0],
-                color: [0.35, 0.85, 0.35],
-            },
-            ColorVertex {
-                position: origin,
-                color: [0.3, 0.55, 0.95],
-            },
-            ColorVertex {
-                position: [0.0, 0.0, 1.0],
-                color: [0.3, 0.55, 0.95],
-            },
-        ];
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("riggen-viewport axes triad"),
-            contents: bytemuck::cast_slice(&verts),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        Self {
-            vertex_buffer,
-            vertex_count: verts.len() as u32,
-        }
     }
 }
 

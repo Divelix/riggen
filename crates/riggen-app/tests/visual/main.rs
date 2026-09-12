@@ -22,7 +22,7 @@ use harness::{
     synthetic_drag, with_app,
 };
 
-use riggen_app::{Mode, RingAxis, Selection, Tool, VIEW_TOOL_HINT};
+use riggen_app::{Mode, RingAxis, Selection, StepArrow, Tool, VIEW_TOOL_HINT};
 use riggen_core::glam::DVec3;
 use riggen_core::{Command, Link, LinkId, Pose};
 use riggen_viewport::ViewOrientation;
@@ -75,7 +75,7 @@ fn open_link(app: &mut riggen_app::RiggenApp, name: &str) -> LinkId {
         .expect("a mesh opens as a link")
 }
 
-/// The empty app: gradient background, axes triad, status bar. The broadest
+/// The empty app: gradient background, the ViewCube, status bar. The broadest
 /// regression net in the suite: almost any layout or render change moves
 /// this frame.
 #[test]
@@ -1807,6 +1807,19 @@ fn zen_view() {
                 .viewcube_facet_center(ViewOrientation::Top)
                 .is_none(),
             "the cube is chrome and zen takes it"
+        );
+        // Its arms and arrows go with it, and nothing names the axes in zen
+        // now that the viewport's triad is gone (ADR-0030 §8).
+        assert!(
+            harness.state().viewcube_axis_tips().is_none(),
+            "the arms are the cube's and zen takes them"
+        );
+        assert!(
+            harness
+                .state()
+                .viewcube_arrow_center(StepArrow::Up)
+                .is_none(),
+            "and the arrows"
         );
         assert_eq!(
             harness.state().debug_state().camera.projection,
@@ -5529,6 +5542,32 @@ fn viewcube_corner() {
                 .is_none(),
             "and the face turned away from it is culled"
         );
+
+        // The world axes on the cube's corner and the four arrows round it
+        // (ADR-0030): everything the widget paints is inside the rect it
+        // registers, so the camera holds still and picks stop under all of
+        // it; `Y` runs behind the cube here and has no letter; and the cube
+        // kept its size, the block growing round it.
+        let app = harness.state();
+        let tips = app.viewcube_axis_tips().expect("the cube is drawn");
+        for (axis, (tip, _)) in ["X", "Y", "Z"].into_iter().zip(tips) {
+            assert!(app.over_chrome(tip), "{axis}'s tip {tip:?} is chrome");
+        }
+        for arrow in StepArrow::ALL {
+            let center = app.viewcube_arrow_center(arrow).expect("drawn");
+            assert!(app.over_chrome(center), "{arrow:?} at {center:?} is chrome");
+        }
+        assert_eq!(
+            tips.map(|(_, letter)| letter),
+            [true, false, true],
+            "X and Z are lettered; Y's end is behind the cube"
+        );
+        let cube = app.viewcube_rect().expect("the cube is drawn");
+        assert_eq!(
+            cube.size(),
+            egui::vec2(92.0, 92.0),
+            "the cube kept its size"
+        );
     });
 }
 
@@ -5580,6 +5619,65 @@ fn viewcube_click_snaps_to_top() {
             harness.state().debug_state().document.selection,
             None,
             "and a click on the chrome is not a click on the scene"
+        );
+    });
+}
+
+/// A step arrow flies the camera 15° the way it points, and nothing else
+/// moves (ADR-0030 §4): `Right` is −15° of yaw, the way dragging the cube
+/// towards it turns the view, through the same `animate_to` a facet click
+/// uses — so pitch, target and distance are exactly what they were.
+///
+/// The picture is taken once the flight has landed, as
+/// `viewcube_click_snaps_to_top`'s is.
+#[test]
+fn viewcube_arrow_steps() {
+    scenario("viewcube_arrow_steps", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("arm/arm.riggen"))
+            .expect("the sample arm opens");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        let before = harness.state().debug_state().camera;
+
+        let right = harness
+            .state()
+            .viewcube_arrow_center(StepArrow::Right)
+            .expect("the arrows are drawn outside zen");
+        click_at(harness, right);
+
+        for _ in 0..40 {
+            if !harness.state().debug_state().camera.animating {
+                break;
+            }
+            pump_rendered(harness, 4);
+        }
+        settle(harness);
+
+        let after = harness.state().debug_state().camera;
+        assert!(!after.animating, "the flight landed before the capture");
+        assert!(
+            (after.yaw_deg - (before.yaw_deg - 15.0)).abs() < 0.01,
+            "Right turns yaw by −15°: {} → {}",
+            before.yaw_deg,
+            after.yaw_deg
+        );
+        assert!(
+            (after.pitch_deg - before.pitch_deg).abs() < 0.01,
+            "and leaves pitch: {} → {}",
+            before.pitch_deg,
+            after.pitch_deg
+        );
+        assert_eq!(
+            (after.target, after.distance),
+            (before.target, before.distance),
+            "the arrow aims the camera; it does not move or zoom it"
+        );
+        assert_eq!(
+            harness.state().debug_state().document.selection,
+            None,
+            "and a click on an arrow is not a click on the scene"
         );
     });
 }

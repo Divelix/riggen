@@ -28,6 +28,17 @@ pub const LETTER_GAP: f32 = 3.0;
 /// Below this many points on screen an arm points at the eye, and its
 /// letter turns from the arm's direction to the corner's.
 pub const FORESHORTENED: f32 = 12.0;
+/// X red, Y green, Z blue: what the cube's arms name, and so what every
+/// other triad in the app — frame and joint glyphs, the gizmo's handles —
+/// means by those colours.
+pub(crate) const AXIS_COLORS: [egui::Color32; 3] = [
+    egui::Color32::from_rgb(230, 64, 64),
+    egui::Color32::from_rgb(89, 217, 89),
+    egui::Color32::from_rgb(77, 140, 242),
+];
+pub const AXIS_LETTERS: [&str; 3] = ["X", "Y", "Z"];
+/// An arm's stroke, in points.
+pub const ARM_WIDTH: f32 = 1.5;
 /// Samples along an arm for the front/behind split.
 const ARM_SAMPLES: usize = 48;
 
@@ -59,6 +70,7 @@ pub fn corner_origin() -> Vec3 {
 }
 
 /// The square a letter centred at `letter` occupies.
+#[cfg(test)]
 pub fn letter_rect(letter: egui::Pos2) -> egui::Rect {
     egui::Rect::from_center_size(letter, egui::Vec2::splat(LETTER_SIZE))
 }

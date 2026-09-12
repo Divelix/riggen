@@ -8,9 +8,17 @@
 use riggen_core::glam::Vec3;
 use riggen_viewport::{Projection, ViewOrientation};
 
+use super::arrows::{StepArrow, arrow_rects, arrow_triangle, hit_test_arrows};
+use super::axes::{
+    ARM_WIDTH, AXIS_COLORS, AXIS_LETTERS, CornerAxis, LETTER_SIZE, corner_axes_extent,
+    project_corner_axes,
+};
 use super::projection::{
     camera_basis, cube_scale, hit_test_viewcube, project_face_text_mesh, project_viewcube,
 };
+
+/// The facets' fill alpha: an arm behind the cube shows through it.
+const FACET_ALPHA: f32 = 0.5;
 
 /// What the pointer asked the cube for. Every variant is a call the camera
 /// already has (ADR-0028 §3); the cube invents no new camera operation.
@@ -21,7 +29,6 @@ pub enum ViewCubeAction {
     /// Orbit by these deltas, in radians — the cube itself was dragged.
     Orbit { delta_yaw: f32, delta_pitch: f32 },
     /// Fly by these deltas, in radians — a step arrow was clicked.
-    #[allow(dead_code, reason = "the widget hits the arrows at step 4 of the plan")]
     Step { delta_yaw: f32, delta_pitch: f32 },
     /// Re-frame the scene at the home orientation.
     Home,
@@ -54,17 +61,21 @@ pub fn viewcube(
     let visible_facets = project_viewcube(rect, yaw, pitch);
     let scale = cube_scale(rect);
 
-    let home_size = (rect.width() * 0.16).clamp(18.0, 24.0);
-    let home_rect = egui::Rect::from_min_size(
-        egui::pos2(rect.min.x + 2.0, rect.min.y + 2.0),
-        egui::vec2(home_size, home_size),
-    );
+    let home_rect = home_icon_rect(rect);
     let home_id = ui.auto_id_with("riggen_viewcube_home");
     let home_response = ui.interact(home_rect, home_id, egui::Sense::click());
 
     let proj_rect = projection_button_rect(rect);
     let proj_id = ui.auto_id_with("riggen_viewcube_projection");
     let proj_response = ui.interact(proj_rect, proj_id, egui::Sense::click());
+
+    let arrows = arrow_rects(rect);
+    let arrow_responses = arrows.map(|(arrow, arrow_rect)| {
+        let arrow_id = ui.auto_id_with(("riggen_viewcube_arrow", arrow as u8));
+        let arrow_response = ui.interact(arrow_rect, arrow_id, egui::Sense::click());
+        arrow_response.clone().on_hover_text(arrow.tooltip());
+        (arrow, arrow_response)
+    });
 
     let id = ui.auto_id_with("riggen_viewcube");
     let response = ui.interact(rect, id, egui::Sense::click_and_drag());
@@ -86,10 +97,20 @@ pub fn viewcube(
     let hovered_facet = hover_pos
         .filter(|p| rect.contains(*p) && !home_rect.contains(*p))
         .and_then(|pos| hit_test_viewcube(&visible_facets, pos));
+    let hovered_arrow = arrow_responses
+        .iter()
+        .find(|(_, r)| r.hovered())
+        .map(|(arrow, _)| *arrow)
+        .or_else(|| hover_pos.and_then(|p| hit_test_arrows(rect, p)));
+    let clicked_arrow: Option<StepArrow> = arrow_responses
+        .iter()
+        .find(|(_, r)| r.clicked())
+        .map(|(arrow, _)| *arrow);
 
     if response.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-    } else if home_response.hovered()
+    } else if hovered_arrow.is_some()
+        || home_response.hovered()
         || proj_response.hovered()
         || hover_pos.is_some_and(|p| home_rect.contains(p) || proj_rect.contains(p))
         || hovered_facet.is_some()
@@ -107,8 +128,15 @@ pub fn viewcube(
     let is_proj_click = proj_response.clicked()
         || (response.clicked() && clicked_pos.is_some_and(|p| proj_rect.contains(p)));
 
+    // Arrows first: a click on one is never read as a drag or a select.
     let mut action = None;
-    if is_proj_click {
+    if let Some(arrow) = clicked_arrow {
+        let (delta_yaw, delta_pitch) = arrow.delta();
+        action = Some(ViewCubeAction::Step {
+            delta_yaw,
+            delta_pitch,
+        });
+    } else if is_proj_click {
         action = Some(ViewCubeAction::ToggleProjection);
     } else if is_home_click {
         action = Some(ViewCubeAction::Home);
@@ -132,8 +160,23 @@ pub fn viewcube(
         action = Some(ViewCubeAction::Select(orientation));
     }
 
-    let total_rect = rect.union(proj_rect);
+    let total_rect = viewcube_block(rect);
     let painter = ui.painter_at(total_rect);
+
+    // Back to front: the arms' hidden runs under the translucent facets,
+    // their open runs and letters over them, each set nearest last.
+    let axes = project_corner_axes(rect, yaw, pitch);
+    let mut arms: Vec<&CornerAxis> = axes.iter().collect();
+    arms.sort_by(|a, b| a.depth.total_cmp(&b.depth));
+    let paint_runs = |runs: fn(&CornerAxis) -> &[[egui::Pos2; 2]]| {
+        for axis in &arms {
+            let stroke = egui::Stroke::new(ARM_WIDTH, AXIS_COLORS[axis.axis]);
+            for run in runs(axis) {
+                painter.line_segment(*run, stroke);
+            }
+        }
+    };
+    paint_runs(|axis| &axis.behind);
     // A fixed light in *camera* space, so the shading says which facet is
     // which and never changes as the cube turns.
     let light_dir_cam = Vec3::new(0.35, 0.55, 0.75).normalize();
@@ -180,7 +223,7 @@ pub fn viewcube(
         // edge beside it, and an outline at this size reads as noise.
         painter.add(egui::epaint::PathShape::convex_polygon(
             facet.vertices_2d.clone(),
-            fill_color,
+            fill_color.gamma_multiply(FACET_ALPHA),
             egui::Stroke::NONE,
         ));
 
@@ -213,6 +256,36 @@ pub fn viewcube(
         }
     }
 
+    paint_runs(|axis| &axis.in_front);
+    for axis in arms.iter().filter(|axis| axis.letter_visible) {
+        painter.text(
+            axis.letter,
+            egui::Align2::CENTER_CENTER,
+            AXIS_LETTERS[axis.axis],
+            egui::FontId::proportional(LETTER_SIZE + 1.0),
+            AXIS_COLORS[axis.axis],
+        );
+    }
+
+    for (arrow, arrow_rect) in arrows {
+        let color = if hovered_arrow == Some(arrow) {
+            if dark_mode {
+                egui::Color32::from_rgb(85, 175, 255)
+            } else {
+                egui::Color32::from_rgb(30, 120, 230)
+            }
+        } else if dark_mode {
+            egui::Color32::from_rgba_unmultiplied(165, 175, 190, 110)
+        } else {
+            egui::Color32::from_rgba_unmultiplied(100, 110, 125, 110)
+        };
+        painter.add(egui::epaint::PathShape::convex_polygon(
+            arrow_triangle(arrow, arrow_rect).to_vec(),
+            color,
+            egui::Stroke::NONE,
+        ));
+    }
+
     paint_home_icon(
         &painter,
         home_rect,
@@ -243,15 +316,38 @@ pub fn drag_orbit(delta: egui::Vec2) -> (f32, f32) {
 }
 
 /// The projection button's rect for a cube drawn in `rect` — centred under
-/// it. Public so the caller can reserve room for the whole block before it
-/// decides where the cube goes.
+/// its down arrow.
 pub fn projection_button_rect(rect: egui::Rect) -> egui::Rect {
     const MARGIN_TOP: f32 = 4.0;
     const HEIGHT: f32 = 20.0;
     let width = (rect.width() * 0.88).clamp(80.0, 116.0);
+    let below = arrow_rects(rect)
+        .into_iter()
+        .find(|(arrow, _)| *arrow == StepArrow::Down)
+        .map_or(rect.max.y, |(_, down)| down.max.y);
     egui::Rect::from_min_size(
-        egui::pos2(rect.center().x - width * 0.5, rect.max.y + MARGIN_TOP),
+        egui::pos2(rect.center().x - width * 0.5, below + MARGIN_TOP),
         egui::vec2(width, HEIGHT),
+    )
+}
+
+/// The home icon's rect for a cube drawn in `rect`: the top-left corner of
+/// the arms' reach, which no arm or letter gets to at any orientation — on
+/// the cube's own corner it sat on the `Z` arm.
+pub fn home_icon_rect(rect: egui::Rect) -> egui::Rect {
+    let size = (rect.width() * 0.16).clamp(18.0, 24.0);
+    egui::Rect::from_min_size(corner_axes_extent(rect).min, egui::Vec2::splat(size))
+}
+
+/// Everything a cube drawn in `rect` paints — the cube, its arms and
+/// letters at any orientation, the arrows and the button: its clip, and the
+/// rect it registers in `chrome_rects`. Public so the caller can place the
+/// whole block before it decides where the cube goes.
+pub fn viewcube_block(rect: egui::Rect) -> egui::Rect {
+    arrow_rects(rect).into_iter().fold(
+        rect.union(corner_axes_extent(rect))
+            .union(projection_button_rect(rect)),
+        |block, (_, arrow_rect)| block.union(arrow_rect),
     )
 }
 

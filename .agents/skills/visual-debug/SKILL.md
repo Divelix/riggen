@@ -1,13 +1,13 @@
 ---
 name: visual-debug
-description: See riggen's GUI without a human describing it — render the real app headlessly to a PNG you can read, and dump what the app thinks it drew as JSON. Use when working on anything visible and you need to check the result rather than reason about it: the link tree, properties, joints or materials panels, menus and modals, viewport framing, hover/selection tint, instance positions after FK, joint glyphs and gizmos (M2), the axes triad. Also use when a visual snapshot test fails, when asked what a screen looks like or whether a UI change worked, and before any UPDATE_SNAPSHOTS=1.
+description: See riggen's GUI without a human describing it — render the real app headlessly to a PNG you can read, and dump what the app thinks it drew as JSON. Use when working on anything visible and you need to check the result rather than reason about it: the link tree, properties, joints or materials panels, menus and modals, viewport framing, hover/selection tint, instance positions after FK, joint glyphs and gizmos (M2), the ViewCube and its corner axes. Also use when a visual snapshot test fails, when asked what a screen looks like or whether a UI change worked, and before any UPDATE_SNAPSHOTS=1.
 ---
 
 # Seeing the riggen GUI
 
 You can look at this app. Do that instead of reasoning about pixels from
 source — the whole wgpu paint callback renders headlessly (shaded instances,
-ID-buffer picking, hover/selection tint, axes triad), and
+ID-buffer picking, hover/selection tint), and
 `RiggenApp::debug_state()` reports what the app believes it drew. Never ask
 the human to describe the screen.
 

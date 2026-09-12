@@ -1,12 +1,12 @@
 use egui_wgpu::wgpu;
 
 use super::gpu_state::DEPTH_FORMAT;
-use crate::gpu_mesh::{ColorVertex, Vertex};
+use crate::gpu_mesh::Vertex;
 
 /// Every scene/pick/highlight pipeline binds group 0 (camera) and group 1
 /// (this instance's model matrix, with a dynamic offset) — see
-/// `crate::scene::Scene`. The corner gizmo, background and blit pipelines
-/// draw nothing per-instance and keep group 0 alone.
+/// `crate::scene::Scene`. The background and blit pipelines draw nothing
+/// per-instance and keep group 0 alone.
 fn pipeline_layout(
     device: &wgpu::Device,
     label: &str,
@@ -235,57 +235,6 @@ pub fn build_grid_pipeline(
             format: DEPTH_FORMAT,
             depth_write_enabled: Some(false),
             depth_compare: Some(wgpu::CompareFunction::LessEqual),
-            stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
-        }),
-        multisample: wgpu::MultisampleState {
-            count: sample_count,
-            ..Default::default()
-        },
-        multiview_mask: None,
-        cache: None,
-    })
-}
-
-/// Builds the axes-triad pipeline: flat-colored line list with depth
-/// testing disabled (`Always`/no-write) so the gizmo stays visible in its
-/// screen-space corner regardless of what's rendered behind it there.
-pub fn build_axes_pipeline(
-    device: &wgpu::Device,
-    label: &str,
-    bind_group_layouts: &[&wgpu::BindGroupLayout],
-    target_format: wgpu::TextureFormat,
-    sample_count: u32,
-) -> wgpu::RenderPipeline {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some(label),
-        source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/axes.wgsl").into()),
-    });
-    let layout = pipeline_layout(device, label, bind_group_layouts);
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some(label),
-        layout: Some(&layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("vs_main"),
-            buffers: &[Some(ColorVertex::layout())],
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("fs_main"),
-            targets: &[Some(target_format.into())],
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-        }),
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::LineList,
-            cull_mode: None,
-            ..Default::default()
-        },
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: DEPTH_FORMAT,
-            depth_write_enabled: Some(false),
-            depth_compare: Some(wgpu::CompareFunction::Always),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),

@@ -19,8 +19,8 @@ pub use app::{
     GLYPH_HOVER_RADIUS, GizmoTarget, JointGlyph, MOVE_NEEDS_TARGET, MOVE_ROOT, Mode,
     NOTHING_TO_POSE, Overlay, Overlays, PLACE_JOINT_NEEDS_JOINT, PendingAction,
     ROTATE_NEEDS_TARGET, ROTATE_ROOT, RiggenApp, RingAxis, SNAP_PIXEL_RADIUS, Selection,
-    SnapCandidate, SnapKind, Tool, VIEW_TOOL_HINT, align_transform, aligned_status, fmt_num,
-    placed_status,
+    SnapCandidate, SnapKind, StepArrow, Tool, VIEW_TOOL_HINT, align_transform, aligned_status,
+    fmt_num, placed_status,
 };
 
 #[cfg(target_arch = "wasm32")]

@@ -1,7 +1,5 @@
 use egui_wgpu::wgpu;
 
-use crate::gpu_mesh::AxesTriadMesh;
-
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 /// Sample count the offscreen scene pass runs at when the adapter can do it.
@@ -28,12 +26,6 @@ pub fn choose_sample_count(
         && depth.sample_count_supported(PREFERRED_SAMPLES);
     if supported { PREFERRED_SAMPLES } else { 1 }
 }
-
-/// Size, in physical pixels, of the square the axes-triad gizmo is drawn
-/// into, clamped to a viewport-relative cap so it never dwarfs a tiny
-/// viewport panel.
-pub const AXES_GIZMO_SIZE: f32 = 90.0;
-pub const AXES_GIZMO_MARGIN: f32 = 10.0;
 
 /// Bytes of one instance's model matrix (`mat4x4<f32>`), before alignment.
 /// Per-instance uniform: the model matrix (64 bytes) followed by the
@@ -74,13 +66,12 @@ pub struct GpuState {
     pub translucent_pipeline: wgpu::RenderPipeline,
     pub background_pipeline: wgpu::RenderPipeline,
     /// The ground at z = 0, drawn in the scene pass between the translucent
-    /// instances and the highlights. Furniture like the background and the
-    /// axes triad: not an instance, not pickable, drawn in zen too.
+    /// instances and the highlights. Furniture like the background: not an
+    /// instance, not pickable, drawn in zen too.
     pub grid_pipeline: wgpu::RenderPipeline,
     pub pick_pipeline: wgpu::RenderPipeline,
     pub hover_pipeline: wgpu::RenderPipeline,
     pub select_pipeline: wgpu::RenderPipeline,
-    pub axes_pipeline: wgpu::RenderPipeline,
     pub blit_pipeline: wgpu::RenderPipeline,
     /// Copies the multisampled depth attachment into a single-sampled one the
     /// overlay readback can be copied from. `None` at sample count 1, where
@@ -88,11 +79,8 @@ pub struct GpuState {
     pub depth_resolve: Option<DepthResolvePipeline>,
     pub uniform_buffer: wgpu::Buffer,
     pub uniform_bind_group: wgpu::BindGroup,
-    pub axes_uniform_buffer: wgpu::Buffer,
-    pub axes_uniform_bind_group: wgpu::BindGroup,
     pub blit_bind_group_layout: wgpu::BindGroupLayout,
     pub sampler: wgpu::Sampler,
-    pub axes_mesh: AxesTriadMesh,
     /// Per-instance model matrices, one per *visible* instance at
     /// [`ModelUniforms::stride`] apart, bound through a single
     /// dynamic-offset bind group. Grown, never re-created per frame.

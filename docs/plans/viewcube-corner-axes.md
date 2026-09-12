@@ -200,6 +200,12 @@ whole-suite snapshot refresh carries every visible change.
   `debug_state()` gains nothing: arms and arrows are paint, like facets,
   and the camera fields already report a step's result.
 
+  Added at step 4: `RiggenApp::viewcube_rect()`, the cube's own rect, so
+  `viewcube_corner` can assert the cube is still 92 points square, and
+  `over_chrome` made public, so it can assert every tip and arrow is inside
+  the rect the widget registers — neither was otherwise reachable from a
+  scenario.
+
 ## Steps
 
 Complexity: **[1]** routine — the design says what to write, the tests are
@@ -250,7 +256,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   the facets stay one `PathShape` each; the letter stays 11 pt.
 - [x] **[1]** Step 3 — `docs(adr)`: ADR-0030, amending ADR-0028 §3, with
   the human's answers and step 2's tuned constants, plus the index rows.
-- [ ] **[2]** Step 4 — `snapshots(app,viewport)`: paint and wire it all,
+- [x] **[2]** Step 4 — `snapshots(app,viewport)`: paint and wire it all,
   and delete the triad, in one commit so the suite is refreshed once.
   - `widget.rs` paints in the order above, hit-tests the arrows first and
     returns the grown rect. `mode.rs` insets the block, `AXIS_COLORS` is

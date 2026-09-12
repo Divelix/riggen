@@ -36,13 +36,8 @@ pub struct DepthPassData {
 /// colour into egui's own pass.
 pub struct ViewportCallback {
     pub camera_uniforms: CameraUniforms,
-    pub axes_view_proj: [[f32; 4]; 4],
-    /// Bottom-left gizmo rect in physical pixels: (x, y, width, height).
-    pub axes_viewport: (f32, f32, f32, f32),
     pub uniform_buffer: wgpu::Buffer,
     pub uniform_bind_group: wgpu::BindGroup,
-    pub axes_uniform_buffer: wgpu::Buffer,
-    pub axes_uniform_bind_group: wgpu::BindGroup,
     pub scene_pipeline: wgpu::RenderPipeline,
     pub translucent_pipeline: wgpu::RenderPipeline,
     pub background_pipeline: wgpu::RenderPipeline,
@@ -51,11 +46,8 @@ pub struct ViewportCallback {
     pub draw_ground: bool,
     pub hover_pipeline: wgpu::RenderPipeline,
     pub select_pipeline: wgpu::RenderPipeline,
-    pub axes_pipeline: wgpu::RenderPipeline,
     pub pick_pipeline: wgpu::RenderPipeline,
     pub blit_pipeline: wgpu::RenderPipeline,
-    pub axes_vertex_buffer: wgpu::Buffer,
-    pub axes_vertex_count: u32,
     /// Every visible instance, in scene order; every `model_offset`,
     /// `hover` and `select` is stated against this order.
     pub instances: Vec<InstanceBuffers>,
@@ -164,7 +156,7 @@ impl ViewportCallback {
         // The ground, over the finished opaque depth buffer: depth-tested,
         // so a part in front of it hides it and it hides the background
         // behind it, but writing no depth of its own. Furniture, like the
-        // background and the axes triad, so zen draws it — zen hides
+        // background, so zen draws it — zen hides
         // chrome, not the scene (ADR-0021, amended). The visibility row's
         // **ground** toggle is the only thing that takes it away.
         if self.draw_ground {
@@ -190,15 +182,6 @@ impl ViewportCallback {
             pass.set_index_buffer(instance.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..instance.index_count, 0, 0..1);
         }
-
-        // Axes-triad gizmo: fixed screen-space corner, own rotation-only
-        // camera, drawn last so it's never occluded by scene geometry.
-        let (vx, vy, vw, vh) = self.axes_viewport;
-        pass.set_viewport(vx, vy, vw, vh, 0.0, 1.0);
-        pass.set_pipeline(&self.axes_pipeline);
-        pass.set_bind_group(0, &self.axes_uniform_bind_group, &[]);
-        pass.set_vertex_buffer(0, self.axes_vertex_buffer.slice(..));
-        pass.draw(0..self.axes_vertex_count, 0..1);
     }
 
     /// Rasterizes every visible instance's pick ids, copies the region
@@ -393,11 +376,6 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
             &self.uniform_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniforms]),
-        );
-        queue.write_buffer(
-            &self.axes_uniform_buffer,
-            0,
-            bytemuck::cast_slice(&[self.axes_view_proj]),
         );
         if !self.model_data.is_empty() {
             queue.write_buffer(&self.model_buffer, 0, &self.model_data);

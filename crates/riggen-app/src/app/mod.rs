@@ -53,6 +53,7 @@ pub use tool::{
     ALIGN_NEEDS_LINK, MOVE_NEEDS_TARGET, MOVE_ROOT, PLACE_JOINT_NEEDS_JOINT, ROTATE_NEEDS_TARGET,
     ROTATE_ROOT,
 };
+pub use viewcube::arrows::StepArrow;
 
 /// The eframe app: one `Robot` and what is derived from it
 /// (docs/ARCHITECTURE.md §The document is the only state).
@@ -119,8 +120,9 @@ pub struct RiggenApp {
     /// under it.
     chrome_rects: Vec<egui::Rect>,
     /// Where the ViewCube was drawn last frame, or `None` in zen, where it
-    /// is not drawn at all (ADR-0028 §3). Only `viewcube_facet_center`
-    /// reads it — a test that wants to click a facet.
+    /// is not drawn at all (ADR-0028 §3). Only the test hooks read it —
+    /// `viewcube_facet_center`, `viewcube_axis_tips`,
+    /// `viewcube_arrow_center` and `viewcube_rect` (ADR-0030).
     viewcube_rect: Option<egui::Rect>,
     /// What the cursor is really pointing at, for the placement tools
     /// (`snap.rs`). Rebuilt every frame from the hovered pick.
@@ -333,8 +335,9 @@ impl RiggenApp {
     /// toolbar at the top-left, the visibility row at the top-right, the
     /// ViewCube at the bottom-right. All three float in the viewport's own
     /// egui layer, which `contains_pointer` cannot see through, so the app
-    /// has to ask (01 §Picking and snapping).
-    pub(crate) fn over_chrome(&self, pos: egui::Pos2) -> bool {
+    /// has to ask (01 §Picking and snapping). Public so a scenario can
+    /// assert that what a widget paints is inside the rect it claims.
+    pub fn over_chrome(&self, pos: egui::Pos2) -> bool {
         self.chrome_rects.iter().any(|rect| rect.contains(pos))
     }
 

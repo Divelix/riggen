@@ -3,7 +3,7 @@
 //!
 //! Ported from RoboCAD (ADR-0028 §3), cgmath to glam. There is no
 //! perspective divide anywhere here: the cube is drawn in a fixed
-//! orthographic projection of its own, like the axes triad, so that it is
+//! orthographic projection of its own, and its corner axes with it, so that it is
 //! the same size in the corner whatever the scene's camera is doing — it
 //! takes the scene camera's *orientation* and nothing else.
 

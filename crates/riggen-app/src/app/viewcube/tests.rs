@@ -460,8 +460,9 @@ fn toggle_projection_is_not_home() {
 #[test]
 fn clicking_the_home_icon_asks_for_home() {
     let ctx = egui::Context::default();
-    let rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(128.0, 128.0));
-    let home_pos = egui::pos2(rect.min.x + 8.0, rect.min.y + 8.0);
+    // Far enough in that the icon, at the arms' reach, is on screen.
+    let rect = egui::Rect::from_min_size(egui::pos2(200.0, 200.0), egui::vec2(128.0, 128.0));
+    let home_pos = super::widget::home_icon_rect(rect).center();
 
     // Frame 0: Setup and position pointer
     let mut input0 = egui::RawInput::default();
@@ -506,7 +507,7 @@ fn clicking_the_projection_button_asks_for_the_toggle() {
     let ctx = egui::Context::default();
     let rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(128.0, 128.0));
     // Centred under the cube (`projection_button_rect`).
-    let btn_pos = egui::pos2(rect.center().x, rect.max.y + 14.0);
+    let btn_pos = super::widget::projection_button_rect(rect).center();
 
     // Frame 0: Setup and position pointer over the projection button
     let mut input0 = egui::RawInput::default();

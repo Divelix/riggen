@@ -12,7 +12,7 @@ pub use camera::{
     CameraAnimation, CameraSample, OrbitCamera, Projection, StandardView, ViewOrientation,
     shortest_angular_delta,
 };
-pub use gpu_mesh::{AxesTriadMesh, ColorVertex, GpuMesh, PickVertex, Vertex};
+pub use gpu_mesh::{GpuMesh, PickVertex, Vertex};
 pub use overlay::{HIDDEN_STRENGTH, Occlusion, Overlay, OverlayEntry, OverlayItem};
 pub use scene::{
     DEFAULT_INSTANCE_COLOR, InstanceEntry, InstanceId, InstancePayload, MAX_INSTANCES, RenderGroup,
