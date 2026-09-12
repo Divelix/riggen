@@ -3223,7 +3223,7 @@ version = "0.0.1"
 
 [[package]]
 name = "riggen-app"
-version = "0.2.1-dev"
+version = "0.5.0-dev"
 dependencies = [
  "console_error_panic_hook",
  "eframe",
@@ -3250,7 +3250,7 @@ dependencies = [
 
 [[package]]
 name = "riggen-core"
-version = "0.2.1-dev"
+version = "0.5.0-dev"
 dependencies = [
  "riggen-mesh",
  "serde",
@@ -3259,7 +3259,7 @@ dependencies = [
 
 [[package]]
 name = "riggen-export"
-version = "0.2.1-dev"
+version = "0.5.0-dev"
 dependencies = [
  "quick-xml 0.36.2",
  "riggen-core",
@@ -3271,7 +3271,7 @@ dependencies = [
 
 [[package]]
 name = "riggen-mesh"
-version = "0.2.1-dev"
+version = "0.5.0-dev"
 dependencies = [
  "glam 0.30.10",
  "parry3d-f64",
@@ -3281,7 +3281,7 @@ dependencies = [
 
 [[package]]
 name = "riggen-py"
-version = "0.2.1-dev"
+version = "0.5.0-dev"
 dependencies = [
  "pyo3",
  "riggen-core",
@@ -3293,7 +3293,7 @@ dependencies = [
 
 [[package]]
 name = "riggen-viewport"
-version = "0.2.1-dev"
+version = "0.5.0-dev"
 dependencies = [
  "bytemuck",
  "egui",
