@@ -5,12 +5,16 @@
 //! show that something is wrong. The widget half drives a real
 //! `egui::Context` through the three frames a click takes.
 
-use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
+use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
 use riggen_core::glam::Vec3;
-use riggen_viewport::{Projection, ViewOrientation};
+use riggen_viewport::{OrbitCamera, Projection, ViewOrientation};
 
-use super::facets::chamfered_cube_facets;
+use super::axes::{
+    CornerAxis, FORESHORTENED, corner_axes_extent, corner_origin, letter_rect, letters_overlap,
+    project_corner_axes,
+};
+use super::facets::{FACE_EXTENT, chamfered_cube_facets};
 use super::projection::{
     camera_basis, face_local_axes_3d, hit_test_viewcube, point_in_polygon_2d,
     project_face_text_mesh, project_viewcube,
@@ -537,4 +541,182 @@ fn clicking_the_projection_button_asks_for_the_toggle() {
     out2.textures_delta.clear();
 
     assert_eq!(action_captured, Some(ViewCubeAction::ToggleProjection));
+}
+
+/// The cube as `viewcube_corner` draws it: 92 points square.
+fn corner_rect() -> egui::Rect {
+    egui::Rect::from_min_size(egui::pos2(20.0, 20.0), egui::vec2(92.0, 92.0))
+}
+
+fn run_length(runs: &[[egui::Pos2; 2]]) -> f32 {
+    runs.iter().map(|[a, b]| (*b - *a).length()).sum()
+}
+
+/// Every orientation a face, edge or corner click lands on, and an orbit
+/// sampled every 15° of yaw and pitch, poles included.
+fn sampled_views() -> Vec<(f32, f32)> {
+    let step = 15f32.to_radians();
+    let mut views: Vec<_> = ViewOrientation::ALL.iter().map(|o| o.yaw_pitch()).collect();
+    for i in 0..24 {
+        for j in -6..=6 {
+            views.push((
+                i as f32 * step,
+                (j as f32 * step).clamp(-FRAC_PI_2, FRAC_PI_2),
+            ));
+        }
+    }
+    views
+}
+
+#[test]
+fn at_home_x_runs_right_z_up_and_y_hides_behind_the_cube_without_its_letter() {
+    let [x, y, z] = project_corner_axes(
+        corner_rect(),
+        OrbitCamera::DEFAULT_YAW,
+        OrbitCamera::DEFAULT_PITCH,
+    );
+    assert_eq!([x.axis, y.axis, z.axis], [0, 1, 2]);
+
+    let dx = x.tip - x.tail;
+    assert!(dx.x > dx.y.abs(), "X runs screen-right: {dx:?}");
+    let dz = z.tip - z.tail;
+    assert!(-dz.y > dz.x.abs(), "Z runs screen-up: {dz:?}");
+
+    assert!(x.behind.is_empty(), "X is wholly in front: {:?}", x.behind);
+    assert!(z.behind.is_empty(), "Z is wholly in front: {:?}", z.behind);
+    assert!(
+        run_length(&y.behind) > run_length(&y.in_front),
+        "Y is mostly behind: {:?} / {:?}",
+        y.behind,
+        y.in_front
+    );
+
+    assert!(x.letter_visible && z.letter_visible);
+    assert!(
+        !y.letter_visible,
+        "Y's end is behind the cube, so no letter"
+    );
+}
+
+#[test]
+fn from_the_opposite_iso_the_hidden_letter_comes_back() {
+    // The eye mirrored through the cube's centre: Y's arm, hidden at home,
+    // is now in front of the cube. X and Z ran outside the silhouette at
+    // home, so they still do.
+    let axes = project_corner_axes(
+        corner_rect(),
+        OrbitCamera::DEFAULT_YAW + PI,
+        -OrbitCamera::DEFAULT_PITCH,
+    );
+    for axis in &axes {
+        assert!(axis.behind.is_empty(), "{}: {:?}", axis.axis, axis.behind);
+        assert!(axis.letter_visible, "{}'s letter is drawn", axis.axis);
+    }
+}
+
+#[test]
+fn at_the_top_view_z_points_at_the_eye_and_its_letter_moves_out_along_the_corner() {
+    let rect = corner_rect();
+    let (yaw, pitch) = ViewOrientation::Top.yaw_pitch();
+    let [x, y, z] = project_corner_axes(rect, yaw, pitch);
+
+    let dx = x.tip - x.tail;
+    assert!(dx.x > 0.0 && dx.y.abs() < 1e-3, "X runs right: {dx:?}");
+    let dy = y.tip - y.tail;
+    assert!(dy.y < 0.0 && dy.x.abs() < 1e-3, "Y runs up: {dy:?}");
+
+    assert!((z.tip - z.tail).length() < FORESHORTENED);
+    let corner = z.tail - rect.center();
+    let letter = z.letter - rect.center();
+    assert!(
+        letter.normalized().dot(corner.normalized()) > 0.999,
+        "Z's letter is on the corner's diagonal: {letter:?} vs {corner:?}"
+    );
+    assert!(letter.length() > corner.length() + FORESHORTENED * 0.5);
+    assert!(x.letter_visible && y.letter_visible && z.letter_visible);
+}
+
+#[test]
+fn at_every_sampled_view_no_drawn_letters_overlap_and_everything_stays_in_the_extent() {
+    let rect = corner_rect();
+    let extent = corner_axes_extent(rect);
+    for (yaw, pitch) in sampled_views() {
+        let axes = project_corner_axes(rect, yaw, pitch);
+        let drawn: Vec<&CornerAxis> = axes.iter().filter(|a| a.letter_visible).collect();
+        for (i, a) in drawn.iter().enumerate() {
+            for b in &drawn[i + 1..] {
+                assert!(
+                    !letters_overlap(a.letter, b.letter),
+                    "letters {} and {} overlap at yaw {yaw}, pitch {pitch}",
+                    a.axis,
+                    b.axis
+                );
+            }
+        }
+        for axis in &axes {
+            let r = letter_rect(axis.letter);
+            for p in [axis.tail, axis.tip, r.left_top(), r.right_bottom()]
+                .into_iter()
+                .chain(axis.behind.iter().chain(&axis.in_front).flatten().copied())
+            {
+                assert!(
+                    extent.contains(p),
+                    "{p:?} of arm {} leaves {extent:?} at yaw {yaw}, pitch {pitch}",
+                    axis.axis
+                );
+            }
+            // The two kinds of run cover the arm, end to end.
+            let length = (axis.tip - axis.tail).length();
+            let covered = run_length(&axis.behind) + run_length(&axis.in_front);
+            assert!((covered - length).abs() < 1e-2, "{covered} vs {length}");
+        }
+        // Somebody's letter always says which way is which.
+        assert!(
+            axes.iter().any(|a| a.letter_visible),
+            "yaw {yaw}, pitch {pitch}"
+        );
+    }
+}
+
+#[test]
+fn an_arm_behind_a_nearer_one_loses_its_letter_to_it() {
+    // BackRight looks along X − Y: the two arms land on one screen line, the
+    // X arm nearer, so only X's letter is drawn.
+    let (yaw, pitch) = ViewOrientation::BackRight.yaw_pitch();
+    let [x, y, _] = project_corner_axes(corner_rect(), yaw, pitch);
+    assert!((x.tip - y.tip).length() < 1e-3);
+    assert!(x.depth > y.depth);
+    assert!(x.letter_visible);
+    assert!(!y.letter_visible);
+}
+
+#[test]
+fn the_arms_start_on_the_cube_s_own_corner_diagonal_pushed_out_by_the_gap() {
+    // The corner triangle's centre lies on the same diagonal as the arms'
+    // origin, so the tail is the projected facet centre scaled out by the
+    // ratio of their distances — asserted against the facets' projection,
+    // not a second copy of it.
+    let rect = corner_rect();
+    let corner_center = Vec3::splat(-(2.0 * FACE_EXTENT + 1.0) / 3.0);
+    let ratio = corner_origin().length() / corner_center.length();
+    let mut checked = 0;
+    for (yaw, pitch) in sampled_views() {
+        let Some(facet) = project_viewcube(rect, yaw, pitch)
+            .into_iter()
+            .find(|f| f.orientation == ViewOrientation::BackBottomLeft)
+        else {
+            continue;
+        };
+        let tail = project_corner_axes(rect, yaw, pitch)[0].tail;
+        let expected = rect.center() + (facet.center_2d - rect.center()) * ratio;
+        assert!(
+            (tail - expected).length() < 1e-3,
+            "{tail:?} vs {expected:?} at yaw {yaw}, pitch {pitch}"
+        );
+        checked += 1;
+    }
+    assert!(
+        checked > 10,
+        "the corner facet faces the eye in {checked} views"
+    );
 }

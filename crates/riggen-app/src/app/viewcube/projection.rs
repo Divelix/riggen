@@ -18,8 +18,19 @@ pub struct ProjectedFacet {
     pub orientation: ViewOrientation,
     pub vertices_2d: Vec<egui::Pos2>,
     pub normal_3d: Vec3,
+    /// `normal_3d · x` for every point `x` in the facet's plane, so a point
+    /// with a smaller product lies on the cube's side of it.
+    pub plane_offset: f32,
     pub center_2d: egui::Pos2,
     pub depth: f32,
+}
+
+/// Cube units to points for a cube drawn in `rect`: its fit, which the
+/// facets, the face labels and the corner axes all project through.
+pub fn cube_scale(rect: egui::Rect) -> f32 {
+    // Fit comfortably inside the widget rect
+    let radius = rect.width().min(rect.height()) * 0.5;
+    radius / 1.75
 }
 
 /// The camera basis the cube is projected through: `(right, up, eye_dir)`,
@@ -48,9 +59,7 @@ pub fn camera_basis(yaw: f32, pitch: f32) -> (Vec3, Vec3, Vec3) {
 pub fn project_viewcube(rect: egui::Rect, yaw: f32, pitch: f32) -> Vec<ProjectedFacet> {
     let (cam_right, cam_up, eye_dir) = camera_basis(yaw, pitch);
     let center = rect.center();
-    // Fit comfortably inside the widget rect
-    let radius = rect.width().min(rect.height()) * 0.5;
-    let scale = radius / 1.75;
+    let scale = cube_scale(rect);
 
     let facets = chamfered_cube_facets();
     let mut projected = Vec::with_capacity(facets.len());
@@ -84,6 +93,7 @@ pub fn project_viewcube(rect: egui::Rect, yaw: f32, pitch: f32) -> Vec<Projected
             orientation: facet.orientation,
             vertices_2d,
             normal_3d: facet.normal,
+            plane_offset: facet.normal.dot(facet.center),
             center_2d,
             depth,
         });

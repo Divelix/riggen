@@ -14,6 +14,8 @@
 //! variants — plus RoboCAD's `is_sketch_mode` parameter dropped, riggen
 //! having no sketch mode to dim for.
 
+#[allow(dead_code, reason = "the widget paints it at step 4 of the plan")]
+pub mod axes;
 pub mod facets;
 pub mod projection;
 pub mod widget;

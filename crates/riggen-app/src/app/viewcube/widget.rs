@@ -9,7 +9,7 @@ use riggen_core::glam::Vec3;
 use riggen_viewport::{Projection, ViewOrientation};
 
 use super::projection::{
-    camera_basis, hit_test_viewcube, project_face_text_mesh, project_viewcube,
+    camera_basis, cube_scale, hit_test_viewcube, project_face_text_mesh, project_viewcube,
 };
 
 /// What the pointer asked the cube for. Every variant is a call the camera
@@ -49,8 +49,7 @@ pub fn viewcube(
 ) -> ViewCubeOutput {
     let (cam_right, cam_up, eye_dir) = camera_basis(yaw, pitch);
     let visible_facets = project_viewcube(rect, yaw, pitch);
-    let radius = rect.width().min(rect.height()) * 0.5;
-    let scale = radius / 1.75;
+    let scale = cube_scale(rect);
 
     let home_size = (rect.width() * 0.16).clamp(18.0, 24.0);
     let home_rect = egui::Rect::from_min_size(
