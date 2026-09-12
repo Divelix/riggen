@@ -42,7 +42,12 @@ updated by it.
 
 - Milestones: `m0`, `m1`, … on the commit that retires the milestone's last
   plan and passes its acceptance test.
-- Releases: `v0.1.0` SemVer, on `main`, created by the human.
+- Releases: `v0.1.0` SemVer, on `main`, created by the human — always on
+  the commit `/close-cycle` leaves with the workspace `Cargo.toml`
+  version bumped to match, `-dev` dropped. That version is what maturin
+  bakes into the wheel filename (`pyproject.toml` `dynamic = ["version"]`,
+  ADR-0009), so a tag on a `-dev` commit ships a wheel labelled for the
+  wrong release. Never tag a `-dev` commit.
 
 ## What the agent does without asking
 

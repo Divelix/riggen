@@ -93,10 +93,20 @@ a second roadmap file would only ever raise "which one is current?".
    The human pastes them into the GitHub Release body when they tag;
    `release.yml`'s `generate_release_notes: true` puts the commit list
    underneath. Nothing to maintain between cycles, and nothing to go stale.
-8. Commit as `docs: close <cycle>` with a body listing the docs updated and
-   the drift fixed. Then **tell the human to tag** `vN.N.0`, with the
-   release-note bullets beside the instruction — tags and pushes are
+8. **Bump the workspace version.** `Cargo.toml` `[workspace.package]`:
+   drop `-dev`, matching `vN.N.0` exactly — this is what maturin reads
+   into the wheel filename (`pyproject.toml` `dynamic = ["version"]`,
+   ADR-0009), so a release tagged on a `-dev` commit ships a wheel
+   labelled for the wrong version. Commit it together with the docs as
+   `docs: close <cycle>`, body listing the docs updated and the drift
+   fixed. Then **tell the human to tag** `vN.N.0`, on this commit, with
+   the release-note bullets beside the instruction — tags and pushes are
    theirs (`.agents/rules/git.md`), never yours.
+9. **Bump the version forward.** In its own commit right after,
+   `chore: bump dev version to N.(N+1).0-dev` (the next cycle's number,
+   from step 4) — so `main` goes back to building pre-release wheels
+   (PEP 440 `.devN`) until the next tag, and the human's tag lands on the
+   commit from step 8, never on this one.
 
 ## Don't
 
