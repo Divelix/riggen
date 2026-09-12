@@ -20,6 +20,9 @@ pub enum ViewCubeAction {
     Select(ViewOrientation),
     /// Orbit by these deltas, in radians — the cube itself was dragged.
     Orbit { delta_yaw: f32, delta_pitch: f32 },
+    /// Fly by these deltas, in radians — a step arrow was clicked.
+    #[allow(dead_code, reason = "the widget hits the arrows at step 4 of the plan")]
+    Step { delta_yaw: f32, delta_pitch: f32 },
     /// Re-frame the scene at the home orientation.
     Home,
     /// Perspective ↔ orthographic.
@@ -114,11 +117,10 @@ pub fn viewcube(
     {
         let delta = response.drag_delta();
         if delta.x != 0.0 || delta.y != 0.0 {
-            // The same radians-per-point the viewport's own orbit uses, so
-            // dragging the cube and dragging the scene turn at one rate.
+            let (delta_yaw, delta_pitch) = drag_orbit(delta);
             action = Some(ViewCubeAction::Orbit {
-                delta_yaw: -delta.x * 0.01,
-                delta_pitch: delta.y * 0.01,
+                delta_yaw,
+                delta_pitch,
             });
         }
     } else if response.clicked()
@@ -230,6 +232,14 @@ pub fn viewcube(
         action,
         rect: total_rect,
     }
+}
+
+/// `(delta_yaw, delta_pitch)` for a drag of the cube by `delta` points: the
+/// same radians-per-point the viewport's own orbit uses, so dragging the
+/// cube and dragging the scene turn at one rate. The step arrows take their
+/// signs from it.
+pub fn drag_orbit(delta: egui::Vec2) -> (f32, f32) {
+    (-delta.x * 0.01, delta.y * 0.01)
 }
 
 /// The projection button's rect for a cube drawn in `rect` — centred under

@@ -10,6 +10,9 @@ use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 use riggen_core::glam::Vec3;
 use riggen_viewport::{OrbitCamera, Projection, ViewOrientation};
 
+use super::arrows::{
+    ARROW_STEP, StepArrow, arrow_rects, arrow_triangle, hit_test_arrows, step_camera,
+};
 use super::axes::{
     CornerAxis, FORESHORTENED, corner_axes_extent, corner_origin, letter_rect, letters_overlap,
     project_corner_axes,
@@ -19,7 +22,7 @@ use super::projection::{
     camera_basis, face_local_axes_3d, hit_test_viewcube, point_in_polygon_2d,
     project_face_text_mesh, project_viewcube,
 };
-use super::widget::{ViewCubeAction, viewcube};
+use super::widget::{ViewCubeAction, drag_orbit, viewcube};
 
 #[test]
 fn chamfered_cube_facet_counts_and_shapes() {
@@ -719,4 +722,125 @@ fn the_arms_start_on_the_cube_s_own_corner_diagonal_pushed_out_by_the_gap() {
         checked > 10,
         "the corner facet faces the eye in {checked} views"
     );
+}
+
+#[test]
+fn each_arrow_turns_the_view_the_way_a_drag_towards_it_does() {
+    let rect = corner_rect();
+    for (arrow, arrow_rect) in arrow_rects(rect) {
+        let towards = arrow_rect.center() - rect.center();
+        let (drag_yaw, drag_pitch) = drag_orbit(towards);
+        let (delta_yaw, delta_pitch) = arrow.delta();
+        for (step, drag) in [(delta_yaw, drag_yaw), (delta_pitch, drag_pitch)] {
+            if drag.abs() < 1e-6 {
+                assert_eq!(step, 0.0, "{arrow:?} changes yaw or pitch, never both");
+            } else {
+                assert_eq!(step.signum(), drag.signum(), "{arrow:?}");
+                assert!((step.abs() - ARROW_STEP).abs() < 1e-6, "{arrow:?}");
+            }
+        }
+    }
+    assert_eq!(StepArrow::Right.delta(), (-ARROW_STEP, 0.0));
+    assert_eq!(StepArrow::Up.delta(), (0.0, -ARROW_STEP));
+}
+
+#[test]
+fn the_arrows_sit_outside_the_cube_s_circle() {
+    let rect = corner_rect();
+    let radius = rect.width() * 0.5;
+    for (arrow, arrow_rect) in arrow_rects(rect) {
+        for corner in [
+            arrow_rect.left_top(),
+            arrow_rect.right_top(),
+            arrow_rect.left_bottom(),
+            arrow_rect.right_bottom(),
+        ] {
+            assert!(
+                (corner - rect.center()).length() > radius,
+                "{arrow:?} reaches into the cube's circle"
+            );
+        }
+        for point in arrow_triangle(arrow, arrow_rect) {
+            assert!(arrow_rect.expand(1e-3).contains(point), "{arrow:?}");
+        }
+    }
+}
+
+#[test]
+fn the_arrow_hit_test_finds_each_centre_and_nothing_on_the_cube() {
+    let rect = corner_rect();
+    for (arrow, arrow_rect) in arrow_rects(rect) {
+        assert_eq!(hit_test_arrows(rect, arrow_rect.center()), Some(arrow));
+    }
+    assert_eq!(hit_test_arrows(rect, rect.center()), None);
+}
+
+#[test]
+fn a_step_flies_from_where_the_camera_is_and_stops_at_the_pole() {
+    let land = |camera: &mut OrbitCamera| {
+        camera.step_animation(web_time::Instant::now() + std::time::Duration::from_secs(10));
+        assert!(!camera.is_animating());
+    };
+
+    // Right from yaw 0: yaw −15°, and nothing else moves.
+    let mut camera = OrbitCamera {
+        yaw: 0.0,
+        pitch: 0.3,
+        target: Vec3::new(1.0, 2.0, 3.0),
+        distance: 4.0,
+        ..Default::default()
+    };
+    let (delta_yaw, delta_pitch) = StepArrow::Right.delta();
+    step_camera(&mut camera, delta_yaw, delta_pitch);
+    land(&mut camera);
+    assert!((camera.yaw - (-ARROW_STEP)).abs() < 1e-5, "{}", camera.yaw);
+    assert!((camera.pitch - 0.3).abs() < 1e-5);
+    assert_eq!(
+        (camera.target, camera.distance),
+        (Vec3::new(1.0, 2.0, 3.0), 4.0)
+    );
+
+    // Down at the Top view would turn past the pole: it stays at 90°.
+    let (yaw, pitch) = ViewOrientation::Top.yaw_pitch();
+    let mut camera = OrbitCamera {
+        yaw,
+        pitch,
+        ..Default::default()
+    };
+    let (delta_yaw, delta_pitch) = StepArrow::Down.delta();
+    step_camera(&mut camera, delta_yaw, delta_pitch);
+    land(&mut camera);
+    assert!((camera.pitch - FRAC_PI_2).abs() < 1e-5, "{}", camera.pitch);
+
+    // Up from there turns back off it, by one step.
+    let (delta_yaw, delta_pitch) = StepArrow::Up.delta();
+    step_camera(&mut camera, delta_yaw, delta_pitch);
+    land(&mut camera);
+    assert!((camera.pitch - (FRAC_PI_2 - ARROW_STEP)).abs() < 1e-5);
+}
+
+#[test]
+fn no_arm_or_drawn_letter_touches_an_arrow_at_any_sampled_view() {
+    let rect = corner_rect();
+    for (yaw, pitch) in sampled_views() {
+        for axis in project_corner_axes(rect, yaw, pitch) {
+            for (arrow, arrow_rect) in arrow_rects(rect) {
+                assert!(
+                    !(axis.letter_visible && letter_rect(axis.letter).intersects(arrow_rect)),
+                    "letter {} on {arrow:?} at yaw {yaw}, pitch {pitch}",
+                    axis.axis
+                );
+                for [a, b] in axis.behind.iter().chain(&axis.in_front) {
+                    for i in 0..=32 {
+                        let p = *a + (*b - *a) * (i as f32 / 32.0);
+                        assert!(
+                            !arrow_rect.contains(p),
+                            "arm {} crosses {arrow:?} at yaw {yaw}, pitch {pitch}",
+                            axis.axis
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

@@ -18,9 +18,9 @@ use super::projection::{
 /// How far outside the bounding cube's corner the arms start, in cube units
 /// along the (−1, −1, −1) diagonal: enough to lift them off the edges.
 pub const AXES_GAP: f32 = 0.12;
-/// An arm's length in cube units — 1.3 edges of the ±1 cube, so it clears
-/// the far corner.
-pub const ARM_LENGTH: f32 = 2.6;
+/// An arm's length in cube units — 1.2 edges of the ±1 cube, so it clears
+/// the far corner and its letter still clears the step arrows.
+pub const ARM_LENGTH: f32 = 2.4;
 /// The side of a letter's square, in points.
 pub const LETTER_SIZE: f32 = 11.0;
 /// Between an arm's end and its letter's square, in points.

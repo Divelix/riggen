@@ -47,8 +47,9 @@ whole-suite snapshot refresh carries every visible change.
 - **Onshape's view dropdown** under the cube. The projection button stays
   where it is and does what it does.
 - **The cube itself.** Its size (`SIZE` 92 in `mode.rs`, fit `radius /
-  1.75`), facets, facet hit test, home icon, drag rate and projection
-  button all stay. The arms are paint only: not clickable, and they change
+  1.75`), facets, facet hit test, home icon's look, drag rate and
+  projection button all stay (the icon and the button move; see
+  `widget.rs`). The arms are paint only: not clickable, and they change
   nothing about what a click selects.
 - **The back facets.** None are drawn through the translucent front ones,
   and the backface cull stays, so a mirrored `BACK` never shows through
@@ -124,8 +125,12 @@ whole-suite snapshot refresh carries every visible change.
 - **`viewcube/arrows.rs`** (new) — the four step arrows, as pure layout
   and hit test.
   - `arrow_rects(cube_rect) -> [(StepArrow, Rect); 4]`: small isosceles
-    triangles on a ring just outside the cube's circle, pointing outward
-    at 12, 3, 6 and 9 o'clock.
+    triangles on a ring outside the cube's circle, pointing outward at 12,
+    3, 6 and 9 o'clock. **Tuned at step 2:** `ARROW_RING_GAP` 28 pt. An arm
+    can reach ~53 pt in any screen direction, and at the FrontTopRight iso
+    `Z` points straight up at the `Up` arrow, so the ring sits past the
+    farthest a letter reaches; `ARM_LENGTH` came down 2.6 → 2.4 (1.2 edges,
+    still clearing the far corner) to keep the ring close.
   - `hit_test_arrows(…, pos) -> Option<StepArrow>`.
   - `StepArrow::delta() -> (yaw, pitch)` at `ARROW_STEP` = 15°.
   - **Sign.** An arrow turns the view the way dragging the cube towards
@@ -134,8 +139,10 @@ whole-suite snapshot refresh carries every visible change.
     drag can never disagree.
   - **The action.** `ViewCubeAction` gains `Step { delta_yaw, delta_pitch
     }`. `mode.rs` turns it into `camera.animate_to(yaw + dy, (pitch +
-    dp).clamp(-FRAC_PI_2, FRAC_PI_2))`. The clamp is the face views' own
-    range, so `Up` at the Top view is a no-op, not a flip. Stepping from a
+    dp).clamp(-FRAC_PI_2, FRAC_PI_2))` (`arrows::step_camera`). The clamp
+    is the face views' own range, so `Down` at the Top view is a no-op, not
+    a flip. (`Down`, not `Up`: by the sign above, `Up` lowers pitch and
+    turns *off* the pole — corrected at step 2.) Stepping from a
     running animation starts from where the camera is now, like any
     facet click.
 - **`viewcube/widget.rs`** — paints back to front:
@@ -155,6 +162,10 @@ whole-suite snapshot refresh carries every visible change.
   - **Hit order.** Arrows, home, projection, then facets. An arrow click
     is never read as a cube drag or a facet select.
   - **Layout.** The projection button moves below the down arrow.
+  - **Home icon** (found at step 2). On the cube rect's corner it sat on
+    the `Z` arm and letter at the home, Top and Right views. It moves to
+    `home_icon_rect`, the top-left corner of `corner_axes_extent`, which no
+    arm or letter reaches at any orientation.
   - **Rect.** The painter clip and the returned `rect` become the union of
     the cube rect, the arms' reach at any orientation
     (`corner_axes_extent`), the arrows and the button. `chrome_rects`
@@ -215,24 +226,28 @@ mechanical; **[2]** careful — a case to get right within a given design;
   - The tail is the corner triangle's projected centre scaled out along
     the diagonal to the gap — checked against `project_viewcube`, which
     pins "part of the cube".
-- [ ] **[2]** Step 2 — `feat(app)`: the step arrows' layout and action,
+- [x] **[2]** Step 2 — `feat(app)`: the step arrows' layout and action,
   not yet painted or hit by the widget. Add `viewcube/arrows.rs` and
   `ViewCubeAction::Step`, handled in `mode.rs`. Unit tests:
   - each arrow's delta matches a drag towards it;
-  - the rects sit outside the cube's circle and inside the block;
+  - the rects sit outside the cube's circle (inside the block moved to
+    step 4's `viewcube_corner`, the block being the union `widget.rs`
+    gains there);
+  - no arm run and no drawn letter touches an arrow at any sampled view;
   - the hit test finds each arrow's centre and nothing at the cube's
     centre.
 
-  A camera test covers the handler: `Up` at the Top view leaves pitch at
-  90°, and `Right` from yaw 0 lands at −15° with target and distance
-  untouched.
+  A camera test covers the handler: `Down` at the Top view leaves pitch at
+  90° and `Up` then turns one step off it, and `Right` from yaw 0 lands at
+  −15° with target and distance untouched.
 
   Before committing, the agent paints arms, arrows and the 50 % cube
   locally (uncommitted) and captures a scratch board through
   `visual-debug` against the screenshot: home, Top, Front, Right and the
   iso opposite home, dark and light. It tunes `AXES_GAP`, `ARM_LENGTH`,
   the letter size and the arrow ring to it, checks for facet seams, and
-  shows the human the board.
+  shows the human the board. *Done:* no seams at 5× in either theme, so
+  the facets stay one `PathShape` each; the letter stays 11 pt.
 - [ ] **[1]** Step 3 — `docs(adr)`: ADR-0030, amending ADR-0028 §3, with
   the human's answers and step 2's tuned constants, plus the index rows.
 - [ ] **[2]** Step 4 — `snapshots(app,viewport)`: paint and wire it all,
@@ -309,7 +324,14 @@ mechanical; **[2]** careful — a case to get right within a given design;
 
 ## Open questions
 
-None. The human answered the fill, size, zen, roll-arrow and step
+- **Left / Right at the exact Top and Bottom views** (found at step 2).
+  There `OrbitCamera::basis` stands Y in for Z as the up hint, so the
+  picture does not depend on yaw: a side arrow changes `yaw` by 15° and
+  the view does not visibly turn. Onshape spins the top view there. Doing
+  so means the pole heuristic reading yaw, which is ADR-0028's camera, not
+  this plan's; left as it is, and named in ADR-0030.
+
+Otherwise none. The human answered the fill, size, zen, roll-arrow and step
 questions, and the letters: "you turn off axis letter visibility
 completely when it goes behind cube - onshape on screenshot does exactly
 that". The answers are in the design above.

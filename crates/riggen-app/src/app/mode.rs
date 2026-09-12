@@ -215,6 +215,12 @@ impl RiggenApp {
             }) => {
                 self.viewport.camera.orbit(delta_yaw, delta_pitch);
             }
+            Some(viewcube::ViewCubeAction::Step {
+                delta_yaw,
+                delta_pitch,
+            }) => {
+                viewcube::arrows::step_camera(&mut self.viewport.camera, delta_yaw, delta_pitch);
+            }
             Some(viewcube::ViewCubeAction::Home) => {
                 self.viewport.animate_frame_scene();
             }
