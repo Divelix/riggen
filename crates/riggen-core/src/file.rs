@@ -753,6 +753,17 @@ mod tests {
             Err(FileError::Invalid { .. })
         ));
         assert!(!target.exists());
+        // So is a NaN, rather than written as the `null` serde_json spells
+        // one — a file that would then not load.
+        let mut nan = robot.clone();
+        nan.links.get_mut(&root).unwrap().visuals[0].pose.t.x = f64::NAN;
+        assert!(matches!(
+            to_json(&nan, &target),
+            Err(FileError::Invalid {
+                source: ValidationError::NonFinite { .. },
+                ..
+            })
+        ));
         assert!(matches!(
             load(&dir.join("nope.riggen")),
             Err(FileError::Io { .. })

@@ -1398,6 +1398,26 @@ mod tests {
         );
     }
 
+    /// A NaN in a geom pose never reaches a writer: `resolve` stops at the
+    /// `validate` gate naming the slot, so there is no `ResolvedRobot` for
+    /// `export` to write.
+    #[test]
+    fn a_non_finite_geom_pose_stops_at_the_validate_gate() {
+        let mut b = Builder::new();
+        let cube = b.mesh("cube", TriMesh::cube(0.05));
+        let root = b.robot.root;
+        let arm = b.link("arm", root, JointKind::Revolute, Some(cube));
+        let visual = &mut b.robot.links.get_mut(&arm).unwrap().visuals[0];
+        visual.pose.t.z = f64::NAN;
+        let geom = visual.id;
+        assert_eq!(
+            b.resolve().unwrap_err(),
+            vec![ExportError::Invalid(ValidationError::NonFinite {
+                what: format!("pose of geom {geom} of link {arm}")
+            })]
+        );
+    }
+
     #[test]
     fn collision_policies_resolve_to_their_geoms() {
         let mut b = Builder::new();

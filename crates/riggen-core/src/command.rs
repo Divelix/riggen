@@ -1426,6 +1426,17 @@ mod tests {
         let moved = Pose::from_translation(DVec3::Z);
         apply(&mut robot, Command::SetGeomPose(arm, gid, moved)).unwrap();
         assert_eq!(robot.links[&arm].visuals[0].pose, moved);
+        // A NaN is refused by the edit that makes it, and changes nothing.
+        let before = robot.clone();
+        let nan = Pose::from_translation(DVec3::new(f64::NAN, 0.0, 0.0));
+        assert_eq!(
+            apply(&mut robot, Command::SetGeomPose(arm, gid, nan)),
+            Err(ValidationError::NonFinite {
+                what: format!("pose of geom {gid} of link {arm}")
+            }
+            .into())
+        );
+        assert_eq!(robot, before);
         assert_eq!(
             apply(
                 &mut robot,

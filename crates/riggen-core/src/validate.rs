@@ -6,7 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::ids::{ActuatorId, FrameId, GeomId, JointId, LinkId, MeshId, TendonId};
-use crate::robot::{ActuatorSpec, ActuatorTarget, General, Robot};
+use crate::pose::Pose;
+use crate::robot::{ActuatorSpec, ActuatorTarget, CollisionPolicy, General, Primitive, Robot};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationError {
@@ -375,6 +376,7 @@ pub fn validation_errors(robot: &Robot) -> Vec<ValidationError> {
     check_references(robot, &mut errors);
     check_names(robot, &mut errors);
     check_joints(robot, &mut errors);
+    check_links(robot, &mut errors);
     check_mimics(robot, &mut errors);
     check_tendons(robot, &mut errors);
     check_actuators(robot, &mut errors);
@@ -564,11 +566,7 @@ fn check_joints(robot: &Robot, errors: &mut Vec<ValidationError>) {
     // A frame's pose reaches the export untouched (ADR-0012), so a NaN in
     // it would become a NaN `pos` in the MJCF rather than an error here.
     for (&fid, frame) in &robot.frames {
-        if !frame.pose.t.is_finite() || !frame.pose.r.is_finite() {
-            errors.push(ValidationError::NonFinite {
-                what: format!("pose of frame {fid}"),
-            });
-        }
+        check_pose(&frame.pose, || format!("pose of frame {fid}"), errors);
     }
     for (name, material) in &robot.materials {
         if !material.density.is_finite() || material.density < 0.0 {
@@ -578,11 +576,7 @@ fn check_joints(robot: &Robot, errors: &mut Vec<ValidationError>) {
         }
     }
     for (&jid, joint) in &robot.joints {
-        if !joint.origin.t.is_finite() || !joint.origin.r.is_finite() {
-            errors.push(ValidationError::NonFinite {
-                what: format!("origin of joint {jid}"),
-            });
-        }
+        check_pose(&joint.origin, || format!("origin of joint {jid}"), errors);
         if joint.kind.is_movable() && (!joint.axis.is_finite() || joint.axis.length() == 0.0) {
             errors.push(ValidationError::ZeroAxis(jid));
         }
@@ -610,6 +604,58 @@ fn check_joints(robot: &Robot, errors: &mut Vec<ValidationError>) {
                 });
             }
             _ => {}
+        }
+    }
+}
+
+/// A pose is finite in every component; `what` names it in the error.
+fn check_pose(pose: &Pose, what: impl FnOnce() -> String, errors: &mut Vec<ValidationError>) {
+    if !pose.t.is_finite() || !pose.r.is_finite() {
+        errors.push(ValidationError::NonFinite { what: what() });
+    }
+}
+
+/// The numbers a link's geometry holds: every geom's pose, visual or
+/// collision mesh, and every collision primitive's pose and size. Each
+/// reaches a writer as written, so a NaN here would be a NaN `pos` in the
+/// file rather than an error. Finite is all this asks — whether a zero
+/// radius is a shape a simulator takes is not a question about numbers.
+fn check_links(robot: &Robot, errors: &mut Vec<ValidationError>) {
+    for (&lid, link) in &robot.links {
+        for geom in &link.visuals {
+            let what = || format!("pose of geom {} of link {lid}", geom.id);
+            check_pose(&geom.pose, what, errors);
+        }
+        match &link.collision {
+            CollisionPolicy::Meshes(geoms) => {
+                for geom in geoms {
+                    let what = || format!("pose of collision geom {} of link {lid}", geom.id);
+                    check_pose(&geom.pose, what, errors);
+                }
+            }
+            CollisionPolicy::Primitives(prims) => {
+                for (i, prim) in prims.iter().enumerate() {
+                    let what = || format!("pose of primitive {i} of link {lid}");
+                    check_pose(&prim.pose(), what, errors);
+                    let finite = match *prim {
+                        Primitive::Box { size, .. } => size.is_finite(),
+                        Primitive::Sphere { radius, .. } => radius.is_finite(),
+                        Primitive::Cylinder { radius, length, .. }
+                        | Primitive::Capsule { radius, length, .. } => {
+                            radius.is_finite() && length.is_finite()
+                        }
+                    };
+                    if !finite {
+                        errors.push(ValidationError::NonFinite {
+                            what: format!("size of primitive {i} of link {lid}"),
+                        });
+                    }
+                }
+            }
+            CollisionPolicy::None
+            | CollisionPolicy::SameAsVisual
+            | CollisionPolicy::ConvexHull
+            | CollisionPolicy::ConvexDecomposition { .. } => {}
         }
     }
 }
@@ -1357,6 +1403,129 @@ mod tests {
                 what: format!("origin of joint {arm_j}")
             })
         );
+    }
+
+    /// `chain()` with a mesh asset and one visual geom on `arm`.
+    fn with_geom() -> (Robot, LinkId, GeomId, MeshId) {
+        let (mut robot, arm, ..) = chain();
+        let mesh = robot.add_asset(MeshAsset {
+            path: PathBuf::from("/a.stl"),
+            content_hash: 0,
+            scale: 1.0,
+            fix_up: None,
+        });
+        let geom: GeomId = robot.next_id.alloc();
+        robot.links.get_mut(&arm).unwrap().visuals.push(Geom {
+            id: geom,
+            mesh,
+            pose: Pose::IDENTITY,
+            color: None,
+        });
+        assert_eq!(validate(&robot), Ok(()));
+        (robot, arm, geom, mesh)
+    }
+
+    #[test]
+    fn a_non_finite_geom_pose_is_refused() {
+        let (mut robot, arm, geom, _) = with_geom();
+        robot.links.get_mut(&arm).unwrap().visuals[0].pose.t.y = f64::NAN;
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: format!("pose of geom {geom} of link {arm}")
+            })
+        );
+    }
+
+    #[test]
+    fn a_non_finite_collision_geom_pose_is_refused() {
+        let (mut robot, arm, _, mesh) = with_geom();
+        let id: GeomId = robot.next_id.alloc();
+        let mut pose = Pose::IDENTITY;
+        pose.r.x = f64::INFINITY;
+        robot.links.get_mut(&arm).unwrap().collision = CollisionPolicy::Meshes(vec![Geom {
+            id,
+            mesh,
+            pose,
+            color: None,
+        }]);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: format!("pose of collision geom {id} of link {arm}")
+            })
+        );
+    }
+
+    #[test]
+    fn a_non_finite_primitive_pose_is_refused() {
+        let (mut robot, arm, ..) = chain();
+        let sphere = Primitive::Sphere {
+            pose: Pose::IDENTITY,
+            radius: 0.1,
+        };
+        let mut off = sphere.clone();
+        off.pose_mut().t.z = f64::NEG_INFINITY;
+        robot.links.get_mut(&arm).unwrap().collision =
+            CollisionPolicy::Primitives(vec![sphere, off]);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: format!("pose of primitive 1 of link {arm}")
+            })
+        );
+    }
+
+    /// Finite is all `validate` asks of a size: a zero radius is a number,
+    /// and whether a simulator takes one is not this check's question.
+    #[test]
+    fn a_non_finite_primitive_size_is_refused_and_a_zero_one_is_not() {
+        let (mut robot, arm, ..) = chain();
+        let pose = Pose::IDENTITY;
+        for (prim, valid) in [
+            (Primitive::Sphere { pose, radius: 0.0 }, true),
+            (
+                Primitive::Box {
+                    pose,
+                    size: DVec3::new(0.1, f64::NAN, 0.1),
+                },
+                false,
+            ),
+            (
+                Primitive::Sphere {
+                    pose,
+                    radius: f64::INFINITY,
+                },
+                false,
+            ),
+            (
+                Primitive::Cylinder {
+                    pose,
+                    radius: 0.1,
+                    length: f64::NAN,
+                },
+                false,
+            ),
+            (
+                Primitive::Capsule {
+                    pose,
+                    radius: f64::NAN,
+                    length: 0.1,
+                },
+                false,
+            ),
+        ] {
+            robot.links.get_mut(&arm).unwrap().collision =
+                CollisionPolicy::Primitives(vec![prim.clone()]);
+            let expected = if valid {
+                Ok(())
+            } else {
+                Err(ValidationError::NonFinite {
+                    what: format!("size of primitive 0 of link {arm}"),
+                })
+            };
+            assert_eq!(validate(&robot), expected, "{prim:?}");
+        }
     }
 
     #[test]

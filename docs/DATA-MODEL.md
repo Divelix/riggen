@@ -233,9 +233,11 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
 - A movable joint's `axis` is finite and non-zero; the properties panel
   normalises it on commit.
 - A `Revolute`/`Prismatic` joint has `limits` with `lower <= upper`. Joint
-  origins, joint limits, `qpos_ref`, frame poses and material densities are
-  finite, and densities are non-negative. Geom poses and an `Override` inertial's
-  numbers are **not** checked — a backlog line, not a rule.
+  origins, joint limits, `qpos_ref`, frame poses, geom poses (visual and
+  collision meshes), collision primitives' poses and sizes, and material
+  densities are finite (`NonFinite`, naming the slot), and densities are
+  non-negative. A size need only be finite: a zero radius is not refused.
+  An `Override` inertial's numbers are **not** checked yet.
 - A `Mimic`'s leader exists, is movable and is not the follower itself. It
   **may itself follow** — a chain resolves (ADR-0025) — but a ring of
   followers with no free leader at its head does not (`MimicCycle`, whose
