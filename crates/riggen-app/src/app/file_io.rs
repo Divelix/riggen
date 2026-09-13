@@ -181,6 +181,23 @@ fn missing_by_package(warnings: &[ImportWarning]) -> BTreeMap<String, usize> {
     out
 }
 
+/// The status line of an import the Missing packages window is about:
+/// `imported robot.urdf: package://name not found (2 meshes)`, or
+/// `2 packages not found` for several, then the other warnings counted as
+/// every import counts them.
+fn missing_status(name: &str, missing: &BTreeMap<String, usize>, others: usize) -> String {
+    let what = match missing.keys().collect::<Vec<_>>().as_slice() {
+        [one] => format!("package://{one} not found"),
+        many => format!("{} packages not found", many.len()),
+    };
+    let meshes: usize = missing.values().sum();
+    let plural = if meshes == 1 { "" } else { "es" };
+    match others {
+        0 => format!("imported {name}: {what} ({meshes} mesh{plural})"),
+        n => format!("imported {name}: {what} ({meshes} mesh{plural}) (+{n} more warnings)"),
+    }
+}
+
 /// Extensions the open dialog offers, matching `riggen_mesh::load_mesh`.
 /// Native only: the browser has no dialog to filter (ADR-0017).
 #[cfg(not(target_arch = "wasm32"))]
@@ -308,13 +325,28 @@ impl RiggenApp {
             .map(|state| state.map.clone())
             .unwrap_or_default();
         let imported = riggen_export::urdf_in::load(at, &map, &self.files);
-        let missing = match &imported {
-            Ok((_, warnings)) => missing_by_package(warnings),
-            Err(_) => BTreeMap::new(),
+        let (missing, others) = match &imported {
+            Ok((_, warnings)) => {
+                let missing = missing_by_package(warnings);
+                let unresolved = warnings
+                    .iter()
+                    .filter(|w| matches!(w, ImportWarning::PackageUnresolved { .. }))
+                    .count();
+                let about_packages = unresolved + missing.values().sum::<usize>();
+                (missing, warnings.len().saturating_sub(about_packages))
+            }
+            Err(_) => (BTreeMap::new(), 0),
         };
         // Replaces the document, which clears the state this one follows.
         self.finish_import(at, imported)?;
         if !missing.is_empty() && matches!(self.files, Files::Disk) {
+            // The window has a row per package; the status line says which,
+            // not the first miss's absolute path.
+            let name = at
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            self.status = Some(missing_status(&name, &missing, others));
             self.missing_packages = Some(MissingPackages {
                 urdf: at.to_owned(),
                 map,

@@ -9,6 +9,8 @@ mod file_io;
 mod file_menu;
 mod gizmo;
 mod glyphs;
+#[cfg(not(target_arch = "wasm32"))]
+mod missing_packages;
 mod mode;
 mod overlays;
 mod panels;
@@ -654,10 +656,13 @@ impl eframe::App for RiggenApp {
         self.sync_selection_from_viewport();
         // Windows float over everything, so they go last. The Materials
         // window is chrome and goes with the rest in zen — its `open` flag
-        // untouched, so it comes back with them. The two modals do not: a
+        // untouched, so it comes back with them. So is Missing packages,
+        // whose state waits out zen the same way. The two modals do not: a
         // question the user is owed an answer to is not clutter.
         if !self.zen {
             self.materials_window(ui.ctx());
+            #[cfg(not(target_arch = "wasm32"))]
+            self.missing_packages_window(ui.ctx());
         }
         self.unsaved_changes_modal(ui.ctx());
         self.export_modal(ui.ctx());

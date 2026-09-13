@@ -1,0 +1,265 @@
+{
+  "camera": {
+    "eye": [
+      0.084259,
+      -0.084259,
+      0.065097
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "up": [
+      -0.339005,
+      0.339005,
+      0.877583
+    ],
+    "distance": 0.135782,
+    "yaw_deg": -45.0,
+    "pitch_deg": 28.64789,
+    "fov_y_deg": 45.0,
+    "near": 0.000433,
+    "far": 100.0,
+    "projection": "Perspective",
+    "animating": false,
+    "aspect": 1.405152,
+    "view": [
+      [
+        0.707107,
+        -0.339005,
+        0.620545,
+        0.0
+      ],
+      [
+        0.707107,
+        0.339005,
+        -0.620545,
+        0.0
+      ],
+      [
+        0.0,
+        0.877583,
+        0.479426,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        -0.135782,
+        1.0
+      ]
+    ],
+    "proj": [
+      [
+        1.718115,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        2.414213,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        -1.000004,
+        -1.0
+      ],
+      [
+        0.0,
+        0.0,
+        -0.000433,
+        0.0
+      ]
+    ],
+    "pivot_visible": false
+  },
+  "document": {
+    "file": null,
+    "name": "gripper",
+    "dirty": false,
+    "import_scale": 1.0,
+    "links": [
+      {
+        "id": "l1",
+        "name": "palm",
+        "parent_joint": null,
+        "geoms": 1,
+        "material": null
+      },
+      {
+        "id": "l4",
+        "name": "finger_left",
+        "parent_joint": "j10",
+        "geoms": 1,
+        "material": null
+      },
+      {
+        "id": "l7",
+        "name": "finger_right",
+        "parent_joint": "j11",
+        "geoms": 1,
+        "material": null
+      }
+    ],
+    "joints": [
+      {
+        "id": "j10",
+        "name": "finger_left_joint",
+        "kind": "Prismatic",
+        "parent": "l1",
+        "child": "l4",
+        "q": 0.0
+      },
+      {
+        "id": "j11",
+        "name": "finger_right_joint",
+        "kind": "Prismatic",
+        "parent": "l1",
+        "child": "l7",
+        "q": 0.0
+      }
+    ],
+    "selection": null
+  },
+  "ui": {
+    "mode": "View",
+    "tool": "Select",
+    "renaming": null,
+    "windows": [],
+    "modal": null,
+    "title": "untitled — riggen",
+    "overlays": [
+      "collision"
+    ],
+    "missing_packages": [
+      {
+        "package": "finger_description",
+        "meshes": 2
+      }
+    ]
+  },
+  "instances": [
+    {
+      "id": 0,
+      "link": "l1",
+      "geom": "g3",
+      "visible": true,
+      "triangles": 12,
+      "bounds": [
+        [
+          -0.025,
+          -0.025,
+          -0.025
+        ],
+        [
+          0.025,
+          0.025,
+          0.025
+        ]
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.55,
+        0.65,
+        0.78,
+        1.0
+      ]
+    }
+  ],
+  "selection": {
+    "hovered": null,
+    "selected": null
+  },
+  "input": {
+    "pick_suppressed": true,
+    "select_suppressed": false,
+    "camera_blocked": false,
+    "primary_drag_claimed": false,
+    "wheel_claimed": false
+  },
+  "gizmo": null,
+  "glyphs": [
+    {
+      "joint": "j10",
+      "name": "finger_left_joint",
+      "kind": "Prismatic",
+      "origin": [
+        0.0,
+        0.04,
+        0.05
+      ],
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "size": 0.043301,
+      "q": 0.0,
+      "value_sweep": 0.0,
+      "bar": [
+        -0.049796,
+        0.049796
+      ],
+      "drawn": [
+        "bars",
+        "tick"
+      ],
+      "screen": [
+        1053.400024,
+        16.629925
+      ],
+      "active": false,
+      "hovered": false
+    },
+    {
+      "joint": "j11",
+      "name": "finger_right_joint",
+      "kind": "Prismatic",
+      "origin": [
+        0.0,
+        -0.04,
+        0.05
+      ],
+      "axis": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "size": 0.043301,
+      "q": 0.0,
+      "value_sweep": 0.0,
+      "bar": [
+        -0.049796,
+        0.049796
+      ],
+      "drawn": [
+        "bars",
+        "tick"
+      ],
+      "screen": [
+        504.815063,
+        90.703224
+      ],
+      "active": false,
+      "hovered": false
+    }
+  ],
+  "snap": null,
+  "status": "imported gripper.urdf: package://finger_description not found (2 meshes)",
+  "viewport_rect": [
+    240.0,
+    23.0,
+    1440.0,
+    877.0
+  ],
+  "sample_count": 4
+}

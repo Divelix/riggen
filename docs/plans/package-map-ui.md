@@ -107,7 +107,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
     - Any history entry clears the state, and so does opening
       `pendulum.riggen`.
     - `arm/arm.urdf`, which resolves, never sets it.
-- [ ] **[2]** Step 3 — The window.
+- [x] **[2]** Step 3 — The window.
   - The "Missing packages" window over the viewport, native only, with
     its rows, **Choose folder…** and **Dismiss**; it is not drawn in Zen.
   - Snapshot `missing_packages`: the vendor fixture just imported, the
@@ -148,7 +148,9 @@ mechanical; **[2]** careful — a case to get right within a given design;
 
 None for the human. The idea's four decisions are taken (header).
 Left to the agent, and recorded at the step where each is settled:
-- where the window anchors;
+- ~~where the window anchors~~ — bottom centre of the viewport, 16 px
+  up, movable: clear of the mode control, the toolbar and the ViewCube
+  along the top, and of the left panel in either mode (step 3).
 - ~~whether the fixture's two meshes are one STL or two~~ — two
   (`finger_left.stl`, `finger_right.stl`, both copies of
   `cube_binary.stl`), so the refusal and the export each name two files.
@@ -165,3 +167,11 @@ Found at step 2, and corrected in the design deltas' reading above:
   heuristic miss raises both warnings, so the count is the same there.
 - A mesh that did not load has no viewport instance, so "two instances with
   no triangles" is one instance before and three after.
+
+Found at step 3: while the window is up, the app's status line names the
+package, as in `imported gripper.urdf: package://finger_description not
+found (2 meshes)`, and counts any other warnings after it. The first
+warning used to be a `PackageUnresolved` carrying an absolute path. The
+window already lists the misses, and that path would have made the
+`missing_packages` golden machine-specific. The SDK's and the CLI's
+warning text is unchanged.

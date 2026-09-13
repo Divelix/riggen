@@ -8094,6 +8094,58 @@ fn a_missing_package_is_named_and_its_folder_imports_again() {
     });
 }
 
+/// The Missing packages window over the vendor fixture just imported: the
+/// palm drawn, the two finger links empty, and one row naming
+/// `finger_description` and the two meshes it cost (plans/package-map-ui
+/// step 3). The status line names the package rather than the first miss's
+/// absolute path, which is also what keeps this golden machine-independent.
+#[test]
+fn missing_packages() {
+    scenario("missing_packages", |harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("vendor/urdf/gripper.urdf"))
+            .expect("the vendor URDF imports");
+        harness.state_mut().fit_view_now();
+        settle(harness);
+        harness.get_by_label("Missing packages");
+        harness.get_by_label("finger_description");
+        harness.get_by_label("2 meshes");
+        harness.get_by_label("Choose folder…");
+        let state = harness.state().debug_state();
+        assert_eq!(
+            state.status.as_deref(),
+            Some("imported gripper.urdf: package://finger_description not found (2 meshes)")
+        );
+        assert_eq!(state.instances.len(), 1, "the palm alone");
+    });
+}
+
+/// **Dismiss**, clicked by its label: the window goes, the import stays.
+#[test]
+fn dismissing_missing_packages_closes_the_window() {
+    with_app(|harness| {
+        harness
+            .state_mut()
+            .open_path(&fixture("vendor/urdf/gripper.urdf"))
+            .unwrap();
+        settle(harness);
+        // Zen takes it with the rest of the chrome, and gives it back.
+        harness.state_mut().set_zen(true);
+        settle(harness);
+        assert!(harness.query_by_label("Missing packages").is_none());
+        assert!(harness.state().missing_packages().is_some());
+        harness.state_mut().set_zen(false);
+        settle(harness);
+        harness.get_by_label("Dismiss").click();
+        harness.step();
+        harness.step();
+        assert_eq!(harness.state().missing_packages(), None);
+        assert!(harness.query_by_label("Missing packages").is_none());
+        assert_eq!(harness.state().robot().links.len(), 3);
+    });
+}
+
 /// What closes the Missing packages window without a folder: the first
 /// history entry, dismissal, any other document — and a URDF that resolves
 /// never opens it.
