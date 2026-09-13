@@ -6116,6 +6116,80 @@ fn gizmo_drag_on_a_joint_moves_only_the_pivot() {
     });
 }
 
+/// The same, with collision the document holds itself: the imported arm's
+/// box on `base` (`Primitives`) and `fore_hull.stl` on `fore` (`Meshes`)
+/// stay where they were in the world when the pivots under them move
+/// (plans/move-joint-frame-collision). The picture: the collision view on,
+/// the forearm's pivot moved, the hull still on the forearm.
+#[test]
+fn pivot_move_keeps_collision() {
+    scenario("pivot_move_keeps_collision", |harness| {
+        let app = harness.state_mut();
+        open_for_editing(app, &fixture("arm/arm.urdf")).expect("the sample URDF opens");
+        app.set_overlay(riggen_app::Overlay::Collision, true);
+        let link = |app: &riggen_app::RiggenApp, name: &str| {
+            *app.robot()
+                .links
+                .iter()
+                .find(|(_, l)| l.name == name)
+                .expect("the link imports")
+                .0
+        };
+        let (base, fore) = (link(app, "base"), link(app, "fore"));
+        assert!(matches!(
+            app.robot().links[&base].collision,
+            riggen_core::CollisionPolicy::Primitives(_)
+        ));
+        assert!(matches!(
+            app.robot().links[&fore].collision,
+            riggen_core::CollisionPolicy::Meshes(_)
+        ));
+        // `fore_joint` follows `upper_joint` with offset 0.1, so the zero
+        // configuration has `fore` turned 0.1 rad and a pivot move there
+        // swings the whole link, visuals too — a gap of the command's own,
+        // not of collision (see the plan's open questions). Freed, the
+        // forearm sits at a true zero.
+        let fore_joint = app.robot().parent_joint(fore).unwrap();
+        let mut freed = app.robot().joints[&fore_joint].clone();
+        assert!(freed.mimic.take().is_some_and(|m| m.offset != 0.0));
+        app.apply(Command::SetJoint(fore_joint, freed)).unwrap();
+        app.set_tool(Tool::Move);
+        app.fit_view_now();
+        settle(harness);
+
+        let collision = |harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>| {
+            harness
+                .state()
+                .debug_state()
+                .instances
+                .iter()
+                .filter(|i| i.collision)
+                .map(|i| (i.link.clone(), i.geom.clone(), i.position))
+                .collect::<Vec<_>>()
+        };
+        for child in [base, fore] {
+            let joint = harness.state().robot().parent_joint(child).unwrap();
+            harness.state_mut().select(Selection::Joint(joint));
+            settle(harness);
+            let depth = harness.state().history().undo_depth();
+            let origin = harness.state().robot().joints[&joint].origin;
+            let before = collision(harness);
+            assert!(before.len() >= 2, "the box and the hull are drawn");
+
+            let from = gizmo_handle(harness);
+            synthetic_drag(harness, from, from + egui::vec2(60.0, -40.0), 6);
+
+            let app = harness.state();
+            assert_eq!(app.history().undo_depth(), depth + 1, "one entry");
+            assert!(
+                (app.robot().joints[&joint].origin.t - origin.t).length() > 0.005,
+                "the pivot moved"
+            );
+            assert_eq!(collision(harness), before, "no collision moved");
+        }
+    });
+}
+
 /// A revolute joint's glyph: axis segment through the pivot, origin triad,
 /// the limit arc and the tick at the current `q`. The hinge is selected, so
 /// it is drawn hot.

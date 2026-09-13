@@ -69,7 +69,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
       its `world_geoms` extended to collision geoms.
   - DATA-MODEL §Commands, the variant's doc comment and the SDK docstring
     change in this commit.
-- [ ] **[2]** Step 2 — The app sees it.
+- [x] **[2]** Step 2 — The app sees it.
   - A behaviour test in `tests/visual/main.rs`: import
     `assets/fixtures/arm/arm.urdf`, where `fore` carries a `Meshes`
     collision (`fore_hull.stl`) and `base` a box `Primitives`. Turn on
@@ -83,6 +83,12 @@ mechanical; **[2]** careful — a case to get right within a given design;
   - Confirm at the step which joints to drag. If the fixture's links do
     not import as described, pick the pair that carries one policy each
     and say so here.
+  - *At the step:* the links import as described and the pair is
+    `base_joint` and `fore_joint`. But `fore_joint` mimics `upper_joint`
+    with offset 0.1, so at `q = 0` the forearm is turned 0.1 rad and a
+    pivot move swings it, visual and hull alike (≈0.8 mm here). The test
+    frees that mimic with one `SetJoint` before the drags. The gap belongs
+    to the command, not to collision: a backlog line, see *Open questions*.
 
 ## Acceptance
 
@@ -109,6 +115,11 @@ mechanical; **[2]** careful — a case to get right within a given design;
 
 ## Open questions
 
-None. The plan has no decision to make: it completes the command's stated
-invariant. A fixture surprise in step 2 is the agent's to resolve and to
-record there.
+None for this plan: it completes the command's stated invariant.
+
+Found in step 2, left out of scope: `MoveJointFrame` re-expresses
+through the origins as if the moved joint sat at zero, but a mimic
+follower with a non-zero `offset` does not sit at zero when `q = 0`, so its
+child moves in the world. Recorded in `docs/BACKLOG.md`. Fixing it means
+composing the follower's resolved motion into `delta`, which touches every
+re-expressed pose, not just collision.
