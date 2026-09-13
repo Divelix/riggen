@@ -331,7 +331,10 @@ child link frame) and re-expresses the child's visual geom poses, its
 joints' origins, its frames and an `Override` inertial through
 `origin_new⁻¹ ∘ origin_old`, so no world pose at `q = 0` changes and only
 the pivot moves; the derived collision policies are computed from the
-visuals and follow them. `Reparent` moves a link between parents; `MoveJointFrame`
+visuals and follow them. The one exception is a mimic follower with a
+non-zero `offset`: `fk` holds it at `offset` when `q = 0`, the rewrite
+assumes zero, and its child moves by that turn about the new pivot (a
+backlog line). `Reparent` moves a link between parents; `MoveJointFrame`
 moves where a link's joint turns. `MoveJointFrame` works in the zero
 configuration, which is what the app's Edit mode is for the whole of its
 stay (ADR-0021 §2). **`Reparent` is the one frame-rewriting command

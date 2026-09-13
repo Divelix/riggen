@@ -332,8 +332,10 @@ of them by the human's call.
 - **`validate` checks the numbers it skips** — geom poses and an
   `Override` inertial's — so a NaN cannot reach a writer.
 - **`MoveJointFrame` re-expresses collision geometry too**:
-  `CollisionPolicy::Meshes` and `Primitives` poses, which move in the
-  world today when a link's pivot does.
+  `CollisionPolicy::Meshes` and `Primitives` poses stay where they were in
+  the world when a link's pivot moves, from the gizmo, click-the-bore and
+  `joint.move_frame` alike; a mimic follower with a non-zero offset is the
+  command's remaining gap, a backlog line. *Landed.*
 
 **Out:** `<attach>` and `<replicate>` stay refused (ADR-0026 §4) — the
 first is two robots composed and a document question, the second buys zero

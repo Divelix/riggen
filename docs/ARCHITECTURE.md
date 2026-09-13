@@ -1755,7 +1755,9 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   `properties_scrub` (a drag on a field, one undo entry),
   `properties_wheel` (three Ctrl+wheel notches),
   `tools_say_what_they_need`, `click_empty_clears`,
-  `properties_collision_meshes`, `materials_rename`, `tree_drag_ghost`
+  `properties_collision_meshes`, `pivot_move_keeps_collision` (the
+  imported arm's box and hull where they were after both pivots under
+  them moved), `materials_rename`, `tree_drag_ghost`
   (captured mid-drag), `orbit_left_drag` (the sample arm turned by a plain
   left-drag), `gizmo_ring_hover` (the rotate ring under the cursor, drawn
   hot), `gizmo_drag_snaps_to_a_vertex` (captured mid-drag: the marker on
