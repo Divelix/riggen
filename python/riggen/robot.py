@@ -1270,8 +1270,8 @@ class Joint(_Handle):
 
     def move_frame(self, origin: PoseLike, axis: Axis | None = None) -> None:
         """Moves the pivot without moving anything in the world: the child's
-        geoms, joints and frames are re-expressed so every pose in the zero
-        configuration stays. ``axis`` is in the *new* child frame; the old
+        visual and collision geometry, joints and frames are re-expressed so
+        every pose in the zero configuration stays. ``axis`` is in the *new* child frame; the old
         one is kept when not given."""
         new_axis = self.axis if axis is None else _axis(axis)
         self.robot._inner.move_joint_frame(self.id, _pose(origin, "origin").to_doc(), list(new_axis))

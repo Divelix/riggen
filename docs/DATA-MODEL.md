@@ -326,11 +326,12 @@ common assembly operation and the reason FK lives in core.
 `MoveJointFrame` is the other half of that pair, and the one the placement
 tools commit: it writes a new `origin` (the child link frame in the parent
 frame) and `axis` (in the **new** child frame — the joint frame *is* the
-child link frame) and re-expresses the child's **visual** geom poses, its
-own child joints' origins, its frames and an `Override` inertial through
+child link frame) and re-expresses the child's visual geom poses, its
+`CollisionPolicy::Meshes` geom poses and `Primitives` poses, its own child
+joints' origins, its frames and an `Override` inertial through
 `origin_new⁻¹ ∘ origin_old`, so no world pose at `q = 0` changes and only
-the pivot moves. `CollisionPolicy::Meshes` and `Primitives` poses are not
-re-expressed and do move — a backlog line. `Reparent` moves a link between parents; `MoveJointFrame`
+the pivot moves; the derived collision policies are computed from the
+visuals and follow them. `Reparent` moves a link between parents; `MoveJointFrame`
 moves where a link's joint turns. `MoveJointFrame` works in the zero
 configuration, which is what the app's Edit mode is for the whole of its
 stay (ADR-0021 §2). **`Reparent` is the one frame-rewriting command

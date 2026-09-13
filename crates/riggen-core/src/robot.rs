@@ -586,6 +586,29 @@ pub enum Primitive {
     },
 }
 
+impl Primitive {
+    /// The centre frame every variant carries, in link frame.
+    pub fn pose(&self) -> Pose {
+        match self {
+            Self::Box { pose, .. }
+            | Self::Cylinder { pose, .. }
+            | Self::Sphere { pose, .. }
+            | Self::Capsule { pose, .. } => *pose,
+        }
+    }
+
+    /// The same frame, writable: what a command re-expressing the link's
+    /// contents rewrites while leaving the shape alone.
+    pub fn pose_mut(&mut self) -> &mut Pose {
+        match self {
+            Self::Box { pose, .. }
+            | Self::Cylinder { pose, .. }
+            | Self::Sphere { pose, .. }
+            | Self::Capsule { pose, .. } => pose,
+        }
+    }
+}
+
 /// A named frame on a link: a TCP, a sensor mount, a grasp pose. `pose` is
 /// in the parent link frame. Exported as an MJCF `<site>` and a URDF
 /// massless dummy link on a fixed joint (ADR-0012); its name shares the

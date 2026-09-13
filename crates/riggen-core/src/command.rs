@@ -47,7 +47,8 @@ pub enum Command {
     /// Moves a joint's frame **without moving anything in the world**: the
     /// new `origin` (the child link frame in the parent frame) and `axis`
     /// (in the *new* child frame, since the joint frame is the child link
-    /// frame) are written, and the child's geom poses, its own child joints'
+    /// frame) are written, and the child's visual and collision geom poses
+    /// (`Meshes` and `Primitives`), its own child joints'
     /// origins, its frames and an `Override` inertial are all re-expressed
     /// so no world pose in the zero configuration changes. Only the pivot
     /// the joint turns about moves.
@@ -443,6 +444,25 @@ impl Command {
                     for geom in &mut link.visuals {
                         geom.pose = delta.compose(&geom.pose);
                     }
+                    // Collision the document holds itself is in link frame
+                    // too; the derived policies follow the visuals above.
+                    match &mut link.collision {
+                        CollisionPolicy::Meshes(geoms) => {
+                            for geom in geoms {
+                                geom.pose = delta.compose(&geom.pose);
+                            }
+                        }
+                        CollisionPolicy::Primitives(prims) => {
+                            for prim in prims {
+                                let pose = prim.pose_mut();
+                                *pose = delta.compose(pose);
+                            }
+                        }
+                        CollisionPolicy::None
+                        | CollisionPolicy::SameAsVisual
+                        | CollisionPolicy::ConvexHull
+                        | CollisionPolicy::ConvexDecomposition { .. } => {}
+                    }
                     // A measured inertial is in link axes about `com`, and
                     // the link frame just moved under it (M3 has the UI).
                     if let InertialSpec::Override { com, inertia, .. } = &mut link.inertial {
@@ -676,7 +696,7 @@ mod tests {
     use super::*;
     use crate::fk::{JointState, fk, frames};
     use crate::ids::FrameId;
-    use crate::robot::{ActuatorSpec, Frame, JointKind, Limits, Mimic, TendonJoint};
+    use crate::robot::{ActuatorSpec, Frame, JointKind, Limits, Mimic, Primitive, TendonJoint};
     use riggen_mesh::glam::{DQuat, DVec3};
     use std::collections::BTreeMap;
     use std::f64::consts::FRAC_PI_2;
@@ -773,17 +793,47 @@ mod tests {
         (robot, [arm, hand, tip, tail])
     }
 
-    /// Every geom of every link at `q = 0`, in world coordinates: what a
-    /// frame move must leave alone.
-    fn world_geoms(robot: &Robot) -> Vec<(LinkId, GeomId, Pose)> {
+    /// Which piece of a link's geometry a world pose belongs to.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum Slot {
+        Visual(GeomId),
+        Collision(GeomId),
+        Primitive(usize),
+    }
+
+    /// Every geom of every link at `q = 0` — visuals, collision meshes and
+    /// primitives — in world coordinates: what a frame move must leave alone.
+    fn world_geoms(robot: &Robot) -> Vec<(LinkId, Slot, Pose)> {
         let world = fk(robot, &JointState::default());
         let mut out = Vec::new();
         for (&link, l) in &robot.links {
+            let at = |pose: &Pose| world[&link].compose(pose);
             for geom in &l.visuals {
-                out.push((link, geom.id, world[&link].compose(&geom.pose)));
+                out.push((link, Slot::Visual(geom.id), at(&geom.pose)));
+            }
+            for geom in l.collision.geoms() {
+                out.push((link, Slot::Collision(geom.id), at(&geom.pose)));
+            }
+            if let CollisionPolicy::Primitives(prims) = &l.collision {
+                for (i, prim) in prims.iter().enumerate() {
+                    out.push((link, Slot::Primitive(i), at(&prim.pose())));
+                }
             }
         }
         out
+    }
+
+    /// Every pose in `before` is still where it was in `robot`'s world.
+    fn assert_world_geoms_kept(robot: &Robot, before: &[(LinkId, Slot, Pose)]) {
+        let now = world_geoms(robot);
+        assert_eq!(now.len(), before.len(), "no geom appears or vanishes");
+        for (link, slot, pose) in before {
+            let (_, _, now) = now
+                .iter()
+                .find(|(l, s, _)| l == link && s == slot)
+                .expect("the geom survives");
+            assert_pose_eq(now, pose);
+        }
     }
 
     /// The `arm()` chain with a geom on every link, so a frame move has
@@ -846,12 +896,109 @@ mod tests {
         }
         assert_pose_eq(&after[&hand], &origin_in_world(&robot, hand));
         // Every geom, on the moved link and on its grandchildren, stays put.
-        for (link, geom, pose) in before_geoms {
-            let (_, _, now) = world_geoms(&robot)
-                .into_iter()
-                .find(|(l, g, _)| *l == link && *g == geom)
-                .expect("the geom survives");
-            assert_pose_eq(&now, &pose);
+        assert_world_geoms_kept(&robot, &before_geoms);
+    }
+
+    #[test]
+    fn moving_a_joint_frame_leaves_collision_in_the_world() {
+        let (mut robot, [arm, hand, tip, _tail]) = arm_with_geoms();
+        let mesh = robot.add_asset(asset());
+        let posed = |i: f64| {
+            Pose::from_xyz_rpy(
+                DVec3::new(0.05 * i, 0.3, -0.1 * i),
+                DVec3::new(-0.3 * i, 0.5, 0.1 * i),
+            )
+        };
+        // `hand` holds its own collision meshes, `arm` all four primitives,
+        // `tip` a policy derived from its visuals.
+        let hull: GeomId = robot.next_id.alloc();
+        let commands = [
+            Command::SetCollision(
+                hand,
+                CollisionPolicy::Meshes(vec![Geom {
+                    id: hull,
+                    mesh,
+                    pose: posed(1.0),
+                    color: None,
+                }]),
+            ),
+            Command::SetCollision(
+                arm,
+                CollisionPolicy::Primitives(vec![
+                    Primitive::Box {
+                        pose: posed(1.0),
+                        size: DVec3::new(0.1, 0.2, 0.3),
+                    },
+                    Primitive::Cylinder {
+                        pose: posed(2.0),
+                        radius: 0.04,
+                        length: 0.25,
+                    },
+                    Primitive::Sphere {
+                        pose: posed(3.0),
+                        radius: 0.07,
+                    },
+                    Primitive::Capsule {
+                        pose: posed(4.0),
+                        radius: 0.03,
+                        length: 0.15,
+                    },
+                ]),
+            ),
+            Command::SetCollision(tip, CollisionPolicy::SameAsVisual),
+        ];
+        for command in commands {
+            apply(&mut robot, command).unwrap();
+        }
+
+        let mut history = crate::History::new();
+        for link in [arm, hand, tip] {
+            let joint = robot.parent_joint(link).unwrap();
+            let before = robot.clone();
+            let before_geoms = world_geoms(&robot);
+            // A pivot that both turns and translates.
+            let origin =
+                Pose::from_xyz_rpy(DVec3::new(0.7, -0.35, 0.2), DVec3::new(-0.6, 0.4, 1.1));
+            history
+                .apply(
+                    &mut robot,
+                    Command::MoveJointFrame {
+                        joint,
+                        origin,
+                        axis: DVec3::X,
+                    },
+                )
+                .unwrap();
+
+            assert_world_geoms_kept(&robot, &before_geoms);
+            // Only the poses were rewritten: every shape is bitwise as it was.
+            match (
+                &before.links[&link].collision,
+                &robot.links[&link].collision,
+            ) {
+                (CollisionPolicy::Meshes(old), CollisionPolicy::Meshes(new)) => {
+                    assert_eq!(old.len(), new.len());
+                    for (old, new) in old.iter().zip(new) {
+                        assert!((old.pose.t - new.pose.t).length() > EPS, "re-expressed");
+                        assert_eq!((old.id, old.mesh, old.color), (new.id, new.mesh, new.color));
+                    }
+                }
+                (CollisionPolicy::Primitives(old), CollisionPolicy::Primitives(new)) => {
+                    assert_eq!(old.len(), new.len());
+                    for (old, new) in old.iter().zip(new) {
+                        assert!((old.pose().t - new.pose().t).length() > EPS, "re-expressed");
+                        let mut shape = new.clone();
+                        *shape.pose_mut() = old.pose();
+                        assert_eq!(&shape, old);
+                    }
+                }
+                (old, new) => assert_eq!(old, new, "a derived policy is stored as it was"),
+            }
+
+            // One undo is the whole move; redo it to move the next pivot on.
+            assert!(history.undo(&mut robot));
+            assert_eq!(robot, before);
+            assert!(history.redo(&mut robot));
         }
     }
 

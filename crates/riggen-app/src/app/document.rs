@@ -225,15 +225,6 @@ pub(crate) fn primitive_mesh(p: &Primitive) -> TriMesh {
     }
 }
 
-pub(crate) fn primitive_pose(p: &Primitive) -> Pose {
-    match p {
-        Primitive::Box { pose, .. }
-        | Primitive::Cylinder { pose, .. }
-        | Primitive::Sphere { pose, .. }
-        | Primitive::Capsule { pose, .. } => *pose,
-    }
-}
-
 /// Turns a file stem into a valid link name (`validate::is_valid_name`):
 /// every other character becomes `_`, a leading digit gets one in front,
 /// nothing at all is `part`.
@@ -792,7 +783,7 @@ impl RiggenApp {
                     }
                     CollisionPolicy::Primitives(ps) => {
                         for p in ps {
-                            shapes.push((CollisionSource::Primitive(p.clone()), primitive_pose(p)));
+                            shapes.push((CollisionSource::Primitive(p.clone()), p.pose()));
                         }
                     }
                     CollisionPolicy::Meshes(geoms) => {
