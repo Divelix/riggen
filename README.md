@@ -110,7 +110,8 @@ mount — which Move and Rotate land on a picked feature the same way.
   `.sdf`, and the forward kinematics of both agree with riggen's (those
   are CI jobs, not hopes).
 - **Imports**: an existing URDF or MJCF — `package://` paths resolved
-  beside the file, MuJoCo's `<default>` classes and degrees understood, a
+  beside the file, and a package that is not found asks for its folder
+  (`--package NAME=DIR` on the command line), MuJoCo's `<default>` classes and degrees understood, a
   model spelled across several files opened through its main one
   (`<include>` and MuJoCo 3's `<frame>` are resolved on the way in) — to
   fix and convert it. Whatever the file held that the document cannot is

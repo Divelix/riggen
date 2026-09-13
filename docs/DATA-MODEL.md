@@ -843,7 +843,12 @@ to read, which is also why nothing is dropped and no warning appears
 `package://name/rest`
 resolves through the map, else `rest` beside the file, else `name/rest`
 under an ancestor of the file's directory — `urdf-rs`'s own resolution
-shells out to `rospack`. Those candidates are probed through the same
+shells out to `rospack`. Three callers pass a map that is not empty:
+the SDK's `Robot.load_urdf(path, packages=)`, the CLI's repeatable
+`--package NAME=DIR`, and the app's **Missing packages** window, which
+imports the same file again through every folder chosen for it
+(docs/ARCHITECTURE.md §Export). Nothing remembers a map between imports,
+and no ROS environment variable is read. Those candidates are probed through the same
 source, so in a browser "beside the file" means "in the same drop", where
 paths are matched by file name and directories are ignored (ADR-0017 §3);
 a mesh the set does not carry is the `MeshNotFound` a moved file already
@@ -852,7 +857,7 @@ MimicDropped, SafetyControllerDropped, NonUniformScale,
 PrimitiveVisualDropped, MixedCollisionDropped, NoInertial,
 PackageUnresolved, MeshNotFound }` reach the status bar (File › Import
 URDF…, a dropped `.urdf`, or `riggen --export … robot.urdf` on stderr).
-`ImportWarning::MimicDropped` now carries a `reason`, and only for a
+`ImportWarning::MimicDropped` carries a `reason`, and only for a
 coupling the document cannot hold: a leader that is not a joint in the file
 or is `fixed`, a joint following itself, a `<mimic>` on a `fixed` joint, a
 ring of followers, a zero multiplier, a multiplier or offset that is not a

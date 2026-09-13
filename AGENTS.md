@@ -31,7 +31,8 @@ top-right with X Y Z and 15° steps (ADR-0030, 0031); a static link with
 nothing to weigh it by exports without `<inertial>`, a moving one is
 refused with the fix, and one click weighs every unweighed link —
 Menagerie exporting 119 → 164 of 172 (ADR-0032); a pivot move leaves
-collision geometry where it was. **Next:** a `PackageMap` UI, the two
+collision geometry where it was; a missed `package://` asks for its folder
+in a Missing packages window, `--package` headlessly. **Next:** the two
 numbers `validate` skips.
 **Before:** v0.4 (`v0.4.0`) the lossless MJCF round trip and the two
 modes, schema 6, Menagerie's importing files 93 → 172 of 261 (ADR-0021 to

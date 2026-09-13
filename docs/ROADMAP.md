@@ -327,8 +327,12 @@ of them by the human's call.
   export dialog and `robot.assign_material_to_unweighed` in the SDK, one
   undo (ADR-0032 §5). No density is invented at import — ADR-0015 §7
   stands. *Landed.*
-- **A `PackageMap` UI** — a packages table in Import URDF… for the
-  `package://` paths the beside-the-file heuristic misses.
+- **A missed `package://` is fixable in the window** — after a URDF
+  import, a Missing packages window names each package the
+  beside-the-file heuristic missed and how many meshes it cost, and a
+  chosen folder imports the file again; `riggen --export … --package
+  NAME=DIR` is the same headlessly. No table on every import, and no
+  remembered map (a backlog line). *Landed.*
 - **`validate` checks the numbers it skips** — geom poses and an
   `Override` inertial's — so a NaN cannot reach a writer.
 - **`MoveJointFrame` re-expresses collision geometry too**:

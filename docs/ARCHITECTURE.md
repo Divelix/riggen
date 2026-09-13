@@ -120,6 +120,7 @@ riggen/
 │       ├── src/cli.rs      # the flag table, --help, --version, --example, `riggen
 │       │                   # --export …` headless (ADR-0008)
 │       ├── src/app/        # document, file_io, file_menu, export_dialog, debug_menu,
+│       │                   # missing_packages (native only),
 │       │                   # shortcuts, status_bar, tool, gizmo, glyphs, snap, align,
 │       │                   # mode (View | Edit and zen, ADR-0021), overlays (the
 │       │                   # visibility row), viewcube/{facets, projection, axes,
@@ -225,6 +226,8 @@ pub struct RiggenApp {
                                                         // kept apart for the ViewCube's test hooks (ADR-0030)
     import_scale: f64, pending: Option<PendingAction>,  // File › Import units; New/Open/Quit awaiting the dirty answer
     export_dialog: ExportDialog,                        // File › Export…: options, directory, the resolve errors
+    missing_packages: Option<MissingPackages>,          // a URDF import's unloaded package:// meshes: the file,
+                                                        // the folders chosen, per-package counts (§Export)
     mode, zen, stashed_q, tree, joint_tree, props, materials_window, // View / Edit, zen, the stashed pose; transient panel state
     viewport, next_instance, status, …
 }
@@ -1257,6 +1260,22 @@ before eframe starts, which is what CI's `mujoco` and `sdf` jobs run. A `.urdf` 
 `riggen_export::mjcf_in` (02 §MJCF import, ADR-0015); both share one
 warning vocabulary, so both reach the status bar the same way.
 
+A `.urdf` whose `package://` meshes did not load also opens the **Missing
+packages** window (`app/missing_packages.rs`). It is non-modal, so the model
+stays in view behind it. It has a row per package, grouped from the
+`MeshNotFound` warnings under `package://NAME/`, with how many meshes that
+package cost and **Choose folder…**, plus a **Dismiss** button. A chosen
+folder imports the same file again through a `PackageMap` that holds every
+folder chosen so far, and replaces the untitled, unedited document. While
+the window is up, the status line names the package rather than the first
+miss's path. The window closes when nothing is left missing, on Dismiss,
+on the first history entry, and when another document opens. After an
+edit there is nothing to relink: the document holds resolved paths, not
+package names, so the SDK and `--package` are the way out. Zen hides the
+window like the rest of the chrome. It is native only: a browser drop has
+no folders (ADR-0017 §3), so the web build keeps the status line alone.
+`debug_state().ui.missing_packages` lists the rows.
+
 ## Python distribution (ADR-0002, ADR-0009)
 
 `pyproject.toml` at the repository root, build backend maturin (`>=1.8,<2`),
@@ -1694,7 +1713,7 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   links, joints with `q` and `qpos_ref`, frames, tendons, selection — the
   `ui` section — mode, zen, tool, rename in progress, open windows, modal,
   title, the visibility row's `overlays` (the classes switched *off*), a
-  tree row being dragged — instances with
+  tree row being dragged, the Missing packages window's rows — instances with
   their link/geom key, position and colour, viewport selection, the gizmo,
   the joint glyphs (each with the pieces it drew this frame, `drawn` — the
   composition asserted as JSON and not only as pixels), the frame glyphs,
@@ -1739,7 +1758,8 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
   `export_massless_static` (ready, with the corpus's `tool` noted as
   written without mass, ADR-0032 §2), `export_assign_unweighed` (the
   one-click fix under a moving unweighed link's blocker, ADR-0032 §5),
-  `import_urdf`,
+  `import_urdf`, `missing_packages` (the vendor fixture just imported,
+  `finger_description`'s two meshes missing, its row and Choose folder…),
   v0.2's `collision_decomposition`, `properties_collision_decomposition`,
   the mimic and actuator set — `properties_joint_mimic`, `properties_joint_actuator`,
   `properties_joint_actuator_applied`, and v0.4's
