@@ -249,6 +249,12 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
   command, before `to_json` and at the head of `resolve`, a NaN is refused
   by the edit that makes it, never saved as the `null` serde_json writes
   for one, and never reaches a writer.
+- **Every rotation has a length** (`DegenerateRotation`, naming the pose):
+  a frame's, a joint origin's, a geom's, a primitive's and a mesh
+  `fix_up`. A zero quaternion is finite and no rotation at all, and every
+  writer normalises a rotation (`Pose::to_xyz_rpy`, MJCF's `quat`), which
+  turns it into NaN; so is one short enough that its squared length
+  underflows. A non-unit rotation is fine — the writers normalise it.
 - A `Mimic`'s leader exists, is movable and is not the follower itself. It
   **may itself follow** — a chain resolves (ADR-0025) — but a ring of
   followers with no free leader at its head does not (`MimicCycle`, whose

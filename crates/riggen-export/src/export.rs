@@ -104,7 +104,7 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::resolve::Format;
-    use crate::test_util::Builder;
+    use crate::test_util::{Builder, every_joint_kind};
     use riggen_core::glam::{DQuat, DVec3};
     use riggen_core::{JointKind, MeshAsset};
     use riggen_mesh::TriMesh;
@@ -113,6 +113,30 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("riggen-export-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
+    }
+
+    /// No writer is handed a rotation it would normalise into NaN: the
+    /// every-kind robot writes none in any format, and the same robot with
+    /// a zero-length geom rotation stops at the `validate` gate.
+    #[test]
+    fn no_model_file_carries_a_nan() {
+        let mut b = every_joint_kind();
+        let resolved = b.resolve().unwrap();
+        for (path, bytes) in export_files(&resolved, &ExportOptions::default(), Path::new("/out")) {
+            if path.extension().is_some_and(|e| e != "stl") {
+                let text = String::from_utf8(bytes).unwrap();
+                assert!(!text.contains("NaN"), "{}:\n{text}", path.display());
+            }
+        }
+        let root = b.robot.root;
+        b.robot.links.get_mut(&root).unwrap().visuals[0].pose.r =
+            DQuat::from_xyzw(0.0, 0.0, 0.0, 0.0);
+        assert!(matches!(
+            b.resolve().unwrap_err()[..],
+            [crate::resolve::ExportError::Invalid(
+                riggen_core::ValidationError::DegenerateRotation { .. }
+            )]
+        ));
     }
 
     #[test]

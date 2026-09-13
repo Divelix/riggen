@@ -5,6 +5,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use riggen_mesh::glam::DQuat;
+
 use crate::ids::{ActuatorId, FrameId, GeomId, JointId, LinkId, MeshId, TendonId};
 use crate::pose::Pose;
 use crate::robot::{
@@ -85,6 +87,12 @@ pub enum ValidationError {
     },
     /// A non-finite number where the document needs a real one.
     NonFinite {
+        what: String,
+    },
+    /// A rotation of zero length — finite, and no rotation at all. Every
+    /// writer normalises a rotation (`Pose::to_xyz_rpy`, MJCF's `quat`),
+    /// which turns this one into NaN. `what` names the pose.
+    DegenerateRotation {
         what: String,
     },
     // ---- mimic joints (ADR-0013) -----------------------------------------
@@ -264,6 +272,9 @@ impl fmt::Display for ValidationError {
                 upper,
             } => write!(f, "joint {joint} limits are unordered: {lower} > {upper}"),
             Self::NonFinite { what } => write!(f, "{what} is not a finite number"),
+            Self::DegenerateRotation { what } => {
+                write!(f, "{what} has a rotation of zero length")
+            }
             Self::DanglingMimicJoint { joint, leader } => {
                 write!(f, "joint {joint} mimics missing joint {leader}")
             }
@@ -644,10 +655,22 @@ fn check_joints(robot: &Robot, errors: &mut Vec<ValidationError>) {
     }
 }
 
-/// A pose is finite in every component; `what` names it in the error.
+/// A pose is finite in every component and its rotation has a length;
+/// `what` names it in the error.
 fn check_pose(pose: &Pose, what: impl FnOnce() -> String, errors: &mut Vec<ValidationError>) {
     if !pose.t.is_finite() || !pose.r.is_finite() {
         errors.push(ValidationError::NonFinite { what: what() });
+    } else {
+        check_rotation(pose.r, what, errors);
+    }
+}
+
+/// A finite rotation a writer can normalise. Zero length is refused, and so
+/// is one so short its squared length underflows — the same NaN once
+/// normalised; a merely non-unit one is fine.
+fn check_rotation(r: DQuat, what: impl FnOnce() -> String, errors: &mut Vec<ValidationError>) {
+    if !r.length_recip().is_finite() {
+        errors.push(ValidationError::DegenerateRotation { what: what() });
     }
 }
 
@@ -741,10 +764,13 @@ fn check_assets(robot: &Robot, errors: &mut Vec<ValidationError>) {
                 what: format!("scale of mesh {mid}"),
             });
         }
-        if asset.fix_up.is_some_and(|q| !q.is_finite()) {
-            errors.push(ValidationError::NonFinite {
-                what: format!("fix-up of mesh {mid}"),
-            });
+        let what = || format!("fix-up of mesh {mid}");
+        match asset.fix_up {
+            Some(q) if !q.is_finite() => {
+                errors.push(ValidationError::NonFinite { what: what() });
+            }
+            Some(q) => check_rotation(q, what, errors),
+            None => {}
         }
     }
 }
@@ -2047,6 +2073,86 @@ mod tests {
             bytes byte_buf unit unit_struct seq tuple tuple_struct map struct
             identifier ignored_any
         }
+    }
+
+    /// A rotation of zero length is finite and still no rotation: a writer
+    /// normalises it into NaN, so every kind of pose refuses it — and one
+    /// short enough to underflow the same way. A non-unit rotation is fine.
+    #[test]
+    fn a_zero_length_rotation_is_refused_in_every_pose() {
+        fn meshes(robot: &mut Robot) -> &mut Vec<Geom> {
+            robot
+                .links
+                .values_mut()
+                .find_map(|l| match &mut l.collision {
+                    CollisionPolicy::Meshes(geoms) => Some(geoms),
+                    _ => None,
+                })
+                .unwrap()
+        }
+        fn primitives(robot: &mut Robot) -> &mut Vec<Primitive> {
+            robot
+                .links
+                .values_mut()
+                .find_map(|l| match &mut l.collision {
+                    CollisionPolicy::Primitives(prims) => Some(prims),
+                    _ => None,
+                })
+                .unwrap()
+        }
+        let robot = every_slot();
+        type Edit = fn(&mut Robot, DQuat);
+        let edits: [(Edit, &str); 6] = [
+            (
+                |r, q| r.frames.values_mut().next().unwrap().pose.r = q,
+                "pose of frame",
+            ),
+            (
+                |r, q| r.joints.values_mut().next().unwrap().origin.r = q,
+                "origin of joint",
+            ),
+            (
+                |r, q| {
+                    let geom = r.links.values_mut().find_map(|l| l.visuals.first_mut());
+                    geom.unwrap().pose.r = q;
+                },
+                "pose of geom",
+            ),
+            (|r, q| meshes(r)[0].pose.r = q, "pose of collision geom"),
+            (
+                |r, q| primitives(r)[0].pose_mut().r = q,
+                "pose of primitive 0",
+            ),
+            (
+                |r, q| r.assets.values_mut().next().unwrap().fix_up = Some(q),
+                "fix-up of mesh",
+            ),
+        ];
+        for (edit, prefix) in edits {
+            for q in [
+                DQuat::from_xyzw(0.0, 0.0, 0.0, 0.0),
+                DQuat::from_xyzw(0.0, 0.0, 1e-200, 0.0),
+            ] {
+                let mut robot = robot.clone();
+                edit(&mut robot, q);
+                let errors = validation_errors(&robot);
+                assert!(
+                    matches!(&errors[..], [ValidationError::DegenerateRotation { what }]
+                        if what.starts_with(prefix)),
+                    "{prefix} at {q}: {errors:?}"
+                );
+            }
+        }
+        let err = ValidationError::DegenerateRotation {
+            what: "pose of frame f0".into(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "pose of frame f0 has a rotation of zero length"
+        );
+        let mut robot = robot;
+        robot.frames.values_mut().next().unwrap().pose.r = DQuat::from_xyzw(0.0, 0.0, 0.0, 2.0);
+        assert_eq!(validate(&robot), Ok(()), "not unit, but a rotation");
     }
 
     /// The regression net: every float `every_slot` holds, made NaN one at

@@ -83,7 +83,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   walks a document with *every* slot set to NaN, one at a time, and asserts
   each is refused — the regression net for a field added later. DATA-MODEL
   bullet in its final form: "every number in the document is finite".
-- [ ] **[2]** Step 4 — *only if ⚠ OPEN 1 is taken*: a rotation of zero
+- [x] **[2]** Step 4 — *only if ⚠ OPEN 1 is taken*: a rotation of zero
   length in any pose (frame, joint origin, geom, primitive, `fix_up`) is
   refused. The URDF writer's `to_xyz_rpy` normalises it into NaN rpy and
   the MJCF writer writes `quat="0 0 0 0"`, which MuJoCo refuses; the SDK's
@@ -118,6 +118,11 @@ mechanical; **[2]** careful — a case to get right within a given design;
 - Found in step 3: a `Fixed` joint's `axis` was a slot the Goal did not
   list — `ZeroAxis` only looks at movable joints, yet the file saves it.
   Now `NonFinite { "axis of joint j7" }`; the walk would have caught it.
+- Found in step 4: the MJCF writer's `xml::quat` normalises too, so a zero
+  rotation came out `quat="NaN NaN NaN NaN"`, not `0 0 0 0`. A quaternion
+  so short its squared length underflows is the same NaN, so the check is
+  `length_recip().is_finite()`, not `== 0`. The MJCF reader already
+  refused a zero `quat` (`xml.rs`), so no import changes.
 - OPEN 1 — **answered 2026-09-13: taken.** Step 4 runs.
 - OPEN 2 — **answered 2026-09-13: not taken.** Finiteness only; the
   positivity line goes to the backlog at retirement.

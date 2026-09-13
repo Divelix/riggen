@@ -1452,6 +1452,34 @@ mod tests {
         assert!(robot.links[&arm].visuals.is_empty());
     }
 
+    /// What the SDK's `set_geom_pose({"t": …, "r": [0, 0, 0, 0]})` hands
+    /// the command: finite, and no rotation. Refused, so no writer
+    /// normalises it into NaN, and the document is left as it was.
+    #[test]
+    fn a_zero_length_rotation_from_the_sdk_is_refused() {
+        let (mut robot, [arm, ..]) = arm();
+        let mesh = robot.add_asset(asset());
+        let gid: GeomId = robot.next_id.alloc();
+        let geom = Geom {
+            id: gid,
+            mesh,
+            pose: Pose::IDENTITY,
+            color: None,
+        };
+        apply(&mut robot, Command::AddGeom(arm, geom)).unwrap();
+        let pose: Pose =
+            serde_json::from_str(r#"{"t": [0.0, 0.0, 0.5], "r": [0.0, 0.0, 0.0, 0.0]}"#).unwrap();
+        let before = robot.clone();
+        assert_eq!(
+            apply(&mut robot, Command::SetGeomPose(arm, gid, pose)),
+            Err(ValidationError::DegenerateRotation {
+                what: format!("pose of geom {gid} of link {arm}")
+            }
+            .into())
+        );
+        assert_eq!(robot, before);
+    }
+
     #[test]
     fn set_joint_keeps_the_endpoints() {
         let (mut robot, [arm, _, _, tail]) = arm();
