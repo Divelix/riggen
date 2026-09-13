@@ -685,15 +685,30 @@ impl RiggenApp {
 
                 ui.label("material");
                 let mut material = data.material.clone();
-                let shown = material.as_deref().unwrap_or("(none)").to_owned();
-                egui::ComboBox::from_id_salt(base.with("material"))
-                    .selected_text(shown)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut material, None, "(none)");
-                        for name in self.robot.materials.keys() {
-                            ui.selectable_value(&mut material, Some(name.clone()), name);
-                        }
-                    });
+                ui.horizontal(|ui| {
+                    let shown = material.as_deref().unwrap_or("(none)").to_owned();
+                    egui::ComboBox::from_id_salt(base.with("material"))
+                        .selected_text(shown)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut material, None, "(none)");
+                            for name in self.robot.materials.keys() {
+                                ui.selectable_value(&mut material, Some(name.clone()), name);
+                            }
+                        });
+                    if let Some(color) = material
+                        .as_deref()
+                        .and_then(|name| self.robot.materials.get(name))
+                        .map(|m| m.color)
+                    {
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                        let rgba = egui::Rgba::from_rgba_unmultiplied(
+                            color[0], color[1], color[2], color[3],
+                        );
+                        ui.painter()
+                            .rect_filled(rect, 2.0, egui::Color32::from(rgba));
+                    }
+                });
                 if material != data.material {
                     commands.push(Command::SetLinkMaterial(link, material));
                 }
