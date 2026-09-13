@@ -7,7 +7,9 @@ use std::fmt;
 
 use crate::ids::{ActuatorId, FrameId, GeomId, JointId, LinkId, MeshId, TendonId};
 use crate::pose::Pose;
-use crate::robot::{ActuatorSpec, ActuatorTarget, CollisionPolicy, General, Primitive, Robot};
+use crate::robot::{
+    ActuatorSpec, ActuatorTarget, CollisionPolicy, General, InertialSpec, Primitive, Robot,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationError {
@@ -615,11 +617,14 @@ fn check_pose(pose: &Pose, what: impl FnOnce() -> String, errors: &mut Vec<Valid
     }
 }
 
-/// The numbers a link's geometry holds: every geom's pose, visual or
-/// collision mesh, and every collision primitive's pose and size. Each
-/// reaches a writer as written, so a NaN here would be a NaN `pos` in the
-/// file rather than an error. Finite is all this asks — whether a zero
-/// radius is a shape a simulator takes is not a question about numbers.
+/// The numbers a link holds: every geom's pose, visual or collision mesh,
+/// every collision primitive's pose and size, and what its inertial typed.
+/// Each reaches a writer as written, so a NaN here would be a NaN `pos` in
+/// the file rather than an error. Finite is all this asks — whether a zero
+/// radius is a shape a simulator takes, or a tensor is positive-definite,
+/// is physics, and physics is the export gate's (ADR-0032): refusing it
+/// here, after every command, would refuse a tensor typed in entry by
+/// entry.
 fn check_links(robot: &Robot, errors: &mut Vec<ValidationError>) {
     for (&lid, link) in &robot.links {
         for geom in &link.visuals {
@@ -656,6 +661,25 @@ fn check_links(robot: &Robot, errors: &mut Vec<ValidationError>) {
             | CollisionPolicy::SameAsVisual
             | CollisionPolicy::ConvexHull
             | CollisionPolicy::ConvexDecomposition { .. } => {}
+        }
+        let inertial: &[(&str, bool)] = match &link.inertial {
+            InertialSpec::Computed { density_override } => &[(
+                "density override",
+                density_override.is_none_or(f64::is_finite),
+            )],
+            InertialSpec::Override { mass, com, inertia } => &[
+                ("mass", mass.is_finite()),
+                ("CoM", com.is_finite()),
+                ("tensor", inertia.is_finite()),
+            ],
+            InertialSpec::Hybrid { mass } => &[("mass", mass.is_finite())],
+        };
+        for &(slot, finite) in inertial {
+            if !finite {
+                errors.push(ValidationError::NonFinite {
+                    what: format!("{slot} of the inertial of link {lid}"),
+                });
+            }
         }
     }
 }
@@ -1001,7 +1025,7 @@ mod tests {
         Actuator, ActuatorRanges, ActuatorSpec, ActuatorTarget, BiasType, DynType, Frame, GainType,
         General, Geom, Joint, JointKind, Limits, Link, MeshAsset, Mimic, Tendon, TendonJoint,
     };
-    use riggen_mesh::glam::{DVec3, dvec3};
+    use riggen_mesh::glam::{DMat3, DVec3, dvec3};
     use std::path::PathBuf;
 
     /// Appends `name` under `parent` with a fixed joint `<name>_joint`.
@@ -1525,6 +1549,47 @@ mod tests {
                 })
             };
             assert_eq!(validate(&robot), expected, "{prim:?}");
+        }
+    }
+
+    /// An inertial's typed numbers are finite, and that is all: a negative
+    /// mass or a singular tensor is the export gate's to refuse (ADR-0032),
+    /// not a command's.
+    #[test]
+    fn a_non_finite_inertial_number_is_refused_and_an_unphysical_one_is_not() {
+        let (mut robot, arm, ..) = chain();
+        let over =
+            |mass: f64, com: DVec3, inertia: DMat3| InertialSpec::Override { mass, com, inertia };
+        for (spec, slot) in [
+            (over(-1.0, DVec3::ZERO, DMat3::ZERO), None),
+            (
+                InertialSpec::Computed {
+                    density_override: Some(-5.0),
+                },
+                None,
+            ),
+            (over(f64::NAN, DVec3::ZERO, DMat3::IDENTITY), Some("mass")),
+            (over(1.0, DVec3::NAN, DMat3::IDENTITY), Some("CoM")),
+            (
+                over(1.0, DVec3::ZERO, DMat3::from_diagonal(DVec3::INFINITY)),
+                Some("tensor"),
+            ),
+            (InertialSpec::Hybrid { mass: f64::NAN }, Some("mass")),
+            (
+                InertialSpec::Computed {
+                    density_override: Some(f64::INFINITY),
+                },
+                Some("density override"),
+            ),
+        ] {
+            robot.links.get_mut(&arm).unwrap().inertial = spec.clone();
+            let expected = match slot {
+                None => Ok(()),
+                Some(slot) => Err(ValidationError::NonFinite {
+                    what: format!("{slot} of the inertial of link {arm}"),
+                }),
+            };
+            assert_eq!(validate(&robot), expected, "{spec:?}");
         }
     }
 

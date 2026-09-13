@@ -236,8 +236,11 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
   origins, joint limits, `qpos_ref`, frame poses, geom poses (visual and
   collision meshes), collision primitives' poses and sizes, and material
   densities are finite (`NonFinite`, naming the slot), and densities are
-  non-negative. A size need only be finite: a zero radius is not refused.
-  An `Override` inertial's numbers are **not** checked yet.
+  non-negative. So are an inertial's typed numbers — an `Override`'s mass,
+  CoM and tensor, a `Hybrid`'s mass, a `density_override`. Finite is all
+  these ask: a zero radius is not refused, and mass > 0 and a
+  positive-definite tensor are physics, checked at the export gate
+  (ADR-0032), so a tensor typed in entry by entry is never refused halfway.
 - A `Mimic`'s leader exists, is movable and is not the follower itself. It
   **may itself follow** — a chain resolves (ADR-0025) — but a ring of
   followers with no free leader at its head does not (`MimicCycle`, whose

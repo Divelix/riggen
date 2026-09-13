@@ -1171,9 +1171,11 @@ mod tests {
     /// moving one's: MuJoCo 3.13 refuses `inertia must have positive
     /// eigenvalues` and `A + B >= C` on a body with no joint, so neither
     /// passes through (plans/unweighed-links OPEN 2) — a singular tensor
-    /// that is not all zeros included — and a non-finite or negative value
-    /// is refused as before. Zero mass is the one value that means "nothing
-    /// to write"; the exactly-zero tensor has a test of its own below.
+    /// that is not all zeros included — and a negative mass is refused as
+    /// before. A non-finite value never reaches this gate: `validate`
+    /// refuses it first, alone. Zero mass is the one value that means
+    /// "nothing to write"; the exactly-zero tensor has a test of its own
+    /// below.
     #[test]
     fn a_static_links_tensor_is_checked_as_a_moving_ones_is() {
         let mut b = Builder::new();
@@ -1198,7 +1200,6 @@ mod tests {
                     DMat3::from_diagonal(DVec3::new(1.0, 1.0, 3.0)),
                 ),
             ),
-            ("nan", over(1.0, DVec3::NAN, DMat3::IDENTITY)),
             ("negative", over(-1.0, DVec3::ZERO, DMat3::IDENTITY)),
         ];
         let mut ids = Vec::new();
@@ -1208,7 +1209,7 @@ mod tests {
             ids.push(id);
         }
         let errors = b.resolve().unwrap_err();
-        assert_eq!(errors.len(), 4, "{errors:?}");
+        assert_eq!(errors.len(), 3, "{errors:?}");
         let of = |l: LinkId| {
             errors
                 .iter()
@@ -1230,8 +1231,18 @@ mod tests {
                 moments: [1.0, 1.0, 3.0]
             }
         );
-        assert_eq!(of(ids[2]), InertialError::NonFinite);
-        assert_eq!(of(ids[3]), InertialError::NonPositiveMass(-1.0));
+        assert_eq!(of(ids[2]), InertialError::NonPositiveMass(-1.0));
+
+        // A NaN beside them stops `resolve` at the `validate` gate, so the
+        // three physical errors are not reported with it.
+        let nan = b.link("nan", root, JointKind::Fixed, Some(cube));
+        b.robot.links.get_mut(&nan).unwrap().inertial = over(1.0, DVec3::NAN, DMat3::IDENTITY);
+        assert_eq!(
+            b.resolve().unwrap_err(),
+            vec![ExportError::Invalid(ValidationError::NonFinite {
+                what: format!("CoM of the inertial of link {nan}")
+            })]
+        );
     }
 
     /// A static link's exactly-zero tensor passes (ADR-0032 §4):

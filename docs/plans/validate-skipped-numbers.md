@@ -68,7 +68,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   (`command.rs`); `resolve` on a document with a NaN geom pose returns
   `ExportError::Invalid(NonFinite)` and writes nothing; `file::to_json`
   refuses it. DATA-MODEL invariant bullet updated for geoms.
-- [ ] **[2]** Step 2 — **Inertial numbers.** `Override` mass / CoM / tensor,
+- [x] **[2]** Step 2 — **Inertial numbers.** `Override` mass / CoM / tensor,
   `Hybrid` mass and `density_override` are finite. The case to get right:
   `resolve.rs`'s multi-link inertial test carries a `"nan"` `Override`
   beside `singular` / `lopsided` / `negative` and expects four
