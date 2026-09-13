@@ -32,8 +32,9 @@ nothing to weigh it by exports without `<inertial>`, a moving one is
 refused with the fix, and one click weighs every unweighed link —
 Menagerie exporting 119 → 164 of 172 (ADR-0032); a pivot move leaves
 collision geometry where it was; a missed `package://` asks for its folder
-in a Missing packages window, `--package` headlessly. **Next:** the two
-numbers `validate` skips.
+in a Missing packages window, `--package` headlessly; every number in the
+document is finite and every rotation has a length, so no NaN reaches a
+writer. **Next:** `/close-cycle` v0.6 — its last line has landed.
 **Before:** v0.4 (`v0.4.0`) the lossless MJCF round trip and the two
 modes, schema 6, Menagerie's importing files 93 → 172 of 261 (ADR-0021 to
 0026; composite joints, `<replicate>` and `<attach>` refused); v0.3

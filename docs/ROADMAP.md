@@ -334,7 +334,11 @@ of them by the human's call.
   NAME=DIR` is the same headlessly. No table on every import, and no
   remembered map (a backlog line). *Landed.*
 - **`validate` checks the numbers it skips** — geom poses and an
-  `Override` inertial's — so a NaN cannot reach a writer.
+  `Override` inertial's — so a NaN cannot reach a writer. Every number in
+  the document is now finite (`NonFinite`, naming the slot, with a test
+  that makes each one NaN in turn) and every rotation has a length
+  (`DegenerateRotation`); physics stays at the export gate, and no import
+  moved. *Landed.*
 - **`MoveJointFrame` re-expresses collision geometry too**:
   `CollisionPolicy::Meshes` and `Primitives` poses stay where they were in
   the world when a link's pivot moves, from the gizmo, click-the-bore and
