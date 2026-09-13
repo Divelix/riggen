@@ -161,6 +161,11 @@ pub struct RiggenApp {
     /// Where the app reads bytes from: the filesystem on the desktop, the
     /// dropped files in a browser (`file_io.rs`, ADR-0017).
     pub(crate) files: Files,
+    /// A URDF import whose `package://` meshes did not load: what the
+    /// Missing packages window lists and imports again (`file_io.rs`,
+    /// plans/package-map-ui). Cleared by the first history entry and by
+    /// any other document.
+    missing_packages: Option<file_io::MissingPackages>,
     /// Drop gestures the browser is still reading, filled by the futures
     /// `handle_file_drops` spawns and drained once per frame. Never more
     /// than a handful of files; wasm is single-threaded, so an `Rc` and a
@@ -283,6 +288,7 @@ impl RiggenApp {
             } else {
                 Files::Disk
             },
+            missing_packages: None,
             #[cfg(target_arch = "wasm32")]
             inbox: Default::default(),
             pending: None,

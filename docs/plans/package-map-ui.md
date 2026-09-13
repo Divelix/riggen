@@ -93,14 +93,15 @@ mechanical; **[2]** careful — a case to get right within a given design;
       both finger meshes.
   - README §Command line (usage block, options) and the ARCHITECTURE
     sentence quoting the export form change in this commit.
-- [ ] **[2]** Step 2 — The app knows what is missing and imports again.
+- [x] **[2]** Step 2 — The app knows what is missing and imports again.
   - `MissingPackages`, the three seams and the clearing rules from the
     design deltas; `debug_state().ui.missing_packages`.
   - App tests in `tests/visual/main.rs` (`with_app`, no golden):
     - Importing the vendor fixture gives `missing_packages() ==
-      {finger_description: 2}`, and two instances with no triangles.
-    - `set_package_dir("finger_description", …)` leaves `None`, every
-      instance with triangles, history depth 0, the status `imported …`
+      {finger_description: 2}`, and one instance, the palm's: a mesh
+      that did not load gets none (`sync_scene`).
+    - `set_package_dir("finger_description", …)` leaves `None`, three
+      instances with triangles, history depth 0, the status `imported …`
       with no warning, and the document still untitled in View.
     - A folder that does not hold the meshes keeps the package listed.
     - Any history entry clears the state, and so does opening
@@ -155,3 +156,12 @@ Left to the agent, and recorded at the step where each is settled:
   `vendor/gripper_description/` (step 1). The `run` checks go through
   the built binary in `tests/cli.rs`, because the `MeshNotFound`
   warnings are only on stderr.
+
+Found at step 2, and corrected in the design deltas' reading above:
+- The count is of `MeshNotFound` whose file is `package://NAME/…`, not of
+  `PackageUnresolved`. A chosen folder that does not hold the meshes is a
+  map hit, so the resolver raises no `PackageUnresolved` for it and the
+  package would drop off the list though both meshes still miss. A
+  heuristic miss raises both warnings, so the count is the same there.
+- A mesh that did not load has no viewport instance, so "two instances with
+  no triangles" is one instance before and three after.

@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use riggen_core::{Command, Disk, FileSource, Geom, GeomId, Link, LinkId, MeshAsset, MeshId, Pose};
+use riggen_export::{ImportWarning, PackageMap};
 
 use super::document::name_from_stem;
 use super::{LoadedMesh, Mode, RiggenApp};
@@ -150,6 +151,36 @@ impl FileSource for Files {
     }
 }
 
+/// A URDF import that left `package://` meshes unloaded
+/// (plans/package-map-ui): the file, the map it was imported through —
+/// every folder chosen for it so far — and, per package, how many mesh
+/// references missed. Recorded only on [`Files::Disk`]: a browser drop has
+/// no folder to choose (ADR-0017 §3).
+#[derive(Debug, Clone)]
+pub(crate) struct MissingPackages {
+    urdf: PathBuf,
+    map: PackageMap,
+    missing: BTreeMap<String, usize>,
+}
+
+/// Package name → the `package://name/…` mesh references that did not load.
+/// Counted from `MeshNotFound` and not `PackageUnresolved`: a chosen folder
+/// that does not hold the meshes resolves the package, raising no
+/// `PackageUnresolved`, and still misses every mesh — while a heuristic
+/// miss raises both.
+fn missing_by_package(warnings: &[ImportWarning]) -> BTreeMap<String, usize> {
+    let mut out = BTreeMap::new();
+    for warning in warnings {
+        if let ImportWarning::MeshNotFound { file, .. } = warning
+            && let Some(rest) = file.strip_prefix("package://")
+        {
+            let name = rest.split_once('/').map_or(rest, |(name, _)| name);
+            *out.entry(name.to_owned()).or_default() += 1;
+        }
+    }
+    out
+}
+
 /// Extensions the open dialog offers, matching `riggen_mesh::load_mesh`.
 /// Native only: the browser has no dialog to filter (ADR-0017).
 #[cfg(not(target_arch = "wasm32"))]
@@ -266,10 +297,56 @@ impl RiggenApp {
 
     /// File › Import URDF… (and a dropped `.urdf`): the file becomes a new,
     /// untitled document; what the import dropped goes to the status bar.
+    /// Importing the file the Missing packages window is about goes through
+    /// every folder chosen for it; a package still missing after that is
+    /// listed again.
     fn open_urdf(&mut self, at: &Path) -> Result<(), String> {
-        let imported =
-            riggen_export::urdf_in::load(at, &riggen_export::PackageMap::default(), &self.files);
-        self.finish_import(at, imported)
+        let map = self
+            .missing_packages
+            .as_ref()
+            .filter(|state| state.urdf == at)
+            .map(|state| state.map.clone())
+            .unwrap_or_default();
+        let imported = riggen_export::urdf_in::load(at, &map, &self.files);
+        let missing = match &imported {
+            Ok((_, warnings)) => missing_by_package(warnings),
+            Err(_) => BTreeMap::new(),
+        };
+        // Replaces the document, which clears the state this one follows.
+        self.finish_import(at, imported)?;
+        if !missing.is_empty() && matches!(self.files, Files::Disk) {
+            self.missing_packages = Some(MissingPackages {
+                urdf: at.to_owned(),
+                map,
+                missing,
+            });
+        }
+        Ok(())
+    }
+
+    /// The packages the last URDF import could not find meshes for, with
+    /// how many each cost; `None` when nothing is missing, or once the
+    /// document has been edited, dismissed or replaced.
+    pub fn missing_packages(&self) -> Option<&BTreeMap<String, usize>> {
+        self.missing_packages.as_ref().map(|state| &state.missing)
+    }
+
+    /// **Choose folder…**: `package://name/` is under `dir`. The same URDF
+    /// is imported again through every folder chosen so far, replacing the
+    /// unedited document. Does nothing when no import is waiting on one.
+    pub fn set_package_dir(&mut self, name: &str, dir: PathBuf) {
+        let Some(state) = &mut self.missing_packages else {
+            return;
+        };
+        state.map.0.insert(name.to_owned(), dir);
+        let urdf = state.urdf.clone();
+        // A failure is already in the status bar.
+        let _ = self.open_at(&urdf, None);
+    }
+
+    /// **Dismiss**: the document stays as imported, and the window goes.
+    pub fn dismiss_missing_packages(&mut self) {
+        self.missing_packages = None;
     }
 
     /// File › Import MJCF… (and a dropped `.xml`), the same way through

@@ -8039,6 +8039,99 @@ fn import_urdf() {
     });
 }
 
+/// The vendor fixture's `finger_description` lives in `Finger-Repo/`, a
+/// directory the beside-the-file heuristic cannot find: the import names the
+/// package and its two meshes, a folder that does not hold them leaves it
+/// named, and the right folder imports the same file again with nothing
+/// missing (plans/package-map-ui step 2). No golden: step 3's window has one.
+#[test]
+fn a_missing_package_is_named_and_its_folder_imports_again() {
+    with_app(|harness| {
+        let missing = |harness: &egui_kittest::Harness<'_, riggen_app::RiggenApp>| {
+            harness.state().missing_packages().cloned()
+        };
+        let two = Some([("finger_description".to_owned(), 2)].into());
+        harness
+            .state_mut()
+            .open_path(&fixture("vendor/urdf/gripper.urdf"))
+            .expect("the vendor URDF imports");
+        settle(harness);
+        assert_eq!(missing(harness), two);
+        let state = harness.state().debug_state();
+        assert_eq!(
+            state.ui.missing_packages,
+            [riggen_app::debug::MissingPackageDebug {
+                package: "finger_description".into(),
+                meshes: 2,
+            }]
+        );
+        // The palm alone is drawn: a mesh that did not load has no instance.
+        assert_eq!(state.instances.len(), 1);
+        assert_eq!(state.document.links.len(), 3);
+
+        // A folder that does not hold the meshes resolves the package and
+        // still misses both.
+        harness
+            .state_mut()
+            .set_package_dir("finger_description", fixture("vendor/gripper_description"));
+        settle(harness);
+        assert_eq!(missing(harness), two);
+        assert_eq!(harness.state().debug_state().instances.len(), 1);
+
+        harness
+            .state_mut()
+            .set_package_dir("finger_description", fixture("vendor/Finger-Repo"));
+        settle(harness);
+        assert_eq!(missing(harness), None);
+        let state = harness.state().debug_state();
+        assert!(state.ui.missing_packages.is_empty());
+        assert_eq!(state.instances.len(), 3);
+        assert!(state.instances.iter().all(|i| i.triangles == 12));
+        assert_eq!(harness.state().history().undo_depth(), 0);
+        assert_eq!(state.status.as_deref(), Some("imported gripper.urdf"));
+        assert_eq!(state.document.file, None);
+        assert_eq!(state.ui.mode, "View");
+    });
+}
+
+/// What closes the Missing packages window without a folder: the first
+/// history entry, dismissal, any other document — and a URDF that resolves
+/// never opens it.
+#[test]
+fn missing_packages_clear_on_an_edit_a_dismissal_and_another_document() {
+    with_app(|harness| {
+        let vendor = fixture("vendor/urdf/gripper.urdf");
+        let app = harness.state_mut();
+        app.open_path(&vendor).unwrap();
+        assert!(app.missing_packages().is_some());
+        let palm = *app
+            .robot()
+            .links
+            .iter()
+            .find(|(_, l)| l.name == "palm")
+            .unwrap()
+            .0;
+        app.apply(Command::RenameLink(palm, "base".into())).unwrap();
+        assert_eq!(app.missing_packages(), None, "the first history entry");
+        // With nothing waiting, a folder imports nothing over the edit.
+        app.set_package_dir("finger_description", fixture("vendor/Finger-Repo"));
+        assert_eq!(app.robot().links[&palm].name, "base");
+        assert_eq!(app.history().undo_depth(), 1);
+
+        app.open_path(&vendor).unwrap();
+        assert!(app.missing_packages().is_some());
+        app.dismiss_missing_packages();
+        assert_eq!(app.missing_packages(), None, "dismissed");
+
+        app.open_path(&vendor).unwrap();
+        app.open_path(&fixture("pendulum.riggen")).unwrap();
+        assert_eq!(app.missing_packages(), None, "another document");
+
+        app.open_path(&fixture("arm/arm.urdf")).unwrap();
+        assert_eq!(app.missing_packages(), None, "a URDF that resolves");
+    });
+}
+
 /// File › Import MJCF… (here through `open_path`, as a dropped `.xml`
 /// would be): the arm's own MJCF export becomes the document again, with
 /// its frames — which the URDF import cannot give back — and no warnings.

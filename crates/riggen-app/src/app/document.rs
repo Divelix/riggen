@@ -361,6 +361,9 @@ impl RiggenApp {
         self.robot = robot;
         self.file = file;
         self.history = History::new();
+        // The Missing packages window is about the document it replaces; an
+        // import that misses again sets it after this.
+        self.missing_packages = None;
         self.mesh_store.clear();
         self.instances.clear();
         self.collision_instances.clear();
@@ -604,6 +607,12 @@ impl RiggenApp {
     }
 
     fn after_document_change(&mut self) {
+        // Importing again would throw an edit away, and the document holds
+        // resolved paths, not package names, to relink after one
+        // (plans/package-map-ui).
+        if self.history.can_undo() {
+            self.missing_packages = None;
+        }
         self.clamp_q_to_document();
         if let Selection::Link(l) = self.selection
             && !self.robot.links.contains_key(&l)

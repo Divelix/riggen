@@ -132,6 +132,19 @@ pub struct UiDebug {
     /// A tree row being dragged, if one is; omitted otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drag: Option<TreeDragDebug>,
+    /// The Missing packages window's rows, in package order: each
+    /// `package://` name whose meshes did not load and how many
+    /// (plans/package-map-ui). Omitted when empty, which is every golden
+    /// written before it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub missing_packages: Vec<MissingPackageDebug>,
+}
+
+/// One row of the Missing packages window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MissingPackageDebug {
+    pub package: String,
+    pub meshes: usize,
 }
 
 /// A link row mid-drag: what, over which row, and whether a drop there
@@ -561,6 +574,15 @@ impl RiggenApp {
                 },
                 title: self.window_title(),
                 overlays: self.overlays().hidden(),
+                missing_packages: self
+                    .missing_packages()
+                    .into_iter()
+                    .flatten()
+                    .map(|(package, &meshes)| MissingPackageDebug {
+                        package: package.clone(),
+                        meshes,
+                    })
+                    .collect(),
             },
             instances: self
                 .viewport
