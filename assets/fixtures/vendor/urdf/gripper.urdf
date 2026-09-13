@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A vendor's checkout laid out the way ROS workspaces rarely are: the
+  missing-package fixture (plans/package-map-ui). Two packages, and the
+  beside-the-file heuristic (urdf_in::resolve_mesh_path) finds one of them:
+
+  - package://gripper_description resolves: an ancestor of urdf/ holds a
+    directory named gripper_description, so the ancestor walk finds palm.stl.
+  - package://finger_description does not: its meshes live in Finger-Repo/,
+    a directory that does not carry the package name. Both finger meshes
+    miss (one PackageUnresolved and one MeshNotFound each) until a map says
+    finger_description=vendor/Finger-Repo — the SDK's packages=, the CLI's
+    package flag, the app's Missing packages window.
+
+  Every mesh is a copy of cube_binary.stl (a 1 m cube) at 5 cm, and every
+  link carries an <inertial>, so what stops an export is the meshes alone.
+-->
+<robot name="gripper">
+  <link name="palm">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.1"/>
+      <inertia ixx="0.00004" ixy="0" ixz="0" iyy="0.00004" iyz="0" izz="0.00004"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://gripper_description/meshes/palm.stl" scale="0.05 0.05 0.05"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <link name="finger_left">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.02"/>
+      <inertia ixx="0.000008" ixy="0" ixz="0" iyy="0.000008" iyz="0" izz="0.000008"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://finger_description/meshes/finger_left.stl" scale="0.05 0.05 0.05"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <link name="finger_right">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.02"/>
+      <inertia ixx="0.000008" ixy="0" ixz="0" iyy="0.000008" iyz="0" izz="0.000008"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://finger_description/meshes/finger_right.stl" scale="0.05 0.05 0.05"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <joint name="finger_left_joint" type="prismatic">
+    <origin xyz="0 0.04 0.05" rpy="0 0 0"/>
+    <parent link="palm"/>
+    <child link="finger_left"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="0.02" effort="10" velocity="0.1"/>
+  </joint>
+
+  <joint name="finger_right_joint" type="prismatic">
+    <origin xyz="0 -0.04 0.05" rpy="0 0 0"/>
+    <parent link="palm"/>
+    <child link="finger_right"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="0" upper="0.02" effort="10" velocity="0.1"/>
+  </joint>
+</robot>

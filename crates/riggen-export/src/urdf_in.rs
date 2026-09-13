@@ -26,7 +26,7 @@ use riggen_core::{
 };
 
 /// `package name → directory` for `package://name/...` mesh paths.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PackageMap(pub BTreeMap<String, PathBuf>);
 
 /// Reads `path` through `source` and builds the document; mesh paths are

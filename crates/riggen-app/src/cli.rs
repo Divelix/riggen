@@ -17,11 +17,12 @@ use std::path::{Path, PathBuf};
 
 use crate::example::Example;
 use riggen_core::Disk;
-use riggen_export::{ExportOptions, Format, MeshStore};
+use riggen_export::{ExportOptions, Format, MeshStore, PackageMap};
 
 /// The one-line reminder under every parse error.
 pub const USAGE: &str = "usage: riggen [FILE...] | riggen --example arm | \
-riggen --export mjcf|urdf|sdf|both|all --out DIR [--fk-samples] INPUT\ntry `riggen --help`";
+riggen --export mjcf|urdf|sdf|both|all --out DIR [--fk-samples] [--package NAME=DIR]... INPUT\n\
+try `riggen --help`";
 
 /// One command-line flag: its spelling, an optional short form, the name
 /// of the value it takes (if any) and the help line.
@@ -58,6 +59,12 @@ pub const FLAGS: &[Flag] = &[
         short: None,
         value: None,
         doc: "with --export: also write <name>.fk.json, five sampled joint configurations",
+    },
+    Flag {
+        long: "--package",
+        short: None,
+        value: Some("NAME=DIR"),
+        doc: "with --export: a .urdf's package://NAME/ meshes are under DIR; repeatable",
     },
     Flag {
         long: "--timing",
@@ -103,7 +110,9 @@ pub fn help() -> String {
         "  riggen [FILE...]        open a .riggen document, or drop meshes (.stl, .obj) as links\n",
     );
     out.push_str("  riggen --example arm    open the bundled sample arm\n");
-    out.push_str("  riggen --export mjcf|urdf|sdf|both|all --out DIR [--fk-samples] INPUT\n");
+    out.push_str(
+        "  riggen --export mjcf|urdf|sdf|both|all --out DIR [--fk-samples] [--package NAME=DIR]... INPUT\n",
+    );
     out.push_str(
         "                          write INPUT's export to DIR without opening a window\n\n",
     );
@@ -150,6 +159,9 @@ pub struct ExportArgs {
     pub input: PathBuf,
     /// Also write `<name>.fk.json` (`riggen_export::fk_samples`).
     pub fk_samples: bool,
+    /// `--package NAME=DIR`, each one: where a `.urdf` input's
+    /// `package://NAME/` lives — the SDK's `packages=`. Other inputs ignore it.
+    pub packages: PackageMap,
 }
 
 /// Parses everything after the program name. `--help` and `--version` win
@@ -160,6 +172,7 @@ pub fn parse(args: &[OsString]) -> Result<Invocation, String> {
     let mut format = None;
     let mut out = None;
     let mut fk_samples = false;
+    let mut packages = PackageMap::default();
     let mut example = None;
     let mut timing = false;
     let mut positional = Vec::new();
@@ -187,6 +200,24 @@ pub fn parse(args: &[OsString]) -> Result<Invocation, String> {
                 ));
             }
             Some("--fk-samples") => fk_samples = true,
+            Some("--package") => {
+                let value = it.next().and_then(|v| v.to_str());
+                let Some((name, dir)) = value
+                    .and_then(|v| v.split_once('='))
+                    .filter(|(name, _)| !name.is_empty())
+                else {
+                    return Err(format!(
+                        "--package expects NAME=DIR, got {value:?}\n{USAGE}"
+                    ));
+                };
+                if packages
+                    .0
+                    .insert(name.to_owned(), PathBuf::from(dir))
+                    .is_some()
+                {
+                    return Err(format!("--package {name} is given twice\n{USAGE}"));
+                }
+            }
             Some("--timing") => timing = true,
             Some("--example") => {
                 let name = it.next().and_then(|v| v.to_str());
@@ -204,8 +235,10 @@ pub fn parse(args: &[OsString]) -> Result<Invocation, String> {
         }
     }
     let Some(format) = format else {
-        if out.is_some() || fk_samples {
-            return Err(format!("--out and --fk-samples need --export\n{USAGE}"));
+        if out.is_some() || fk_samples || !packages.0.is_empty() {
+            return Err(format!(
+                "--out, --fk-samples and --package need --export\n{USAGE}"
+            ));
         }
         return Ok(Invocation::Open(OpenArgs {
             files: positional,
@@ -228,6 +261,7 @@ pub fn parse(args: &[OsString]) -> Result<Invocation, String> {
         out: out.ok_or(format!("--out is required\n{USAGE}"))?,
         input,
         fk_samples,
+        packages,
     }))
 }
 
@@ -250,12 +284,9 @@ pub fn run(args: &ExportArgs) -> Result<Vec<PathBuf>, String> {
     // import); anything else is read as a document.
     let robot = match extension.as_str() {
         "urdf" => {
-            let (robot, warnings) = riggen_export::urdf_in::load(
-                &args.input,
-                &riggen_export::PackageMap::default(),
-                &Disk,
-            )
-            .map_err(|e| e.to_string())?;
+            let (robot, warnings) =
+                riggen_export::urdf_in::load(&args.input, &args.packages, &Disk)
+                    .map_err(|e| e.to_string())?;
             warn_all(&warnings);
             robot
         }
@@ -368,6 +399,7 @@ mod tests {
                 out: "target/x".into(),
                 input: "r.riggen".into(),
                 fk_samples: false,
+                packages: PackageMap::default(),
             })
         );
         // Order does not matter.
@@ -384,6 +416,33 @@ mod tests {
         };
         assert_eq!(parsed.format, Format::BOTH);
         assert!(parsed.fk_samples);
+
+        // `--package` repeats, one entry per package, and its value is split
+        // at the first `=` only.
+        let Invocation::Export(parsed) = parse(&args(&[
+            "--export",
+            "mjcf",
+            "--package",
+            "finger_description=vendor/Finger-Repo",
+            "--out",
+            "o",
+            "--package",
+            "odd=a=b",
+            "r.urdf",
+        ]))
+        .unwrap() else {
+            panic!("export form")
+        };
+        assert_eq!(
+            parsed.packages,
+            PackageMap(
+                [
+                    ("finger_description".into(), "vendor/Finger-Repo".into()),
+                    ("odd".into(), "a=b".into()),
+                ]
+                .into()
+            )
+        );
 
         // Every spelling `--help` offers, and the set each names. `both`
         // survives from when there were two writers (ADR-0016 §Consequences).
@@ -444,6 +503,9 @@ mod tests {
                 ("--export", _) => vec!["--export", "mjcf", "--out", "o", "r"],
                 ("--out", _) => vec!["--export", "urdf", "--out", "o", "r"],
                 ("--fk-samples", _) => vec!["--export", "both", "--out", "o", "r", "--fk-samples"],
+                ("--package", _) => {
+                    vec!["--export", "urdf", "--out", "o", "--package", "a=b", "r"]
+                }
                 (long, None) => vec![long],
                 (long, Some(_)) => panic!("no test line for the new value flag {long}"),
             };
@@ -522,6 +584,23 @@ mod tests {
             vec!["--export", "mjcf", "--out", "o", "r", "--bogus"],
             vec!["--out", "o", "r"],
             vec!["--fk-samples"],
+            // `--package`: no value, no `=`, an empty name, a name twice,
+            // and without `--export`.
+            vec!["--export", "mjcf", "--out", "o", "r", "--package"],
+            vec!["--export", "mjcf", "--out", "o", "--package", "finger", "r"],
+            vec!["--export", "mjcf", "--out", "o", "--package", "=dir", "r"],
+            vec![
+                "--export",
+                "mjcf",
+                "--out",
+                "o",
+                "--package",
+                "a=x",
+                "--package",
+                "a=y",
+                "r",
+            ],
+            vec!["--package", "a=x", "r.urdf"],
             vec!["--example"],
             vec!["--example", "spaceship"],
             vec!["--example", "arm", "--export", "mjcf", "--out", "o", "r"],
@@ -576,6 +655,7 @@ mod tests {
             out: out.clone(),
             input: fixture,
             fk_samples: true,
+            packages: PackageMap::default(),
         })
         .unwrap();
         let names: Vec<String> = written
@@ -612,6 +692,7 @@ mod tests {
             out: out.clone(),
             input: fixture,
             fk_samples: true,
+            packages: PackageMap::default(),
         })
         .unwrap();
         assert!(written.contains(&out.join("arm.xml")));
@@ -634,6 +715,7 @@ mod tests {
             out: out.join("one"),
             input: fixture,
             fk_samples: true,
+            packages: PackageMap::default(),
         })
         .unwrap();
         let second = run(&ExportArgs {
@@ -641,6 +723,7 @@ mod tests {
             out: out.join("two"),
             input: out.join("one/arm.xml"),
             fk_samples: true,
+            packages: PackageMap::default(),
         })
         .unwrap();
         let names = |written: &[PathBuf], root: &Path| {
@@ -732,6 +815,7 @@ mod tests {
             out: std::env::temp_dir(),
             input: "/nowhere/none.riggen".into(),
             fk_samples: false,
+            packages: PackageMap::default(),
         })
         .unwrap_err();
         assert!(err.contains("none.riggen"), "{err}");

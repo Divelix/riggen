@@ -1248,8 +1248,10 @@ a massless link on a `_fixed` joint in the URDF (ADR-0012, ADR-0016). The
 mesh path style is a dialog option read by the URDF and SDF writers
 (`MeshPathStyle`: relative, `package://<name>/` — `model://<name>/` in the
 SDF — absolute); MJCF has `meshdir`. `riggen --export
-mjcf|urdf|sdf|both|all [--fk-samples] --out DIR INPUT` does the same
-headlessly (`INPUT` is a `.riggen`, a `.urdf` or an `.xml`), returning
+mjcf|urdf|sdf|both|all [--fk-samples] [--package NAME=DIR]... --out DIR INPUT`
+does the same headlessly (`INPUT` is a `.riggen`, a `.urdf` or an `.xml`;
+each `--package` is an entry of the `PackageMap` a `.urdf` is imported
+through, the SDK's `packages=`), returning
 before eframe starts, which is what CI's `mujoco` and `sdf` jobs run. A `.urdf` opens as a new, untitled document through
 `riggen_export::urdf_in` (02 §URDF import) and an `.xml` through
 `riggen_export::mjcf_in` (02 §MJCF import, ADR-0015); both share one

@@ -124,7 +124,7 @@ mount — which Move and Rotate land on a picked feature the same way.
 usage:
   riggen [FILE...]        open a .riggen document, or drop meshes (.stl, .obj) as links
   riggen --example arm    open the bundled sample arm
-  riggen --export mjcf|urdf|sdf|both|all --out DIR [--fk-samples] INPUT
+  riggen --export mjcf|urdf|sdf|both|all --out DIR [--fk-samples] [--package NAME=DIR]... INPUT
                           write INPUT's export to DIR without opening a window
 
 options:
@@ -132,6 +132,7 @@ options:
   --export FORMAT         headless export of INPUT (.riggen, .urdf or .xml): mjcf, urdf, sdf, both or all
   --out DIR               where --export writes; created if missing
   --fk-samples            with --export: also write <name>.fk.json, five sampled joint configurations
+  --package NAME=DIR      with --export: a .urdf's package://NAME/ meshes are under DIR; repeatable
   --timing                print the time from launch to the first frame on stderr
   -h, --help              print this help
   -V, --version           print the version and the git commit it was built from

@@ -51,6 +51,70 @@ fn a_bad_flag_exits_two_with_the_usage_on_stderr() {
     assert!(err.contains("usage:"), "{err}");
 }
 
+/// The vendor fixture's `package://finger_description` is in `Finger-Repo/`,
+/// which the beside-the-file heuristic cannot find: both finger meshes are a
+/// `MeshNotFound` warning, and the export is refused naming each of them.
+#[test]
+fn a_missed_package_is_refused_naming_its_meshes() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fixtures");
+    let out_dir = std::env::temp_dir().join(format!("riggen-cli-nopkg-{}", std::process::id()));
+    let out = riggen(&[
+        "--export",
+        "mjcf",
+        "--out",
+        out_dir.to_str().unwrap(),
+        fixtures.join("vendor/urdf/gripper.urdf").to_str().unwrap(),
+    ]);
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    let err = String::from_utf8(out.stderr).unwrap();
+    let not_found: Vec<&str> = err.lines().filter(|l| l.contains("not found at")).collect();
+    assert_eq!(not_found.len(), 2, "{err}");
+    assert!(not_found[0].contains("finger_left.stl"), "{err}");
+    assert!(not_found[1].contains("finger_right.stl"), "{err}");
+    for mesh in ["finger_left.stl", "finger_right.stl"] {
+        assert!(
+            err.lines()
+                .any(|l| l.starts_with("cannot export: mesh") && l.contains(mesh)),
+            "{mesh} not refused:\n{err}"
+        );
+    }
+    // The package the ancestor walk finds is not among them.
+    assert!(!err.contains("palm.stl"), "{err}");
+    assert!(!out_dir.join("gripper.xml").exists());
+}
+
+/// …and `--package finger_description=…/Finger-Repo` is the fix: the same
+/// command writes both finger meshes, with nothing left unresolved.
+#[test]
+fn a_package_flag_resolves_the_missed_meshes() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fixtures");
+    let out_dir = std::env::temp_dir().join(format!("riggen-cli-pkg-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out_dir);
+    let package = format!(
+        "finger_description={}",
+        fixtures.join("vendor/Finger-Repo").display()
+    );
+    let out = riggen(&[
+        "--export",
+        "mjcf",
+        "--package",
+        &package,
+        "--out",
+        out_dir.to_str().unwrap(),
+        fixtures.join("vendor/urdf/gripper.urdf").to_str().unwrap(),
+    ]);
+    assert!(out.status.success(), "{out:?}");
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert!(!err.contains("not found"), "{err}");
+    for mesh in ["finger_left.stl", "finger_right.stl", "palm.stl"] {
+        assert!(
+            out_dir.join("meshes").join(mesh).exists(),
+            "{mesh} not written:\n{err}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
 /// A static link exported without mass is a `warning:` line on stderr, one
 /// per link, and the export still succeeds (ADR-0032 §2). The import corpus
 /// has one: `tool`, a mesh and no `<inertial>`. Copied out of the tree

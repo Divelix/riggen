@@ -8052,6 +8052,7 @@ fn import_mjcf() {
             out: dir.clone(),
             input: fixture("arm/arm.riggen"),
             fk_samples: false,
+            packages: riggen_export::PackageMap::default(),
         })
         .expect("the arm exports");
 
