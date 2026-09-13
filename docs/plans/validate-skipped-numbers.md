@@ -77,7 +77,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   the remaining three keep proving `inertial::check`. `inertial::check`'s
   own `NonFinite` stays (it guards a composed value too). DATA-MODEL
   bullet updated for inertials.
-- [ ] **[1]** Step 3 — **The rest of the document.** Mesh `scale` and
+- [x] **[1]** Step 3 — **The rest of the document.** Mesh `scale` and
   `fix_up`, `Limits::effort` / `velocity`, `Dynamics`, decomposition
   `concavity`, geom and material colours. One test per group. A test that
   walks a document with *every* slot set to NaN, one at a time, and asserts
@@ -115,6 +115,9 @@ mechanical; **[2]** careful — a case to get right within a given design;
   rotation as its own line.
 
 ## Open questions
+- Found in step 3: a `Fixed` joint's `axis` was a slot the Goal did not
+  list — `ZeroAxis` only looks at movable joints, yet the file saves it.
+  Now `NonFinite { "axis of joint j7" }`; the walk would have caught it.
 - OPEN 1 — **answered 2026-09-13: taken.** Step 4 runs.
 - OPEN 2 — **answered 2026-09-13: not taken.** Finiteness only; the
   positivity line goes to the backlog at retirement.

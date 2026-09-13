@@ -230,17 +230,25 @@ Invariants, enforced by `validate()` (first error) / `validation_errors()`
   writer turns each frame into a `<link>` (ADR-0012). The fixed joint it
   exports to, `<frame>_fixed`, must not be an existing joint's name either
   (`DuplicateFrameName`, `FrameJointNameCollision`).
-- A movable joint's `axis` is finite and non-zero; the properties panel
-  normalises it on commit.
-- A `Revolute`/`Prismatic` joint has `limits` with `lower <= upper`. Joint
-  origins, joint limits, `qpos_ref`, frame poses, geom poses (visual and
-  collision meshes), collision primitives' poses and sizes, and material
-  densities are finite (`NonFinite`, naming the slot), and densities are
-  non-negative. So are an inertial's typed numbers — an `Override`'s mass,
-  CoM and tensor, a `Hybrid`'s mass, a `density_override`. Finite is all
-  these ask: a zero radius is not refused, and mass > 0 and a
-  positive-definite tensor are physics, checked at the export gate
-  (ADR-0032), so a tensor typed in entry by entry is never refused halfway.
+- A movable joint's `axis` is finite and non-zero (`ZeroAxis`); the
+  properties panel normalises it on commit.
+- A `Revolute`/`Prismatic` joint has `limits` with `lower <= upper`.
+- **Every number in the document is finite** (`NonFinite`, naming the
+  slot: `pose of geom g2 of link l3`, `mass of the inertial of link l3`,
+  `scale of mesh m1`, `damping of joint j7`, `color of material "steel"`):
+  poses of every kind, primitive sizes, typed inertials, mesh scales and
+  fix-ups, limits, dynamics and `qpos_ref`, a decomposition's `concavity`,
+  colours, a fixed joint's unread axis, and the mimic, tendon and actuator
+  numbers the bullets below name. A test walks a document holding every
+  kind of slot and makes each number NaN in turn, so a field added later
+  is checked or fails. Finite is all most numbers are asked — material
+  densities are also non-negative, but a zero radius or `scale` is not
+  refused, and mass > 0 and a positive-definite tensor are physics,
+  checked at the export gate (ADR-0032), so a tensor typed in entry by
+  entry is never refused halfway. Because `validate` runs behind every
+  command, before `to_json` and at the head of `resolve`, a NaN is refused
+  by the edit that makes it, never saved as the `null` serde_json writes
+  for one, and never reaches a writer.
 - A `Mimic`'s leader exists, is movable and is not the follower itself. It
   **may itself follow** — a chain resolves (ADR-0025) — but a ring of
   followers with no free leader at its head does not (`MimicCycle`, whose

@@ -8,7 +8,8 @@ use std::fmt;
 use crate::ids::{ActuatorId, FrameId, GeomId, JointId, LinkId, MeshId, TendonId};
 use crate::pose::Pose;
 use crate::robot::{
-    ActuatorSpec, ActuatorTarget, CollisionPolicy, General, InertialSpec, Primitive, Robot,
+    ActuatorSpec, ActuatorTarget, CollisionPolicy, Dynamics, General, Geom, InertialSpec,
+    Primitive, Robot,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -379,6 +380,7 @@ pub fn validation_errors(robot: &Robot) -> Vec<ValidationError> {
     check_names(robot, &mut errors);
     check_joints(robot, &mut errors);
     check_links(robot, &mut errors);
+    check_assets(robot, &mut errors);
     check_mimics(robot, &mut errors);
     check_tendons(robot, &mut errors);
     check_actuators(robot, &mut errors);
@@ -576,11 +578,43 @@ fn check_joints(robot: &Robot, errors: &mut Vec<ValidationError>) {
                 what: format!("density of material \"{name}\""),
             });
         }
+        if !material.color.iter().all(|c| c.is_finite()) {
+            errors.push(ValidationError::NonFinite {
+                what: format!("color of material \"{name}\""),
+            });
+        }
     }
     for (&jid, joint) in &robot.joints {
         check_pose(&joint.origin, || format!("origin of joint {jid}"), errors);
         if joint.kind.is_movable() && (!joint.axis.is_finite() || joint.axis.length() == 0.0) {
             errors.push(ValidationError::ZeroAxis(jid));
+        } else if !joint.axis.is_finite() {
+            // A `Fixed` joint ignores its axis, but the file still saves it.
+            errors.push(ValidationError::NonFinite {
+                what: format!("axis of joint {jid}"),
+            });
+        }
+        let Dynamics {
+            damping,
+            friction,
+            armature,
+        } = joint.dynamics;
+        let limits = joint
+            .limits
+            .map(|l| [("effort limit", l.effort), ("velocity limit", l.velocity)]);
+        for (slot, value) in [
+            ("damping", damping),
+            ("friction", friction),
+            ("armature", armature),
+        ]
+        .into_iter()
+        .chain(limits.into_iter().flatten())
+        {
+            if !value.is_finite() {
+                errors.push(ValidationError::NonFinite {
+                    what: format!("{slot} of joint {jid}"),
+                });
+            }
         }
         // `qpos_ref` reaches MJCF's `<joint ref>` untouched (ADR-0025 §3),
         // and shifts the range the writer derives from it.
@@ -617,25 +651,34 @@ fn check_pose(pose: &Pose, what: impl FnOnce() -> String, errors: &mut Vec<Valid
     }
 }
 
-/// The numbers a link holds: every geom's pose, visual or collision mesh,
-/// every collision primitive's pose and size, and what its inertial typed.
-/// Each reaches a writer as written, so a NaN here would be a NaN `pos` in
-/// the file rather than an error. Finite is all this asks — whether a zero
-/// radius is a shape a simulator takes, or a tensor is positive-definite,
-/// is physics, and physics is the export gate's (ADR-0032): refusing it
-/// here, after every command, would refuse a tensor typed in entry by
-/// entry.
+/// A geom's pose and colour; `kind` is "geom" or "collision geom".
+fn check_geom(geom: &Geom, kind: &str, link: LinkId, errors: &mut Vec<ValidationError>) {
+    let what = || format!("pose of {kind} {} of link {link}", geom.id);
+    check_pose(&geom.pose, what, errors);
+    if geom.color.is_some_and(|c| !c.iter().all(|v| v.is_finite())) {
+        errors.push(ValidationError::NonFinite {
+            what: format!("color of {kind} {} of link {link}", geom.id),
+        });
+    }
+}
+
+/// The numbers a link holds: every geom's pose and colour, visual or
+/// collision mesh, every collision primitive's pose and size, a
+/// decomposition's `concavity`, and what its inertial typed. Each reaches
+/// a writer as written, so a NaN here would be a NaN `pos` in the file
+/// rather than an error. Finite is all this asks — whether a zero radius
+/// is a shape a simulator takes, or a tensor is positive-definite, is
+/// physics, and physics is the export gate's (ADR-0032): refusing it here,
+/// after every command, would refuse a tensor typed in entry by entry.
 fn check_links(robot: &Robot, errors: &mut Vec<ValidationError>) {
     for (&lid, link) in &robot.links {
         for geom in &link.visuals {
-            let what = || format!("pose of geom {} of link {lid}", geom.id);
-            check_pose(&geom.pose, what, errors);
+            check_geom(geom, "geom", lid, errors);
         }
         match &link.collision {
             CollisionPolicy::Meshes(geoms) => {
                 for geom in geoms {
-                    let what = || format!("pose of collision geom {} of link {lid}", geom.id);
-                    check_pose(&geom.pose, what, errors);
+                    check_geom(geom, "collision geom", lid, errors);
                 }
             }
             CollisionPolicy::Primitives(prims) => {
@@ -657,10 +700,15 @@ fn check_links(robot: &Robot, errors: &mut Vec<ValidationError>) {
                     }
                 }
             }
-            CollisionPolicy::None
-            | CollisionPolicy::SameAsVisual
-            | CollisionPolicy::ConvexHull
-            | CollisionPolicy::ConvexDecomposition { .. } => {}
+            CollisionPolicy::ConvexDecomposition { concavity, .. } => {
+                if !concavity.is_finite() {
+                    errors.push(ValidationError::NonFinite {
+                        what: format!("concavity of the decomposition of link {lid}"),
+                    });
+                }
+            }
+            CollisionPolicy::None | CollisionPolicy::SameAsVisual | CollisionPolicy::ConvexHull => {
+            }
         }
         let inertial: &[(&str, bool)] = match &link.inertial {
             InertialSpec::Computed { density_override } => &[(
@@ -680,6 +728,23 @@ fn check_links(robot: &Robot, errors: &mut Vec<ValidationError>) {
                     what: format!("{slot} of the inertial of link {lid}"),
                 });
             }
+        }
+    }
+}
+
+/// A mesh asset's `scale` and `fix_up`, applied to every vertex on load: a
+/// NaN in either is a mesh of NaNs in every writer.
+fn check_assets(robot: &Robot, errors: &mut Vec<ValidationError>) {
+    for (&mid, asset) in &robot.assets {
+        if !asset.scale.is_finite() {
+            errors.push(ValidationError::NonFinite {
+                what: format!("scale of mesh {mid}"),
+            });
+        }
+        if asset.fix_up.is_some_and(|q| !q.is_finite()) {
+            errors.push(ValidationError::NonFinite {
+                what: format!("fix-up of mesh {mid}"),
+            });
         }
     }
 }
@@ -1025,7 +1090,9 @@ mod tests {
         Actuator, ActuatorRanges, ActuatorSpec, ActuatorTarget, BiasType, DynType, Frame, GainType,
         General, Geom, Joint, JointKind, Limits, Link, MeshAsset, Mimic, Tendon, TendonJoint,
     };
-    use riggen_mesh::glam::{DMat3, DVec3, dvec3};
+    use riggen_mesh::glam::{DMat3, DQuat, DVec3, dvec3};
+    use serde::Deserialize;
+    use serde::de::{self, IntoDeserializer};
     use std::path::PathBuf;
 
     /// Appends `name` under `parent` with a fixed joint `<name>_joint`.
@@ -1590,6 +1657,419 @@ mod tests {
                 }),
             };
             assert_eq!(validate(&robot), expected, "{spec:?}");
+        }
+    }
+
+    #[test]
+    fn a_non_finite_mesh_scale_or_fix_up_is_refused() {
+        let (mut robot, _, _, mesh) = with_geom();
+        robot.assets.get_mut(&mesh).unwrap().scale = f64::NAN;
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: format!("scale of mesh {mesh}")
+            })
+        );
+        let asset = robot.assets.get_mut(&mesh).unwrap();
+        asset.scale = 0.001;
+        asset.fix_up = Some(DQuat::from_xyzw(0.0, f64::INFINITY, 0.0, 1.0));
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: format!("fix-up of mesh {mesh}")
+            })
+        );
+    }
+
+    /// Effort, velocity and dynamics are written as typed; so is a fixed
+    /// joint's axis, which nothing reads but the file still saves.
+    #[test]
+    fn a_joints_effort_velocity_dynamics_and_fixed_axis_are_finite() {
+        let (robot, [j0, ..]) = movable_chain();
+        type Edit = fn(&mut Joint);
+        let edits: [(Edit, &str); 6] = [
+            (
+                |j| j.limits.as_mut().unwrap().effort = f64::NAN,
+                "effort limit",
+            ),
+            (
+                |j| j.limits.as_mut().unwrap().velocity = f64::INFINITY,
+                "velocity limit",
+            ),
+            (|j| j.dynamics.damping = f64::NAN, "damping"),
+            (|j| j.dynamics.friction = f64::NAN, "friction"),
+            (|j| j.dynamics.armature = f64::NAN, "armature"),
+            (
+                |j| {
+                    j.kind = JointKind::Fixed;
+                    j.limits = None;
+                    j.axis.x = f64::NAN;
+                },
+                "axis",
+            ),
+        ];
+        for (edit, slot) in edits {
+            let mut robot = robot.clone();
+            edit(robot.joints.get_mut(&j0).unwrap());
+            assert_eq!(
+                validate(&robot),
+                Err(ValidationError::NonFinite {
+                    what: format!("{slot} of joint {j0}")
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn a_non_finite_concavity_is_refused() {
+        let (mut robot, arm, ..) = chain();
+        robot.links.get_mut(&arm).unwrap().collision = CollisionPolicy::ConvexDecomposition {
+            max_hulls: 8,
+            resolution: 64,
+            concavity: f64::NAN,
+        };
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: format!("concavity of the decomposition of link {arm}")
+            })
+        );
+    }
+
+    #[test]
+    fn a_non_finite_colour_is_refused() {
+        let (mut robot, arm, geom, mesh) = with_geom();
+        robot.links.get_mut(&arm).unwrap().visuals[0].color = Some([1.0, f32::NAN, 0.0, 1.0]);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: format!("color of geom {geom} of link {arm}")
+            })
+        );
+        robot.links.get_mut(&arm).unwrap().visuals[0].color = None;
+        let id: GeomId = robot.next_id.alloc();
+        robot.links.get_mut(&arm).unwrap().collision = CollisionPolicy::Meshes(vec![Geom {
+            id,
+            mesh,
+            pose: Pose::IDENTITY,
+            color: Some([f32::INFINITY, 0.0, 0.0, 1.0]),
+        }]);
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: format!("color of collision geom {id} of link {arm}")
+            })
+        );
+        robot.links.get_mut(&arm).unwrap().collision = CollisionPolicy::SameAsVisual;
+        robot.materials.get_mut("steel").unwrap().color[3] = f32::NAN;
+        assert_eq!(
+            validate(&robot),
+            Err(ValidationError::NonFinite {
+                what: "color of material \"steel\"".into()
+            })
+        );
+    }
+
+    // ---- every number in the document ------------------------------------
+
+    /// One document holding every kind of number a `Robot` has: coloured
+    /// geoms, each primitive, collision meshes, a decomposition, all three
+    /// inertials, a fixed joint, dynamics, a mimic, `qpos_ref`s, a frame, a
+    /// tendon with a range, every actuator kind with ranges, a fix-up. A
+    /// field added to any of these is in the walk below without anyone
+    /// listing it; a new *variant* has to be added here.
+    fn every_slot() -> Robot {
+        let (mut robot, [j0, j1, j2]) = movable_chain();
+        let [a, b, c] = [j0, j1, j2].map(|j| robot.joints[&j].child);
+        let mesh = robot.add_asset(MeshAsset {
+            path: PathBuf::from("/a.stl"),
+            content_hash: 0,
+            scale: 0.001,
+            fix_up: Some(DQuat::from_rotation_x(0.5)),
+        });
+        let pose = Pose::new(dvec3(0.1, 0.2, 0.3), DQuat::from_rotation_y(0.4));
+        let geom = |robot: &mut Robot| Geom {
+            id: robot.next_id.alloc(),
+            mesh,
+            pose,
+            color: Some([0.1, 0.2, 0.3, 1.0]),
+        };
+        for link in [a, b, c] {
+            let g = geom(&mut robot);
+            robot.links.get_mut(&link).unwrap().visuals.push(g);
+        }
+        let collision = [
+            CollisionPolicy::Primitives(vec![
+                Primitive::Box {
+                    pose,
+                    size: dvec3(0.1, 0.2, 0.3),
+                },
+                Primitive::Cylinder {
+                    pose,
+                    radius: 0.1,
+                    length: 0.2,
+                },
+                Primitive::Sphere { pose, radius: 0.1 },
+                Primitive::Capsule {
+                    pose,
+                    radius: 0.1,
+                    length: 0.2,
+                },
+            ]),
+            CollisionPolicy::Meshes(vec![geom(&mut robot)]),
+            CollisionPolicy::ConvexDecomposition {
+                max_hulls: 8,
+                resolution: 64,
+                concavity: 0.01,
+            },
+        ];
+        let inertial = [
+            InertialSpec::Override {
+                mass: 1.0,
+                com: dvec3(0.0, 0.0, 0.1),
+                inertia: DMat3::IDENTITY,
+            },
+            InertialSpec::Hybrid { mass: 0.5 },
+            InertialSpec::Computed {
+                density_override: Some(1000.0),
+            },
+        ];
+        for ((link, collision), inertial) in [a, b, c].into_iter().zip(collision).zip(inertial) {
+            let link = robot.links.get_mut(&link).unwrap();
+            link.collision = collision;
+            link.inertial = inertial;
+        }
+        let (_, fixed) = add_link(&mut robot, c, "d");
+        robot.joints.get_mut(&fixed).unwrap().origin = pose;
+        for (i, j) in [j0, j1, j2].into_iter().enumerate() {
+            let joint = robot.joints.get_mut(&j).unwrap();
+            joint.origin = pose;
+            joint.dynamics = Dynamics {
+                damping: 0.1,
+                friction: 0.2,
+                armature: 0.3,
+            };
+            let limits = joint.limits.as_mut().unwrap();
+            limits.effort = 10.0;
+            limits.velocity = 2.0;
+            joint.qpos_ref = 0.1 * i as f64;
+        }
+        mimic(&mut robot, j1, j0, 0.5, 0.1);
+        robot.frames.insert(
+            robot.next_id.alloc(),
+            Frame {
+                name: "tcp".into(),
+                parent: c,
+                pose,
+            },
+        );
+        let tendon: TendonId = robot.next_id.alloc();
+        let mut grip = Tendon::new(
+            "grip",
+            vec![
+                TendonJoint {
+                    joint: j0,
+                    coef: 1.0,
+                },
+                TendonJoint {
+                    joint: j2,
+                    coef: -0.5,
+                },
+            ],
+        );
+        grip.range = Some([-0.1, 0.1]);
+        (grip.stiffness, grip.damping, grip.frictionloss) = (1.0, 0.1, 0.01);
+        robot.tendons.insert(tendon, grip);
+        let ranges = ActuatorRanges {
+            ctrl: Some([-1.0, 1.0]),
+            force: Some([-5.0, 5.0]),
+            ctrl_limited: Some(true),
+            force_limited: None,
+        };
+        let general = General {
+            dynprm: vec![0.1],
+            gainprm: vec![5.0],
+            biasprm: vec![0.0, -5.0],
+            ..General::default()
+        };
+        for (i, (target, spec)) in [
+            (
+                ActuatorTarget::Joint(j0),
+                ActuatorSpec::Position { kp: 10.0, kv: 1.0 },
+            ),
+            (
+                ActuatorTarget::Joint(j0),
+                ActuatorSpec::Velocity { kv: 2.0 },
+            ),
+            (ActuatorTarget::Joint(j2), ActuatorSpec::Motor { gear: 3.0 }),
+            (
+                ActuatorTarget::Tendon(tendon),
+                ActuatorSpec::General(general),
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            robot.actuators.insert(
+                robot.next_id.alloc(),
+                Actuator {
+                    name: format!("act{i}"),
+                    target,
+                    spec,
+                    ranges,
+                },
+            );
+        }
+        assert_eq!(validate(&robot), Ok(()));
+        robot
+    }
+
+    /// A JSON tree that can hold what JSON cannot spell. `from_json` copies
+    /// a `serde_json::Value`, replacing its `nan_at`-th float with NaN and
+    /// recording every float's path; deserialising a `Robot` from the copy
+    /// puts a NaN in exactly that one slot.
+    enum Doc {
+        Null,
+        Bool(bool),
+        U64(u64),
+        I64(i64),
+        F64(f64),
+        Str(String),
+        Seq(Vec<Doc>),
+        Map(Vec<(String, Doc)>),
+    }
+
+    impl Doc {
+        fn from_json(
+            value: &serde_json::Value,
+            nan_at: usize,
+            path: &str,
+            floats: &mut Vec<String>,
+        ) -> Doc {
+            use serde_json::Value;
+            match value {
+                Value::Null => Doc::Null,
+                Value::Bool(b) => Doc::Bool(*b),
+                Value::Number(n) => {
+                    if let Some(u) = n.as_u64() {
+                        Doc::U64(u)
+                    } else if let Some(i) = n.as_i64() {
+                        Doc::I64(i)
+                    } else {
+                        let nan = floats.len() == nan_at;
+                        floats.push(path.to_owned());
+                        Doc::F64(if nan { f64::NAN } else { n.as_f64().unwrap() })
+                    }
+                }
+                Value::String(s) => Doc::Str(s.clone()),
+                Value::Array(items) => Doc::Seq(
+                    items
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| Doc::from_json(v, nan_at, &format!("{path}[{i}]"), floats))
+                        .collect(),
+                ),
+                Value::Object(map) => Doc::Map(
+                    map.iter()
+                        .map(|(k, v)| {
+                            let child = Doc::from_json(v, nan_at, &format!("{path}.{k}"), floats);
+                            (k.clone(), child)
+                        })
+                        .collect(),
+                ),
+            }
+        }
+    }
+
+    impl<'de> IntoDeserializer<'de, de::value::Error> for Doc {
+        type Deserializer = Self;
+
+        fn into_deserializer(self) -> Self {
+            self
+        }
+    }
+
+    impl<'de> de::Deserializer<'de> for Doc {
+        type Error = de::value::Error;
+
+        fn deserialize_any<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+            match self {
+                Doc::Null => visitor.visit_unit(),
+                Doc::Bool(b) => visitor.visit_bool(b),
+                Doc::U64(u) => visitor.visit_u64(u),
+                Doc::I64(i) => visitor.visit_i64(i),
+                Doc::F64(f) => visitor.visit_f64(f),
+                Doc::Str(s) => visitor.visit_string(s),
+                Doc::Seq(items) => {
+                    visitor.visit_seq(de::value::SeqDeserializer::new(items.into_iter()))
+                }
+                Doc::Map(entries) => {
+                    visitor.visit_map(de::value::MapDeserializer::new(entries.into_iter()))
+                }
+            }
+        }
+
+        fn deserialize_option<V: de::Visitor<'de>>(
+            self,
+            visitor: V,
+        ) -> Result<V::Value, Self::Error> {
+            match self {
+                Doc::Null => visitor.visit_none(),
+                doc => visitor.visit_some(doc),
+            }
+        }
+
+        fn deserialize_newtype_struct<V: de::Visitor<'de>>(
+            self,
+            _: &'static str,
+            visitor: V,
+        ) -> Result<V::Value, Self::Error> {
+            visitor.visit_newtype_struct(self)
+        }
+
+        fn deserialize_enum<V: de::Visitor<'de>>(
+            self,
+            _: &'static str,
+            _: &'static [&'static str],
+            visitor: V,
+        ) -> Result<V::Value, Self::Error> {
+            match self {
+                Doc::Str(variant) => visitor.visit_enum(variant.into_deserializer()),
+                Doc::Map(entries) => visitor.visit_enum(de::value::MapAccessDeserializer::new(
+                    de::value::MapDeserializer::new(entries.into_iter()),
+                )),
+                _ => Err(de::Error::custom("an enum is a string or a one-key map")),
+            }
+        }
+
+        serde::forward_to_deserialize_any! {
+            bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+            bytes byte_buf unit unit_struct seq tuple tuple_struct map struct
+            identifier ignored_any
+        }
+    }
+
+    /// The regression net: every float `every_slot` holds, made NaN one at
+    /// a time, is refused. A field added later is walked without being
+    /// listed, and fails here until `validate` checks it.
+    #[test]
+    fn every_number_in_the_document_is_refused_when_it_is_not_finite() {
+        let robot = every_slot();
+        let json = serde_json::to_value(&robot).unwrap();
+        let mut floats = Vec::new();
+        Doc::from_json(&json, usize::MAX, "robot", &mut floats);
+        assert!(floats.len() > 200, "{} floats: {floats:?}", floats.len());
+        for (i, path) in floats.iter().enumerate() {
+            let doc = Doc::from_json(&json, i, "robot", &mut Vec::new());
+            let broken = Robot::deserialize(doc).unwrap_or_else(|e| panic!("{path}: {e}"));
+            let errors = validation_errors(&broken);
+            assert!(
+                errors.iter().any(|e| matches!(
+                    e,
+                    ValidationError::NonFinite { .. } | ValidationError::ZeroAxis(_)
+                )),
+                "a NaN at {path} is not refused: {errors:?}"
+            );
         }
     }
 
