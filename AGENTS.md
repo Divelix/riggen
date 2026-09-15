@@ -19,26 +19,21 @@ git config core.hooksPath .githooks   # fmt, clippy -D warnings, test before eve
 
 ## Current state
 
-**v0.5 — the viewport and the camera — is closed (2026-09-12); the human
-tags `v0.5.0`.** Still one turntable (ADR-0028): the ViewCube aims it and
-owns the projection readout, `W A S D E Q` walk its pivot into an
-assembly, and the pivot is drawn while a gesture is live. Beside it a
-ground grid at z = 0, a multisampled scene pass, a rotate drag that lands
-a frame axis on the feature under it (ADR-0029), and in View a glyph that
-is the band or the bars alone, opaque (ADR-0027).
-**Now:** v0.6, the import gap's last mile. Landed: the ViewCube
-top-right with X Y Z and 15° steps (ADR-0030, 0031); a static link with
-nothing to weigh it by exports without `<inertial>`, a moving one is
-refused with the fix, and one click weighs every unweighed link —
-Menagerie exporting 119 → 164 of 172 (ADR-0032); a pivot move leaves
-collision geometry where it was; a missed `package://` asks for its folder
-in a Missing packages window, `--package` headlessly; every number in the
-document is finite and every rotation has a length, so no NaN reaches a
-writer. **Next:** `/close-cycle` v0.6 — its last line has landed.
-**Before:** v0.4 (`v0.4.0`) the lossless MJCF round trip and the two
-modes, schema 6, Menagerie's importing files 93 → 172 of 261 (ADR-0021 to
-0026; composite joints, `<replicate>` and `<attach>` refused); v0.3
-(`v0.3.0`) the hand-feel debt (ADR-0018/19/20); v0.2
+**v0.6 — the import gap's last mile — is closed (2026-09-15); the human
+tags `v0.6.0`.** The export gate guards what a simulator reads (ADR-0032):
+Menagerie exporting 119 → 164 of 172, refused 53 → 8. A missed
+`package://` is fixable in the window; every number in the document is
+finite and every rotation has a length. The ViewCube also took the
+top-right, naming axes and stepping the view (ADR-0030, 0031).
+**Now:** v0.7, distribution — `cargo install riggen` from crates.io, a
+README screencast, the macOS Gatekeeper question answered. Nothing
+planned yet; `/idea` for the first line.
+**Before:** v0.5 (`v0.5.0`) one turntable, the ViewCube, `W A S D E Q`
+fly, a ground grid, MSAA, rotate-drag snapping, an opaque view band
+(ADR-0027 to 0029); v0.4 (`v0.4.0`) the lossless MJCF round trip and the
+two modes, schema 6, Menagerie's importing files 93 → 172 of 261
+(ADR-0021 to 0026; composite joints, `<replicate>` and `<attach>`
+refused); v0.3 (`v0.3.0`) the hand-feel debt (ADR-0018/19/20); v0.2
 (`v0.2.1`) sim-ready — SDK wheel, V-HACD, frames / mimics / actuators,
 MJCF import, SDF export, the web demo (ADR-0009 to 0017); M4 the wheel;
 M3 writers, URDF import, inertials, collision; M2 the mouse-only arm;

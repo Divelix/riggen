@@ -867,7 +867,7 @@ shells out to `rospack`. Three callers pass a map that is not empty:
 the SDK's `Robot.load_urdf(path, packages=)`, the CLI's repeatable
 `--package NAME=DIR`, and the app's **Missing packages** window, which
 imports the same file again through every folder chosen for it
-(docs/ARCHITECTURE.md §Export). Nothing remembers a map between imports,
+(docs/ARCHITECTURE.md §File format). Nothing remembers a map between imports,
 and no ROS environment variable is read. Those candidates are probed through the same
 source, so in a browser "beside the file" means "in the same drop", where
 paths are matched by file name and directories are ignored (ADR-0017 §3);

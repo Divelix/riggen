@@ -5,7 +5,8 @@ the scariest remaining unknown first. A milestone's "out" list is as binding
 as its "in" list. Calibration: RoboCAD went from empty to 58k lines in three
 weeks; this roadmap is smaller than that.
 
-Spine: M0 → M1 → M2 → M3 → M4, then v0.2 → v0.3 → v0.4 → v0.5 → v0.6.
+Spine: M0 → M1 → M2 → M3 → M4, then v0.2 → v0.3 → v0.4 → v0.5 → v0.6 →
+v0.7.
 
 ---
 
@@ -303,68 +304,76 @@ one `snapshots:` commit that says so and nothing else.
 imports exports, and the numbers and paths an import leaves for the user
 to fix are fixable in the window.*
 
-v0.4 made the way *in* lossless and measured what it bought: 172 of
-Menagerie's 261 models import. 53 of those then refused to **export**, all
-of them on a link the user never touched, which was the largest remaining
-gap between "imports" and "round-trips"; 8 still do (ADR-0032). Every import line below is a
-backlog line this section now owns; the first line is chrome, taken ahead
-of them by the human's call.
+**Status: done 2026-09-15, tag `v0.6.0`.** The risk — an import that
+never becomes an export the user can hand back to a simulator — was
+retired: Menagerie exporting 119 → 164 of its 172 importing models,
+refused 53 → 8. Decisions: ADR-0030, ADR-0031 (the ViewCube, ahead of
+the list by the human's call), ADR-0032 (the export gate).
 
-- **The ViewCube names the axes and steps the view, from the top-right**:
-  X, Y and Z on its corner over a translucent cube, four arrows that turn
-  the view 15°, the visibility row beside it, and the bottom-left triad
-  gone (ADR-0030, ADR-0031). *Landed.*
-- **Every file that imports, exports.** A static link with nothing to
-  weigh it by is written without `<inertial>` and named, a static
-  exactly-zero tensor is written `diaginertia="0 0 0"`, and a moving link
-  without mass is refused with the fix (ADR-0032). Menagerie: exporting
-  119 → 164 of the 172 that import, refused by the gate 53 → 8 — every
-  one a moving link the file gives no mass (`google_robot`, `sharpa_wave`,
-  `wonik_allegro`); 162 of the 164 load in MuJoCo with zero warnings.
-  *Landed.*
-- **A one-click "assign a material to every unweighed link"**, so
-  `Computed` runs on a file that carried no `<inertial>`: a row in the
-  export dialog and `robot.assign_material_to_unweighed` in the SDK, one
-  undo (ADR-0032 §5). No density is invented at import — ADR-0015 §7
-  stands. *Landed.*
-- **A missed `package://` is fixable in the window** — after a URDF
-  import, a Missing packages window names each package the
-  beside-the-file heuristic missed and how many meshes it cost, and a
-  chosen folder imports the file again; `riggen --export … --package
-  NAME=DIR` is the same headlessly. No table on every import, and no
-  remembered map (a backlog line). *Landed.*
+- **Every file that imports, exports.** The 31 refused on `link "base": no
+  material and no density override` (ADR-0015 §7) — a default density, an
+  unweighed-link mark or a better message; an idea decides which.
+- **A default material for an imported link**, or a one-click "assign PLA
+  to every link", so `Computed` runs on a file that carried no
+  `<inertial>`.
+- **A `PackageMap` UI** — a packages table in Import URDF… for the
+  `package://` paths the beside-the-file heuristic misses.
 - **`validate` checks the numbers it skips** — geom poses and an
-  `Override` inertial's — so a NaN cannot reach a writer. Every number in
-  the document is now finite (`NonFinite`, naming the slot, with a test
-  that makes each one NaN in turn) and every rotation has a length
-  (`DegenerateRotation`); physics stays at the export gate, and no import
-  moved. *Landed.*
+  `Override` inertial's — so a NaN cannot reach a writer.
 - **`MoveJointFrame` re-expresses collision geometry too**:
-  `CollisionPolicy::Meshes` and `Primitives` poses stay where they were in
-  the world when a link's pivot moves, from the gizmo, click-the-bore and
-  `joint.move_frame` alike; a mimic follower with a non-zero offset is the
-  command's remaining gap, a backlog line. *Landed.*
+  `CollisionPolicy::Meshes` and `Primitives` poses, which move in the
+  world today when a link's pivot does.
 
-**Out:** `<attach>` and `<replicate>` stay refused (ADR-0026 §4) — the
-first is two robots composed and a document question, the second buys zero
-files — and composite joints stay refused with them (ADR-0022). No SDF
-import and no fourth writer: the reading direction stays URDF and MJCF. A
-mass *model* is not on the table either — no boolean of interpenetrating
-shells, only the note the readout owes the user. Distribution (crates.io,
-the screencast, notarization), the demo's four gaps and the panel lines
-(an actuator's ranges row, a Tendons panel, the joint-tree scrubber
-column) all stay backlog lines. §What not to spend agent time on stands.
+**Out:** `<attach>`, `<replicate>` and composite joints stay refused
+(ADR-0026 §4, ADR-0022). No SDF import and no fourth writer: URDF and
+MJCF stay the reading direction. No mass *model* either — no boolean of
+interpenetrating shells, only the readout's note. Distribution, the
+demo's four gaps and the panel lines (an actuator's ranges row, a
+Tendons panel, the joint-tree scrubber column) stay backlog lines.
+§What not to spend agent time on stands.
 
-**Accept:** a scan of all 261 Menagerie models — a sizing tool, never a CI
-dependency (AGENTS.md) — shows every file that imports also exporting,
-both numbers recorded, and names any refusal left with a reason about the
-user's own file. `menagerie_style.xml`, grown to carry a link with
-geometry but neither material nor density, still imports and re-exports
-into a MuJoCo load with zero warnings agreeing with `fk` to 1e-6. A NaN in
-a geom pose is refused by `validate` instead of exported, and moving a
-pivot on a link with imported collision meshes leaves that collision where
-it was in the world. Every visible change in the snapshot suite
-(ADR-0003).
+**Accept:** a scan of all 261 Menagerie models — a sizing tool, never a
+CI dependency (AGENTS.md) — shows every importing file also exporting,
+both numbers recorded, and names any remaining refusal with a reason
+about the user's own file. `menagerie_style.xml` still imports and
+re-exports into a MuJoCo load with zero warnings agreeing with `fk` to
+1e-6. A NaN in a geom pose is refused by `validate`, and a pivot move on
+imported collision leaves it where it was in the world. Every visible
+change in the snapshot suite (ADR-0003).
+
+## v0.7 — distribution
+
+*Goal: the README's two install lines both work as written.
+`cargo install riggen` builds the app from crates.io, and the wheel's
+Gatekeeper story is known rather than unverified.*
+
+M4 shipped the wheel and left these three as backlog lines
+(plans/m4-distribution OPEN 1, OPEN 2; docs/BACKLOG.md); nothing else
+has displaced them since.
+
+- **Publish the workspace to crates.io**: `riggen-mesh`, `-core`,
+  `-export`, `-viewport`, and `riggen-app` renamed to `riggen` over the
+  0.0.1 name reservation; `cargo publish --workspace` in `release.yml`.
+  README §Install drops its `cargo install --git` fallback.
+- **A 30-second screencast for the README**, recorded once install is
+  what it will actually show a stranger; replaces the hero PNG or sits
+  beside it.
+- **macOS code signing / notarization**, if the clean-VM run of the
+  wheel hits Gatekeeper — unverified until a human runs it on macOS.
+
+**Out:** everything v0.5 and v0.6 already put out stays out: `<attach>`,
+`<replicate>`, composite joints, SDF import, a fourth writer, a mass
+*model*. GUI polish (remappable keybindings, `F`-to-frame, the view
+band's dimming) and the web demo's four gaps (a jobs worker, WebGL2
+fallback, touch layout, directory drop) are read and sized but not this
+cycle's — a later one, by the human's call. §What not to spend agent
+time on stands.
+
+**Accept:** a clean machine with only `cargo` runs `cargo install riggen`
+and gets a working binary, no checkout; a clean Linux VM's `pip install
+riggen` still installs and runs as M4 left it; the README's screencast
+plays and matches the current UI; the macOS Gatekeeper question is
+answered one way or the other, by a human run, not left unverified.
 
 ---
 

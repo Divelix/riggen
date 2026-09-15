@@ -149,7 +149,11 @@ riggen/
 │                           # MJCF import corpus (02 §MJCF import) — hand-written, not
 │                           # ours, and two files since ADR-0026: the main one <include>s
 │                           # the other, which holds a <frame> and the arm/thing.msh
-│                           # tetrahedron the corpus's .msh geometry comes from
+│                           # tetrahedron the corpus's .msh geometry comes from;
+│                           # vendor/urdf/gripper.urdf + vendor/gripper_description/meshes/
+│                           # palm.stl + vendor/Finger-Repo/meshes/finger_{left,right}.stl,
+│                           # the missing-`package://` corpus the Missing packages window
+│                           # and `--package` are tested against
 ├── python/riggen/          # the wheel's Python half: __init__ (the public names,
 │                           # __version__), robot.py (the API), show.py (the window,
 │                           # binary_path), errors.py, __main__ (execs the bundled
@@ -615,7 +619,9 @@ below.
   pointer over a joint's, which in Edit is a long axis line that often
   runs straight through it and in View a band whose disc can contain it
   whole.
-- **Properties** (right, in Edit): a link's name, material, and per geom the pose
+- **Properties** (right, in Edit): a link's name, a material combo with a
+  swatch beside it filled in the selected material's colour (none for
+  "(none)"), and per geom the pose
   (xyz m, RPY °), asset scale and fix-up, "Add mesh to this link…"; then
   **Inertial** — the `InertialSpec` mode combo (Computed / Override /
   Hybrid) with its fields (density override; mass, CoM and the six tensor
