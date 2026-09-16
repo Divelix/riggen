@@ -135,7 +135,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   with `gh run watch`). *Landed; the box waits for that run. Locally the
   same command passes with `--allow-dirty`. Neither `gh` nor `actionlint`
   is installed here.*
-- [ ] **[2]** Step 5 — **the release publishes.** Add the
+- [x] **[2]** Step 5 — **the release publishes.** Add the
   `publish-crates-io` job to `release.yml`, with the `-dev` guard, the
   `crates-io` environment, and the one-time setup written in the file's
   header comment, as `publish-pypi` already has it. Test:
@@ -212,9 +212,12 @@ mechanical; **[2]** careful — a case to get right within a given design;
     `v0.7.0` and sets up trusted publishing on all five crates before
     `v0.8.0`.
 
-  Step 5 writes the job for trusted publishing
-  (`rust-lang/crates-io-auth-action`) with a token fallback, so either
-  way works. **Agent's read: (a).** The tag stays the only way a
+  Step 5 wrote the job for trusted publishing
+  (`rust-lang/crates-io-auth-action`), with a fallback to a
+  `CARGO_REGISTRY_TOKEN` secret while one exists in `crates-io`, so either
+  way works. The job also refuses a tag that does not name the workspace
+  version. `actionlint` runs without an install as
+  `uvx --from actionlint-py actionlint`. **Agent's read: (a).** The tag stays the only way a
   release happens.
 - Settled in step 2 (human): **the directory keeps its name.**
   `crates/riggen-app/` holds the package `riggen`, and the crate tree

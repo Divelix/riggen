@@ -15,6 +15,21 @@
 #     owner Divelix, repository riggen, workflow release.yml, environment pypi
 #   GitHub  › Settings › Environments: `testpypi` and `pypi` (protection
 #     rules as wanted; `pypi` deserves a required reviewer).
+#
+# The same tag push publishes the five Rust crates to crates.io
+# (`publish-crates-io`, docs/ARCHITECTURE.md §Crates.io distribution), so
+# that `cargo install riggen` works. crates.io has no staging index, so a
+# dispatch never publishes there. It is trusted publishing as well, but
+# crates.io only lets a publisher be added to a crate that already exists:
+#   GitHub  › Settings › Environments: `crates-io` (a required reviewer: a
+#     crates.io version can be yanked, never replaced).
+#   First release only: a crates.io API token (scopes publish-new and
+#     publish-update) as the secret CARGO_REGISTRY_TOKEN in `crates-io`.
+#   After it: crates.io › each of riggen, riggen-mesh, riggen-core,
+#     riggen-export, riggen-viewport › Settings › Trusted Publishing › add:
+#     owner Divelix, repository riggen, workflow release.yml, environment
+#     crates-io. Then delete the secret; the job falls back to it only
+#     while it exists.
 name: Release
 
 on:
@@ -176,3 +191,41 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+
+  # `cargo publish --workspace` packages and builds all five crates first,
+  # then uploads them in dependency order, waiting for each to reach the
+  # index. A failed build therefore uploads nothing. `riggen-py` is
+  # `publish = false`.
+  publish-crates-io:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: smoke
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      id-token: write
+    env:
+      # Mapped here because a step's `if:` cannot read a secret.
+      REGISTRY_TOKEN_SECRET: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # Belt and braces: .agents/rules/git.md already forbids tagging a
+      # `-dev` commit, but a crates.io version cannot be replaced. The tag
+      # must also name the version the crates carry.
+      - shell: bash
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 --locked \
+            | python3 -c 'import json, sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "riggen"))')
+          echo "workspace version $version, tag $GITHUB_REF_NAME"
+          case "$version" in
+            *-*) echo "::error::refusing to publish the pre-release $version"; exit 1 ;;
+          esac
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not name version $version"; exit 1
+          fi
+      - if: env.REGISTRY_TOKEN_SECRET == ''
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+      - run: cargo publish --workspace --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token || env.REGISTRY_TOKEN_SECRET }}
