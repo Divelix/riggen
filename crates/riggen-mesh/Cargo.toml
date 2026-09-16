@@ -3,6 +3,11 @@ name = "riggen-mesh"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Triangle meshes for riggen: STL, OBJ and MSH loaders, mass properties, convex hulls and V-HACD decomposition"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 glam.workspace = true

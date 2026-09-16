@@ -3,6 +3,11 @@ name = "riggen-export"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "MJCF, URDF and SDF writers and the MJCF and URDF readers behind riggen"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 # `TriMesh`, the STL writer and the hull: exported meshes are baked to

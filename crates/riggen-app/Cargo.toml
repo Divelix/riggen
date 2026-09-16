@@ -3,6 +3,20 @@ name = "riggen-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "The robot assembler for RL researchers: drop meshes, build the kinematic tree, place joints, export MJCF and URDF"
+# The README is the repository's, one level above the package root;
+# `cargo package` copies it into the tarball.
+readme = "../../README.md"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+# What the package carries. `tests/` stays out: the snapshot PNGs under it
+# are 23 MB against crates.io's 10 MB limit. `assets/arm/` are symlinks to
+# `assets/fixtures/arm/`, the sample the `--example arm` bytes come from
+# (`src/example.rs`); Cargo dereferences them when it packages, so the
+# fixtures stay the single source and the registry build has its copy.
+include = ["src/**", "build.rs", "assets/**"]
 
 # `rlib` for the tests and the bin, `cdylib` for the wasm bundle the web
 # demo loads (ADR-0017).

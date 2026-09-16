@@ -33,26 +33,11 @@ impl Example {
     pub fn files(self) -> &'static [(&'static str, &'static [u8])] {
         match self {
             Self::Arm => &[
-                (
-                    "arm.riggen",
-                    include_bytes!("../../../assets/fixtures/arm/arm.riggen"),
-                ),
-                (
-                    "base.stl",
-                    include_bytes!("../../../assets/fixtures/arm/base.stl"),
-                ),
-                (
-                    "shoulder.stl",
-                    include_bytes!("../../../assets/fixtures/arm/shoulder.stl"),
-                ),
-                (
-                    "upper.stl",
-                    include_bytes!("../../../assets/fixtures/arm/upper.stl"),
-                ),
-                (
-                    "fore.stl",
-                    include_bytes!("../../../assets/fixtures/arm/fore.stl"),
-                ),
+                ("arm.riggen", include_bytes!("../assets/arm/arm.riggen")),
+                ("base.stl", include_bytes!("../assets/arm/base.stl")),
+                ("shoulder.stl", include_bytes!("../assets/arm/shoulder.stl")),
+                ("upper.stl", include_bytes!("../assets/arm/upper.stl")),
+                ("fore.stl", include_bytes!("../assets/arm/fore.stl")),
             ],
         }
     }
@@ -95,5 +80,24 @@ impl Example {
             std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
         }
         Ok(dir.join(self.document()))
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    /// The bytes compiled in come through `assets/arm/`, symlinks to
+    /// `assets/fixtures/arm/` that `cargo package` dereferences. A copy
+    /// that stopped being a link would drift from the fixture the tests
+    /// use; this pins the two together. Extraction itself is
+    /// `cli::tests::the_arm_example_extracts_five_files_that_load`.
+    #[test]
+    fn arm_bytes_are_the_fixtures() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fixtures/arm");
+        for (name, bytes) in Example::Arm.files() {
+            let on_disk = std::fs::read(fixtures.join(name)).unwrap();
+            assert_eq!(&on_disk, bytes, "{name}");
+        }
     }
 }

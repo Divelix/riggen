@@ -17,6 +17,12 @@ members = [
 version = "0.7.0-dev"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+# Shared by the five crates that publish (docs/ARCHITECTURE.md §Crates.io
+# distribution). The app carries the README; the libraries ship with none.
+repository = "https://github.com/Divelix/riggen"
+homepage = "https://divelix.github.io/riggen/"
+keywords = ["robotics", "mujoco", "urdf", "mjcf", "simulation"]
+categories = ["science::robotics", "simulation"]
 
 # `cargo run` is the interactive loop, and an unoptimized wgpu/egui is slow
 # enough to be felt. Deps are built once at full optimization; our own crates
@@ -58,10 +64,16 @@ codegen-units = 1
 strip = true
 
 [workspace.dependencies]
-riggen-mesh = { path = "crates/riggen-mesh" }
-riggen-core = { path = "crates/riggen-core" }
-riggen-export = { path = "crates/riggen-export" }
-riggen-viewport = { path = "crates/riggen-viewport" }
+# The internal crates, with the `=` requirement crates.io resolves them by:
+# the five publish as a set and a mix of versions cannot resolve. This is
+# the version's second home beside `[workspace.package]`, and Cargo checks
+# the two agree — a `path` dependency whose version misses the requirement
+# fails the build. `/close-cycle` bumps both (ADR-0009's one version
+# source, extended to crates.io).
+riggen-mesh = { version = "=0.7.0-dev", path = "crates/riggen-mesh" }
+riggen-core = { version = "=0.7.0-dev", path = "crates/riggen-core" }
+riggen-export = { version = "=0.7.0-dev", path = "crates/riggen-export" }
+riggen-viewport = { version = "=0.7.0-dev", path = "crates/riggen-viewport" }
 
 # The one math library (ADR-0001): f64 in the document, f32 past the GPU
 # boundary. Re-exported by `riggen-mesh`; nobody else names it directly.

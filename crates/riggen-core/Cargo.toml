@@ -3,6 +3,11 @@ name = "riggen-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "The riggen robot document: links, joints, inertials, forward kinematics, validation, undo history and the .riggen file"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 # Only for `glam` (through the re-export): no geometry is stored in the

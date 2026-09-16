@@ -84,6 +84,9 @@ resolved by name (ADR-0017). That is what lets the same `riggen-core` and
 ```
 riggen/
 ├── Cargo.toml              # [workspace], resolver 3, edition 2024, every dep version;
+│                           # [workspace.package] the one version and the crates.io
+│                           # metadata; the internal crates pinned `=version` for
+│                           # the registry (§Crates.io distribution);
 │                           # [profile.release] strip + thin LTO: the wheel's binary;
 │                           # [profile.web] opt-level "s" + fat LTO: the wasm download
 ├── pyproject.toml          # the `riggen` wheel: maturin `bindings = "pyo3"` over
@@ -113,6 +116,9 @@ riggen/
 │       │                   # tests/cli.rs (the built binary from a shell)
 │       ├── src/example.rs  # the bundled sample arm's bytes: --example arm unpacks
 │       │                   # them, the web build opens them as a drop (ADR-0017)
+│       ├── assets/arm/     # what example.rs `include_bytes!`s: symlinks to
+│       │                   # assets/fixtures/arm/, dereferenced by `cargo package`
+│       │                   # so the registry copy of the crate has the bytes
 │       ├── src/download.rs # the browser's way out: a stored zip and a Blob
 │       │                   # download (ADR-0017 §6); wasm and cfg(test) only
 │       ├── build.rs        # RIGGEN_GIT_HASH / RIGGEN_BUILD_DATE for `--version`
@@ -141,7 +147,8 @@ riggen/
 │                           # generator test writes them); arm/arm.riggen, the M3 sample
 │                           # robot (`write_arm_sample`), and arm/arm.urdf, the hand-written
 │                           # URDF import corpus file (02 §URDF import). arm.riggen and its
-│                           # four STLs are also `include_bytes!`d for `--example arm`;
+│                           # four STLs are also `include_bytes!`d for `--example arm`,
+│                           # through the crates/riggen-app/assets/arm/ symlinks;
 │                           # bracket.stl (a U-channel) and bracket.riggen, the convex
 │                           # decomposition fixture and the `mujoco` and `sdf` jobs'
 │                           # third model;

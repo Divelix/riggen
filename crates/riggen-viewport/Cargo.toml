@@ -3,6 +3,11 @@ name = "riggen-viewport"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "riggen's wgpu viewport: the 3D scene, camera, picking and overlays inside an egui panel"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 # `riggen_mesh::glam` is the math library; nothing here names glam directly

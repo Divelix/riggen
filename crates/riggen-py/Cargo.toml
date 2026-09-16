@@ -3,6 +3,9 @@ name = "riggen-py"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# Never on crates.io: a cdylib extension module only maturin builds, into
+# the wheel (ADR-0009). The workspace publish skips it.
+publish = false
 
 # The extension module `riggen._riggen` (ADR-0009): a PyO3 cdylib over
 # riggen-core + riggen-export, shipped in the same wheel as the `riggen`
