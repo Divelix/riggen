@@ -128,9 +128,13 @@ mechanical; **[2]** careful — a case to get right within a given design;
   hash of HEAD.
 - [ ] **[2]** Step 4 — **CI guards it.** Add a `package` job to `ci.yml`
   (`cargo publish --workspace --dry-run --locked --target-dir
-  target/package-verify`, see Open questions), with the Linux
-  headers the `test` job already installs. Test: the job goes green on
-  push (the human pushes; the agent reads the run with `gh run watch`).
+  target/package-verify`, see Open questions). It has no apt step: a
+  build needs none of the headers, which the `clippy` job shows on a bare
+  runner (the `test` job's one package is lavapipe, for rendering). Test:
+  the job goes green on push (the human pushes; the agent reads the run
+  with `gh run watch`). *Landed; the box waits for that run. Locally the
+  same command passes with `--allow-dirty`. Neither `gh` nor `actionlint`
+  is installed here.*
 - [ ] **[2]** Step 5 — **the release publishes.** Add the
   `publish-crates-io` job to `release.yml`, with the `-dev` guard, the
   `crates-io` environment, and the one-time setup written in the file's

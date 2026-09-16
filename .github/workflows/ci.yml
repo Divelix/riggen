@@ -68,6 +68,24 @@ jobs:
       # otherwise deploy a directory of wasm and no index.
       - run: test -f web/dist/index.html -a -f web/dist/main.js -a -f web/dist/riggen_app_bg.wasm
 
+  # What `cargo install riggen` will build (Architecture §Crates.io
+  # distribution): the five crates packaged and each built from its
+  # tarball, the unpublished internal ones resolved from Cargo's local
+  # overlay. An `include_bytes!` that reaches outside a crate, or a missing
+  # `description`, fails the commit that causes it rather than the release.
+  # Its own target dir: the verify build would otherwise overwrite the
+  # unhashed `libriggen_app.rlib` a cached `cargo test` links against.
+  # No apt step: a build needs no system headers, as `clippy` shows.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target/package-verify"
+      - run: cargo publish --workspace --dry-run --locked --target-dir target/package-verify
+
   # The M3 acceptance (ADR-0004 §2, ADR-0008): the app's headless export
   # produces the sample arm's MJCF, MuJoCo loads it with zero compiler
   # warnings, and `mj_forward` agrees with `riggen_core::fk`. The only
