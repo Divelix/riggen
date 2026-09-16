@@ -141,7 +141,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   header comment, as `publish-pypi` already has it. Test:
   `actionlint` passes, if installed. Otherwise, a `workflow_dispatch`
   run shows the job as *skipped*, which is its correct behaviour there.
-- [ ] **[1]** Step 6 — **the README says it.** In §Install, add
+- [x] **[1]** Step 6 — **the README says it.** In §Install, add
   `cargo install riggen --locked` as the second route, with its cost: a
   Rust toolchain, the Linux packages (the list from `ci.yml`), and a
   first compile of several minutes, measured in step 1 and stated here.
@@ -233,7 +233,8 @@ mechanical; **[2]** careful — a case to get right within a given design;
   fix is `cargo clean -p riggen`. The prevention is to run every dry run
   with `--target-dir target/package-verify`. Step 4's job does the same,
   and §Crates.io distribution will say so.
-- ⚠ OPEN: **`--locked` in the README** (agent, step 6). Without it,
+- Settled in step 6: **`--locked` in the README.** Without it,
   `cargo install` ignores the packaged `Cargo.lock` and may resolve a
   newer egui or wgpu than the ones pinned together under ADR-0001.
-  Recommend `--locked` unless step 1's install shows a reason not to.
+  Step 1's install showed no reason not to, so the README's line is
+  `cargo install riggen --locked`.

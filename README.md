@@ -36,6 +36,22 @@ same core, and there is no Rust toolchain on this path. On a platform
 without a wheel, `pip install` builds the SDK from source with `cargo` on
 `PATH` and tells you how to get the app (see [Python](#python)).
 
+Or, with a Rust toolchain and no Python at all:
+
+```sh
+cargo install riggen --locked
+riggen --example arm
+```
+
+`--locked` builds against the same egui/wgpu versions the wheel does
+(ADR-0001) instead of whatever the registry resolves that day. The real
+cost is not on the app side — building needs no system headers, as
+`ci.yml`'s `package` job shows on a bare runner — it is a Rust toolchain
+and a first compile of the whole egui/wgpu stack, several minutes on a
+cold `target/`. To run the window afterwards you need a Vulkan driver;
+`mesa-vulkan-drivers` is what `ci.yml`'s `test` job installs for the same
+reason on its own bare runner.
+
 ## The first minute
 
 1. `riggen --example arm` opens a four-part arm in **View**: the joint
@@ -214,8 +230,9 @@ The wheel is `cp310-abi3`: one build for every CPython from 3.10 on,
 which is why it needs no per-version matrix — and why it does not install
 on free-threaded CPython (3.13t / 3.14t) yet. An install from the source
 distribution (any other platform) compiles the SDK alone; `riggen.show()`
-and `python -m riggen` then say how to get the app: a wheel, `cargo
-install --git`, or `RIGGEN_BINARY` pointing at a binary you built.
+and `python -m riggen` then say how to get the app: a wheel,
+`cargo install riggen --locked`, or `RIGGEN_BINARY` pointing at a binary
+you built.
 
 ## Developing
 
@@ -262,9 +279,8 @@ riggen = { index = "testpypi" }
 
 then `uv add "riggen==<version>"`.
 
-The Rust route to the binary is `cargo install --git
-https://github.com/Divelix/riggen riggen`; publishing the workspace to
-crates.io so that `cargo install riggen` works is a later release.
+The Rust route to the binary, with no wheel and no Python at all, is
+`cargo install riggen --locked` (see [Install](#install)).
 
 Read, in order: [`SEED.md`](SEED.md) (what and why),
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
