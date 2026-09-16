@@ -1,20 +1,30 @@
 //! Records which commit the binary was built from, for `riggen --version`
 //! (`riggen 0.1.0 (2b60ae4 2026-08-29)`).
 //!
-//! Three sources, first one wins: the `RIGGEN_GIT_HASH` / `RIGGEN_BUILD_DATE`
+//! Four sources, first one wins: the `RIGGEN_GIT_HASH` / `RIGGEN_BUILD_DATE`
 //! environment variables (the release workflow sets them from `github.sha`;
-//! a build from the sdist has no `.git` to ask), then `git` on the checkout
-//! (`-dirty` appended when the tree has uncommitted changes), then
-//! `unknown` for the hash and today's date for the date. Never fails the
-//! build: a missing git is a fact to report, not an error.
+//! a build from the sdist has no `.git` to ask), then the hash in
+//! `.cargo_vcs_info.json` (a build from crates.io, `src/vcs_info.rs`), then
+//! `git` on the checkout (`-dirty` appended when the tree has uncommitted
+//! changes), then `unknown` for the hash and today's date for the date.
+//! Never fails the build: a missing git is a fact to report, not an error.
 
 use std::path::Path;
 use std::process::Command;
 
+#[path = "src/vcs_info.rs"]
+mod vcs_info;
+
 fn main() {
     println!("cargo:rerun-if-env-changed=RIGGEN_GIT_HASH");
     println!("cargo:rerun-if-env-changed=RIGGEN_BUILD_DATE");
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest.join("../..");
+    // Only in a packaged crate; its checkout's `.git` is not there, and
+    // `../..` is some directory of the registry cache.
+    let packaged = std::fs::read_to_string(manifest.join(".cargo_vcs_info.json"))
+        .ok()
+        .and_then(|json| vcs_info::short_hash(&json));
     // Rebuild when HEAD moves: `.git/HEAD` itself, and the ref it points at
     // (on a branch, HEAD's content never changes; the ref file does).
     let head = root.join(".git/HEAD");
@@ -33,6 +43,7 @@ fn main() {
     let hash = std::env::var("RIGGEN_GIT_HASH")
         .ok()
         .filter(|s| !s.is_empty())
+        .or(packaged.clone())
         .or_else(|| {
             let short = git(&root, &["rev-parse", "--short", "HEAD"])?;
             let dirty = Command::new("git")
@@ -51,7 +62,14 @@ fn main() {
     let date = std::env::var("RIGGEN_BUILD_DATE")
         .ok()
         .filter(|s| !s.is_empty())
-        .or_else(|| git(&root, &["log", "-1", "--format=%cs"]))
+        // A packaged crate's `../..` is no checkout, but git would walk up
+        // from it into whatever repository encloses the cargo home.
+        .or_else(|| {
+            packaged
+                .is_none()
+                .then(|| git(&root, &["log", "-1", "--format=%cs"]))
+                .flatten()
+        })
         .unwrap_or_else(today);
     println!("cargo:rustc-env=RIGGEN_GIT_HASH={hash}");
     println!("cargo:rustc-env=RIGGEN_BUILD_DATE={date}");

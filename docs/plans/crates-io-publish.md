@@ -120,7 +120,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   `riggen_app_bg.wasm`; `python python/build_wheel.py --binary-only`
   still finds the binary; the dry-run from step 1 still passes with a
   `riggen` package in it.
-- [ ] **[2]** Step 3 — **`--version` from the registry.** Read
+- [x] **[2]** Step 3 — **`--version` from the registry.** Read
   `.cargo_vcs_info.json` in `build.rs`, between the environment variables
   and `git`. Test: a unit test of the parsing function against a sample
   JSON, and a manual check: `cargo install --path` on a `cargo package`

@@ -122,7 +122,8 @@ riggen/
 │       │                   # so the registry copy of the crate has the bytes
 │       ├── src/download.rs # the browser's way out: a stored zip and a Blob
 │       │                   # download (ADR-0017 §6); wasm and cfg(test) only
-│       ├── build.rs        # RIGGEN_GIT_HASH / RIGGEN_BUILD_DATE for `--version`
+│       ├── build.rs        # RIGGEN_GIT_HASH / RIGGEN_BUILD_DATE for `--version`;
+│       │                   # src/vcs_info.rs reads a packaged crate's commit
 │       ├── src/jobs.rs     # the job thread: Jobs, Job, JobKey, JobResult (§Jobs and threads)
 │       ├── src/cli.rs      # the flag table, --help, --version, --example, `riggen
 │       │                   # --export …` headless (ADR-0008)
@@ -1350,8 +1351,10 @@ with **two halves**:
   chased.
 - `riggen --version` prints `riggen <cargo version> (<hash> <date>)`;
   `build.rs` takes the hash and date from `RIGGEN_GIT_HASH` /
-  `RIGGEN_BUILD_DATE` when set, else from git (`-dirty` when the tree
-  is), else `unknown` / today.
+  `RIGGEN_BUILD_DATE` when set, else the hash from the
+  `.cargo_vcs_info.json` that `cargo package` writes (a build from
+  crates.io, `src/vcs_info.rs`; the date is then today), else from git
+  (`-dirty` when the tree is), else `unknown` / today.
 - `release.yml`: a `build` matrix of the five targets named as full
   triples, so one `${{ matrix.target }}` reaches maturin-action and
   `build_wheel.py --target` and both cargo runs agree on

@@ -12,6 +12,9 @@ pub mod debug;
 mod download;
 pub mod example;
 pub mod jobs;
+// `build.rs` includes it by path; compiled here only for its tests.
+#[cfg(test)]
+mod vcs_info;
 
 pub use app::{
     ACTUATOR_RING_RADIUS, ALIGN_NEEDS_LINK, ALIGN_PROMPT, ALIGN_WRONG_LINK, ARC_RADIUS, BAND_INNER,

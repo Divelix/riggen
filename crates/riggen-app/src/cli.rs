@@ -88,7 +88,8 @@ pub const FLAGS: &[Flag] = &[
 
 /// `riggen 0.1.0 (2b60ae4 2026-08-29)`: the crate version, then the git
 /// hash and commit date `build.rs` recorded (`unknown` for a build that had
-/// neither `.git` nor `RIGGEN_GIT_HASH`, such as one from the sdist).
+/// no `.git`, no `RIGGEN_GIT_HASH` and no `.cargo_vcs_info.json`, such as
+/// one from the sdist).
 pub fn version() -> String {
     format!(
         "riggen {} ({} {})",
