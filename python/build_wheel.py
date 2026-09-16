@@ -2,7 +2,7 @@
 
     python python/build_wheel.py [--target <triple>] [--binary-only] [-- <maturin args>]
 
-1. `cargo build --release -p riggen-app [--target T]` — the native app.
+1. `cargo build --release -p riggen [--target T]` — the native app.
 2. Copy `target/[T/]release/riggen[.exe]` into `riggen._riggen.data/scripts/`,
    maturin's wheel data directory (`pyproject.toml`); maturin puts it in
    `riggen-<ver>.data/scripts/`, which installs to the environment's `bin/`.
@@ -42,7 +42,7 @@ def binary_name(target: str | None) -> str:
 
 
 def build_binary(target: str | None) -> Path:
-    cmd = ["cargo", "build", "--release", "-p", "riggen-app"]
+    cmd = ["cargo", "build", "--release", "-p", "riggen"]
     if target:
         cmd += ["--target", target]
     run(cmd)

@@ -9,8 +9,6 @@ members = [
     # The extension module `riggen._riggen` (ADR-0009): PyO3 over core + export,
     # shipped in the wheel beside riggen-app's binary. Never egui or wgpu.
     "crates/riggen-py",
-    # The crates.io name reservation; empty until M4 publishes the app under it.
-    "crates/riggen",
 ]
 
 [workspace.package]

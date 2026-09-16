@@ -21,9 +21,9 @@ harness works; this file is how to *use* it.
 nothing is pinned.
 
 ```sh
-cargo test -p riggen-app --test visual_scratch -- --nocapture
+cargo test -p riggen --test visual_scratch -- --nocapture
 RIGGEN_SCRATCH_OPEN=assets/fixtures/pendulum.riggen \
-  cargo test -p riggen-app --test visual_scratch -- --nocapture
+  cargo test -p riggen --test visual_scratch -- --nocapture
 ```
 
 Writes `target/visual-scratch/scratch.png` and `scratch.json` and prints both
@@ -52,7 +52,7 @@ the acceptance, `five_minute_arm`; v0.3 adds `properties_scrub`,
 01 §Testing).
 
 ```sh
-cargo test -p riggen-app --test visual
+cargo test -p riggen --test visual
 ```
 
 Keep this suite small and aimed at what no unit test can reach. Behaviour
@@ -168,7 +168,7 @@ which holds it, and keep the size: the goldens encode it.
 3. Decide whether the change is intended. If it is:
 
 ```sh
-UPDATE_SNAPSHOTS=1 cargo test -p riggen-app --test visual
+UPDATE_SNAPSHOTS=1 cargo test -p riggen --test visual
 ```
 
 One env var updates both halves. **Look at the diff image before you accept

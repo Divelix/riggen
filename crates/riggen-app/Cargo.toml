@@ -1,5 +1,5 @@
 [package]
-name = "riggen-app"
+name = "riggen"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -19,8 +19,11 @@ categories.workspace = true
 include = ["src/**", "build.rs", "assets/**"]
 
 # `rlib` for the tests and the bin, `cdylib` for the wasm bundle the web
-# demo loads (ADR-0017).
+# demo loads (ADR-0017). The package is `riggen`, the name `cargo install`
+# takes; the lib keeps `riggen_app`, so `riggen_app::` in the bin and the
+# tests, `riggen_app.wasm` and `web/main.js` stay as they were.
 [lib]
+name = "riggen_app"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]

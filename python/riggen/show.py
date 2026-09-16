@@ -27,8 +27,6 @@ from .robot import Robot, load
 
 __all__ = ["show", "Viewer", "binary_path"]
 
-REPOSITORY = "https://github.com/Divelix/riggen"
-
 
 def binary_path() -> Path:
     """The ``riggen`` executable: ``RIGGEN_BINARY`` if set, else the one the
@@ -54,7 +52,7 @@ def binary_path() -> Path:
         f"the bundled riggen executable is missing (looked in {', '.join(looked)}). "
         "This install has no binary — a build from the source distribution gets the SDK "
         "alone. Install a wheel for your platform (`pip install --force-reinstall riggen`), "
-        f"build the app with `cargo install --git {REPOSITORY} riggen-app`, "
+        "build the app with `cargo install riggen --locked`, "
         "or point RIGGEN_BINARY at one."
     )
 

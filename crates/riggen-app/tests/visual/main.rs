@@ -5,7 +5,7 @@
 //! `debug_state()`, compared against a committed JSON. The pair is the point —
 //! the picture shows that something is wrong, the JSON says which number is.
 //!
-//! Run `UPDATE_SNAPSHOTS=1 cargo test -p riggen-app --test visual` after an
+//! Run `UPDATE_SNAPSHOTS=1 cargo test -p riggen --test visual` after an
 //! intentional UI change, and *look at the `.diff.png`* before committing.
 //! Updating reflexively turns the suite into something that looks like
 //! coverage without being any.
@@ -7324,7 +7324,7 @@ fn sleeve(center: DVec3, axis: DVec3, outer: f64, inner: f64, length: f64) -> ri
 /// Regenerates `assets/fixtures/arm/*.stl`. Ignored: the fixtures are
 /// committed and `five_minute_arm` reads them; run it by hand if the design
 /// changes —
-/// `cargo test -p riggen-app --test visual write_arm_fixtures -- --ignored`.
+/// `cargo test -p riggen --test visual write_arm_fixtures -- --ignored`.
 #[test]
 #[ignore = "writes the committed fixtures; run on purpose"]
 fn write_arm_fixtures() {
@@ -7378,7 +7378,7 @@ fn write_arm_fixtures() {
 /// as `five_minute_arm` builds it by hand but with exact numbers. Ignored
 /// like `write_arm_fixtures`; run it when the design or the file format
 /// changes —
-/// `cargo test -p riggen-app --test visual write_arm_sample -- --ignored`.
+/// `cargo test -p riggen --test visual write_arm_sample -- --ignored`.
 #[test]
 #[ignore = "writes the committed sample; run on purpose"]
 fn write_arm_sample() {

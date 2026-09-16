@@ -497,7 +497,7 @@ fn assert_state(harness: &Harness<'_, RiggenApp>, name: &str) {
         std::fs::write(path.with_extension("json.new"), &actual).ok();
         panic!(
             "missing state golden {}: {err}. \
-             Run `UPDATE_SNAPSHOTS=1 cargo test -p riggen-app --test visual`.",
+             Run `UPDATE_SNAPSHOTS=1 cargo test -p riggen --test visual`.",
             path.display()
         )
     });
@@ -508,7 +508,7 @@ fn assert_state(harness: &Harness<'_, RiggenApp>, name: &str) {
         panic!(
             "state golden {} does not match.\n{diff}\n\
              Full output written to {}. Run \
-             `UPDATE_SNAPSHOTS=1 cargo test -p riggen-app --test visual` if the change is \
+             `UPDATE_SNAPSHOTS=1 cargo test -p riggen --test visual` if the change is \
              intended.",
             path.display(),
             path.with_extension("json.new").display()

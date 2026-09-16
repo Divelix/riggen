@@ -90,7 +90,7 @@ def test_binary_path_finds_the_wheel_binary_or_explains(monkeypatch: pytest.Monk
     try:
         found = binary_path()
     except FileNotFoundError as e:
-        assert "cargo install --git" in str(e) and "RIGGEN_BINARY" in str(e)  # a develop venv: no binary
+        assert "cargo install riggen" in str(e) and "RIGGEN_BINARY" in str(e)  # a develop venv: no binary
     else:
         assert found.is_file() and found.name.startswith("riggen")  # the wheel venv
 

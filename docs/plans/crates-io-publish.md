@@ -111,7 +111,7 @@ mechanical; **[2]** careful — a case to get right within a given design;
   Test: the dry-run's output, plus `cargo package -p riggen-app --list`
   showing no `tests/` entry and the five `assets/arm/` files, plus the
   existing `--example arm` test still passing from the workspace.
-- [ ] **[2]** Step 2 — **the app is `riggen`.** Rename the package, keep
+- [x] **[2]** Step 2 — **the app is `riggen`.** Rename the package, keep
   `[lib] name = "riggen_app"`, delete `crates/riggen/` and its `members`
   entry, and change every `-p riggen-app` (`ci.yml`, `build_wheel.py`,
   `web/build.sh`, the README developing block, the `visual-debug` skill).
@@ -127,7 +127,8 @@ mechanical; **[2]** careful — a case to get right within a given design;
   output, from an unpacked `.crate` outside the repository, prints the
   hash of HEAD.
 - [ ] **[2]** Step 4 — **CI guards it.** Add a `package` job to `ci.yml`
-  (`cargo publish --workspace --dry-run --locked`), with the Linux
+  (`cargo publish --workspace --dry-run --locked --target-dir
+  target/package-verify`, see Open questions), with the Linux
   headers the `test` job already installs. Test: the job goes green on
   push (the human pushes; the agent reads the run with `gh run watch`).
 - [ ] **[2]** Step 5 — **the release publishes.** Add the
@@ -211,11 +212,20 @@ mechanical; **[2]** careful — a case to get right within a given design;
   (`rust-lang/crates-io-auth-action`) with a token fallback, so either
   way works. **Agent's read: (a).** The tag stays the only way a
   release happens.
-- ⚠ OPEN: **The directory name** (human, by step 2). `crates/riggen-app/`
-  would then hold the package `riggen`. Moving it to `crates/riggen/`
-  would touch the snapshot paths, `kittest.toml`, the skills and many doc
-  lines, for a name only contributors see. **Agent's read: keep the
-  directory** and say so in the crate tree.
+- Settled in step 2 (human): **the directory keeps its name.**
+  `crates/riggen-app/` holds the package `riggen`, and the crate tree
+  says so. The step also found that `[lib] name = "riggen_app"` has to be
+  written out: Cargo derives the lib name from the package name.
+- Found in step 2: **a dry run in the workspace `target/` breaks the next
+  `cargo test`.** The verify build compiles the packaged app into
+  `target/debug`. Because the lib is also a `cdylib`, its rlib has no
+  hash in its name (`libriggen_app.rlib`), so that build overwrites the
+  workspace's copy with one linked against other `eframe`/`serde`
+  builds. Cargo still thinks its own unit is fresh, and the bin and
+  `tests/visual` fail with "multiple different versions of crate". The
+  fix is `cargo clean -p riggen`. The prevention is to run every dry run
+  with `--target-dir target/package-verify`. Step 4's job does the same,
+  and §Crates.io distribution will say so.
 - ⚠ OPEN: **`--locked` in the README** (agent, step 6). Without it,
   `cargo install` ignores the packaged `Cargo.lock` and may resolve a
   newer egui or wgpu than the ones pinned together under ADR-0001.

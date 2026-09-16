@@ -238,7 +238,7 @@ uv venv target/sdk-venv --python 3.12
 VIRTUAL_ENV=$PWD/target/sdk-venv uvx maturin develop --uv   # rerun after a Rust change (~10 s)
 uv pip install --python target/sdk-venv ipykernel mujoco pytest
 target/sdk-venv/bin/python -m ipykernel install --user --name riggen-dev --display-name "riggen (dev)"
-cargo build --release -p riggen-app && export RIGGEN_BINARY=$PWD/target/release/riggen   # for riggen.show()
+cargo build --release -p riggen && export RIGGEN_BINARY=$PWD/target/release/riggen   # for riggen.show()
 ```
 
 Put notebooks in `scratch/` (gitignored) on the "riggen (dev)" kernel;
@@ -263,7 +263,7 @@ riggen = { index = "testpypi" }
 then `uv add "riggen==<version>"`.
 
 The Rust route to the binary is `cargo install --git
-https://github.com/Divelix/riggen riggen-app`; publishing the workspace to
+https://github.com/Divelix/riggen riggen`; publishing the workspace to
 crates.io so that `cargo install riggen` works is a later release.
 
 Read, in order: [`SEED.md`](SEED.md) (what and why),

@@ -81,18 +81,18 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       # `--no-project`: without it `uv run` builds the wheel from the root
       # `pyproject.toml` before running anything.
-      - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample assets/fixtures/arm/arm.riggen
-      - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-urdf assets/fixtures/arm/arm.urdf
+      - run: cargo run -p riggen -- --export mjcf --fk-samples --out target/sample assets/fixtures/arm/arm.riggen
+      - run: cargo run -p riggen -- --export mjcf --fk-samples --out target/sample-urdf assets/fixtures/arm/arm.urdf
       # The convex-decomposition acceptance (ADR-0011): the U-channel of
       # `bracket.stl` on a hinge, its collision a `ConvexDecomposition`.
       # `test_mjcf_load.py` fails a body that carries only one piece.
-      - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-decomp assets/fixtures/bracket.riggen
+      - run: cargo run -p riggen -- --export mjcf --fk-samples --out target/sample-decomp assets/fixtures/bracket.riggen
       # The MJCF round trip (ADR-0015): the arm's own export read back and
       # written out again. `=target/sample` holds the *second* model to the
       # *first* document's FK — poses, sites, mjEQ_JOINT and model.nu — so
       # anything the import quietly lost fails here rather than agreeing
       # with itself.
-      - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-mjcf-in target/sample/arm.xml
+      - run: cargo run -p riggen -- --export mjcf --fk-samples --out target/sample-mjcf-in target/sample/arm.xml
       # The foreign round trip (ADR-0024, plans/actuator-escape-hatch): the
       # import corpus `menagerie_style.xml` — a file riggen never wrote —
       # imported and re-exported. Copied out of the tree first, because
@@ -107,7 +107,7 @@ jobs:
           mkdir -p target/corpus/arm
           cp assets/fixtures/menagerie_style.xml assets/fixtures/menagerie_style_arm.xml target/corpus/
           cp assets/fixtures/arm/base.stl assets/fixtures/arm/shoulder.stl assets/fixtures/arm/thing.msh target/corpus/arm/
-      - run: cargo run -p riggen-app -- --export mjcf --fk-samples --out target/sample-corpus target/corpus/menagerie_style.xml
+      - run: cargo run -p riggen -- --export mjcf --fk-samples --out target/sample-corpus target/corpus/menagerie_style.xml
       - run: uv run --no-project --with mujoco --with numpy python python/tests/test_mjcf_load.py target/sample target/sample-urdf target/sample-decomp target/sample-mjcf-in target/sample-mjcf-in=target/sample target/sample-corpus@target/corpus/menagerie_style.xml
 
   # The SDF acceptance (ADR-0016 §6): the app's headless export produces the
@@ -135,13 +135,13 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/gazebo-stable.list
           sudo apt-get update
           sudo apt-get install -y gz-jetty-sdformat-python python3-numpy
-      - run: cargo run -p riggen-app -- --export sdf --fk-samples --out target/sample-sdf assets/fixtures/arm/arm.riggen
+      - run: cargo run -p riggen -- --export sdf --fk-samples --out target/sample-sdf assets/fixtures/arm/arm.riggen
       # The same robot through the URDF import, where the frames arrive as
       # dummy links: a different tree, the same FK.
-      - run: cargo run -p riggen-app -- --export sdf --fk-samples --out target/sample-sdf-urdf assets/fixtures/arm/arm.urdf
+      - run: cargo run -p riggen -- --export sdf --fk-samples --out target/sample-sdf-urdf assets/fixtures/arm/arm.urdf
       # And the convex decomposition (ADR-0011), whose pieces are one
       # `<collision>` each.
-      - run: cargo run -p riggen-app -- --export sdf --fk-samples --out target/sample-sdf-decomp assets/fixtures/bracket.riggen
+      - run: cargo run -p riggen -- --export sdf --fk-samples --out target/sample-sdf-decomp assets/fixtures/bracket.riggen
       # `/usr/bin/python3` by name: the bindings are an apt package under
       # `/usr/lib/python3/dist-packages`, which a tool-cache Python cannot see.
       - run: /usr/bin/python3 python/tests/test_sdf_load.py target/sample-sdf target/sample-sdf-urdf target/sample-sdf-decomp

@@ -112,7 +112,8 @@ riggen/
 │   │                       # mjcf_compose (<include> and <frame> resolved before the reader
 │   │                       # looks, ADR-0026)
 │   ├── riggen-viewport/    # camera/, scene, pick_id, gpu_mesh, overlay, viewport/, shaders/
-│   ├── riggen-app/         # bin "riggen"; the cdylib the web demo loads; tests/visual,
+│   ├── riggen-app/         # package and bin "riggen" (the directory keeps its old name,
+│   │                       # the lib `riggen_app`); the cdylib the web demo loads; tests/visual,
 │       │                   # tests/cli.rs (the built binary from a shell)
 │       ├── src/example.rs  # the bundled sample arm's bytes: --example arm unpacks
 │       │                   # them, the web build opens them as a drop (ADR-0017)
@@ -133,11 +134,8 @@ riggen/
 │       │                   # arrows, widget} (ADR-0028, 0030), panels/{tree,
 │       │                   # joint_tree, properties, materials}
 │       └── src/debug/      # debug_state(): what the app thinks it drew, as JSON (ADR-0003)
-│   ├── riggen-py/          # cdylib `_riggen`, the PyO3 abi3 extension module `riggen._riggen`
-│   │                       # over core + export; `test = false`, tested from Python (ADR-0009)
-│   └── riggen/             # the crates.io name reservation: an empty 0.0.1 lib with its
-│                           # own README; publishing the app under this name is a backlog
-│                           # line (SEED.md §5)
+│   └── riggen-py/          # cdylib `_riggen`, the PyO3 abi3 extension module `riggen._riggen`
+│                           # over core + export; `test = false`, tested from Python (ADR-0009)
 ├── assets/fixtures/        # cube_binary.stl, cube_ascii.stl, cube.obj, cube.msh — the
 │                           # unit cube (TriMesh::cube(0.5)) in every format riggen reads;
 │                           # pendulum.riggen, the .riggen v1 corpus file, and
@@ -167,7 +165,7 @@ riggen/
 │                           # binary), _riggen.pyi + py.typed
 ├── examples/               # pendulum.py (the README's ten lines), arm.py (the M2 arm
 │                           # from its STLs) — the SDK's worked examples (§Python SDK)
-├── python/build_wheel.py   # the one build recipe: cargo build riggen-app → the data
+├── python/build_wheel.py   # the one build recipe: cargo build -p riggen → the data
 │                           # directory → maturin build (§Python distribution)
 ├── python/tests/           # test_mjcf_load.py (MuJoCo load + FK), test_sdf_load.py
 │                           # (libsdformat load + FK) and test_wheel.py (the installed
@@ -1324,7 +1322,7 @@ with **two halves**:
   ("riggen")`; `_riggen.__version__` is `CARGO_PKG_VERSION` mapped to PEP
   440 (`0.2.0-dev` → `0.2.0.dev0`), so the two agree.
 - **The recipe** is `python python/build_wheel.py [--target <triple>]
-  [--binary-only]`: `cargo build --release -p riggen-app [--target T]`, the
+  [--binary-only]`: `cargo build --release -p riggen [--target T]`, the
   copy into the data directory, then `maturin build --release --out dist`
   (`maturin` from PATH, else `uvx maturin`). `--binary-only` stops before
   maturin — for the CI containers, where maturin-action runs maturin.
@@ -1332,7 +1330,7 @@ with **two halves**:
   `RIGGEN_GIT_HASH` is needed locally; the workflows set it because their
   containers cannot ask git about a checkout another uid owns.
 - **The sdist** carries `crates/riggen-py` and the three crates below it
-  (maturin packages the extension's path dependencies; `riggen-app` is
+  (maturin packages the extension's path dependencies; the app is
   not one) and no data directory, so `pip install` from it — any platform
   outside the five, or `pip install .` — builds `import riggen` with a
   Rust toolchain and a `python3` and gets **no binary**; `python -m
@@ -1931,7 +1929,7 @@ used: `-O2`, `-Os` and `-Oz` each take ~1 MB off the raw file and put
     `max_failed_pixels = 64` — driver-revision tolerance, not a place to
     hide a regression.
   - `tests/visual_scratch.rs` is `test = false` and run by name
-    (`cargo test -p riggen-app --test visual_scratch -- --nocapture`); it
+    (`cargo test -p riggen --test visual_scratch -- --nocapture`); it
     writes `target/visual-scratch/scratch.{png,json}` and compares against
     nothing — the "show me the app right now" path. `RIGGEN_SCRATCH_OPEN=
     <path>` (relative to the workspace root) opens a document or mesh and

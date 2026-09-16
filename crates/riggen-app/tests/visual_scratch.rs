@@ -5,7 +5,7 @@
 //! asked for by name.
 //!
 //! ```sh
-//! cargo test -p riggen-app --test visual_scratch -- --nocapture
+//! cargo test -p riggen --test visual_scratch -- --nocapture
 //! ```
 //!
 //! It writes `target/visual-scratch/scratch.{png,json}` and compares them
@@ -15,7 +15,7 @@
 //!
 //! ```sh
 //! RIGGEN_SCRATCH_OPEN=assets/fixtures/pendulum.riggen \
-//!   cargo test -p riggen-app --test visual_scratch -- --nocapture
+//!   cargo test -p riggen --test visual_scratch -- --nocapture
 //! ```
 //!
 //! For any other state, edit the body below — the same helpers the real

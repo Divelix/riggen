@@ -39,7 +39,7 @@ if [[ $have != "$wanted" ]]; then
   cargo install wasm-bindgen-cli --version "$wanted" --locked
 fi
 
-cargo build "${cargo_profile_flag[@]}" --target wasm32-unknown-unknown -p riggen-app \
+cargo build "${cargo_profile_flag[@]}" --target wasm32-unknown-unknown -p riggen \
   --manifest-path "$root/Cargo.toml"
 
 rm -rf "$dist"
